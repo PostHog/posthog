@@ -695,6 +695,45 @@ async fn test_ack_person_tombstones_clears_only_rows_at_or_below_the_acked_versi
 }
 
 #[tokio::test]
+async fn test_list_person_tombstone_queue_pages_in_key_order() {
+    let ctx = TestContext::new().await;
+    let mut uuids = Vec::new();
+    for name in ["list_a", "list_b", "list_c"] {
+        uuids.push(ctx.insert_person(name, None).await.unwrap().uuid);
+    }
+    ctx.storage
+        .delete_persons(ctx.team_id, &uuids, DeletePersonsMode::Tombstone)
+        .await
+        .unwrap();
+    uuids.sort();
+
+    let first = ctx
+        .storage
+        .list_person_tombstone_queue((0, uuid::Uuid::nil()), Some(ctx.team_id), 2)
+        .await
+        .unwrap();
+    let last = first.last().unwrap();
+    let rest = ctx
+        .storage
+        .list_person_tombstone_queue((last.team_id, last.person_uuid), Some(ctx.team_id), 2)
+        .await
+        .unwrap();
+
+    let listed: Vec<(uuid::Uuid, i64)> = first
+        .iter()
+        .chain(rest.iter())
+        .map(|entry| (entry.person_uuid, entry.person_version))
+        .collect();
+    assert_eq!(
+        listed,
+        uuids.iter().map(|uuid| (*uuid, 1)).collect::<Vec<_>>()
+    );
+    assert_eq!(first.len(), 2);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_get_person_tombstones_reports_only_tombstoned_persons() {
     let ctx = TestContext::new().await;
     let tombstoned = ctx.insert_person("get_tombstoned", None).await.unwrap();

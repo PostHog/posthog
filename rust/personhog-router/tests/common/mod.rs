@@ -48,7 +48,8 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest,
     GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
+    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, Person,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
     SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
     SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
@@ -503,6 +504,13 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<AckPersonTombstonesRequest>,
     ) -> Result<Response<AckPersonTombstonesResponse>, Status> {
         Ok(Response::new(AckPersonTombstonesResponse::default()))
+    }
+
+    async fn list_person_tombstone_queue(
+        &self,
+        _request: Request<ListPersonTombstoneQueueRequest>,
+    ) -> Result<Response<ListPersonTombstoneQueueResponse>, Status> {
+        Ok(Response::new(ListPersonTombstoneQueueResponse::default()))
     }
 
     async fn split_person(

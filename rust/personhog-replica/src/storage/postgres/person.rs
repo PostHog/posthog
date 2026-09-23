@@ -13,8 +13,8 @@ use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, Person, SplitResult, TombstonedDeleteOutcome,
-    TombstonedDistinctId, TombstonedPerson,
+    DeletePersonsMode, DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult,
+    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -645,6 +645,54 @@ impl PersonLookup for PostgresStorage {
         .execute(&mut *conn)
         .await?;
         Ok(result.rows_affected() as i64)
+    }
+
+    async fn list_person_tombstone_queue(
+        &self,
+        after: (i64, Uuid),
+        team_id: Option<i64>,
+        limit: i64,
+    ) -> StorageResult<Vec<PersonTombstoneQueueEntry>> {
+        let labels = [
+            (
+                "operation".to_string(),
+                "list_person_tombstone_queue".to_string(),
+            ),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let rows = sqlx::query!(
+            r#"
+            SELECT team_id::bigint as "team_id!", person_uuid as "person_uuid!",
+                   person_version as "person_version!",
+                   (EXTRACT(EPOCH FROM tombstoned_at) * 1000)::bigint as "tombstoned_at_ms!"
+            FROM person_tombstone_publish_queue
+            WHERE (team_id, person_uuid) > ($1::int, $2::uuid)
+              AND ($3::int IS NULL OR team_id = $3)
+            ORDER BY team_id, person_uuid
+            LIMIT $4
+            "#,
+            after.0 as i32,
+            after.1,
+            team_id.map(|t| t as i32),
+            limit
+        )
+        .fetch_all(&mut *conn)
+        .await?;
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, rows.len() as f64);
+        Ok(rows
+            .into_iter()
+            .map(|row| PersonTombstoneQueueEntry {
+                team_id: row.team_id,
+                person_uuid: row.person_uuid,
+                person_version: row.person_version,
+                tombstoned_at_ms: row.tombstoned_at_ms,
+            })
+            .collect())
     }
 
     async fn delete_tombstoned_persons(

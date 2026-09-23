@@ -37,13 +37,14 @@ use personhog_proto::personhog::types::v1::{
     GroupTypeMappingsByKey, GroupTypeMappingsResponse, GroupWithKey, GroupsResponse,
     HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, PersonDistinctIds,
-    PersonWithDistinctIds, PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
-    SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
-    SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
-    SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId, TombstonedPerson,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
+    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, PersonDistinctIds,
+    PersonTombstoneQueueEntry, PersonWithDistinctIds, PersonWithTeamDistinctId,
+    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId,
+    TombstonedPerson, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
@@ -532,6 +533,43 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "ack_person_tombstones"))?;
 
         Ok(Response::new(AckPersonTombstonesResponse { cleared_count }))
+    }
+
+    async fn list_person_tombstone_queue(
+        &self,
+        request: Request<ListPersonTombstoneQueueRequest>,
+    ) -> Result<Response<ListPersonTombstoneQueueResponse>, Status> {
+        let req = request.into_inner();
+
+        let limit = match req.limit {
+            0 => 1000,
+            1..=1000 => req.limit,
+            _ => return Err(Status::invalid_argument("limit must be between 0 and 1000")),
+        };
+        let after_uuid = if req.after_person_uuid.is_empty() {
+            Uuid::nil()
+        } else {
+            Uuid::parse_str(&req.after_person_uuid)
+                .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?
+        };
+
+        let entries = self
+            .storage
+            .list_person_tombstone_queue((req.after_team_id, after_uuid), req.team_id, limit)
+            .await
+            .map_err(|e| log_and_convert_error(e, "list_person_tombstone_queue"))?;
+
+        Ok(Response::new(ListPersonTombstoneQueueResponse {
+            entries: entries
+                .into_iter()
+                .map(|entry| PersonTombstoneQueueEntry {
+                    team_id: entry.team_id,
+                    person_uuid: entry.person_uuid.to_string(),
+                    person_version: entry.person_version,
+                    tombstoned_at: entry.tombstoned_at_ms,
+                })
+                .collect(),
+        }))
     }
 
     async fn delete_tombstoned_persons(

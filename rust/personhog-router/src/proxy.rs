@@ -68,6 +68,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "InsertCohortMembers",
     "ListCohortMemberIds",
     "ListGroups",
+    "ListPersonTombstoneQueue",
     "ReleaseFence",
     "ReleaseFences",
     "SetPersonDistinctIdVersionFloor",

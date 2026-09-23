@@ -79,6 +79,8 @@ from posthog.personhog_client.proto import (
     ListCohortMemberIdsResponse,
     ListGroupsRequest,
     ListGroupsResponse,
+    ListPersonTombstoneQueueRequest,
+    ListPersonTombstoneQueueResponse,
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
@@ -236,6 +238,11 @@ class PersonHogClient:
         self, request: AckPersonTombstonesRequest, timeout: float | None = None
     ) -> AckPersonTombstonesResponse:
         return self._stub.AckPersonTombstones(request, timeout=timeout or self._timeout)
+
+    def list_person_tombstone_queue(
+        self, request: ListPersonTombstoneQueueRequest, timeout: float | None = None
+    ) -> ListPersonTombstoneQueueResponse:
+        return self._stub.ListPersonTombstoneQueue(request, timeout=timeout or self._timeout)
 
     # -- Person split --
 
