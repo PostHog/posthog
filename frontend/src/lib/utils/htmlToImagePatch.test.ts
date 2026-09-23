@@ -1,5 +1,8 @@
 import { readFileSync } from 'fs'
+import { getFontEmbedCSS } from 'html-to-image'
+import { cloneNode } from 'html-to-image/lib/clone-node'
 import { resourceToDataURL } from 'html-to-image/lib/dataurl'
+import * as imageUtils from 'html-to-image/lib/util'
 import { resolveUrl } from 'html-to-image/lib/util'
 import { dirname, join } from 'path'
 
@@ -35,6 +38,63 @@ describe('html-to-image patch', () => {
     })
 
     const STYLESHEET = 'https://app-static-prod.posthog.com/static/index-46THL72U.css'
+
+    it.each(['poster decode', 'video canvas'])('keeps the video box after a %s failure', async (failure) => {
+        const video = document.createElement('video')
+        video.style.cssText = 'width: 240px; height: 120px; display: block'
+        video.poster = 'data:image/png;base64,aW52YWxpZA=='
+        const placeholder = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+        const image = document.createElement('img')
+        const createImage = jest.spyOn(imageUtils, 'createImage').mockResolvedValue(image)
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        if (failure === 'poster decode') {
+            createImage.mockRejectedValueOnce(new Event('error'))
+        } else {
+            Object.defineProperty(video, 'currentSrc', { value: 'https://example.com/video.mp4' })
+            jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+            jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(() => {
+                throw new DOMException('Canvas is tainted', 'SecurityError')
+            })
+        }
+
+        const clone = await cloneNode(video, {
+            imagePlaceholder: placeholder,
+            includeStyleProperties: ['width', 'height', 'display'],
+        })
+
+        expect(clone).toBe(image)
+        expect(image.style.width).toBe('240px')
+        expect(image.style.height).toBe('120px')
+        expect(image.style.display).toBe('block')
+        expect(createImage).toHaveBeenLastCalledWith(placeholder)
+    })
+
+    it.each(['import', 'cross-origin'])('settles an aborted %s stylesheet fetch', async (kind) => {
+        const controller = new AbortController()
+        const node = document.createElement('div')
+        const sheet = {
+            href: `https://example.com/${kind}.css`,
+            get cssRules(): CSSRule[] {
+                if (kind === 'cross-origin') {
+                    throw new DOMException('Cross-origin stylesheet', 'SecurityError')
+                }
+                return [{ type: CSSRule.IMPORT_RULE, href: this.href } as CSSImportRule]
+            },
+        }
+        Object.defineProperty(node, 'ownerDocument', { value: { styleSheets: [sheet] } })
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        jest.spyOn(global, 'fetch').mockImplementation(
+            (_url, init) =>
+                new Promise((_resolve, reject) => {
+                    init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+                })
+        )
+
+        const result = getFontEmbedCSS(node, { fetchRequestInit: { signal: controller.signal } })
+        controller.abort()
+
+        await expect(result).resolves.toBe('')
+    })
 
     // Expectations are written out rather than computed, so the assertion does not restate the
     // implementation it is checking.

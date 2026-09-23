@@ -19,7 +19,10 @@ The `HeatmapEntitlementsLoading` Storybook story keeps the entitlement request p
 ## Screenshot capture
 
 Saving a heatmap uses the browser's current page to capture screenshots at several widths.
-Images that cannot load or decode and canvases that cannot be read leave blank areas without changing the layout.
-Image fetches stop after 15 seconds; this does not bound stylesheet loading or the whole capture.
+Images and video posters that cannot load or decode leave blank areas without changing the layout.
+Unreadable canvases and video frames also leave their original space in the screenshot.
+Image, font, and stylesheet fetches share a 15-second deadline for each capture.
+Stylesheets that miss this deadline are skipped so later capture widths can continue.
+This deadline does not bound the whole rendering process.
 Failed resource fetches are not cached, so later widths and save attempts can load a recovered resource.
 Successfully loaded resources remain cached.

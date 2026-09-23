@@ -30,7 +30,7 @@ function getStylePropertyNames(): string[] {
 /** A 1x1 transparent GIF. */
 const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
 
-/** Shared deadline for image and font fetches; stylesheet requests ignore this signal. */
+/** Shared deadline for image, font, and stylesheet fetches. */
 const RESOURCE_FETCH_TIMEOUT_MS = 15000
 
 /** Rasterizes a live DOM element to an image blob. Throws when the element renders to nothing. */
@@ -43,7 +43,7 @@ export async function captureElementImage(element: HTMLElement, options?: Captur
         // A resource that answers with something the browser cannot decode fails the same way after
         // the placeholder. Leave that one image blank instead of losing the capture.
         onImageErrorHandler: () => {},
-        // Bound image and font fetches so an unresponsive host reaches the placeholder.
+        // Bound resource fetches so an unresponsive host cannot stall later capture widths.
         fetchRequestInit: { signal: AbortSignal.timeout(RESOURCE_FETCH_TIMEOUT_MS) },
         ...options,
     })

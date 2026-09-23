@@ -1,3 +1,21 @@
+diff --git a/es/clone-node.js b/es/clone-node.js
+index 114cbf214f65cda237dbba67458c2b68fadf421e..a43d0d637fef601b8de1c989b38a1aa927d5dff0 100644
+--- a/es/clone-node.js
++++ b/es/clone-node.js
+@@ -41,7 +41,12 @@ async function cloneSingleNode(node, options) {
+         return cloneCanvasElement(node);
+     }
+     if (isInstanceOfElement(node, HTMLVideoElement)) {
+-        return cloneVideoElement(node, options);
++        return cloneVideoElement(node, options).catch((error) => {
++            if (options.imagePlaceholder) {
++                return createImage(options.imagePlaceholder);
++            }
++            throw error;
++        });
+     }
+     if (isInstanceOfElement(node, HTMLIFrameElement)) {
+         return cloneIFrameElement(node, options);
 diff --git a/es/dataurl.js b/es/dataurl.js
 index 174e4b9c1f517448661016e619e0d9cbdc645b08..96c776247362dd8fdb048ba498ef69ae9f8f0fa7 100644
 --- a/es/dataurl.js
@@ -10,6 +28,43 @@ index 174e4b9c1f517448661016e619e0d9cbdc645b08..96c776247362dd8fdb048ba498ef69ae
      }
      cache[cacheKey] = dataURL;
      return dataURL;
+diff --git a/es/embed-webfonts.js b/es/embed-webfonts.js
+index f6b0d96829c8a3301c142cacd07079e85b1f64fd..0a75196c2ea5f991c3276d8e1e516c4a673c1d53 100644
+--- a/es/embed-webfonts.js
++++ b/es/embed-webfonts.js
+@@ -2,12 +2,12 @@ import { toArray } from './util';
+ import { fetchAsDataURL } from './dataurl';
+ import { shouldEmbed, embedResources } from './embed-resources';
+ const cssFetchCache = {};
+-async function fetchCSS(url) {
++async function fetchCSS(url, options) {
+     let cache = cssFetchCache[url];
+     if (cache != null) {
+         return cache;
+     }
+-    const res = await fetch(url);
++    const res = await fetch(url, options.fetchRequestInit);
+     const cssText = await res.text();
+     cache = { url, cssText };
+     cssFetchCache[url] = cache;
+@@ -84,7 +84,7 @@ async function getCSSRules(styleSheets, options) {
+                     if (item.type === CSSRule.IMPORT_RULE) {
+                         let importIndex = index + 1;
+                         const url = item.href;
+-                        const deferred = fetchCSS(url)
++                        const deferred = fetchCSS(url, options)
+                             .then((metadata) => embedFonts(metadata, options))
+                             .then((cssText) => parseCSS(cssText).forEach((rule) => {
+                             try {
+@@ -109,7 +109,7 @@ async function getCSSRules(styleSheets, options) {
+             catch (e) {
+                 const inline = styleSheets.find((a) => a.href == null) || document.styleSheets[0];
+                 if (sheet.href != null) {
+-                    deferreds.push(fetchCSS(sheet.href)
++                    deferreds.push(fetchCSS(sheet.href, options)
+                         .then((metadata) => embedFonts(metadata, options))
+                         .then((cssText) => parseCSS(cssText).forEach((rule) => {
+                         inline.insertRule(rule, inline.cssRules.length);
 diff --git a/es/util.js b/es/util.js
 index 90a3cd19a6bcc763d98cbd476fde17f4bc0428fa..6da1cba180eba492be9eb849b05a19968bd49738 100644
 --- a/es/util.js
@@ -41,6 +96,24 @@ index 90a3cd19a6bcc763d98cbd476fde17f4bc0428fa..6da1cba180eba492be9eb849b05a1996
  }
  export const uuid = (() => {
      // generate uuid for className of pseudo elements.
+diff --git a/lib/clone-node.js b/lib/clone-node.js
+index 214f4d30a50baae7f007d2399eeac298366538c7..16d3f49dcaa89efa00e0e28cdb8f358a0980104e 100644
+--- a/lib/clone-node.js
++++ b/lib/clone-node.js
+@@ -105,7 +105,12 @@ function cloneSingleNode(node, options) {
+                 return [2 /*return*/, cloneCanvasElement(node)];
+             }
+             if ((0, util_1.isInstanceOfElement)(node, HTMLVideoElement)) {
+-                return [2 /*return*/, cloneVideoElement(node, options)];
++                return [2 /*return*/, cloneVideoElement(node, options).catch(function (error) {
++                        if (options.imagePlaceholder) {
++                            return (0, util_1.createImage)(options.imagePlaceholder);
++                        }
++                        throw error;
++                    })];
+             }
+             if ((0, util_1.isInstanceOfElement)(node, HTMLIFrameElement)) {
+                 return [2 /*return*/, cloneIFrameElement(node, options)];
 diff --git a/lib/dataurl.js b/lib/dataurl.js
 index d0b4141324abeb9a47322f03ee8a297d3bc926cb..274b2765cf4f45319daff197296aad138bf87d96 100644
 --- a/lib/dataurl.js
@@ -54,6 +127,46 @@ index d0b4141324abeb9a47322f03ee8a297d3bc926cb..274b2765cf4f45319daff197296aad13
                  case 4:
                      cache[cacheKey] = dataURL;
                      return [2 /*return*/, dataURL];
+diff --git a/lib/embed-webfonts.js b/lib/embed-webfonts.js
+index c91538bd9c3afa63326a91267fb7b5b9c999cccd..af18ddcb2782f367a1217dd1dbccf13282f7b990 100644
+--- a/lib/embed-webfonts.js
++++ b/lib/embed-webfonts.js
+@@ -41,7 +41,7 @@ var util_1 = require("./util");
+ var dataurl_1 = require("./dataurl");
+ var embed_resources_1 = require("./embed-resources");
+ var cssFetchCache = {};
+-function fetchCSS(url) {
++function fetchCSS(url, options) {
+     return __awaiter(this, void 0, void 0, function () {
+         var cache, res, cssText;
+         return __generator(this, function (_a) {
+@@ -51,7 +51,7 @@ function fetchCSS(url) {
+                     if (cache != null) {
+                         return [2 /*return*/, cache];
+                     }
+-                    return [4 /*yield*/, fetch(url)];
++                    return [4 /*yield*/, fetch(url, options.fetchRequestInit)];
+                 case 1:
+                     res = _a.sent();
+                     return [4 /*yield*/, res.text()];
+@@ -148,7 +148,7 @@ function getCSSRules(styleSheets, options) {
+                             if (item.type === CSSRule.IMPORT_RULE) {
+                                 var importIndex_1 = index + 1;
+                                 var url = item.href;
+-                                var deferred = fetchCSS(url)
++                                var deferred = fetchCSS(url, options)
+                                     .then(function (metadata) { return embedFonts(metadata, options); })
+                                     .then(function (cssText) {
+                                     return parseCSS(cssText).forEach(function (rule) {
+@@ -175,7 +175,7 @@ function getCSSRules(styleSheets, options) {
+                     catch (e) {
+                         var inline_1 = styleSheets.find(function (a) { return a.href == null; }) || document.styleSheets[0];
+                         if (sheet.href != null) {
+-                            deferreds.push(fetchCSS(sheet.href)
++                            deferreds.push(fetchCSS(sheet.href, options)
+                                 .then(function (metadata) { return embedFonts(metadata, options); })
+                                 .then(function (cssText) {
+                                 return parseCSS(cssText).forEach(function (rule) {
 diff --git a/lib/util.js b/lib/util.js
 index 6a6ae9c8bd15b276d46773d853c2182aaba8326e..2698c7191575938d03d42165d57c28f20c8ec1ca 100644
 --- a/lib/util.js

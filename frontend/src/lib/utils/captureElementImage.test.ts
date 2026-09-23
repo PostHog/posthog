@@ -33,7 +33,7 @@ describe('captureElementImage', () => {
             const { fetchRequestInit } = (toBlob as jest.Mock).mock.calls[0][1]
             expect(fetchRequestInit.signal.aborted).toBe(false)
 
-            await jest.advanceTimersByTimeAsync(60000)
+            await jest.advanceTimersByTimeAsync(15000)
             expect(fetchRequestInit.signal.aborted).toBe(true)
         } finally {
             jest.useRealTimers()

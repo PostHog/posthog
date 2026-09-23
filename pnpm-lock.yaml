@@ -199,7 +199,7 @@ patchedDependencies:
     hash: d95e6638894935a75bd93b60b5243cb825892a1eedcc4c9a125a3e7dce8b64f0
     path: patches/heatmap.js@2.0.5.patch
   html-to-image@1.11.13:
-    hash: f900626dc1b97ea5c142c3650e279d7276003cfacf6e024002c2684c8d33f67e
+    hash: f3836b6bdabe3c57fce93a646ff7391390ddd6ae6fdd3ec8f43ae7670397be15
     path: patches/html-to-image@1.11.13.patch
   jest-junit@16.0.0:
     hash: b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811
@@ -1096,7 +1096,7 @@ importers:
         version: 1.5.15
       html-to-image:
         specifier: ^1.11.13
-        version: 1.11.13(patch_hash=f900626dc1b97ea5c142c3650e279d7276003cfacf6e024002c2684c8d33f67e)
+        version: 1.11.13(patch_hash=f3836b6bdabe3c57fce93a646ff7391390ddd6ae6fdd3ec8f43ae7670397be15)
       husky:
         specifier: 'catalog:'
         version: 7.0.4
@@ -37950,7 +37950,7 @@ snapshots:
 
   html-tags@3.3.1: {}
 
-  html-to-image@1.11.13(patch_hash=f900626dc1b97ea5c142c3650e279d7276003cfacf6e024002c2684c8d33f67e): {}
+  html-to-image@1.11.13(patch_hash=f3836b6bdabe3c57fce93a646ff7391390ddd6ae6fdd3ec8f43ae7670397be15): {}
 
   html-url-attributes@3.0.1: {}
 
