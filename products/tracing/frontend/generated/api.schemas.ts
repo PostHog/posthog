@@ -159,6 +159,8 @@ export interface _TracingAggregationQueryBodyApi {
      * @minimum 0
      */
     offset?: number
+    /** Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches. */
+    includeImpact?: boolean
 }
 
 export interface _TracingAggregationRequestApi {
@@ -187,6 +189,26 @@ export interface _AggregatedSpanRowApi {
     p999_duration_nano: number
     /** Spans with OTel status code Error (status_code = 2). */
     error_count: number
+    /**
+     * Estimated unique session IDs across this group's spans (HyperLogLog, about 1-2% error). Null unless the query set `includeImpact`.
+     * @nullable
+     */
+    sessions: number | null
+    /**
+     * Estimated unique person distinct IDs across this group's spans (HyperLogLog, about 1-2% error). Null unless the query set `includeImpact`.
+     * @nullable
+     */
+    users: number | null
+    /**
+     * How many of this group's spans carry a session ID under the team's configured or conventional attribute keys. Null unless the query set `includeImpact`.
+     * @nullable
+     */
+    spans_with_session_id: number | null
+    /**
+     * How many of this group's spans carry a person distinct ID under the team's configured or conventional attribute keys. Null unless the query set `includeImpact`.
+     * @nullable
+     */
+    spans_with_distinct_id: number | null
 }
 
 export interface _TracingAggregationResponseApi {
@@ -309,6 +331,23 @@ export interface _TracingAttributesResponseApi {
     count: number
 }
 
+/**
+ * Property filters for the count. Either a flat list of filters or a nested filter group.
+ */
+export type _TracingCountBodyApiFilterGroup =
+    | _SpanPropertyFilterApi[]
+    | {
+          /** How the inner groups combine. */
+          type: 'AND' | 'OR'
+          /** The inner filter groups. */
+          values: {
+              /** How the filters in this group combine. */
+              type: 'AND' | 'OR'
+              /** The property filters in this group. */
+              values: _SpanPropertyFilterApi[]
+          }[]
+      }
+
 export interface _TracingCountBodyApi {
     /** Date range for the count. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
@@ -316,8 +355,8 @@ export interface _TracingCountBodyApi {
     serviceNames?: string[]
     /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
     statusCodes?: number[]
-    /** Property filters for the count. */
-    filterGroup?: _SpanPropertyFilterApi[]
+    /** Property filters for the count. Either a flat list of filters or a nested filter group. */
+    filterGroup?: _TracingCountBodyApiFilterGroup
 }
 
 export interface _TracingCountRequestApi {
@@ -350,9 +389,90 @@ export interface _TracingDurationHistogramRequestApi {
     query: _TracingDurationHistogramQueryBodyApi
 }
 
+export interface _TracingErrorCountsRequestApi {
+    /**
+     * Hex trace IDs to count exceptions for, matched against the exception's `$trace_id` property. Case insensitive. At most 200 per request.
+     * @maxItems 200
+     */
+    traceIds?: string[]
+    /**
+     * Hex span IDs to count exceptions for, matched against the exception's `$span_id` property. Only counted within the requested traces, so `traceIds` is required alongside. At most 200 per request.
+     * @maxItems 200
+     */
+    spanIds?: string[]
+    /**
+     * Session IDs to count exceptions for. The fallback for exceptions that carry no trace ID. At most 200 per request.
+     * @maxItems 200
+     */
+    sessionIds?: string[]
+    /** Start of the window the exceptions must fall in. ISO 8601. */
+    dateFrom: string
+    /** End of the window the exceptions must fall in. ISO 8601. */
+    dateTo: string
+}
+
+export interface _TracingTraceErrorCountApi {
+    /** Exception events in the window that error tracking linked to an issue. */
+    exceptions: number
+    /** The trace the exceptions belong to, lowercase hex. */
+    trace_id: string
+}
+
+export interface _TracingSpanErrorCountApi {
+    /** Exception events in the window that error tracking linked to an issue. */
+    exceptions: number
+    /** The span the exceptions belong to, lowercase hex. */
+    span_id: string
+}
+
+export interface _TracingSessionErrorCountApi {
+    /** Exception events in the window that error tracking linked to an issue. */
+    exceptions: number
+    /** The session the exceptions belong to. */
+    session_id: string
+}
+
+export interface _TracingErrorCountsResponseApi {
+    /** One entry per requested trace that had exceptions. Traces with none are omitted. */
+    traceResults: _TracingTraceErrorCountApi[]
+    /** One entry per requested span that had exceptions. Spans with none are omitted. */
+    spanResults: _TracingSpanErrorCountApi[]
+    /** One entry per requested session that had exceptions. Sessions with none are omitted. */
+    sessionResults: _TracingSessionErrorCountApi[]
+}
+
 export interface _HasSpansResponseApi {
     /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
     hasSpans: boolean
+}
+
+export interface _TracingImpactRequestApi {
+    /** The impact query to execute. Takes the same filters as the count query. */
+    query: _TracingCountBodyApi
+}
+
+export interface _TracingImpactTopValueApi {
+    /** The session ID or person distinct ID. */
+    value: string
+    /** Approximate number of matching spans that carry this value (topK estimate). */
+    count: number
+}
+
+export interface _TracingImpactResponseApi {
+    /** Number of spans matching the filters. */
+    total: number
+    /** How many of the matching spans carry a session ID under the team's configured or conventional attribute keys. */
+    spansWithSessionId: number
+    /** Estimated number of unique session IDs across the matching spans (HyperLogLog, about 1-2% error). */
+    sessions: number
+    /** How many of the matching spans carry a person distinct ID under the team's configured or conventional attribute keys. */
+    spansWithDistinctId: number
+    /** Estimated number of unique distinct IDs across the matching spans (HyperLogLog, about 1-2% error). */
+    users: number
+    /** Top session IDs on the matching spans, ordered by span count descending (topK, at most 5). */
+    topSessions: _TracingImpactTopValueApi[]
+    /** Top person distinct IDs on the matching spans, ordered by span count descending (topK, at most 5). */
+    topUsers: _TracingImpactTopValueApi[]
 }
 
 export interface _TracingLatencyHeatmapRequestApi {

@@ -17,7 +17,7 @@ import {
 } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { apiStatusLogic, awaitReauthentication } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -485,6 +485,9 @@ export class ApiConfig {
         this._currentProjectId = id
     }
 }
+
+/** A workflow's type: the surface that owns it, else what it does. */
+export type HogFlowListType = 'messaging' | 'automation' | 'loop' | 'broadcast'
 
 export class ApiRequest {
     private pathComponents: string[]
@@ -2947,6 +2950,7 @@ const api = {
                 compareFilter?: { compare?: boolean; compare_to?: string | null }
                 limit?: number
                 offset?: number
+                includeImpact?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -6432,13 +6436,18 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
-            type?: 'messaging' | 'automation' | 'loop'
+            type?: HogFlowListType[]
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {
-            return await new ApiRequest().hogFlows().withQueryString(params).get()
+            // The API reads one comma-separated value; toParams would send a repeated key.
+            const { type, ...rest } = params ?? {}
+            return await new ApiRequest()
+                .hogFlows()
+                .withQueryString({ ...rest, ...(type?.length ? { type: type.join(',') } : {}) })
+                .get()
         },
         async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).get()
@@ -7339,6 +7348,15 @@ function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promi
     })
 }
 
+async function isStaleSessionResponse(response: Response): Promise<boolean> {
+    try {
+        const data = await response.clone().json()
+        return data?.code === 'sensitive_action_required_reauth'
+    } catch {
+        return false
+    }
+}
+
 async function handleFetch(
     url: string,
     method: string,
@@ -7394,6 +7412,12 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
+            return await handleFetch(url, method, fetcher, true)
+        }
+    }
+
+    if (response.status === 403 && !isRetry && (await isStaleSessionResponse(response))) {
+        if (await awaitReauthentication()) {
             return await handleFetch(url, method, fetcher, true)
         }
     }
