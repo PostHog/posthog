@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 import { useSankeyLayout } from '@posthog/quill-charts'
 
 const DROPOFF_WIDTH = 30
@@ -8,10 +10,13 @@ const DROPOFF_MAX_RADIUS = 25
  *  none, matching the SVG renderer. */
 export function PathsDropoffs(): JSX.Element {
     const { layout } = useSankeyLayout()
-    const outflow = new Map<string, number>()
-    for (const link of layout.links) {
-        outflow.set(link.source.id, (outflow.get(link.source.id) ?? 0) + link.width)
-    }
+    const outflow = useMemo(() => {
+        const totals = new Map<string, number>()
+        for (const link of layout.links) {
+            totals.set(link.source.id, (totals.get(link.source.id) ?? 0) + link.width)
+        }
+        return totals
+    }, [layout.links])
     return (
         <>
             {layout.nodes.map((node) => {
