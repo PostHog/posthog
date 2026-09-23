@@ -26,14 +26,9 @@ export const START_AT_LATEST = { ['auto.offset.reset' as keyof RdKafkaConsumerCo
  * implementations to support it.
  */
 export interface KafkaConsumerInterface {
-    /**
-     * `onPartitionsRevoked` receives the partitions this consumer gives up in a rebalance. v2 awaits
-     * it before the partitions are unassigned and skips it for the final revoke on disconnect; v1
-     * calls it after unassigning and does not wait for it.
-     */
     connect(
         eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>,
-        onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
+        onPartitionsRevoked?: (revokedPartitions: Assignment[]) => Promise<void>
     ): Promise<void>
     disconnect(): Promise<void>
     isHealthy(): HealthCheckResult

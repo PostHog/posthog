@@ -466,10 +466,8 @@ export class IngestionConsumer {
         }
     }
 
-    // Otherwise this pod keeps exporting the partition's last timestamp. The value ages, so it raises
-    // a false per-partition delay alert while the new owner has not yet reported a timestamp.
-    private onPartitionsRevoked(partitions: Assignment[]): Promise<void> {
-        for (const { topic, partition } of partitions) {
+    private onPartitionsRevoked(revokedPartitions: Assignment[]): Promise<void> {
+        for (const { topic, partition } of revokedPartitions) {
             latestOffsetTimestampGauge.remove({ topic, partition, groupId: this.groupId })
         }
         return Promise.resolve()
