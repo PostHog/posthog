@@ -40,6 +40,10 @@ _OPERATIONS_ACTIONS: Final = frozenset(
     }
 )
 
+# Actions that answer a POST but store nothing. `code` takes the editor's unsaved state in the body and
+# renders it, which is how a person turns local edits to a code-managed workflow into the file to commit.
+_READ_ACTIONS: Final = frozenset({"code"})
+
 _UPDATE_ACTIONS: Final = frozenset({"update", "partial_update"})
 
 # Only these actions carry a workflow as their body. The others carry operations, ids or
@@ -133,8 +137,10 @@ def check_write(
     body: Mapping[str, Any] = payload if isinstance(payload, Mapping) else {}
 
     if stored is not None and stored.managed_by == HogFlow.ManagedBy.CODE:
-        allowed = action in _OPERATIONS_ACTIONS or (
-            action in _UPDATE_ACTIONS and _payload_keys(body) in _ALLOWED_PAYLOADS
+        allowed = (
+            action in _OPERATIONS_ACTIONS
+            or action in _READ_ACTIONS
+            or (action in _UPDATE_ACTIONS and _payload_keys(body) in _ALLOWED_PAYLOADS)
         )
         if not allowed:
             return _managed_by_code(stored)
