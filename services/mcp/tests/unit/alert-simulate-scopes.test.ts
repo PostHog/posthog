@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { hasScopes } from '@/lib/api'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
-// A scheduled anomaly scout runs on a read-only token. The catalog filter is all-or-nothing
-// (`hasScopes` requires every declared scope), so declaring alert:write here would hide the
-// simulator from the scout entirely. AlertViewSet.simulate only requires alert:read and
-// insight:read; alert:write is demanded later, and only for the charged AI detector.
+// The catalog filter is all-or-nothing (`hasScopes` requires every declared scope), so a scope
+// stricter than AlertViewSet.simulate enforces hides the tool from a read-only scout instead of
+// erroring. That viewset needs alert:read and insight:read; alert:write is demanded later, and
+// only for the charged AI detector.
 const READ_ONLY_SCOUT_SCOPES = ['alert:read', 'insight:read']
 
 describe('alert simulate tool scopes', () => {
