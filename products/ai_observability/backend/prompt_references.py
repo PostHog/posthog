@@ -379,7 +379,7 @@ def assemble_prompt_payload(
                     message=f"The referenced prompt '{name}' contains references of its own and cannot be spliced in.",
                     missing=False,
                 )
-            cached = (child_content, child["version"])
+            cached = (child_content, int(child["version"]))
             memoized[key] = cached
         child_content, child_version = cached
         if key not in seen:
