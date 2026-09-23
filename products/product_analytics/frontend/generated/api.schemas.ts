@@ -211,6 +211,21 @@ export interface ElementValueApi {
     name: string
 }
 
+export interface EventsRetentionApi {
+    /**
+     * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
+     * @nullable
+     */
+    readonly retention_months: number | null
+    /**
+     * The earliest date whose events are still queryable, in the project's timezone. Null while no retention window applies to the project.
+     * @nullable
+     */
+    readonly retained_from: string | null
+    /** Where the events retention policy is documented. */
+    readonly docs_url: string
+}
+
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
 
 export const InsightVizNodeApiKind = {
@@ -3821,6 +3836,23 @@ export interface HogQLNoticeApi {
     start?: number | null
 }
 
+export type PredicateFixActionApi = (typeof PredicateFixActionApi)[keyof typeof PredicateFixActionApi]
+
+export const PredicateFixActionApi = {
+    EditQuery: 'edit_query',
+    EditPropertyType: 'edit_property_type',
+    Materialize: 'materialize',
+} as const
+
+export interface PredicateQuickfixApi {
+    /** Character offset in the query where the replaced range ends. */
+    end: number
+    /** Character offset in the query where the replaced range starts. */
+    start: number
+    /** Replacement text, substituted for the range verbatim. */
+    text: string
+}
+
 export type PredicateScopeApi = (typeof PredicateScopeApi)[keyof typeof PredicateScopeApi]
 
 export const PredicateScopeApi = {
@@ -3841,15 +3873,21 @@ export const PredicateIndexVerdictApi = {
 } as const
 
 export interface PredicateIndexUsageApi {
+    /** Instruction for an AI rewrite of the query, set when a query edit would help. */
+    ai_fix_prompt?: string | null
     column_name?: string | null
     end?: number | null
+    /** Prose advice for a reader. */
     fix?: string | null
+    fix_action?: PredicateFixActionApi | null
     message: string
     /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
     operator: string
     /** Type the value is physically stored as. */
     physical_type: string
     property_name: string
+    /** A deterministic query edit that unblocks the index. */
+    quickfix?: PredicateQuickfixApi | null
     scope: PredicateScopeApi
     /** Type the property definition declares. */
     semantic_type: string
