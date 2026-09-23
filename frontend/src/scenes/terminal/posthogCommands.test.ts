@@ -1,5 +1,6 @@
 import { fileSystemList } from '~/generated/core/api'
 import type { FileSystemApi } from '~/generated/core/api.schemas'
+import { performQuery } from '~/queries/query'
 
 import {
     mcpServerInstallationsAvailableToolsRetrieve,
@@ -17,6 +18,9 @@ import { insightsRetrieve } from 'products/product_analytics/frontend/generated/
 import { PosthogCommands } from './posthogCommands'
 import { PosthogFilesystem } from './posthogFilesystem'
 import { MAX_TERMINAL_FILE_BYTES } from './terminalFilesystem'
+
+jest.mock('scenes/teamLogic', () => ({ teamLogic: { values: { currentTeamId: 42 } } }))
+jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))
 
 jest.mock('~/generated/core/api', () => ({ fileSystemList: jest.fn() }))
 jest.mock('products/notebooks/frontend/generated/api', () => ({
@@ -44,6 +48,39 @@ describe('PostHog terminal commands', () => {
         email: 'author@example.com',
         hedgehog_config: null,
     }
+
+    it.each([
+        ['--markdown', '| answer |\n| --- |\n| 42 |'],
+        ['--csv', 'answer\n42'],
+        ['--tsv', 'answer\n42'],
+        ['--json', { columns: ['answer'], results: [[42]], types: ['Int64'], hasMore: true }],
+    ])('runs local SQL with %s output', async (format, expected) => {
+        jest.mocked(performQuery).mockResolvedValue({
+            columns: ['answer'],
+            results: [[42]],
+            types: ['Int64'],
+            hasMore: true,
+        })
+        expect(await commands.execute(['run', '/tmp/report.sql', 'select 42 as answer', format], cwd)).toEqual(expected)
+        expect(performQuery).toHaveBeenCalledWith(
+            expect.objectContaining({ kind: 'HogQLQuery', query: 'select 42 as answer' }),
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            'force_blocking'
+        )
+    })
+
+    it('completes aliases and JSON arguments without invoking commands', async () => {
+        expect(await commands.execute(['_complete', '1', 'notebook-g', 'ph', ''], cwd)).toBe('notebook-get')
+        expect(await commands.execute(['_complete', '2', '--ti', 'notebook-create', 'notebook-create'], cwd)).toBe(
+            '--title'
+        )
+        expect(await commands.execute(['_complete', '2', '--j', 'notebook-create', 'notebook-create'], cwd)).toBe(
+            '--json'
+        )
+        expect(await commands.execute(['_complete', '3', '', '--json', 'notebook-create'], cwd)).toBe('')
+        expect(notebooksCreate).not.toHaveBeenCalled()
+        expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
+    })
 
     beforeEach(async () => {
         jest.clearAllMocks()

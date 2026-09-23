@@ -106,8 +106,16 @@ const meta: Meta<typeof TerminalScene> = {
                 { id: item.ref, name: item.name, description: 'Terminal demo', user_access_level: 'editor' },
             ])
         )
+        objectData.set('demoinsight', {
+            ...objectData.get('demoinsight'),
+            query: { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select 42 as answer' } },
+        })
         useStorybookMocks({
             get: {
+                '/api/projects/:projectId/insights/': [
+                    200,
+                    { count: 1, results: [{ short_id: 'demoinsight' }], next: null },
+                ],
                 ...Object.fromEntries(
                     objects.map((item) => [
                         `/api/projects/:projectId/${item.route}/${item.ref}/`,
@@ -190,6 +198,10 @@ const meta: Meta<typeof TerminalScene> = {
                 ],
             },
             post: {
+                '/api/projects/:projectId/query/:queryKind/': [
+                    200,
+                    { columns: ['answer'], results: [[42]], types: ['Int64'], hasMore: false },
+                ],
                 '/api/projects/:projectId/file_system/': async ({ request }) => {
                     const { path } = (await request.json()) as { path: string }
                     const id = crypto.randomUUID()

@@ -70,6 +70,14 @@ Browsing `/posthog/files` loads and caches each folder's immediate children; `/p
 Loading another folder leaves cached folders untouched, and API type directories can be opened directly even if they are not listed yet.
 Notebook format detection waits until notebooks are browsed, and object contents load only when opened.
 `ph refresh` reloads the directories already visited, rebuilds the cached tree once, and reloads the connected tool catalog.
+SQL insights appear as editable `.sql` files; their full JSON remains editable under `/posthog/api/insight`.
+Saving SQL preserves the insight's other query options, and JSON saves send only changed fields through the existing APIs.
+`run report.sql` executes a SQL file in the current project and prints a Markdown table; `--json`, `--csv`, and `--tsv` select export formats.
+Use `--json` to inspect result metadata, including `hasMore`, and `/tmp` for export files.
+The interactive Bash shell completes `ph` command names, aliases, connected tools, and argument names with Tab.
+The terminal follows the current resource's folder while its prompt is empty.
+The Files tree's **Open in terminal** menu action opens the selected folder, or a file's parent folder, when `posthog-terminal` is enabled.
+Running commands, editors, and partially typed input prevent a folder change.
 Running `node`, `nodejs`, or `pi` installs the tool on first use; `pi` also installs Node.js.
 Optional tools come from commit-pinned archives in [PostHog/terminal-assets](https://github.com/PostHog/terminal-assets), separate from the boot assets.
 The browser verifies each archive's SHA-256 and size before making it available to the VM, and caches verified downloads when browser storage is available.

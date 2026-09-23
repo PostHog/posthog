@@ -5,6 +5,7 @@ import type { FileSystemApi } from '~/generated/core/api.schemas'
 
 import { notebooksList, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
 import type { NotebookApi, NotebookMinimalApi } from 'products/notebooks/frontend/generated/api.schemas'
+import { insightsList } from 'products/product_analytics/frontend/generated/api'
 
 import { NinePReader, NinePWriter } from './ninepCodec'
 import { NinePServer } from './ninepServer'
@@ -25,6 +26,11 @@ jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksRetrieve: jest.fn(),
     notebooksList: jest.fn(),
     notebooksPartialUpdate: jest.fn(),
+}))
+
+jest.mock('products/product_analytics/frontend/generated/api', () => ({
+    ...jest.requireActual('products/product_analytics/frontend/generated/api'),
+    insightsList: jest.fn(),
 }))
 
 describe('PostHog filesystem projection', () => {
@@ -58,6 +64,7 @@ describe('PostHog filesystem projection', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        jest.mocked(insightsList).mockResolvedValue({ count: 0, results: [] })
         jest.mocked(fileSystemList).mockResolvedValue({
             count: 1,
             next: null,
@@ -69,6 +76,65 @@ describe('PostHog filesystem projection', () => {
             results: [notebookIndex, { ...notebookIndex, short_id: 'note2' }],
         })
         jest.mocked(notebooksRetrieve).mockResolvedValue(notebook)
+    })
+
+    it('edits SQL while preserving insight options and exposes editable JSON metadata', async () => {
+        const signal = new AbortController().signal
+        jest.mocked(fileSystemList).mockResolvedValue({
+            count: 1,
+            results: [entry('sql1', 'Research/Report', 'insight')],
+        })
+        jest.mocked(insightsList).mockResolvedValue({ count: 1, results: [{ short_id: 'sql1' }] } as Awaited<
+            ReturnType<typeof insightsList>
+        >)
+        const original = {
+            name: 'Report',
+            query: { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select 1', limit: 10 }, full: true },
+        }
+        jest.mocked(apiMutator).mockResolvedValue(original)
+        const fs = new PosthogFilesystem('42', signal)
+        await fs.load()
+        expect(apiMutator).not.toHaveBeenCalled()
+        const sql =
+            await fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Report.sql')!.open!()
+        expect(decoder.decode(sql.bytes)).toBe('select 1')
+        await sql.save!(new TextEncoder().encode('select 2'))
+        expect(apiMutator).toHaveBeenLastCalledWith(
+            '/api/projects/42/insights/sql1/',
+            expect.objectContaining({
+                method: 'PATCH',
+                body: JSON.stringify({
+                    query: { ...original.query, source: { ...original.query.source, query: 'select 2' } },
+                }),
+            })
+        )
+        expect(await fs.queryFor('/posthog/files/Research/Report.sql', 'select 3')).toMatchObject({
+            query: 'select 3',
+            limit: 10,
+        })
+        const json = fs.root.children!.get('api')!.children!.get('insight')!.children!.get('sql1.json')!
+        expect(json.writable).toBe(true)
+        const opened = await json.open!()
+        await opened.save!(new TextEncoder().encode(JSON.stringify({ ...original, name: 'Renamed' })))
+        expect(apiMutator).toHaveBeenLastCalledWith(
+            '/api/projects/42/insights/sql1/',
+            expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ name: 'Renamed' }) })
+        )
+    })
+
+    it('resolves unvisited object folders without loading the project tree', async () => {
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        expect(await fs.folderFor({ type: 'notebook', ref: 'note1' })).toBe('/posthog/files/Research')
+        expect(fileSystemList).toHaveBeenCalledWith(
+            '42',
+            { type: 'notebook', ref: 'note1', limit: 1 },
+            expect.anything()
+        )
+        jest.mocked(fileSystemList).mockClear()
+        expect(await fs.folderFor({ type: 'folder', ref: "Research/A's notes" })).toBe(
+            "/posthog/files/Research/A's notes"
+        )
+        expect(fileSystemList).not.toHaveBeenCalled()
     })
 
     it('loads only browsed folders, shares pending requests, and refreshes visited directories', async () => {

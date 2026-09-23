@@ -20,6 +20,7 @@ jest.mock('./terminalRuntime', () => ({
         dispose: jest.fn(),
         resize: jest.fn(),
         syncClock: jest.fn(),
+        changeDirectory: jest.fn(() => true),
         read: jest.fn(() => ''),
     })),
 }))
@@ -28,11 +29,15 @@ jest.mock('./TerminalSession', () => ({
         attach: jest.fn(),
         detach: jest.fn(),
         dispose: jest.fn(),
-        view: { clear: jest.fn(), write: jest.fn(), cols: 80, rows: 24 },
+        view: { clear: jest.fn(), write: jest.fn(), cols: 80, rows: 24, focus: jest.fn() },
     })),
 }))
 jest.mock('./posthogFilesystem', () => ({
-    PosthogFilesystem: jest.fn().mockImplementation(() => ({ load: jest.fn(async () => {}) })),
+    PosthogFilesystem: jest.fn().mockImplementation(() => ({
+        load: jest.fn(async () => {}),
+        folderFor: jest.fn(async () => null),
+        folderPath: (path: string) => '/posthog/files/' + path,
+    })),
 }))
 jest.mock('./posthogCommands', () => ({ PosthogCommands: jest.fn() }))
 
@@ -68,6 +73,26 @@ describe('terminal lifecycle', () => {
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 })
         expect(TerminalRuntime).toHaveBeenCalledTimes(1)
         expect(terminalLogic.values.runRequested).toBe(false)
+    })
+
+    it('opens the selected folder on first boot and changes it in an existing terminal', async () => {
+        terminalDockLogic.actions.openInTerminal('Research')
+        terminalLogic.actions.attach(document.createElement('div'))
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
+        expect(runtime.start).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.any(Function),
+            '/posthog/files/Research'
+        )
+        terminalDockLogic.actions.openInTerminal('Research/Reports')
+        await waitFor(() => expect(runtime.changeDirectory).toHaveBeenCalledWith('/posthog/files/Research/Reports'))
+        expect(TerminalRuntime).toHaveBeenCalledTimes(1)
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false })
+        terminalDockLogic.actions.openInTerminal('Hidden')
+        expect(terminalDockLogic.values.dockOpen).toBe(false)
+        expect(terminalDockLogic.values.requestedFolder).toBe(null)
     })
 
     it('retries a requested start when the project arrives', async () => {

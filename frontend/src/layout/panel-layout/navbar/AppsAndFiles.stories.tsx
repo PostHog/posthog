@@ -7,6 +7,8 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { mswDecorator } from '~/mocks/browser'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { expect, fireEvent, within } from 'storybook/test'
+
 import { NavExperimentTab, panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../ProjectTree/projectTreeDataLogic'
@@ -130,6 +132,15 @@ export default meta
 type Story = StoryObj<typeof SidebarStory>
 export const Apps: Story = {}
 export const Files: Story = { args: { tab: 'files' } }
+export const FilesTerminal: Story = {
+    args: { tab: 'files' },
+    parameters: { featureFlags: [...meta.parameters!.featureFlags, FEATURE_FLAGS.POSTHOG_TERMINAL] },
+    play: async ({ canvasElement }) => {
+        const folder = await within(canvasElement).findByText('Getting started', { exact: true })
+        fireEvent.contextMenu(folder)
+        await expect(within(document.body).findByText('Open in terminal', { exact: true })).resolves.toBeVisible()
+    },
+}
 export const Search: Story = { args: { search: 'data' } }
 export const NoResults: Story = { args: { search: 'nothing-matches' } }
 export const Collapsed: Story = { args: { collapsed: true } }
