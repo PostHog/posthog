@@ -94,18 +94,14 @@ def hold_evaluation_slot(alert_id: str) -> float:
     raise AssertionError("unreachable")
 
 
-def release_evaluation_slot(alert_id: str, *, held_until: float | None = None) -> None:
-    """Free a slot; with held_until, only if this holder still owns it.
+def release_evaluation_slot(alert_id: str, *, held_until: float) -> None:
+    """Free a slot, but only if the holder identified by held_until still owns it.
 
     Best effort: the check this belongs to already ran, so a failure is logged rather than raised.
     """
     for attempt in range(_BOOKKEEPING_ATTEMPTS):
         try:
-            client = redis.get_client()
-            if held_until is None:
-                client.zrem(INFLIGHT_KEY, alert_id)
-            else:
-                client.eval(_RELEASE_OWNED_SCRIPT, 1, INFLIGHT_KEY, alert_id, held_until)
+            redis.get_client().eval(_RELEASE_OWNED_SCRIPT, 1, INFLIGHT_KEY, alert_id, held_until)
             return
         except Exception:
             if attempt == _BOOKKEEPING_ATTEMPTS - 1:

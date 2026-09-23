@@ -47,6 +47,7 @@ from posthog.temporal.alerts.activities import (
 from posthog.temporal.alerts.admission import (
     INFLIGHT_KEY,
     count_inflight_evaluations,
+    hold_evaluation_slot,
     inflight_alert_ids,
     reserve_evaluation_slots,
 )
@@ -305,6 +306,16 @@ class TestPrepareAlert:
         else:
             # Non-advancing skip branches must leave next_check_at untouched.
             assert refreshed.next_check_at == setup_kwargs.get("next_check_at")
+
+    async def test_skip_leaves_the_slot_a_later_attempt_holds(self, ateam) -> None:
+        a = await _create_alert(ateam, enabled=False)
+        # A retried attempt's evaluation took the slot after this attempt started, so it holds the later expiry.
+        with time_machine.travel("2026-09-22T10:01:00Z", tick=False):
+            hold_evaluation_slot(str(a.id))
+        with time_machine.travel("2026-09-22T10:00:00Z", tick=False):
+            result = await ActivityEnvironment().run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
+            assert result.action == PrepareAction.SKIP
+            assert str(a.id) in inflight_alert_ids()
 
     @time_machine.travel("2024-06-03T10:00:00Z", tick=False)
     async def test_snoozed_future_preserves_snoozed_until(self, ateam) -> None:

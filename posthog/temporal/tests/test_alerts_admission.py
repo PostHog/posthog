@@ -10,6 +10,7 @@ from posthog.temporal.alerts.admission import (
     hold_evaluation_slot,
     inflight_alert_ids,
     release_evaluation_slot,
+    release_evaluation_slots,
 )
 
 
@@ -31,7 +32,7 @@ def test_admission_fills_only_the_free_capacity_and_slots_outlive_any_check() ->
     with time_machine.travel("2026-09-22T10:14:00Z", tick=False):
         second_hold = hold_evaluation_slot("running")
         assert admit_evaluation_slots(["c"], limit=3) == []
-        release_evaluation_slot("a")
+        release_evaluation_slots(["a"])
         assert admit_evaluation_slots(["c"], limit=3) == ["c"]
         # The attempt that held first no longer owns the slot, so its release is a no-op.
         release_evaluation_slot("running", held_until=first_hold)
