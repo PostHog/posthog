@@ -1,3 +1,6 @@
+import json
+import math
+import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
@@ -11,6 +14,7 @@ from django.utils import timezone
 
 import redis
 from posthoganalytics import Posthog
+from posthoganalytics.consumer import MAX_MSG_SIZE
 from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
@@ -886,16 +890,52 @@ def generate_organization_digest_batch(input: GenerateOrganizationDigestInput) -
 
 RECORD_BATCH_SIZE = 100
 DIGEST_ITEM_COUNT_THRESHOLD = 4
+# The SDK queue holds 10,000 events. Draining well below that keeps `capture` from dropping events on a
+# full queue, and bounds how many unconfirmed events an abandoned attempt leaves behind.
+DRAIN_EVENT_COUNT = 500
+# The SDK consumer drops an event above MAX_MSG_SIZE without calling on_error. The margin covers the fields
+# the SDK adds around the properties.
+DIGEST_PAYLOAD_SIZE_LIMIT = MAX_MSG_SIZE - 16 * 1024
+UPLOAD_CLEANUP_SECONDS = 120
+DRAIN_SLICE_SECONDS = 5
 
 
-# A BaseException, so that the per-organization `except Exception` handler cannot swallow it.
+# These derive from BaseException, so that the per-organization `except Exception` handler cannot swallow them.
 class ActivityCancelled(BaseException):
+    pass
+
+
+class UploadDeadlineExceeded(BaseException):
     pass
 
 
 def _raise_if_cancelled() -> None:
     if activity.in_activity() and activity.is_cancelled():
         raise ActivityCancelled
+
+
+def _upload_deadline() -> float:
+    if not activity.in_activity():
+        return math.inf
+    info = activity.info()
+    if info.start_to_close_timeout is None:
+        return math.inf
+    remaining = info.started_time + info.start_to_close_timeout - datetime.now(UTC)
+    return time.monotonic() + remaining.total_seconds() - UPLOAD_CLEANUP_SECONDS
+
+
+def _drain(ph_client: Posthog, deadline: float) -> bool:
+    # `flush` returns silently with events still queued once its budget runs out. A slice that returns
+    # before its budget ends has emptied the queue, and short slices let a cancellation stop the wait.
+    while True:
+        _raise_if_cancelled()
+        budget = min(DRAIN_SLICE_SECONDS, deadline - time.monotonic())
+        if budget <= 0:
+            return False
+        started = time.monotonic()
+        ph_client.flush(timeout_seconds=budget)
+        if time.monotonic() - started < budget:
+            return True
 
 
 def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
@@ -907,8 +947,8 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
     empty_org_digest_count = 0
     empty_user_digest_count = 0
 
-    # The SDK marks a batch done whether or not its upload succeeded, so this callback is the only
-    # delivery signal. Every event carries organization_id in its payload.
+    # The SDK marks a batch done whether or not its upload succeeded, so this callback and the value
+    # `capture` returns are the only delivery signals. Every event carries organization_id in its payload.
     failed_organization_ids: set[str] = set()
 
     def on_upload_error(error: Exception, items: list[dict[str, Any]]) -> None:
@@ -923,13 +963,18 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         return
 
     messaging_record_batch: list[tuple[str, MessagingRecord]] = []
+    deadline = _upload_deadline()
+    queued_event_count = 0
+
+    def drain() -> None:
+        nonlocal queued_event_count
+        if ph_client is not None and not _drain(ph_client, deadline):
+            raise UploadDeadlineExceeded
+        queued_event_count = 0
 
     def record_sent(records: list[tuple[str, MessagingRecord]]) -> None:
-        # Every queued event must leave the client's buffer before any record is stamped, so the
-        # flush is unbounded: a timed-out flush returns with events still queued. An organization
-        # whose events failed to upload keeps sent_at empty, so the next attempt resends it.
-        if ph_client is not None:
-            ph_client.flush(timeout_seconds=None)
+        # An organization whose events failed to upload keeps sent_at empty, so the next attempt resends it.
+        drain()
         delivered = [record for organization_id, record in records if organization_id not in failed_organization_ids]
         if len(delivered) < len(records):
             logger.warning(
@@ -1015,9 +1060,17 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                 digest=payload,
                                 user_email=user.email,
                             )
+                        elif len(json.dumps(payload, default=str).encode()) > DIGEST_PAYLOAD_SIZE_LIMIT:
+                            logger.error(
+                                "Digest exceeds the event size limit, leaving the organization unsent",
+                                organization_id=organization.id,
+                                user_id=user.id,
+                            )
+                            failed_organization_ids.add(str(organization.id))
+                            continue
                         elif ph_client is not None:
                             partial = True
-                            ph_client.capture(
+                            queued = ph_client.capture(
                                 distinct_id=user.distinct_id,
                                 event="transactional email",
                                 properties=payload,
@@ -1026,6 +1079,11 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                                     "instance": settings.SITE_URL,
                                 },
                             )
+                            if queued is None:
+                                failed_organization_ids.add(str(organization.id))
+                            queued_event_count += 1
+                            if queued_event_count >= DRAIN_EVENT_COUNT:
+                                drain()
 
                         sent_digest_count += 1
                 except Exception as e:

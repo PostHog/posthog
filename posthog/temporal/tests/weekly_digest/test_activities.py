@@ -1,5 +1,6 @@
 import json
 import inspect
+import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -27,8 +28,10 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.temporal.weekly_digest.activities import (
+    DIGEST_PAYLOAD_SIZE_LIMIT,
     NEW_ERROR_ISSUES_PER_TEAM_LIMIT,
     ActivityCancelled,
+    UploadDeadlineExceeded,
     _cut_team_id_ranges,
     _query_team_usage_trends,
     _redis_url,
@@ -680,8 +683,16 @@ def test_send_weekly_digest_batch_stops_sending_once_the_activity_is_cancelled(
 
 
 @pytest.mark.django_db
-def test_send_weekly_digest_batch_leaves_organization_unsent_after_failed_upload(
-    organization, team, redis_servers, common_input, digest
+@pytest.mark.parametrize(
+    "drop,expected_captures",
+    [
+        ("failed_upload", 1),
+        ("queue_full", 1),
+        ("oversized", 0),
+    ],
+)
+def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dropped(
+    drop, expected_captures, organization, team, redis_servers, common_input, digest
 ):
     subscribed = create_user(organization, "subscribed@example.com")
     redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
@@ -689,22 +700,58 @@ def test_send_weekly_digest_batch_leaves_organization_unsent_after_failed_upload
     ph_client = MagicMock()
 
     def make_client(**kwargs: Any) -> MagicMock:
-        # The SDK reports a failed upload through on_error while flush drains the queue.
-        def flush(**_: Any) -> None:
-            kwargs["on_error"](
-                RuntimeError("upload failed"), [{"properties": {"organization_id": str(organization.id)}}]
-            )
+        if drop == "failed_upload":
+            # The SDK reports a failed upload through on_error while flush drains the queue.
+            def flush(**_: Any) -> None:
+                kwargs["on_error"](
+                    RuntimeError("upload failed"), [{"properties": {"organization_id": str(organization.id)}}]
+                )
 
-        ph_client.flush.side_effect = flush
+            ph_client.flush.side_effect = flush
+        elif drop == "queue_full":
+            ph_client.capture.return_value = None
         return ph_client
 
-    with patch("posthog.temporal.weekly_digest.activities.get_ph_client", side_effect=make_client):
+    with (
+        patch("posthog.temporal.weekly_digest.activities.get_ph_client", side_effect=make_client),
+        patch(
+            "posthog.temporal.weekly_digest.activities.DIGEST_PAYLOAD_SIZE_LIMIT",
+            100 if drop == "oversized" else DIGEST_PAYLOAD_SIZE_LIMIT,
+        ),
+    ):
         run_sync(send_weekly_digest_batch, _send_input(organization, digest, common_input, dry_run=False))
 
-    assert ph_client.capture.call_count == 1
+    assert ph_client.capture.call_count == expected_captures
     assert ph_client.shutdown.called
     record = MessagingRecord.objects.get(campaign_key=digest.key)
     assert record.sent_at is None
+
+
+@pytest.mark.django_db
+def test_send_weekly_digest_batch_leaves_organization_unsent_when_the_attempt_runs_out_of_time(
+    activity_environment, organization, team, redis_servers, common_input, digest
+):
+    subscribed = create_user(organization, "subscribed@example.com")
+    redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
+    redis_servers.digest.sadd(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, subscribed.id), team.id)
+    ph_client = MagicMock()
+    activity_environment.info = dataclasses.replace(
+        activity_environment.info,
+        started_time=datetime.now(UTC) - timedelta(minutes=30),
+        start_to_close_timeout=timedelta(minutes=30),
+    )
+
+    with (
+        patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=ph_client),
+        pytest.raises(UploadDeadlineExceeded),
+    ):
+        activity_environment.run(
+            send_weekly_digest_batch_body, _send_input(organization, digest, common_input, dry_run=False)
+        )
+
+    assert ph_client.capture.call_count == 1
+    assert ph_client.shutdown.called
+    assert MessagingRecord.objects.get(campaign_key=digest.key).sent_at is None
 
 
 @pytest.mark.parametrize(

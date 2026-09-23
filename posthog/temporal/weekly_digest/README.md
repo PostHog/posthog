@@ -108,6 +108,7 @@ Generated via `user_data_key(digest_key, UserDataKey.*, user_id)`:
 │       c. Create UserSpecificDigest via org_digest.for_user()                │
 │       d. Render payload and queue it as a PostHog capture event             │
 │    3. Flush queued events, then stamp the org's MessagingRecord as sent     │
+│       (a dropped, oversized, or undrained event leaves the org unsent)      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
