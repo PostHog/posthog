@@ -301,7 +301,9 @@ def _mcp_list_tools(client: httpx.Client, url: str, headers: dict[str, str]) -> 
     if not isinstance(tools, list):
         raise ToolsFetchError("tools/list response missing 'result.tools' array")
 
-    return [t for t in tools if isinstance(t, dict) and t.get("name")]
+    # The upstream server is untrusted input, and a non-string name is unhashable:
+    # it would crash the sync rather than cost us one skipped tool.
+    return [t for t in tools if isinstance(t, dict) and isinstance(t.get("name"), str) and t["name"]]
 
 
 def _mcp_call_tool(
@@ -425,39 +427,46 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
 
         row = existing_by_name.get(tool_name)
         if row is None:
-            MCPServerInstallationTool.objects.create(
+            # get_or_create rather than create: the install task, "Refresh tools"
+            # and the request-path repair can overlap, and the loser of the
+            # (installation, tool_name) unique constraint would raise.
+            row, created = MCPServerInstallationTool.objects.get_or_create(
                 installation=installation,
                 tool_name=tool_name,
-                display_name=display_name,
-                description=description,
-                input_schema=input_schema,
-                annotations=annotations,
-                # New tools default to needs_approval so adoption stays explicit.
-                # The policy engine keys off this exact value to tell a synced
-                # default apart from a member's real choice — keep them in step.
-                approval_state=SYNC_DEFAULT_APPROVAL_STATE,
-                last_seen_at=now,
-                removed_at=None,
+                defaults={
+                    "display_name": display_name,
+                    "description": description,
+                    "input_schema": input_schema,
+                    "annotations": annotations,
+                    # New tools default to needs_approval so adoption stays explicit.
+                    # The policy engine keys off this exact value to tell a synced
+                    # default apart from a member's real choice — keep them in step.
+                    "approval_state": SYNC_DEFAULT_APPROVAL_STATE,
+                    "last_seen_at": now,
+                    "removed_at": None,
+                },
             )
-        else:
-            row.display_name = display_name
-            row.description = description
-            row.input_schema = input_schema
-            row.annotations = annotations
-            row.last_seen_at = now
-            # A previously-removed tool reappeared; preserve approval_state but clear the flag.
-            row.removed_at = None
-            row.save(
-                update_fields=[
-                    "display_name",
-                    "description",
-                    "input_schema",
-                    "annotations",
-                    "last_seen_at",
-                    "removed_at",
-                    "updated_at",
-                ]
-            )
+            if created:
+                continue
+
+        row.display_name = display_name
+        row.description = description
+        row.input_schema = input_schema
+        row.annotations = annotations
+        row.last_seen_at = now
+        # A previously-removed tool reappeared; preserve approval_state but clear the flag.
+        row.removed_at = None
+        row.save(
+            update_fields=[
+                "display_name",
+                "description",
+                "input_schema",
+                "annotations",
+                "last_seen_at",
+                "removed_at",
+                "updated_at",
+            ]
+        )
 
     # Mark anything we didn't see as removed; keep their approval_state intact.
     for tool_name, row in existing_by_name.items():

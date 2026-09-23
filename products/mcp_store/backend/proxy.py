@@ -28,6 +28,7 @@ logger = structlog.get_logger(__name__)
 
 UPSTREAM_TIMEOUT = 180
 MAX_PROXY_BODY_SIZE = 1_048_576  # 1 MB
+MAX_LOGGED_MISSING_TOOLS = 20
 REDIRECT_STATUS_CODES = {301, 302, 307, 308}
 
 # JSON-RPC error codes used by per-tool approval enforcement. -32000..-32099 is
@@ -407,7 +408,10 @@ def _tools_by_name(installation: MCPServerInstallation, requested: set[str]) -> 
             "MCP tool call refers to an unregistered tool",
             installation_id=str(installation.id),
             url=installation.url,
-            missing_tools=sorted(missing),
+            # A batch carries as many names as the body allows, and the size limit
+            # is checked further down, so log a sample rather than all of them.
+            missing_tools=sorted(missing)[:MAX_LOGGED_MISSING_TOOLS],
+            missing_tool_count=len(missing),
             registered_tool_count=len(tools),
         )
     return tools

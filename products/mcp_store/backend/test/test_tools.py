@@ -322,6 +322,19 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
 
     @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
     @patch("products.mcp_store.backend.tools.pinned_client")
+    def test_fetch_upstream_tools_drops_a_tool_whose_name_is_not_a_string(self, mock_client_cls, _allow):
+        # A non-string name is unhashable, so sync_installation_tools would raise
+        # TypeError on it — a 500 on the request path that re-lists.
+        installation = self._installation()
+        tools_body = json.dumps(
+            {"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": ["search"]}, {"name": "alpha"}]}}
+        )
+        _install_handshake_mock(mock_client_cls, tools_list_response=_build_response(body=tools_body))
+
+        assert [tool["name"] for tool in fetch_upstream_tools(installation)] == ["alpha"]
+
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
     def test_fetch_upstream_tools_raises_when_result_missing(self, mock_client_cls, _allow):
         installation = self._installation()
         tools_body = json.dumps({"jsonrpc": "2.0", "id": 2, "result": {}})
@@ -461,6 +474,32 @@ class TestSyncInstallationTools(ClickhouseTestMixin, APIBaseTest):
         assert tool.approval_state == "needs_approval"
         assert tool.description == "Search something"
         assert tool.removed_at is None
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    def test_a_row_another_sync_created_is_updated_rather_than_duplicated(self, mock_fetch):
+        # The install task, "Refresh tools" and the request-path repair can overlap,
+        # and the loser of the (installation, tool_name) unique constraint would
+        # raise — a 500 out of the proxy, since nothing catches IntegrityError.
+        installation = self._installation()
+        mock_fetch.return_value = [{"name": "search", "description": "fresh"}]
+
+        def create_the_row_behind_this_sync(_installation):
+            MCPServerInstallationTool.objects.create(
+                installation=installation,
+                tool_name="search",
+                description="raced",
+                approval_state="approved",
+                last_seen_at=timezone.now(),
+            )
+            return mock_fetch.return_value
+
+        mock_fetch.side_effect = create_the_row_behind_this_sync
+        sync_installation_tools(installation)
+
+        tool = installation.tools.get(tool_name="search")
+        assert tool.description == "fresh"
+        # The row the other sync created keeps its approval state.
+        assert tool.approval_state == "approved"
 
     @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
     def test_sync_persists_upstream_annotations(self, mock_fetch):
