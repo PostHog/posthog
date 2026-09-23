@@ -15,6 +15,7 @@ from psycopg import (
 from psycopg.conninfo import make_conninfo
 
 from posthog.hogql.database.s3_table import S3Table, parse_duckdb_s3_source
+from posthog.hogql.direct_sql.pgwire import MANAGED_WAREHOUSE_CONNECTION_ERROR
 
 from products.managed_warehouse.backend.common import (
     get_duckgres_config_for_org,
@@ -47,6 +48,17 @@ DUCKLAKE_QUERY_CONNECTION_FAILURE_TOTAL = Counter(
     labelnames=["phase", "reason"],
 )
 
+# What duckgres reports once the connection is up. A failed connect carries no SQLSTATE, so
+# the message table below is the only signal for that phase.
+_CONNECTION_FAILURE_SQLSTATES: dict[str, str] = {
+    "53300": "capacity",
+    "57P01": "connection_lost",
+    "57P02": "connection_lost",
+    "57P03": "unreachable",
+    "28000": "auth",
+    "28P01": "auth",
+}
+
 # Matched against the lowercased driver message, first hit wins.
 _CONNECTION_FAILURE_REASONS: tuple[tuple[str, str], ...] = (
     ("activate tenant", "tenant_activation"),
@@ -62,39 +74,31 @@ _CONNECTION_FAILURE_REASONS: tuple[tuple[str, str], ...] = (
     ("authentication", "auth"),
 )
 
-_CONNECTION_FAILURE_MESSAGES: dict[str, str] = {
-    "connect": (
-        "Couldn't connect to the managed warehouse. Try the query again, and contact support if it keeps happening."
-    ),
-    "execute": (
-        "Lost the connection to the managed warehouse while the query was running. "
-        "Try the query again, and contact support if it keeps happening."
-    ),
-}
-
 
 def _connection_failure_reason(exc: Exception) -> str:
-    message = str(exc).lower()
+    sqlstate = getattr(exc, "sqlstate", None)
+    if sqlstate:
+        if sqlstate in _CONNECTION_FAILURE_SQLSTATES:
+            return _CONNECTION_FAILURE_SQLSTATES[sqlstate]
+        # Class 08 is every connection exception Postgres defines.
+        if sqlstate.startswith("08"):
+            return "connection_lost"
+    lowered = str(exc).lower()
     for pattern, reason in _CONNECTION_FAILURE_REASONS:
-        if pattern in message:
+        if pattern in lowered:
             return reason
     return "unknown"
 
 
 def _clean_connection_error(exc: Exception, *, phase: str, team_id: int) -> ManagedWarehouseQueryConnectionError:
-    """Classify a duckgres connection failure, keep its detail server-side, and build the
-    error to raise in its place."""
+    detail = str(exc)
     reason = _connection_failure_reason(exc)
     DUCKLAKE_QUERY_CONNECTION_FAILURE_TOTAL.labels(phase=phase, reason=reason).inc()
     logger.exception(
         "ducklake_query_connection_failed",
-        extra={"team_id": team_id, "phase": phase, "reason": reason, "error": str(exc)},
+        extra={"team_id": team_id, "phase": phase, "reason": reason, "error": detail},
     )
-    return ManagedWarehouseQueryConnectionError(
-        _CONNECTION_FAILURE_MESSAGES[phase],
-        phase=phase,
-        reason=reason,
-    )
+    return ManagedWarehouseQueryConnectionError(MANAGED_WAREHOUSE_CONNECTION_ERROR)
 
 
 def make_duckgres_conninfo(
@@ -375,11 +379,11 @@ def execute_ducklake_query(
     try:
         with psycopg.connect(conninfo) as conn:
             connect_ms = (time.monotonic() - _connect_start) * 1000
-            phase = "execute"
             _configure_s3_secrets(conn, s3_secrets)
             _set_search_path(conn)
             with conn.cursor() as cur:
                 _query_start = time.monotonic()
+                phase = "execute"
                 cur.execute(sql, values or None)
                 columns = [desc.name for desc in cur.description] if cur.description else []
                 types = [str(desc.type_code) for desc in cur.description] if cur.description else []
