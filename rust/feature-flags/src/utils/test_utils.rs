@@ -275,6 +275,40 @@ pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
     Arc::new(AlwaysMissS3Client)
 }
 
+/// An S3 client that answers every key with one fixed JSON body. Lets integration tests
+/// force the HyperCache read to fall through an empty Redis and hit S3, which is the state
+/// a team lands in when its Redis entry is evicted while S3 still holds the payload.
+pub struct StaticS3Client(pub String);
+
+#[async_trait]
+impl common_hypercache::S3Client for StaticS3Client {
+    async fn get_string(
+        &self,
+        _bucket: &str,
+        _key: &str,
+    ) -> Result<String, common_hypercache::S3Error> {
+        Ok(self.0.clone())
+    }
+
+    async fn put_string(
+        &self,
+        _bucket: &str,
+        _key: &str,
+        _value: &str,
+    ) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+
+    async fn delete(&self, _bucket: &str, _key: &str) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+}
+
+/// An S3 client that serves `body` for every key, for injecting into the test server.
+pub fn static_s3_client(body: &str) -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
+    Arc::new(StaticS3Client(body.to_string()))
+}
+
 /// Create a HyperCacheReader for tests using the provided Redis client.
 /// Uses default test configuration for S3 (which won't be used in most tests
 /// since Redis should have the data).
