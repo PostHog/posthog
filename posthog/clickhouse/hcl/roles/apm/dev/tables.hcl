@@ -418,6 +418,13 @@ database "posthog" {
   patch_materialized_view "kafka_trace_spans_avro_mv" {
     to_table = "posthog.writable_trace_spans"
 
+    modify_column "attributes_map_str" {
+      type = "Map(String, String)"
+    }
+    modify_column "resource_attributes" {
+      type = "Map(String, String)"
+    }
+
     column "_partition" {
       type = "UInt64"
     }
