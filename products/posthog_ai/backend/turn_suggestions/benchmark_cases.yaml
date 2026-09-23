@@ -15,8 +15,8 @@
 
 # Recurring metrics
 - name: weekly-signups
-  category: recurring_metric
-  acceptable: [scout]
+  category: basic_count
+  acceptable: [scout, none]
   question: How many signups did we get this week compared to last week?
   tools: [query-trends]
   answer: You had 412 signups this week, up 8% from 381 last week. Most of the growth came from organic search.
@@ -29,8 +29,8 @@
   answer: Signups today are at 31 so far, about 40% below the same time yesterday (52). The drop started around 09:00 UTC and affects every channel.
 
 - name: revenue-month-to-date
-  category: recurring_metric
-  acceptable: [scout]
+  category: basic_count
+  acceptable: [scout, none]
   question: What's our revenue month to date and how does it compare to last month?
   tools: [execute-sql]
   answer: Revenue month to date is $48,200, 6% ahead of the same point last month ($45,470). Annual plans make up 38% of it.
@@ -71,8 +71,8 @@
   answer: LLM spend yesterday was $182.40 across 41,000 generations. The summarization feature accounts for 61% of it.
 
 - name: dau-last-30-days
-  category: recurring_metric
-  acceptable: [scout, none]
+  category: basic_count
+  acceptable: [none]
   question: Show me daily active users for the last 30 days
   tools: [query-trends]
   answer: Daily active users averaged 1,210 over the last 30 days, with weekday peaks around 1,450 and weekend lows near 760.
@@ -350,12 +350,12 @@
   tools: [execute-sql]
   answer: Cost per weekly active user went from $0.41 to $0.63 over the last 8 weeks. It has risen every week since the summaries feature launched.
 
-- name: weekly-actives-spanish
+- name: mobile-checkout-spanish
   category: recurring_metric
   acceptable: [scout]
-  question: ¿Cuántos usuarios activos tuvimos esta semana comparado con la anterior?
-  tools: [query-trends]
-  answer: Tuviste 2.310 usuarios activos esta semana, un 6% más que la semana anterior. El crecimiento viene sobre todo de la app móvil.
+  question: ¿Cuántos usuarios de la app móvil completaron el checkout esta semana, comparado con la anterior? Me preocupa que esté bajando.
+  tools: [query-funnel]
+  answer: En la app móvil, 1.140 usuarios completaron el checkout esta semana, un 9% menos que la semana anterior. La caída se concentra en Android.
 
 # Edits and configuration
 - name: build-health-dashboard
@@ -566,8 +566,22 @@
   answer: 214 people finished the new onboarding checklist this week, 31% of those who started it. The connect data step loses the most people.
 
 - name: total-events-this-week
-  category: one_off
+  category: basic_count
   acceptable: [none]
   question: How many events did we get this week?
   tools: [query-trends]
   answer: The project received 12.4 million events this week, 3% more than last week.
+
+- name: people-yesterday
+  category: basic_count
+  acceptable: [none]
+  question: How many people used the app yesterday?
+  tools: [query-trends]
+  answer: 1,380 people used the app yesterday, about the same as the day before.
+
+- name: pro-plan-export-usage
+  category: recurring_metric
+  acceptable: [scout]
+  question: How many Pro plan accounts used the new bulk export this week, compared to last week?
+  tools: [query-trends]
+  answer: 86 Pro plan accounts used the bulk export this week, up from 61 last week. Accounts created in the last 90 days make up most of the growth.
