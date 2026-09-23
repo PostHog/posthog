@@ -1,6 +1,6 @@
 Fetch a single LLM trace by its trace ID for deep inspection. Returns the trace and every nested event, with model parameters, costs, tool calls, and errors. Use after finding a trace via `query-llm-traces-list` to inspect the complete event tree.
 
-By default the response returns full event properties, subject to response size limits. Set `detail` to `"summary"` for metadata only when browsing a trace: a summary never contains prompts, outputs, tool payloads, person properties, or request metadata. Omitted `detail` preserves the existing full-detail behavior.
+By default the response returns full event properties, subject to response size limits. Set `detail` to `"summary"` for metadata only when browsing a trace: a summary never contains prompts, outputs, tool payloads, error messages, person properties, or request metadata. Omitted `detail` preserves the existing full-detail behavior.
 
 Use cases:
 
@@ -84,9 +84,9 @@ If the trace is old, provide a date range to help the query find it efficiently:
 `detail` controls how much of each event you get back.
 
 - `"full"` (default) returns every property in full, bounded by the response size limit below. Existing callers that omit `detail` keep this behavior.
-- `"summary"` returns a fixed metadata allowlist and nothing else. Trace level: `id`, `createdAt`, `traceName`, `aiSessionId`, `distinctId`, `isSupportTrace`, `sentiment`, `tools`, `errorCount`, token counts, costs, and `totalLatency`, plus the person identifiers `uuid`, `distinct_id`, and `created_at`. Event level: `id`, `createdAt`, `event` type, `sentiment`, and the navigation properties `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_session_id`, `$ai_agent_name`, `$ai_framework`, `$ai_model`, `$ai_provider`, `$ai_latency`, `$ai_time_to_first_token`, token counts, costs, `$ai_tools_called`, `$ai_tool_call_count`, `$ai_is_error`, `$ai_error`, `$ai_error_type`, `$ai_error_normalized`, `$ai_http_status`, `$ai_metric_name`, and `$ai_metric_value`.
+- `"summary"` returns a fixed metadata allowlist and nothing else. Trace level: `id`, `createdAt`, `traceName`, `aiSessionId`, `distinctId`, `isSupportTrace`, `sentiment`, `tools`, `errorCount`, token counts, costs, and `totalLatency`, plus the person identifiers `uuid`, `distinct_id`, and `created_at`. Event level: `id`, `createdAt`, `event` type, `sentiment`, and the navigation properties `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_session_id`, `$ai_agent_name`, `$ai_framework`, `$ai_model`, `$ai_provider`, `$ai_latency`, `$ai_time_to_first_token`, token counts, costs, `$ai_tools_called`, `$ai_tool_call_count`, `$ai_is_error`, `$ai_error_type`, `$ai_error_normalized`, `$ai_http_status`, `$ai_metric_name`, and `$ai_metric_value`.
 
-  Everything else is removed, not shortened: prompts, outputs, tool arguments and results, span states, person properties, request metadata, and any custom property. `_omittedFields` and `_omittedProperties` count what was removed at each level, and a summarized trace carries `_detail: { "mode": "summary" }`.
+  Everything else is removed, not shortened: prompts, outputs, tool arguments and results, span states, person properties, request metadata, and any custom property. `$ai_error` is removed too, because a provider error message often quotes the failing prompt back. Use `$ai_is_error`, `$ai_error_type`, `$ai_error_normalized`, and `$ai_http_status` to find and group failures, then re-read at full detail for the message. `_omittedFields` and `_omittedProperties` count what was removed at each level, and a summarized trace carries `_detail: { "mode": "summary" }`.
 
   `tools` and `$ai_tools_called` return tool names only. If either arrives holding structured entries rather than names, summary mode keeps the names and drops the rest, so it never returns tool arguments or results.
 

@@ -85,8 +85,9 @@ Use the URL's `date_from` / `date_to` values in the session query if present.
 If the URL only has `timestamp`, calculate the absolute date range from that timestamp instead of using a relative range like `-1h`.
 Set `filterTestAccounts: false` for an exact URL so the requested trace is not hidden by account filters.
 
-The result contains trace and event metadata only. Prompts, outputs, span states, person properties, and
-custom properties are removed, and `_omittedFields` and `_omittedProperties` count what was removed.
+The result contains trace and event metadata only. Prompts, outputs, span states, error messages, person
+properties, and custom properties are removed, and `_omittedFields` and `_omittedProperties` count what
+was removed.
 A trace with `_detail: { "mode": "summary" }` carries no conversation content: re-read it with
 `detail: "full"` when you need to know what was said.
 

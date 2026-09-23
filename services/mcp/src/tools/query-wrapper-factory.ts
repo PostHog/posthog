@@ -17,7 +17,7 @@ const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
 const TRACE_DETAIL_FIELD = 'detail'
 const DEFAULT_TRACE_DETAIL: TraceDetail = 'full'
 const TRACE_DETAIL_DESCRIPTION =
-    'How much of each event to return. "full" (default) returns complete event properties, subject to response size limits, preserving existing behavior when detail is omitted. Set "summary" to browse metadata only: IDs, timestamps, model, latency, tokens, cost, tool names called, and errors. A summary never contains prompts, outputs, tool payloads, person properties, or request metadata, so use "full" when you need to read what was said.'
+    'How much of each event to return. "full" (default) returns complete event properties, subject to response size limits, preserving existing behavior when detail is omitted. Set "summary" to browse metadata only: IDs, timestamps, model, latency, tokens, cost, tool names called, and the error type and status of any failure. A summary never contains prompts, outputs, tool payloads, error messages, person properties, or request metadata, so use "full" when you need to read what was said.'
 
 /**
  * Add the `detail` control to the trace wrappers only. The field is a tool-level
@@ -224,7 +224,10 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             }
 
             const data = await context.api.query({ projectId }).runQuery({ query })
-            const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
+            // The formatter renders the backend's raw results and replaces the structured
+            // payload for the client, so it would hand back the content and the size that
+            // compaction just removed. No trace formatter exists today.
+            const shouldSurfaceFormatted = !isTraceQuery && effectiveOutputFormat !== 'json' && data.formatted_results
             const results = isTraceQuery ? compactTraceResults(data.results, traceDetail) : data.results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and

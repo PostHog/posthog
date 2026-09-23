@@ -153,6 +153,7 @@ describe('compactTrace summary detail', () => {
                     $ai_output_choices: 'o'.repeat(5_000),
                     $ai_tools: [{ name: 'search', description: 'd'.repeat(2_000) }],
                     $ai_request_url: 'https://api.example.com/v1/chat',
+                    $ai_error: `invalid_request: your prompt contained ${secret}`,
                     custom_payload: 'c'.repeat(5_000),
                 },
             },
@@ -168,7 +169,7 @@ describe('compactTrace summary detail', () => {
             $ai_latency: 1.5,
             $ai_tools_called: ['search'],
             $ai_is_error: false,
-            _omittedProperties: 5,
+            _omittedProperties: 6,
         })
         expect(result.events[0].createdAt).toBe('2026-09-02T11:30:23Z')
         expect(result.events[0].event).toBe('$ai_generation')
@@ -182,6 +183,8 @@ describe('compactTrace summary detail', () => {
         ['a completion', '$ai_output_choices'],
         ['a tool definition', '$ai_tools'],
         ['request metadata', '$ai_request_url'],
+        // A provider error message quotes the failing prompt back, so it is content.
+        ['an error message', '$ai_error'],
         ['a custom property', 'custom_payload'],
     ])('returns no trace of %s under summary detail', (_label, property) => {
         const result = compactTrace(trace, MAX_SUMMARY_CHARS, 'summary') as any
@@ -227,15 +230,15 @@ describe('compactTrace summary detail', () => {
 
     it('bounds an oversized allowlisted value instead of returning it whole', () => {
         const result = compactTrace(
-            { id: 'trace-1', events: [{ id: 'e1', properties: { $ai_error: 'e'.repeat(50_000) } }] },
+            { id: 'trace-1', events: [{ id: 'e1', properties: { $ai_span_name: 'n'.repeat(50_000) } }] },
             MAX_SUMMARY_CHARS,
             'summary'
         ) as any
 
-        const error = result.events[0].properties.$ai_error as string
-        const retained = error.slice(0, error.indexOf('… [truncated'))
+        const spanName = result.events[0].properties.$ai_span_name as string
+        const retained = spanName.slice(0, spanName.indexOf('… [truncated'))
         expect(JSON.stringify(retained).length).toBeLessThanOrEqual(SUMMARY_VALUE_CHAR_LIMIT)
-        expect(error).toContain('truncated')
+        expect(spanName).toContain('truncated')
     })
 
     it('reduces structured tool metadata to names at trace and event level', () => {

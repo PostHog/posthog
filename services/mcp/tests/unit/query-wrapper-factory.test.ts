@@ -417,10 +417,10 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
 describe('createQueryWrapper trace compaction', () => {
     const schema = z.object({ kind: z.string() })
 
-    function contextWithResults(results: unknown): Context {
+    function contextWithResults(results: unknown, formatted_results?: string): Context {
         return {
             api: {
-                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results }) }),
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results, formatted_results }) }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
             stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
@@ -473,6 +473,26 @@ describe('createQueryWrapper trace compaction', () => {
         expect(summary.results[0]._detail.mode).toBe('summary')
         expect(summary.results[0].inputState).toBeUndefined()
         expect(summary.results[0].events[0].properties.custom_payload).toBeUndefined()
+    })
+
+    it.each(['TraceQuery', 'TracesQuery'])('%s never surfaces the backend formatter output', async (kind) => {
+        // Clients render the formatted string instead of the structured payload, so
+        // surfacing it would return the content and the size compaction just removed.
+        const tool = createQueryWrapper({ name: 'test', schema, kind })()
+        const context = contextWithResults([oversizedTrace], 'the whole trace as prose')
+
+        const result = (await tool.handler(context, tool.schema.parse({ kind, detail: 'summary' }))) as any
+
+        expect(result).not.toHaveProperty(POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY)
+    })
+
+    it('still surfaces the backend formatter output for a non-trace query', async () => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'HogQLQuery' })()
+        const context = contextWithResults([], 'a rendered table')
+
+        const result = (await tool.handler(context, { kind: 'HogQLQuery' })) as any
+
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('a rendered table')
     })
 
     it('strips detail from the trace query body, which the backend rejects unknown fields on', async () => {

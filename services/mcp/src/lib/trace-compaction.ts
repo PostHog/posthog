@@ -73,6 +73,10 @@ const FIT_HEADROOM = 1.2
 /**
  * The only event properties a summary returns. Every other property is treated
  * as content, so one the taxonomy gains later stays out until it is added here.
+ *
+ * `$ai_error` is absent although it reads as metadata: a provider error message
+ * routinely quotes the failing prompt back. The classification fields beside it
+ * are short labels, so a summary can still find and group every failure.
  */
 const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_trace_id',
@@ -100,7 +104,6 @@ const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_tools_called',
     '$ai_tool_call_count',
     '$ai_is_error',
-    '$ai_error',
     '$ai_error_type',
     '$ai_error_normalized',
     '$ai_http_status',
@@ -135,7 +138,7 @@ const SUMMARY_TRACE_FIELDS = new Set([
 const SUMMARY_PERSON_FIELDS = new Set(['uuid', 'distinct_id', 'created_at'])
 
 const SUMMARY_NOTE =
-    'Metadata only. Prompts, outputs, tool payloads, person properties, and request metadata are removed, and the counts under _omittedFields and _omittedProperties say how many fields went with them. Re-run this tool with detail: "full" for the complete trace, or open the trace in PostHog.'
+    'Metadata only. Prompts, outputs, tool payloads, error messages, person properties, and request metadata are removed, and the counts under _omittedFields and _omittedProperties say how many fields went with them. Re-run this tool with detail: "full" for the complete trace, or open the trace in PostHog.'
 
 function metaReserveFor(budget: number): number {
     return Math.min(META_RESERVE, Math.floor(Math.max(0, budget) * SMALL_BUDGET_RESERVE_RATIO))
