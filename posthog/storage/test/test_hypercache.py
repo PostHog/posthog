@@ -199,6 +199,19 @@ class TestHyperCacheRedisFailureDegrades(HyperCacheTestBase):
 
         assert results == {1: (None, "miss", None), 2: (None, "miss", None)}
 
+    def test_set_cache_value_redis_error_still_writes_s3_and_raises(self):
+        hc = self.hypercache
+
+        with (
+            patch.object(hc.cache_client, "set", side_effect=redis.exceptions.TimeoutError()),
+            patch.object(object_storage, "write") as mock_write,
+            patch.object(hc.cache_client, "delete"),
+        ):
+            with pytest.raises(redis.exceptions.TimeoutError):
+                hc.set_cache_value(self.team_id, self.sample_data)
+
+        mock_write.assert_called_once()
+
     def test_get_etag_redis_error_returns_none(self):
         def load_fn(team):
             return {"default": "data"}

@@ -21,10 +21,10 @@ from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
 
-# Redis/transport failures the primary cache read degrades on, mirroring the S3/load_fn tiers below.
+# Redis/transport failures the primary cache degrades on, mirroring the S3/load_fn tiers below.
 # django-redis wraps the underlying redis error in ConnectionInterrupted; we also catch the raw redis
 # errors (and the builtin socket errors under OSError) in case a backend surfaces them directly.
-_REDIS_READ_ERRORS = (
+_REDIS_ERRORS = (
     ConnectionInterrupted,
     redis.exceptions.RedisError,
     ConnectionError,
@@ -269,7 +269,7 @@ class HyperCache:
         cache_key = self.get_cache_key(key)
         try:
             data = self.cache_client.get(cache_key)
-        except _REDIS_READ_ERRORS as e:
+        except _REDIS_ERRORS as e:
             # A Redis outage on the primary read must degrade to the S3/DB tiers below, never
             # bubble a 500 up to the request handler. Capture it for visibility, the way the S3
             # branch does, then fall through as a cache miss.
@@ -354,10 +354,16 @@ class HyperCache:
 
         try:
             cached_values = self.cache_client.get_many(cache_keys + etag_keys)
-        except _REDIS_READ_ERRORS as e:
+        except _REDIS_ERRORS as e:
             # Degrade a Redis outage to an all-miss result rather than raising; there is no
             # S3/DB fallback in batch mode, so every team resolves to a clean "miss" below.
-            capture_exception(e)
+            logger.warning(
+                "HyperCache batch cache read failed, treating the batch as a miss",
+                namespace=self.namespace,
+                value=self.value,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             cached_values = {}
 
         # Map results back to team IDs, counting hits and misses for batch metrics
@@ -397,7 +403,7 @@ class HyperCache:
             return None
         try:
             return self.cache_client.get(self.get_etag_key(key))
-        except _REDIS_READ_ERRORS as e:
+        except _REDIS_ERRORS as e:
             # Degrade a Redis outage to a missing ETag rather than raising; callers treat a
             # None ETag as a miss/mismatch and fall back to the full response.
             capture_exception(e)
@@ -413,7 +419,7 @@ class HyperCache:
             return True
         try:
             return self.secondary_cache_client.get(self.get_etag_key(key)) == etag
-        except _REDIS_READ_ERRORS as e:
+        except _REDIS_ERRORS as e:
             HYPERCACHE_MIRROR_FAILURE_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
             capture_exception(e)
             return False
@@ -558,12 +564,23 @@ class HyperCache:
             if etag == self.get_etag(key) and self._secondary_etag_matches(key, etag):
                 HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
                 return len(json_data)
-        size = self._set_cache_value_redis(key, data, ttl=ttl, json_data=json_data)
+        size: int | None = None
+        redis_error: Exception | None = None
+        try:
+            size = self._set_cache_value_redis(key, data, ttl=ttl, json_data=json_data)
+        except _REDIS_ERRORS as e:
+            # A Redis failure must not abort the colder tiers. S3 is what readers fall back to,
+            # so a return here keeps the older payload in object storage until the next
+            # successful rebuild. Write the remaining tiers first, then re-raise so the caller
+            # still counts the write as a failure.
+            redis_error = e
         if self.s3_enabled:
             self._set_cache_value_s3(key, data, ttl=ttl)
         # Only track expiry when we have a Team object (avoids DB lookup)
         if isinstance(key, Team):
             self._track_expiry(key, data, ttl=ttl)
+        if redis_error is not None:
+            raise redis_error
         return size
 
     def set_cache_value_redis_only(
@@ -762,4 +779,3 @@ class HyperCache:
                 error=str(e),
                 error_type=type(e).__name__,
             )
-            capture_exception(e)
