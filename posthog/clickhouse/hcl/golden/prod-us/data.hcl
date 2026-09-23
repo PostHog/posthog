@@ -7606,6 +7606,18 @@ database "posthog" {
     column "fcp_quantiles_state" {
       type = "AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64)"
     }
+    column "inp_count" {
+      type = "UInt64"
+    }
+    column "lcp_count" {
+      type = "UInt64"
+    }
+    column "cls_count" {
+      type = "UInt64"
+    }
+    column "fcp_count" {
+      type = "UInt64"
+    }
     column "computed_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "now()"

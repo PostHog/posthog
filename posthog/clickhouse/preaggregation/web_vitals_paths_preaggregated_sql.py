@@ -59,6 +59,15 @@ CREATE TABLE IF NOT EXISTS {table_name}
     cls_quantiles_state AggregateFunction(quantiles(0.75, 0.90, 0.99), Float64),
     fcp_quantiles_state AggregateFunction(quantiles(0.75, 0.90, 0.99), Float64),
 
+    -- Number of measurements behind each reservoir, summed across day buckets
+    -- at read time. A quantile over one measurement is indistinguishable from a
+    -- quantile over ten thousand, so the read path needs the count to tell a
+    -- consistently slow page from a single unlucky sample.
+    inp_count UInt64,
+    lcp_count UInt64,
+    cls_count UInt64,
+    fcp_count UInt64,
+
     -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
 

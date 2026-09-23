@@ -3153,6 +3153,10 @@ CREATE TABLE posthog.sharded_web_vitals_paths_preaggregated (
   lcp_quantiles_state AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64),
   cls_quantiles_state AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64),
   fcp_quantiles_state AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64),
+  inp_count UInt64,
+  lcp_count UInt64,
+  cls_count UInt64,
+  fcp_count UInt64,
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_vitals_paths_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, time_window_start, path) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
@@ -3634,6 +3638,10 @@ CREATE TABLE posthog.web_vitals_paths_preaggregated (
   lcp_quantiles_state AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64),
   cls_quantiles_state AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64),
   fcp_quantiles_state AggregateFunction(quantiles(0.75, 0.9, 0.99), Float64),
+  inp_count UInt64,
+  lcp_count UInt64,
+  cls_count UInt64,
+  fcp_count UInt64,
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_web_vitals_paths_preaggregated', sipHash64(job_id));
