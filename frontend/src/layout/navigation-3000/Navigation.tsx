@@ -126,7 +126,18 @@ export function Navigation({
                 }
             >
                 {showMinimalNavigation && <MinimalNavigation />}
-                <main className={mode === 'zen' ? 'p-4' : undefined}>{children}</main>
+                <main
+                    {...(mode === 'framed' ? { ref: mainRef, id: 'main-content', role: 'main' } : {})}
+                    className={cn({
+                        'p-4': mode === 'zen',
+                        // In an OS window this element is the scroll container, so it carries the id, ref and
+                        // container name that scroll helpers, layout measurement and container queries look up.
+                        '@container/main-content flex-1 min-h-0 overflow-y-auto': mode === 'framed',
+                        'p-4 pb-0': mode === 'framed' && !noPaddingScene,
+                    })}
+                >
+                    {children}
+                </main>
             </div>
         )
     }

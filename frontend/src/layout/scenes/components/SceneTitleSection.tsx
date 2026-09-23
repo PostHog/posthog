@@ -65,6 +65,7 @@ export function SceneTitlePanelButton({
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
+    const { mode } = useValues(navigation3000Logic)
 
     const inactiveMaxToolProps: UseMaxToolOptions = { identifier: 'read_data', active: false }
     const { openMax, definition } = useMaxTool(maxToolProps ? { ...maxToolProps, active: true } : inactiveMaxToolProps)
@@ -75,7 +76,8 @@ export function SceneTitlePanelButton({
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
 
-    if (sidePanelOpen) {
+    // An OS window has no side panel for these buttons to open.
+    if (sidePanelOpen || mode === 'framed') {
         return null
     }
 

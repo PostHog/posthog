@@ -5,12 +5,14 @@ import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
 
@@ -28,6 +30,7 @@ jest.mock('lib/api', () => ({
 const Component = (): JSX.Element => <div />
 const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
+const settingsTestLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'settingsTest'])])
 
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
@@ -36,7 +39,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.OrganizationCreateFirst]: sceneImport,
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
-    [Scene.Settings]: sceneImport,
+    [Scene.Settings]: (): any => ({ scene: { component: Component, logic: settingsTestLogic } }),
     [Scene.ProjectFiles]: sceneImport,
 }
 
@@ -87,6 +90,20 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId,
         })
+    })
+
+    it.each([
+        ['off, the page shows the regular layout and mounts', false, 'full', true],
+        ['on, the OS shell frames the scene and the page skips', true, 'os', false],
+    ])('with the OS shell flag %s the scene logic', async (_description, osShell, expectedMode, logicMounted) => {
+        await expectLogic(logic).toDispatchActions(['setScene']).toMatchValues({ sceneId: Scene.DataManagement })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.OS_SHELL]: osShell })
+        navigation3000Logic.mount()
+        router.actions.push(urls.settings('user'))
+        await expectLogic(logic).toDispatchActions(['setScene']).toMatchValues({ sceneId: Scene.Settings })
+
+        expect(navigation3000Logic.values.mode).toBe(expectedMode)
+        expect(settingsTestLogic.isMounted()).toBe(logicMounted)
     })
 
     it('redirects the hyphenated /feature-flags path to the underscore scene route', async () => {

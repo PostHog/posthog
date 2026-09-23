@@ -2249,7 +2249,9 @@ class TestCSPMiddleware(APIBaseTest):
         # Framing is enforced ahead of the flag because it is what lets posthog.com frame the app.
         # The enforced list has to be the one the reported policy names, or the two drift apart.
         enforced = response["Content-Security-Policy"]
-        assert enforced.startswith("frame-ancestors https://posthog.com")
+        assert enforced.startswith("frame-ancestors ")
+        # 'self' lets the OS shell open the app in its own windows.
+        assert {"'self'", "https://posthog.com", "https://preview.posthog.com"} <= set(enforced.split()[1:])
         assert "default-src" not in enforced
         assert enforced in reported
 

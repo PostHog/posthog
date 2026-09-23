@@ -7,13 +7,16 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { onboardingVariantChrome, resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { isOsFrame } from 'scenes/os/bridge/osFrame'
+import { resolveOsShellMode } from 'scenes/os/osShellMode'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import type { SceneConfig } from '../../scenes/sceneTypes'
 import { navigationLogic } from '../navigation/navigationLogic'
 
-export type Navigation3000Mode = 'none' | 'minimal' | 'zen' | 'full'
+/** `os` renders the OS shell in place of the regular layout, and `framed` shows only the scene inside an OS window. */
+export type Navigation3000Mode = 'none' | 'minimal' | 'zen' | 'full' | 'os' | 'framed'
 
 export type ZenModeTrigger = 'shortcut' | 'account_menu' | 'help_menu' | 'exit_button' | 'url'
 
@@ -23,7 +26,9 @@ export interface navigation3000LogicValues {
     isCurrentOrganizationUnavailable: boolean // organizationLogic
     activeSceneId: string | null // sceneLogic
     sceneConfig: SceneConfig | null // sceneLogic
+    isOsFrame: boolean
     mode: Navigation3000Mode
+    regularMode: Navigation3000Mode
     zenMode: boolean
     zenModeFromUrl: boolean
 }
@@ -46,12 +51,19 @@ export interface navigation3000LogicActions {
 export interface navigation3000LogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         zenModeFromUrl: (searchParams: Record<string, any>) => boolean
-        mode: (
+        regularMode: (
             sceneConfig: SceneConfig | null,
             isCurrentOrganizationUnavailable: boolean,
             zenMode: boolean,
             activeSceneId: string | null,
             featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+        ) => Navigation3000Mode
+        mode: (
+            regularMode: Navigation3000Mode,
+            isOsFrame: boolean,
+            featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+            sceneConfig: SceneConfig | null,
+            isCurrentOrganizationUnavailable: boolean
         ) => Navigation3000Mode
     }
 }
@@ -105,7 +117,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 return zenParam !== undefined && zenParam !== 'false' && zenParam !== '0'
             },
         ],
-        mode: [
+        isOsFrame: [() => [], (): boolean => isOsFrame(window)],
+        regularMode: [
             (s) => [
                 s.sceneConfig,
                 s.isCurrentOrganizationUnavailable,
@@ -140,6 +153,28 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 }
                 return sceneConfig?.layout !== 'plain' ? 'full' : 'none'
             },
+        ],
+        mode: [
+            (s) => [
+                s.regularMode,
+                s.isOsFrame,
+                featureFlagLogic.selectors.featureFlags,
+                s.sceneConfig,
+                s.isCurrentOrganizationUnavailable,
+            ],
+            (
+                regularMode: Navigation3000Mode,
+                framed: boolean,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                sceneConfig: SceneConfig | null,
+                isCurrentOrganizationUnavailable: boolean
+            ): Navigation3000Mode =>
+                resolveOsShellMode(regularMode, {
+                    osShellEnabled: !!featureFlags[FEATURE_FLAGS.OS_SHELL],
+                    framed,
+                    sceneConfig,
+                    organizationUnavailable: isCurrentOrganizationUnavailable,
+                }),
         ],
     }),
     subscriptions(({ actions, values }) => ({

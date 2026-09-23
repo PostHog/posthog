@@ -1,7 +1,11 @@
 import { MakeLogicType, kea, path } from 'kea'
 import { urlToAction } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { isOsFrame } from 'scenes/os/bridge/osFrame'
+import { osShellHostsPage } from 'scenes/os/osShellMode'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { SidePanelTab } from '~/types'
@@ -11,6 +15,10 @@ import { SUPPORT_KIND_TO_SUBJECT, supportLogic } from './supportLogic'
 // Mirrors navigationLogic's `mode === 'full'` (the condition that mounts <SidePanel />), derived from
 // sources supportLogic can't import without a billingLogic init cycle. Keep here, not in supportLogic.
 function shouldUseSidePanel(searchParams: Record<string, any>): boolean {
+    // An OS window shows only the scene, so it has no <SidePanel />.
+    if (isOsFrame(window)) {
+        return false
+    }
     const zenFromUrl = searchParams?.zen !== undefined && searchParams.zen !== 'false' && searchParams.zen !== '0'
     if (zenFromUrl) {
         return false
@@ -29,6 +37,16 @@ export const supportRouterLogic = kea<supportRouterLogicType>([
     urlToAction(() => ({
         '*': (_, searchParams, hashParams) => {
             if (supportLogic.findMounted()?.values.isSupportFormOpen) {
+                return
+            }
+            // The OS shell opens this URL in a window, and the window handles the link itself.
+            const osShellHostsScene = osShellHostsPage({
+                osShellEnabled: !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.OS_SHELL],
+                framed: isOsFrame(window),
+                sceneConfig: sceneLogic.findMounted()?.values.sceneConfig ?? null,
+                organizationUnavailable: !!organizationLogic.findMounted()?.values.isCurrentOrganizationUnavailable,
+            })
+            if (osShellHostsScene) {
                 return
             }
 

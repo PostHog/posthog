@@ -18,10 +18,12 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { GlobalModals } from '~/layout/GlobalModals'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
+import { OsShell } from './os/shell/OsShell'
 import { sceneLogic } from './sceneLogic'
 
 const TerminalDock = lazyWithRetry(() =>
@@ -38,11 +40,14 @@ export default function AuthenticatedShell({ children }: { children: React.React
     const { sceneConfig } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+    const { mode } = useValues(navigation3000Logic)
 
     return (
         <>
             <div className="contents isolate">
-                <Navigation sceneConfig={sceneConfig}>{children}</Navigation>
+                {/* The OS shell opens the current URL in a window frame, so the scene renders there
+                    and not in this page. */}
+                {mode === 'os' ? <OsShell /> : <Navigation sceneConfig={sceneConfig}>{children}</Navigation>}
                 <GlobalModals />
                 <GlobalShortcuts />
                 {featureFlags[FEATURE_FLAGS.POSTHOG_TERMINAL] && (

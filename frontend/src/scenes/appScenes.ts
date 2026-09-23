@@ -70,6 +70,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.OnboardingCoupon]: () => import('./onboarding/legacy/coupon/OnboardingCouponRedemption'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
+    [Scene.Os]: () => import('./os/OsScene'),
     [Scene.PasswordResetComplete]: () => import('./authentication/password-reset/PasswordResetComplete'),
     [Scene.AccountConnected]: () => import('./authentication/account/AccountConnected'),
     [Scene.CredentialReview]: () => import('./authentication/account/credential-review/CredentialReview'),
