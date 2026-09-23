@@ -334,10 +334,8 @@ class CoreMemory(UUIDTModel):
 
     @property
     def formatted_text(self) -> str:
-        # The read window matches the write cap, so a memory that the settings page accepted is passed
-        # to the agent whole. Rows stored before the write cap landed can still be over it, and those
-        # keep the head and the tail, because the foundational /init facts sit at the start and the
-        # freshest memories sit at the end.
+        # A row stored before the write cap landed can still be over it. It keeps the head and the tail,
+        # because the foundational /init facts sit at the start and the freshest memories sit at the end.
         if len(self.text) > CORE_MEMORY_MAX_CHARACTERS:
             logger.warning(
                 "core_memory_read_truncated",

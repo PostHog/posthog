@@ -219,9 +219,8 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
                 Math.max(0, CORE_MEMORY_MAX_CHARACTERS - (coreMemory?.text?.length ?? 0)),
         ],
         coreMemoryLowOnSpace: [
-            (s) => [s.coreMemorySpaceLeft, s.coreMemory],
-            (coreMemorySpaceLeft: number, coreMemory: CoreMemory | null) =>
-                !!coreMemory && coreMemorySpaceLeft <= CORE_MEMORY_LOW_SPACE_CHARACTERS,
+            (s) => [s.coreMemorySpaceLeft],
+            (coreMemorySpaceLeft: number) => coreMemorySpaceLeft <= CORE_MEMORY_LOW_SPACE_CHARACTERS,
         ],
     }),
 
