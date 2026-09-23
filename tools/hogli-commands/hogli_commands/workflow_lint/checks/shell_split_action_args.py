@@ -55,12 +55,18 @@ UNSAFE_ARG_RE = re.compile(r"[^ A-Za-z0-9._/@:=+-]")
 # value in its own token, so a repetition that accepted only flags stopped at
 # that value and left the whole invocation uninspected.
 SHELL_OPTION = r"(?:(?:[-+][oO]|--(?:rcfile|init-file))\s+\S+|[-+]\S+)\s+"
+# The three segment forms. A shell joins ADJACENT segments into one word, so
+# `'tool '"$ARGS"` is a single operand in two segments, each quoted its own way.
+DQUOTED = r"\"(?:[^\"\\]|\\.)*\""
+SQUOTED = r"'[^']*'"
+UNQUOTED = r"[^\s\"']+"
+OPERAND_SEGMENT_RE = re.compile(rf"(?P<dquoted>{DQUOTED})|(?P<squoted>{SQUOTED})|(?P<bare>{UNQUOTED})")
 SHELL_C_RE = re.compile(
-    # All three operand forms. Quoting the operand does not make the value in it
+    # The whole operand word. Quoting a segment does not make the value in it
     # safe, and leaving it bare (`sh -c $FLAGS`) is if anything worse -- the
     # operand is then split before the inner shell even sees it.
     rf"\b(?:sh|bash|dash|zsh|ksh)\b\s+(?:{SHELL_OPTION})*-[a-zA-Z]*c\s+"
-    r"(?:\"(?P<dquoted>(?:[^\"\\]|\\.)*)\"|'(?P<squoted>[^']*)'|(?P<bare>\S+))",
+    rf"(?P<operand>(?:{DQUOTED}|{SQUOTED}|{UNQUOTED})+)",
 )
 VAR_REF_RE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_]\w*)[^}]*\}|(?P<plain>[A-Za-z_]\w*))")
 # Any `${{ ... }}` block, then the input names inside it. Matching only a bare
@@ -211,6 +217,22 @@ def _quoted_spans(script: str) -> list[_Span]:
     return spans
 
 
+def _operand_segments(operand: str) -> Iterator[tuple[str, bool]]:
+    """Each segment of the `-c` operand word, with whether the OUTER shell expands it.
+
+    A single-quoted segment reaches the inner shell verbatim, so the inner shell
+    is what expands anything in it. Every other segment is expanded by the outer
+    shell first, before the inner shell sees the text at all.
+    """
+    for segment in OPERAND_SEGMENT_RE.finditer(operand):
+        if (squoted := segment.group("squoted")) is not None:
+            yield squoted[1:-1], False
+        elif (dquoted := segment.group("dquoted")) is not None:
+            yield dquoted[1:-1], True
+        else:
+            yield segment.group("bare"), True
+
+
 def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
     """Input names this composite step splices into an inner shell command string."""
     run = step.get("run")
@@ -225,30 +247,29 @@ def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
             for name in _expression_inputs(value):
                 by_var[str(var)] = name
     for shell_c in SHELL_C_RE.finditer(run):
-        squoted = shell_c.group("squoted")
-        script = shell_c.group("dquoted") or squoted or shell_c.group("bare") or ""
-        # Inner quotes protect a variable ONLY inside a single-quoted operand.
-        # There the outer shell passes the text through untouched and the inner
-        # shell expands `"$ARGS"` itself, giving one argument. With a
-        # double-quoted or bare operand the OUTER shell expands the variable into
-        # the script text first, so a quote in the value closes the quote around
-        # it -- the same pre-substitution problem GitHub expressions have.
-        quoted = _quoted_spans(script) if squoted is not None else []
-        for ref in VAR_REF_RE.finditer(script):
-            if any(span.start <= ref.start() < span.end for span in quoted):
-                continue
-            name = by_var.get(ref.group("braced") or ref.group("plain") or "")
-            if name is not None:
-                yield name
-        # an input interpolated straight into the script, with no env hop
-        # NO quote check here, unlike the variable references above, and the
-        # difference is the whole point. A shell variable is expanded AFTER the
-        # shell parses quotes, so `"$ARGS"` is one argument whatever it holds.
-        # A GitHub expression is substituted into the script text BEFORE any
-        # shell runs, so a quote inside the value closes the quote around it and
-        # the rest is re-parsed as script. Quoting cannot protect it; only
-        # passing it through `env:` and referencing the variable can.
-        yield from _expression_inputs(script)
+        for script, outer_expanded in _operand_segments(shell_c.group("operand")):
+            # Inner quotes protect a variable ONLY inside a single-quoted segment.
+            # There the outer shell passes the text through untouched and the inner
+            # shell expands `"$ARGS"` itself, giving one argument. In a
+            # double-quoted or bare segment the OUTER shell expands the variable into
+            # the script text first, so a quote in the value closes the quote around
+            # it -- the same pre-substitution problem GitHub expressions have.
+            quoted = [] if outer_expanded else _quoted_spans(script)
+            for ref in VAR_REF_RE.finditer(script):
+                if any(span.start <= ref.start() < span.end for span in quoted):
+                    continue
+                name = by_var.get(ref.group("braced") or ref.group("plain") or "")
+                if name is not None:
+                    yield name
+            # an input interpolated straight into the script, with no env hop
+            # NO quote check here, unlike the variable references above, and the
+            # difference is the whole point. A shell variable is expanded AFTER the
+            # shell parses quotes, so `"$ARGS"` is one argument whatever it holds.
+            # A GitHub expression is substituted into the script text BEFORE any
+            # shell runs, so a quote inside the value closes the quote around it and
+            # the rest is re-parsed as script. Quoting cannot protect it; only
+            # passing it through `env:` and referencing the variable can.
+            yield from _expression_inputs(script)
 
 
 def derive_shell_split_inputs(repo_root: Path) -> dict[str, frozenset[str]]:

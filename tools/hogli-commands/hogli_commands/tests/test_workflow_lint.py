@@ -2444,6 +2444,23 @@ class TestShellSplitActionArgsCheck:
         assert derive_shell_split_inputs(tmp_path).get(".github/actions/bare") == frozenset({"flags"})
 
     @pytest.mark.parametrize(
+        ("run", "spliced"),
+        [
+            # a shell joins adjacent segments into ONE word, and the outer shell
+            # expands the double-quoted and bare ones while doing so
+            ("sh -c 'tool '\"$ARGS\"", True),
+            ('sh -c "tool "$ARGS', True),
+            # both segments single-quoted: the text reaches the inner shell
+            # untouched, so its own quotes still protect the variable
+            ("sh -c 'tool \"$ARGS\"'' --flag'", False),
+        ],
+    )
+    def test_derivation_reads_a_concatenated_shell_c_operand(self, tmp_path: Path, run: str, spliced: bool) -> None:
+        # Reading only the first segment left the rest of the operand uninspected.
+        self._write_action(tmp_path, "joined", run)
+        assert (".github/actions/joined" in derive_shell_split_inputs(tmp_path)) is spliced, run
+
+    @pytest.mark.parametrize(
         "invocation",
         [
             "bash -lc",
