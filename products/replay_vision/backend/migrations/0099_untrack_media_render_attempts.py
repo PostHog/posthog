@@ -1,7 +1,6 @@
 from django.db import migrations
 
-from posthog.migration_helpers import SafeRemoveIndexConcurrently
-from posthog.migration_helpers.untrack_field import untrack_field
+from posthog.migration_helpers import SafeRemoveIndexConcurrently, untrack_field
 
 
 class Migration(migrations.Migration):
