@@ -120,14 +120,20 @@ async fn main() {
 
     let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
     let authorizer = Authorizer::new(Arc::new(token_dropper));
-    let logs_service =
-        match Service::new(kafka_sink, authorizer, config.max_request_body_size_bytes).await {
-            Ok(service) => service,
-            Err(e) => {
-                error!("Failed to initialize log service: {}", e);
-                panic!("Could not start log capture service: {e}");
-            }
-        };
+    let logs_service = match Service::new(
+        kafka_sink,
+        authorizer,
+        config.max_request_body_size_bytes,
+        config.max_backfill_days,
+    )
+    .await
+    {
+        Ok(service) => service,
+        Err(e) => {
+            error!("Failed to initialize log service: {}", e);
+            panic!("Could not start log capture service: {e}");
+        }
+    };
     let http_bind = format!("{}:{}", config.host, config.port);
     info!("Listening on {}", http_bind);
     let http_listener = tokio::net::TcpListener::bind(http_bind)

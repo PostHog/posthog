@@ -28,6 +28,11 @@ pub struct Config {
 
     #[envconfig(from = "MAX_REQUEST_BODY_SIZE_BYTES", default = "2097152")] // 2MB (Axum default)
     pub max_request_body_size_bytes: usize,
+
+    /// How far back a request may ask to keep its own timestamps, through the `backfill_days`
+    /// query parameter. Zero turns historical imports off.
+    #[envconfig(from = "MAX_BACKFILL_DAYS", default = "0")]
+    pub max_backfill_days: u32,
 }
 
 impl Config {

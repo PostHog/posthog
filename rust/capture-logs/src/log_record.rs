@@ -98,6 +98,7 @@ impl KafkaLogRow {
         record: LogRecord,
         resource: Option<Resource>,
         scope: Option<InstrumentationScope>,
+        max_past: TimeDelta,
     ) -> Result<(Self, bool)> {
         // Extract body - convert any AnyValue type to JSON string
         let body = match record.body {
@@ -159,7 +160,8 @@ impl KafkaLogRow {
             _ => DateTime::<Utc>::from_timestamp_nanos(record.time_unix_nano.try_into()?),
         };
 
-        let (timestamp, original_timestamp) = override_timestamp(raw_timestamp);
+        let (timestamp, original_timestamp) =
+            override_timestamp_with_past_limit(raw_timestamp, max_past);
         let was_overridden = original_timestamp.is_some();
         if let Some(original) = original_timestamp {
             attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
@@ -194,15 +196,41 @@ impl KafkaLogRow {
     }
 }
 
-const TIMESTAMP_OVERRIDE_HOURS: i64 = 24;
+const DEFAULT_MAX_PAST_HOURS: i64 = 24;
 
-/// Override timestamps outside of 24 hours from now. Returns the final timestamp
-/// and the original if it was overridden.
+/// The past bound applied when a caller does not choose one.
+pub fn default_max_past() -> TimeDelta {
+    TimeDelta::hours(DEFAULT_MAX_PAST_HOURS)
+}
+
+/// The future bound is deliberately separate from the past bound and never widens. A
+/// timestamp ahead of the ingest time is always a client clock error, while a timestamp far
+/// behind it is what a historical import legitimately sends. Widening both together would let
+/// one client write rows past the end of every other query range on the team.
+const MAX_FUTURE_HOURS: i64 = 24;
+
+/// Override timestamps outside the accepted window. Returns the final timestamp and the
+/// original if it was overridden.
 pub fn override_timestamp(timestamp: DateTime<Utc>) -> (DateTime<Utc>, Option<DateTime<Utc>>) {
-    let now = Utc::now();
-    let max_delta = TimeDelta::hours(TIMESTAMP_OVERRIDE_HOURS);
+    override_timestamp_with_past_limit(timestamp, default_max_past())
+}
 
-    if timestamp < now - max_delta || timestamp > now + max_delta {
+/// As `override_timestamp`, with the past bound chosen by the caller so a historical import can
+/// keep its original timestamps. The future bound stays fixed.
+pub fn override_timestamp_with_past_limit(
+    timestamp: DateTime<Utc>,
+    max_past: TimeDelta,
+) -> (DateTime<Utc>, Option<DateTime<Utc>>) {
+    let now = Utc::now();
+
+    // `DateTime`'s `Sub` panics when the result leaves chrono's year range, which a large
+    // configured backfill ceiling can reach. Fall back to the earliest representable instant so
+    // an oversized bound accepts every past timestamp, which is what the operator asked for.
+    let earliest = now
+        .checked_sub_signed(max_past)
+        .unwrap_or(DateTime::<Utc>::MIN_UTC);
+
+    if timestamp < earliest || timestamp > now + TimeDelta::hours(MAX_FUTURE_HOURS) {
         (now, Some(timestamp))
     } else {
         (timestamp, None)
@@ -534,7 +562,7 @@ mod tests {
     #[test]
     fn test_new_populates_bytes_uncompressed() {
         let log_record = LogRecord::default();
-        let (row, _) = KafkaLogRow::new(log_record, None, None).expect("ok");
+        let (row, _) = KafkaLogRow::new(log_record, None, None, default_max_past()).expect("ok");
         assert!(row.bytes_uncompressed.is_some());
         assert_eq!(
             row.bytes_uncompressed.unwrap(),
@@ -543,47 +571,89 @@ mod tests {
     }
 
     #[test]
-    fn test_override_timestamp_within_range_is_unchanged() {
-        let now = Utc::now();
-        let one_hour_ago = now - TimeDelta::hours(1);
-        let (final_ts, original) = override_timestamp(one_hour_ago);
-        assert_eq!(final_ts, one_hour_ago);
+    fn override_timestamp_keeps_a_timestamp_inside_the_window() {
+        let wide_past = TimeDelta::days(500);
+
+        for (case, offset, max_past) in [
+            ("an hour ago", TimeDelta::hours(-1), default_max_past()),
+            (
+                "just inside the default bound",
+                TimeDelta::hours(-22),
+                default_max_past(),
+            ),
+            (
+                "400 days ago, inside a widened bound",
+                TimeDelta::days(-400),
+                wide_past,
+            ),
+        ] {
+            let now = Utc::now();
+            let timestamp = now + offset;
+
+            let (final_ts, original) = override_timestamp_with_past_limit(timestamp, max_past);
+
+            assert_eq!(final_ts, timestamp, "{case}");
+            assert!(original.is_none(), "{case}");
+        }
+    }
+
+    #[test]
+    fn override_timestamp_replaces_a_timestamp_outside_the_window() {
+        let wide_past = TimeDelta::days(500);
+
+        for (case, offset, max_past) in [
+            (
+                "just past the default bound",
+                TimeDelta::hours(-24) - TimeDelta::seconds(1),
+                default_max_past(),
+            ),
+            ("two days ago", TimeDelta::hours(-48), default_max_past()),
+            (
+                "400 days ago, past a narrower widened bound",
+                TimeDelta::days(-400),
+                TimeDelta::days(300),
+            ),
+            // A widened past bound must not widen the future bound, or one client with a fast
+            // clock could write rows past the end of every other query range on the team.
+            (
+                "a day ahead, widened past bound",
+                TimeDelta::hours(25),
+                wide_past,
+            ),
+        ] {
+            let now = Utc::now();
+            let timestamp = now + offset;
+
+            let (final_ts, original) = override_timestamp_with_past_limit(timestamp, max_past);
+
+            assert!(
+                (final_ts - now).num_seconds().abs() < 2,
+                "{case}: expected the ingest time, got {final_ts}"
+            );
+            assert_eq!(original.unwrap(), timestamp, "{case}");
+        }
+    }
+
+    #[test]
+    fn override_timestamp_keeps_a_timestamp_under_an_oversized_past_bound() {
+        let timestamp = Utc::now() - TimeDelta::days(400);
+
+        // A bound this wide makes `now - max_past` leave chrono's range.
+        let (final_ts, original) =
+            override_timestamp_with_past_limit(timestamp, TimeDelta::days(200_000_000));
+
+        assert_eq!(final_ts, timestamp);
         assert!(original.is_none());
     }
 
     #[test]
-    fn test_override_timestamp_far_past_is_overridden() {
-        let now = Utc::now();
-        let two_days_ago = now - TimeDelta::hours(48);
-        let (final_ts, original) = override_timestamp(two_days_ago);
-        assert!((final_ts - now).num_seconds().abs() < 2);
-        assert_eq!(original.unwrap(), two_days_ago);
-    }
+    fn override_timestamp_applies_a_24_hour_past_bound() {
+        // Asserts only the reported original, because the replacement value is the ingest time
+        // and comparing that across two calls races the clock.
+        let inside = Utc::now() - TimeDelta::hours(23);
+        let outside = Utc::now() - TimeDelta::hours(25);
 
-    #[test]
-    fn test_override_timestamp_far_future_is_overridden() {
-        let now = Utc::now();
-        let two_days_ahead = now + TimeDelta::hours(48);
-        let (final_ts, original) = override_timestamp(two_days_ahead);
-        assert!((final_ts - now).num_seconds().abs() < 2);
-        assert_eq!(original.unwrap(), two_days_ahead);
-    }
-
-    #[test]
-    fn test_override_timestamp_at_boundary_is_not_overridden() {
-        let now = Utc::now();
-        let just_within = now - TimeDelta::hours(22);
-        let (final_ts, original) = override_timestamp(just_within);
-        assert_eq!(final_ts, just_within);
-        assert!(original.is_none());
-    }
-
-    #[test]
-    fn test_override_timestamp_just_past_boundary_is_overridden() {
-        let now = Utc::now();
-        let just_outside = now - TimeDelta::hours(24) - TimeDelta::seconds(1);
-        let (final_ts, original) = override_timestamp(just_outside);
-        assert!((final_ts - now).num_seconds().abs() < 2);
-        assert_eq!(original.unwrap(), just_outside);
+        assert!(override_timestamp(inside).1.is_none());
+        assert_eq!(override_timestamp(outside).1, Some(outside));
     }
 }
