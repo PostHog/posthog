@@ -4,11 +4,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 export interface trendingInsightsLogicValues {
     expandedInsightIds: Set<string>
-    trendingInsights: QueryBasedInsightModel[]
+    trendingInsights: InsightModel[]
     trendingInsightsLoading: boolean
     trendingInsightsLoadedError: boolean
 }
@@ -17,11 +17,11 @@ export interface trendingInsightsLogicActions {
     loadTrendingInsights: () => any
     loadTrendingInsightsFailure: (error: string, errorObject?: any) => { error: string; errorObject?: any }
     loadTrendingInsightsSuccess: (
-        trendingInsights: QueryBasedInsightModel[],
+        trendingInsights: InsightModel[],
         payload?: any
     ) => {
         payload?: any
-        trendingInsights: QueryBasedInsightModel[]
+        trendingInsights: InsightModel[]
     }
     toggleInsightExpanded: (insightShortId: string) => { insightShortId: string }
 }
@@ -35,7 +35,7 @@ export const trendingInsightsLogic = kea<trendingInsightsLogicType>([
     }),
     loaders({
         trendingInsights: {
-            __default: [] as QueryBasedInsightModel[],
+            __default: [] as InsightModel[],
             loadTrendingInsights: async () => {
                 const insights = await api.insights.trending({ days: 7, limit: 5 })
                 return insights.map(getQueryBasedInsightModel)

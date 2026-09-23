@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   search: {} as Record<string, unknown>,
 }));
 
+vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
+  useWorkLayout: () => false,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => mocks.channelsLayout,
 }));
