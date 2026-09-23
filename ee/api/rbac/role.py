@@ -198,7 +198,8 @@ class RoleMembershipViewSet(
     scope_object = "organization"
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     serializer_class = RoleMembershipSerializer
-    queryset = RoleMembership.objects.valid_for_authorization().select_related("role")
+    # id breaks joined_at ties, so limit/offset pages can't skip or repeat a membership.
+    queryset = RoleMembership.objects.valid_for_authorization().select_related("role").order_by("joined_at", "id")
     filter_rewrite_rules = {"organization_id": "role__organization_id"}
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:

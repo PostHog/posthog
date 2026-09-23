@@ -1,3 +1,8 @@
+from uuid import uuid4
+
+from django.db import connection
+from django.utils import timezone
+
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
@@ -141,6 +146,38 @@ class TestRoleMembershipAPI(APILicensedTest):
         assert get_res.json()["count"] == 1
         assert get_res.json()["results"][0]["user"]["distinct_id"] == user_a.distinct_id
         assert str(user_b.email) not in get_res.content.decode()
+
+    def test_paginated_listing_is_stable_when_memberships_share_a_joined_at(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        # Descending ids on one timestamp: an unordered query returns insertion order, the reverse.
+        membership_ids = sorted((uuid4() for _ in range(6)), reverse=True)
+        for index, membership_id in enumerate(membership_ids):
+            user = User.objects.create_and_join(self.organization, f"member-{index}@posthog.com", None)
+            RoleMembership.objects.create(
+                id=membership_id,
+                role=self.eng_role,
+                user=user,
+                organization_member=user.organization_memberships.get(organization=self.organization),
+            )
+        RoleMembership.objects.filter(role=self.eng_role).update(joined_at=timezone.now())
+
+        paged_ids: list[str] = []
+        with connection.cursor() as cursor:
+            # Postgres keeps a small table stable through an index scan, which hides the missing sort.
+            cursor.execute("SET enable_indexscan = off; SET enable_bitmapscan = off")
+        try:
+            for offset in range(0, len(membership_ids), 2):
+                res = self.client.get(
+                    f"/api/organizations/@current/roles/{self.eng_role.id}/role_memberships?limit=2&offset={offset}"
+                )
+                assert res.status_code == status.HTTP_200_OK
+                paged_ids.extend(membership["id"] for membership in res.json()["results"])
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("RESET enable_indexscan; RESET enable_bitmapscan")
+
+        assert paged_ids == [str(membership_id) for membership_id in sorted(membership_ids)]
 
     def test_cannot_add_user_to_role_in_different_organization_vulnerability(self):
         """
