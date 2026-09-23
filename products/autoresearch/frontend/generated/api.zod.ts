@@ -122,6 +122,54 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Inject a free-text hypothesis or direction into a running pipeline. The sandbox agent reads queued suggestions at the start of each iteration batch and decides: translate into a concrete iteration ('acted_on'), apply as a search constraint ('picked_up'), or reject with rationale ('dismissed'). Use priority='try_next' to instruct the agent to act on this before autonomous iterations; 'consider' is advisory. Check 'agent_response' after the next training run to see how the suggestion was interpreted.
+ * @summary Submit a suggestion
+ */
+export const autoresearchSuggestionsCreateBodyPromptMax = 2000
+
+export const autoresearchSuggestionsCreateBodyPriorityDefault = `consider`
+
+export const AutoresearchSuggestionsCreateBody = /* @__PURE__ */ zod.object({
+    prompt: zod
+        .string()
+        .max(autoresearchSuggestionsCreateBodyPromptMax)
+        .describe(
+            "Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'."
+        ),
+    priority: zod
+        .enum(['try_next', 'consider'])
+        .describe('\* `try_next` - try_next\n\* `consider` - consider')
+        .default(autoresearchSuggestionsCreateBodyPriorityDefault)
+        .describe(
+            "'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.\n\n\* `try_next` - try_next\n\* `consider` - consider"
+        ),
+})
+
+/**
+ * Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in agent_response), and write the agent_response note the human will read. Call this from the training loop after deciding what to do with a pending suggestion. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative or to mark a suggestion picked_up/dismissed without spawning an iteration. A suggestion only moves forward (queued, picked_up, then acted_on or dismissed); the same status again updates the note.
+ * @summary Respond to a suggestion
+ */
+export const autoresearchSuggestionsRespondCreateBodyAgentResponseMax = 2000
+
+export const AutoresearchSuggestionsRespondCreateBody = /* @__PURE__ */ zod
+    .object({
+        status: zod
+            .enum(['picked_up', 'acted_on', 'dismissed'])
+            .describe('\* `picked_up` - picked_up\n\* `acted_on` - acted_on\n\* `dismissed` - dismissed')
+            .describe(
+                "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).\n\n\* `picked_up` - picked_up\n\* `acted_on` - acted_on\n\* `dismissed` - dismissed"
+            ),
+        agent_response: zod
+            .string()
+            .max(autoresearchSuggestionsRespondCreateBodyAgentResponseMax)
+            .optional()
+            .describe(
+                'Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty string to clear it.'
+            ),
+    })
+    .describe('Input for the agent to record how it interpreted a steering suggestion.')
+
+/**
  * Open a new training run for a pipeline and return its id. An agent — the in-house sandbox, an external bring-your-own agent, or a scheduled job — then records iterations against this run and finalizes it with the complete endpoint. The run starts in 'running'.
  * @summary Open a training run
  */
@@ -137,6 +185,58 @@ export const AutoresearchTrainingRunsCreateBody = /* @__PURE__ */ zod
             .describe("Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted."),
     })
     .describe('Input for opening an agent-driven training run.')
+
+/**
+ * Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op. The bundle is frozen once the run completes or fails.
+ * @summary Delete an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsDeleteCreateBodyPathMax = 500
+
+export const AutoresearchTrainingRunsArtifactsDeleteCreateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .max(autoresearchTrainingRunsArtifactsDeleteCreateBodyPathMax)
+            .describe("Relative path of the file within the bundle, e.g. 'train.py'."),
+    })
+    .describe('Input for fetching or deleting one bundle file by path.')
+
+/**
+ * Fetch one file from this training run's artifact bundle, base64-encoded.
+ * @summary Get an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsGetCreateBodyPathMax = 500
+
+export const AutoresearchTrainingRunsArtifactsGetCreateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .max(autoresearchTrainingRunsArtifactsGetCreateBodyPathMax)
+            .describe("Relative path of the file within the bundle, e.g. 'train.py'."),
+    })
+    .describe('Input for fetching or deleting one bundle file by path.')
+
+/**
+ * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, and features.sql. The bundle is frozen once the run completes or fails.
+ * @summary Upload an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsUploadCreateBodyPathMax = 500
+
+export const AutoresearchTrainingRunsArtifactsUploadCreateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .max(autoresearchTrainingRunsArtifactsUploadCreateBodyPathMax)
+            .describe(
+                "Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', or 'eda\/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected."
+            ),
+        content_base64: zod
+            .string()
+            .describe(
+                'File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded.'
+            ),
+    })
+    .describe("Input for uploading one file of a training run's artifact bundle.")
 
 /**
  * Finalize a training run. The backend selects the kept iteration with the highest holdout score, decides champion vs challenger via the promotion ladder, and persists the model. best_iteration_id is advisory: it breaks a tie at the top score and is otherwise logged and ignored. Agents cannot set the champion directly, because promotion is server-side.
@@ -268,6 +368,20 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Input for recording one training iteration. Validated against the recipe allowlist.')
+
+/**
+ * Run features_sql server-side against the labeled training population and write the resulting train/holdout feature and label parquet files directly into this run's sandbox. Returns the local sandbox paths, row counts, and feature columns. The rows never pass through the agent's context and there is no 500-row cap. Read the returned paths with pd.read_parquet and iterate in Python.
+ * @summary Materialize training features to the sandbox
+ */
+export const AutoresearchTrainingRunsMaterializeFeaturesCreateBody = /* @__PURE__ */ zod
+    .object({
+        features_sql: zod
+            .string()
+            .describe(
+                'Your HogQL feature query, using the {anchors}\/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train\/holdout feature and label parquet files into your sandbox.'
+            ),
+    })
+    .describe("Input for materializing the labeled training feature matrix into the run's sandbox.")
 
 /**
  * Manage autoresearch prediction pipelines.

@@ -43,7 +43,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Element
+from posthog.models import Element, Team
 from posthog.models.utils import uuid7
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
@@ -638,12 +638,8 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 
     def test_conversion_goal_one_custom_event_conversion(self):
         s1 = str(uuid7("2023-12-01"))
-        self._create_events(
-            [
-                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
-            ],
-            event="custom_event",
-        )
+        self._create_events([("p1", [("2023-12-01", s1, "https://www.example.com/foo")])])
+        self._create_events([("p1", [("2023-12-01", s1)])], event="custom_event")
 
         results = self._run_web_overview_query("2023-12-01", "2023-12-03", custom_event="custom_event").results
 
@@ -661,12 +657,8 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 
     def test_conversion_goal_one_custom_action_conversion(self):
         s1 = str(uuid7("2023-12-01"))
-        self._create_events(
-            [
-                ("p1", [("2023-12-01", s1)]),
-            ],
-            event="custom_event",
-        )
+        self._create_events([("p1", [("2023-12-01", s1, "https://www.example.com/foo")])])
+        self._create_events([("p1", [("2023-12-01", s1)])], event="custom_event")
 
         action = Action.objects.create(
             team=self.team,
@@ -694,6 +686,7 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 
     def test_conversion_goal_one_autocapture_conversion(self):
         s1 = str(uuid7("2023-12-01"))
+        self._create_events([("p1", [("2023-12-01", s1, "https://www.example.com/foo")])])
         self._create_events(
             [
                 ("p1", [("2023-12-01", s1, [Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")])]),
@@ -1188,6 +1181,45 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 
 class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-01-29"
+
+    @override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=0)
+    @time_machine.travel(QUERY_TIMESTAMP, tick=False)
+    def test_conversion_goal_with_legacy_session_id(self) -> None:
+        team, _ = Team.objects.get_or_create(
+            id=2, defaults={"organization": self.organization, "project": self.team.project}
+        )
+        test_run_id = str(uuid7())
+        _create_person(team_id=team.pk, distinct_ids=[test_run_id])
+        for event in ["$pageview", "signup"]:
+            _create_event(
+                team=team,
+                event=event,
+                distinct_id=test_run_id,
+                timestamp="2025-01-10T12:00:00Z",
+                properties={
+                    "$session_id": f"legacy-{test_run_id}",
+                    "$current_url": "https://example.com/",
+                    "test_run_id": test_run_id,
+                },
+            )
+
+        response = WebOverviewQueryRunner(
+            team=team,
+            query=WebOverviewQuery(
+                dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+                properties=[EventPropertyFilter(key="test_run_id", value=test_run_id, operator=PropertyOperator.EXACT)],
+                filterTestAccounts=False,
+                conversionGoal=CustomEventConversionGoal(customEventName="signup"),
+                modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1),
+            ),
+        ).calculate()
+
+        assert {item.key: item.value for item in response.results} == {
+            "visitors": 1,
+            "total conversions": 1,
+            "unique conversions": 1,
+            "conversion rate": 100,
+        }
 
     def _create_pageviews(self):
         s1, s2, s3 = str(uuid7("2025-01-10")), str(uuid7("2025-01-11")), str(uuid7("2025-01-12"))

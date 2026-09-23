@@ -35,6 +35,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.engineering_analytics.backend.facade.contracts import GitHubTeamMembership, GitHubTeamRoster
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
@@ -287,7 +288,6 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
 def _make_emission(team: Team, run: SignalScoutRun, *, finding_id: str, **overrides) -> SignalScoutEmission:
     defaults: dict = {
         "description": "Checkout 500s post-deploy",
-        "confidence": 0.85,
         "severity": "P1",
         "source_id": f"run:{run.id}:finding:{finding_id}",
     }
@@ -311,7 +311,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         assert first["run_id"] == str(run.id)
         assert first["description"] == "Checkout 500s post-deploy"
         assert "weight" not in first
-        assert first["confidence"] == 0.85
+        assert "confidence" not in first
         assert first["severity"] == "P1"
         assert first["tags"] == ["cost-spike"]
         assert first["source_id"] == f"run:{run.id}:finding:{newer.finding_id}"
@@ -807,7 +807,6 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def _payload(self, **overrides) -> dict:
         body: dict = {
             "description": "Checkout 500s spike correlates with payment-flag rollout",
-            "confidence": 0.7,
             "evidence": [
                 {
                     "source_product": "error_tracking",
@@ -859,30 +858,18 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_emit.assert_not_called()
 
-    def test_emit_finding_without_confidence_leaves_it_unset(self) -> None:
-        # `confidence` is retired from the emit contract: an emit that omits it succeeds, keeps the
-        # key out of the signal's `extra`, and records NULL on the emission row.
-        run = _make_run(self.team)
-        payload = self._payload()
-        payload.pop("confidence")
-        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
-            response = self.client.post(self._emit_signal_url(str(run.id)), data=payload, format="json")
-        assert response.status_code == status.HTTP_200_OK
-        assert mock_emit.await_args is not None
-        assert "confidence" not in mock_emit.await_args.kwargs["extra"]
-        assert SignalScoutEmission.objects.get(scout_run=run).confidence is None
-
-    @parameterized.expand([("below_range", -0.1), ("above_range", 1.1)])
-    def test_emit_finding_rejects_out_of_range_confidence(self, _name: str, confidence: float) -> None:
-        # A custom scout still sending the retired field gets the same error it got before, not a
-        # silently accepted value.
+    @parameterized.expand([("in_range", 0.7), ("out_of_range", 1.1)])
+    def test_emit_finding_ignores_retired_confidence_field(self, _name: str, confidence: float) -> None:
+        # A custom scout still sending the retired field must keep emitting: the serializer drops the
+        # unknown key, so no value reaches the signal's `extra`, whatever it holds.
         run = _make_run(self.team)
         with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
             response = self.client.post(
                 self._emit_signal_url(str(run.id)), data=self._payload(confidence=confidence), format="json"
             )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        mock_emit.assert_not_called()
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_emit.await_args is not None
+        assert "confidence" not in mock_emit.await_args.kwargs["extra"]
 
     def test_emit_finding_rejects_non_in_progress_run(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -4400,6 +4387,15 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         start.assert_not_called()
 
 
+_TEAM_ROSTER = "products.signals.backend.report_generation.team_membership.get_github_team_roster"
+
+
+def _membership(login: str, slug: str, *, is_maintainer: bool = False) -> GitHubTeamMembership:
+    return GitHubTeamMembership(
+        member_handle=login, team_slug=slug, team_name=slug.replace("-", " ").title(), is_maintainer=is_maintainer
+    )
+
+
 class TestScoutHarnessMembersAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -4407,6 +4403,9 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
 
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/members/"
+
+    def _link_github(self, user: User, login: str) -> None:
+        UserSocialAuth.objects.create(user=user, provider="github", uid=f"gh-{login}", extra_data={"login": login})
 
     def test_lists_project_members_with_resolved_github_login(self) -> None:
         # self.user has a GitHub identity (login lowercased on resolution); a second member has
@@ -4447,6 +4446,70 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
         emails = {row["email"] for row in response.json()}
         assert self.user.email in emails
         assert "outsider@example.com" not in emails
+
+    def test_team_filter_returns_the_team_with_its_maintainers_first(self) -> None:
+        # Routing input names a team while the artefact holds individuals, so the slug resolves to
+        # people. Guards both halves: the filter dropping a non-member, and the maintainer split.
+        self._link_github(self.user, "Plain")
+        maintainer = User.objects.create_and_join(self.organization, "boss@posthog.com", None, first_name="Boss")
+        self._link_github(maintainer, "boss")
+        outsider = User.objects.create_and_join(self.organization, "other@posthog.com", None, first_name="Other")
+        self._link_github(outsider, "other")
+        roster = GitHubTeamRoster(
+            memberships=(
+                _membership("plain", "team-desktop"),
+                _membership("boss", "team-desktop", is_maintainer=True),
+                _membership("other", "team-signals"),
+            ),
+            synced=True,
+        )
+
+        with patch(_TEAM_ROSTER, return_value=roster):
+            response = self.client.get(self._url(), data={"team": "@PostHog/Team-Desktop"})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = response.json()
+        assert [row["email"] for row in rows] == ["boss@posthog.com", self.user.email]
+        assert rows[0]["teams"] == [
+            {"provider": "github", "slug": "team-desktop", "name": "Team Desktop", "is_maintainer": True}
+        ]
+
+    @parameterized.expand(
+        [
+            # Nothing synced, so a 200 with an empty list would read as "nobody is on that team".
+            ("unsynced", GitHubTeamRoster(memberships=(), synced=False), "no synced team roster"),
+            # Synced, but no rows under this slug. Teams sync one at a time, so it is not a missing team.
+            (
+                "slug_not_covered",
+                GitHubTeamRoster(memberships=(_membership("someone", "team-signals"),), synced=True),
+                "isn't synced here",
+            ),
+        ]
+    )
+    def test_team_filter_that_resolves_nothing_says_why(self, _name: str, roster, expected: str) -> None:
+        with patch(_TEAM_ROSTER, return_value=roster):
+            response = self.client.get(self._url(), data={"team": "team-desktop"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert expected in response.json()["detail"]
+
+    def test_team_filter_reports_a_failed_roster_read_as_retryable(self) -> None:
+        # A read failure and an unsynced project both resolve nothing, but the fixes differ. Telling
+        # a scout to turn a sync on when the sync is already on sends it to change a correct setting,
+        # and it caches that reason.
+        with patch(_TEAM_ROSTER, side_effect=RuntimeError("warehouse down")):
+            response = self.client.get(self._url(), data={"team": "team-desktop"})
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert "Try the call again" in response.json()["detail"]
+
+    def test_unfiltered_roster_survives_a_failing_membership_read(self) -> None:
+        # Teams ride along on the member list, so a warehouse failure must not take the roster down.
+        with patch(_TEAM_ROSTER, side_effect=RuntimeError("warehouse down")):
+            response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [row["teams"] for row in response.json()] == [[]]
 
     @parameterized.expand([("session", None), ("public_read_token", "read_only")])
     def test_non_scout_auth_cannot_list_members(self, _name: str, scopes: PosthogMcpScopes | None) -> None:

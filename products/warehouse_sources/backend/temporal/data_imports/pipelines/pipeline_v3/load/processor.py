@@ -711,6 +711,18 @@ def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
         logger.info(
             "staged_cursor_promoted",
             run_uuid=export_signal.run_uuid,
+            team_id=export_signal.team_id,
+            external_data_job_id=export_signal.job_id,
+            external_data_schema_id=export_signal.schema_id,
+        )
+    elif schema.should_use_incremental_field:
+        # The watermark stays where it was, so the next run re-reads this run's window. A source with
+        # no watermark at all re-reads its full history.
+        logger.warning(
+            "staged_cursor_missing",
+            run_uuid=export_signal.run_uuid,
+            team_id=export_signal.team_id,
+            external_data_job_id=export_signal.job_id,
             external_data_schema_id=export_signal.schema_id,
         )
 

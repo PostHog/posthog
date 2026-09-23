@@ -583,6 +583,37 @@ class TestDeliverSlackReport(SimpleTestCase):
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.models.integration.Integration")
+    def test_root_message_carries_the_followup_invite(self, mock_integration, mock_slack_integration):
+        # The invite goes on the root message only, so a reader meets it once per report rather
+        # than under every section. Which of its two variants renders is the shared builder's
+        # decision, tested in products/slack_app; here it only has to be attached.
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "123.456"}
+        mock_slack_integration.return_value.client = client
+
+        targets = [{"type": "slack", "integration_id": 1, "channel": "C0B5CHB0JQH|#evals"}]
+        errors = deliver_slack_report(
+            self._make_report_run(
+                sections=[
+                    ReportSection(title="Summary", content="All good."),
+                    ReportSection(title="Details", content="More detail."),
+                ]
+            ),
+            targets,
+            evaluation_name="Test Eval",
+            team_id=1,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        self.assertEqual(errors, [])
+        root_blocks = client.chat_postMessage.call_args_list[0].kwargs["blocks"]
+        self.assertIn("@PostHog", root_blocks[-1]["elements"][0]["text"])
+        self.assertNotIn("blocks", client.chat_postMessage.call_args_list[1].kwargs)
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.models.integration.Integration")
     def test_empty_channel_id_fails_gracefully(self, mock_integration, mock_slack_integration):
         # A malformed target like "|#name" passes the non-empty channel check but splits to an
         # empty channel ID, which Slack rejects with channel_not_found. Skip the send, record an

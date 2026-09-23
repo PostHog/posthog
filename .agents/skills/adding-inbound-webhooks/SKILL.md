@@ -59,6 +59,7 @@ Reset the process-cached registry and the dedup cache between tests with `reset_
 
 Create `posthog/ingress/<provider>/` with an `__init__.py` and a `provider.py`.
 Copy `github/` for the full shape, or `vapi/` for a small one.
+Copy the layout, not the behavior: a provider package holds only what is specific to its third party. A need that a second provider could share becomes a lane, a scheme option or a `WebhookProvider` attribute, the way `retry_status` and `throttle_class` did. A true one-off stays in the provider with a `# One-off:` comment that says why no other provider needs it.
 `provider.py` holds three things:
 
 - `SPECS`, one `ProviderSpec` per app, naming the event types that app is subscribed to. The registry validates consumers against these.
@@ -81,10 +82,10 @@ Three exist. Configure one; do not write a fourth without reading [the Schemes s
 Then:
 
 1. Add the module path to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, or the registry never sees its specs or core consumers.
-2. Wire the URL with `build_webhook_view()` where the App registration lives. The owner of the third-party App owns the route: a product that registered the App declares `urlpatterns` in its own `products/<product>/backend/routes.py`, for example `opt_slash_path("webhooks/<product>/<provider>", build_webhook_view(build_<provider>_provider()))`. The path must start with `webhooks/<product>/` or `api/<product>/`, or the URL conf fails to load. Only an App several products consume stays in `posthog/urls.py`, which today is the customer-facing GitHub App alone. See [docs/internal/url-routing.md](../../../docs/internal/url-routing.md).
+2. Wire the URL with `build_webhook_view()` where the App registration lives. The owner of the third-party App owns the route: a product that registered the App declares `webhook_urlpatterns` in its own `products/<product>/backend/routes.py`, for example `opt_slash_path("<provider>", build_webhook_view(build_<provider>_provider()))`. Core mounts that list at `webhooks/<product>/`, so the route is relative to it. Only an App several products consume stays in `posthog/urls.py`, which today is the customer-facing GitHub App alone. See [docs/internal/url-routing.md](../../../docs/internal/url-routing.md).
 3. Write `posthog/ingress/<provider>/README.md` with the fixed sections, in this order: headers, signature scheme, delivery id and event type, apps and secrets, quirks, consumers. `posthog/ingress/test/test_provider_readme_sections.py` fails on a provider folder without one, and on a README with different or reordered headings.
 4. Add the provider's signature header name to the `$HEADER` regex in `.semgrep/rules/devex/inbound-webhooks-go-through-ingress.yaml`, plus a fixture case in the `.py` beside it. The header names are spelled out rather than matched generically because a generic header pattern makes semgrep time out on a large module, which drops that file from the scan without failing it.
-5. Delete the migrated endpoint's line from `paths.exclude` in the same rule. That list is a ratchet of verifiers that predate ingress, and the migrating PR removes its own entry.
+5. Do not add the endpoint to `paths.exclude` in the same rule. Every verifier that predated ingress is migrated, so the rule has no grandfathered paths left.
 6. Preserve the endpoint's externally observable behavior. Existing tests are the contract: move or extend them, do not drop assertions.
 
 ### The DRF adapter path
@@ -102,7 +103,7 @@ Each was a real proposal already; ["Non-goals" in the package README](../../../p
 ## Verify
 
 ```sh
-semgrep --config .semgrep/rules/devex/ .          # the ratchet entry is really gone
+semgrep --config .semgrep/rules/devex/ .          # no hand-rolled verifier is left
 semgrep --test .semgrep/                          # only if you changed the rule itself
 lint-imports                                      # the webhook_consumers contract
 hogli product:lint <product>                      # the AST backstop for that contract

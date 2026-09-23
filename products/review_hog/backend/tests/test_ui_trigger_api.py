@@ -68,6 +68,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             # None = the requester's resolve_comments setting decides whether resolution chains.
             resolve_comments=None,
             review_mode="full",
+            requested_head_sha="abc123",
         )
 
     @parameterized.expand(
@@ -289,15 +290,25 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             # Published at the PR's current head: honesty response, no run. The row's lowercased
             # repository pins the cross-trigger casing match (__iexact) — other triggers store the
             # casing they were called with.
-            ("already_reviewed_at_head", "abc123", status.HTTP_200_OK, "already_reviewed", False),
-            ("head_advanced_since_publish", "older-sha", status.HTTP_202_ACCEPTED, "started", True),
+            ("already_reviewed_at_head", "abc123", None, status.HTTP_200_OK, "already_reviewed", False),
+            ("head_advanced_since_publish", "older-sha", None, status.HTTP_202_ACCEPTED, "started", True),
+            ("full_after_flash", "abc123", {"flash": "abc123"}, status.HTTP_202_ACCEPTED, "started", True),
         ]
     )
     @patch(_META, return_value=_pr_meta(head_sha="abc123"))
     @patch(_ACCESS, return_value=object())
     @patch(_START, return_value="wf-ui-2")
     def test_already_published_head_answers_honestly(
-        self, _name, published_head_sha, expected_status, expected_marker, starts, mock_start, _mock_access, _mock_meta
+        self,
+        _name,
+        published_head_sha,
+        published_modes,
+        expected_status,
+        expected_marker,
+        starts,
+        mock_start,
+        _mock_access,
+        _mock_meta,
     ):
         ReviewReport.objects.for_team(self.team.id).create(
             team_id=self.team.id,
@@ -307,6 +318,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             head_branch="feat-branch",
             base_branch="master",
             published_head_sha=published_head_sha,
+            published_heads_by_mode=published_modes,
         )
         with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123")

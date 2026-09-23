@@ -287,6 +287,7 @@ class TaskProcessingContext:
         return not self.origin_product or self.origin_product in (
             Task.OriginProduct.USER_CREATED.value,
             Task.OriginProduct.IMAGE_BUILDER.value,
+            Task.OriginProduct.SPACE_SETUP.value,
         )
 
     def max_run_duration(self) -> timedelta | None:
