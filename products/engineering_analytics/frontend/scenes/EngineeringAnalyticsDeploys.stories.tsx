@@ -126,7 +126,7 @@ const EMPTY_DORA: DoraOverviewApi = {
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Engineering Analytics/Health',
+    title: 'Scenes-App/Engineering Analytics/Deploys',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -182,19 +182,19 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Health: Story = {
+export const Deploys: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalyticsHealth() },
+    parameters: { pageUrl: urls.engineeringAnalyticsDeploys() },
 }
 
 // A docked side panel leaves the scene about 520px wide, where the lead-time controls must wrap.
-export const HealthNarrow: Story = {
-    ...Health,
-    parameters: { ...Health.parameters, testOptions: { viewport: { width: 900, height: 1800 } } },
+export const DeploysNarrow: Story = {
+    ...Deploys,
+    parameters: { ...Deploys.parameters, testOptions: { viewport: { width: 900, height: 1800 } } },
 }
 
-export const HealthWithLimitedDeploymentCoverage: Story = {
-    ...Health,
+export const DeploysWithLimitedDeploymentCoverage: Story = {
+    ...Deploys,
     decorators: [
         mswDecorator({
             get: {
@@ -207,10 +207,10 @@ export const HealthWithLimitedDeploymentCoverage: Story = {
     ],
 }
 
-export const HealthWithoutAttributedPullRequests: Story = {
+export const DeploysWithoutAttributedPullRequests: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.engineeringAnalyticsHealth(),
+        pageUrl: urls.engineeringAnalyticsDeploys(),
         testOptions: {
             waitForSelector: '[data-attr="engineering-analytics-dora-unattributed-empty"]',
         },
@@ -238,10 +238,10 @@ export const HealthWithoutAttributedPullRequests: Story = {
 
 // The not-yet-synced state: the deploy endpoints aren't enabled on the GitHub source, so the tab
 // explains what to enable instead of showing zeros.
-export const HealthWithoutDeployData: Story = {
+export const DeploysWithoutDeployData: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.engineeringAnalyticsHealth(),
+        pageUrl: urls.engineeringAnalyticsDeploys(),
         testOptions: {
             waitForSelector: '[data-attr="engineering-analytics-dora-no-deploy-data"]',
         },

@@ -13,7 +13,7 @@ import { DoraDeploymentHealth } from './DoraDeploymentHealth'
 import { DoraLeadTimeSection } from './DoraLeadTimeSection'
 import { doraLogic } from './doraLogic'
 
-export function EngineeringAnalyticsHealth(): JSX.Element {
+export function EngineeringAnalyticsDeploys(): JSX.Element {
     const { notConnected, dora, doraLoading, doraFailed, selectedEnvironments, granularity, environmentOptions } =
         useValues(doraLogic)
     const { setEnvironments, setGranularity, loadDora } = useActions(doraLogic)

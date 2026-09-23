@@ -25,6 +25,7 @@ const files: FileSystemEntry[] = [
         href: '/insights/signup01',
     },
     { id: 'folder-2', path: 'Product research', type: 'folder' },
+    { id: 'folder-3', path: 'Product research/Ideas', type: 'folder' },
     {
         id: 'notebook-1',
         path: 'Product research/Onboarding notes',
@@ -38,6 +39,7 @@ const starred: FileSystemEntry[] = [
     { id: 'star-1', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
     { id: 'star-2', path: 'Overview', type: 'dashboard', ref: '1', href: '/dashboard/1' },
     { id: 'star-3', path: 'Product research', type: 'folder', ref: 'Product research' },
+    { id: 'star-4', path: 'Ideas', type: 'folder', ref: 'Product research/Ideas' },
 ]
 
 function SidebarStory({
