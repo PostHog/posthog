@@ -8,10 +8,9 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingSyncInterval } from '~/types'
 
-import { ModelHealthSummary } from 'products/data_modeling/frontend/nodeDetail/ModelHealthSummary'
-import { ModelViewSummary } from 'products/data_modeling/frontend/nodeDetail/ModelViewSummary'
-import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
-
+import { SERVING_ENGINE } from '../suspension'
+import { ModelHealthSummary } from './ModelHealthSummary'
+import { ModelViewSummary } from './ModelViewSummary'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: ReactNode }): JSX.Element | null {

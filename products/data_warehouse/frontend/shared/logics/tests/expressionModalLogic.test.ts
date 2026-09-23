@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import { warehouseExpressionsList } from 'products/data_warehouse/frontend/generated/api'
 
-import { expressionModalLogic } from './expressionModalLogic'
+import { expressionModalLogic } from '../expressionModalLogic'
 
 jest.mock('products/data_warehouse/frontend/generated/api', () => ({
     warehouseExpressionsList: jest.fn(),
