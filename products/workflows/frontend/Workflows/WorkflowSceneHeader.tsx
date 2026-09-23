@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconArchive, IconClock, IconCopy, IconScreen, IconTrash, IconUpload } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { IconArchive, IconClock, IconCopy, IconInfo, IconScreen, IconTrash, IconUpload } from '@posthog/icons'
+import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -25,6 +25,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CodeManagedSource } from './CodeManagedSource'
 import { CodeManagedTag } from './CodeManagedTag'
+import { codeManagedReason } from './codeManagedWorkflow'
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
 import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
 import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
@@ -90,6 +91,21 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
             prevStatusRef.current = workflow?.status
         }
     }, [workflow?.status, displayStatus])
+
+    const copyCodeButton = (type: 'primary' | 'secondary'): JSX.Element => (
+        <LemonButton
+            type={type}
+            size="small"
+            icon={<IconCopy />}
+            onClick={() => copyWorkflowCode()}
+            loading={copyCodePending}
+            disabledReason={copyCodeDisabledReason}
+            tooltip="Copy this workflow as @posthog/workflows TypeScript"
+            data-attr="workflow-copy-code"
+        >
+            Copy code
+        </LemonButton>
+    )
 
     return (
         <>
@@ -196,18 +212,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 renameDebounceMs={200}
                 actions={
                     <>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconCopy />}
-                            onClick={() => copyWorkflowCode()}
-                            loading={copyCodePending}
-                            disabledReason={copyCodeDisabledReason}
-                            tooltip="Copy this workflow as @posthog/workflows TypeScript"
-                            data-attr="workflow-copy-code"
-                        >
-                            Copy code
-                        </LemonButton>
+                        {!isCodeManaged && copyCodeButton('secondary')}
                         {isManualWorkflow && <HogFlowManualTriggerButton {...props} />}
                         {isSavedWorkflow && (
                             <>
@@ -312,7 +317,19 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             // which moved a different action under a pointer that had not left the
                             // button.
                             <>
-                                {!isCodeManaged && (
+                                {/* Only a push saves a code-managed workflow, so copying the code for that
+                                    push takes the save button's place. */}
+                                {isCodeManaged ? (
+                                    <span className="flex items-center gap-1">
+                                        {copyCodeButton('primary')}
+                                        <Tooltip title={codeManagedReason(originalWorkflow)} placement="bottom">
+                                            <IconInfo
+                                                className="text-tertiary size-4"
+                                                data-attr="workflow-code-managed-help"
+                                            />
+                                        </Tooltip>
+                                    </span>
+                                ) : (
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.Workflow}
                                         minAccessLevel={AccessControlLevel.Editor}
