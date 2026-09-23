@@ -1503,14 +1503,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         isShowingCachedResults: [
             (s) => [(_, props) => props.cachedResults ?? null, (_, props) => props.query, s.isRefresh],
-            (cachedResults: AnyResponseType | null, query: DataNode, isRefresh: boolean): boolean => {
+            (cachedResults: AnyResponseType | null, query: DataNode | undefined, isRefresh: boolean): boolean => {
                 if (isRefresh) {
                     return false
                 }
 
                 return (
                     !!cachedResults ||
-                    (cache.localResults && 'query' in query && JSON.stringify(query.query) in cache.localResults)
+                    !!(
+                        cache.localResults &&
+                        query &&
+                        'query' in query &&
+                        JSON.stringify(query.query) in cache.localResults
+                    )
                 )
             },
         ],
@@ -2112,7 +2117,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         loadDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)
             actions.collectionNodeLoadDataSuccess(props.key)
-            if ('query' in props.query) {
+            if (props.query && 'query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response
             }
             actions.pollQueryScan()
