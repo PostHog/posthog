@@ -53,7 +53,7 @@ const SAVED_WORKFLOW: HogFlow = {
 
 describe('workflowLogic copy code', () => {
     let logic: ReturnType<typeof workflowLogic.build>
-    let codeCalls: number
+    let codeBodies: Record<string, any>[]
     let codeResponse: () => [number, HogFlowCodeApi | { detail: string }]
     const copyToClipboardMock = copyToClipboard as jest.MockedFunction<typeof copyToClipboard>
     const originalClipboard = navigator.clipboard
@@ -68,7 +68,7 @@ describe('workflowLogic copy code', () => {
     }
 
     beforeEach(async () => {
-        codeCalls = 0
+        codeBodies = []
         codeResponse = () => [200, { language: 'typescript', code: CODE, warnings: [] }]
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: originalClipboard })
         Object.defineProperty(globalThis, 'ClipboardItem', { configurable: true, value: originalClipboardItem })
@@ -81,8 +81,10 @@ describe('workflowLogic copy code', () => {
                 '/api/environments/:team_id/hog_flows/:id/': SAVED_WORKFLOW,
                 '/api/environments/:team_id/hog_flows/:id/schedules': { results: [] },
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
-                '/api/projects/:team_id/hog_flows/:id/code/': () => {
-                    codeCalls += 1
+            },
+            post: {
+                '/api/projects/:team_id/hog_flows/:id/code/': async ({ request }) => {
+                    codeBodies.push((await request.json()) as Record<string, any>)
                     return codeResponse()
                 },
             },
@@ -175,21 +177,25 @@ describe('workflowLogic copy code', () => {
         logic.actions.copyWorkflowCode()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(codeCalls).toBe(1)
+        expect(codeBodies).toHaveLength(1)
         expect(copyToClipboardMock).toHaveBeenCalledTimes(1)
         expect(logic.values.copyCodePending).toBe(false)
     })
 
-    it('refuses to copy while the form holds unsaved changes', async () => {
+    it('copies the unsaved changes the editor holds', async () => {
         // Auto-save would clear the dirty state on its own a few seconds later.
         logic.actions.setAutoSaveEnabled(false)
         logic.actions.setWorkflowValue('name', 'Still typing')
-        expect(logic.values.copyCodeDisabledReason).toBe('Save your changes first')
+        logic.actions.setWorkflowValue('edges', [])
+        expect(logic.values.hasUnsavedChanges).toBe(true)
+        expect(logic.values.copyCodeDisabledReason).toBeUndefined()
 
         await logic.asyncActions.copyWorkflowCode()
 
-        expect(codeCalls).toBe(0)
-        expect(copyToClipboardMock).not.toHaveBeenCalled()
+        expect(codeBodies).toEqual([
+            expect.objectContaining({ name: 'Still typing', edges: [], actions: SAVED_WORKFLOW.actions }),
+        ])
+        expect(copyToClipboardMock).toHaveBeenCalledWith(CODE, 'workflow code', { silent: false })
     })
 
     it('refuses to copy a new workflow before it is saved', async () => {
@@ -200,7 +206,7 @@ describe('workflowLogic copy code', () => {
 
         await logic.asyncActions.copyWorkflowCode()
 
-        expect(codeCalls).toBe(0)
+        expect(codeBodies).toHaveLength(0)
         expect(copyToClipboardMock).not.toHaveBeenCalled()
     })
 })
