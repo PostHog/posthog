@@ -86,3 +86,5 @@ export function getCurrentOrganizationId(): OrganizationType['id'] {
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
+
+export const isHobby = (): boolean => getAppContext()?.is_hobby === true

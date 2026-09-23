@@ -3,6 +3,7 @@ import posthog, { BeforeSendFn, BrowserMetricsConfig, SessionRecordingOptions } 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { isHobby } from 'lib/utils/getAppContext'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 
@@ -47,10 +48,8 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
             defaults: SDK_DEFAULTS_DATE,
-            // Self-hosted static files use /static/<asset>.js, without a version directory.
-            ...(window.JS_POSTHOG_SELF_CAPTURE && window.JS_POSTHOG_HOST === window.location.origin
-                ? { strict_script_versioning: false as const }
-                : {}),
+            // Hobby static files use /static/<asset>.js, without a version directory.
+            ...(isHobby() ? { strict_script_versioning: false as const } : {}),
             persistence: 'localStorage+cookie',
             cookie_persisted_properties: [
                 'prod_interest', // posthog.com sets these based on what docs were browsed

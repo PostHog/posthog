@@ -58,6 +58,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
+from posthog.run_mode import run_mode
 from posthog.security.url_validation import has_ambiguous_authority
 
 from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
@@ -572,6 +573,7 @@ def _build_template_context(
             posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
         ),
         "anonymous": not request.user or not request.user.is_authenticated,
+        "is_hobby": run_mode().is_hobby,
     }
 
     posthog_bootstrap: dict[str, Any] = {}

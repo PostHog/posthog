@@ -1,6 +1,8 @@
 import posthog from 'posthog-js'
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
+import { AppContext } from '~/types'
+
 import { isInDeferredInitSample, loadPostHogJS } from './loadPostHogJS'
 
 describe('loadPostHogJS', () => {
@@ -12,19 +14,19 @@ describe('loadPostHogJS', () => {
     )
 
     it.each([
-        ['self-capture on this instance', true, window.location.origin, false],
-        ['self-capture using a CDN', true, 'https://cdn.example.com', undefined],
-        ['cloud capture', false, 'https://cdn.example.com', undefined],
-        ['same-origin without self-capture', false, window.location.origin, undefined],
-    ] as const)('selects script versioning for %s', (_, selfCapture, host, expected) => {
+        ['hobby', { is_hobby: true }, false],
+        ['non-hobby', { is_hobby: false }, undefined],
+        ['older app context', {}, undefined],
+        ['missing app context', undefined, undefined],
+    ] as const)('selects script versioning for %s', (_, context, expected) => {
         const original = {
             key: window.JS_POSTHOG_API_KEY,
             host: window.JS_POSTHOG_HOST,
-            selfCapture: window.JS_POSTHOG_SELF_CAPTURE,
+            context: window.POSTHOG_APP_CONTEXT,
         }
         window.JS_POSTHOG_API_KEY = 'phc_example'
-        window.JS_POSTHOG_HOST = host
-        window.JS_POSTHOG_SELF_CAPTURE = selfCapture
+        window.JS_POSTHOG_HOST = window.location.origin
+        window.POSTHOG_APP_CONTEXT = context as AppContext | undefined
         jest.mocked(posthog.get_session_id).mockReturnValue('example-session')
         jest.mocked(posthog.init).mockClear()
         try {
@@ -38,7 +40,7 @@ describe('loadPostHogJS', () => {
         } finally {
             window.JS_POSTHOG_API_KEY = original.key
             window.JS_POSTHOG_HOST = original.host
-            window.JS_POSTHOG_SELF_CAPTURE = original.selfCapture
+            window.POSTHOG_APP_CONTEXT = original.context
         }
     })
 })
