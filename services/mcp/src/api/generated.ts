@@ -38632,6 +38632,21 @@ export namespace Schemas {
       NeedsAttention: 'needs_attention',
     } as const;
 
+    export interface EventsRetention {
+      /**
+         * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
+         * @nullable
+         */
+      readonly retention_months: number | null;
+      /**
+         * The earliest date whose events are still queryable, in the project's timezone. Null while no retention window applies to the project.
+         * @nullable
+         */
+      readonly retained_from: string | null;
+      /** Where the events retention policy is documented. */
+      readonly docs_url: string;
+    }
+
     export interface ExecuteTestClusterRequest {
       /**
          * ClickHouse SQL to run against the test cluster.
@@ -40788,8 +40803,10 @@ export namespace Schemas {
       unique_persons: number;
       /** unique_persons divided by window_days. Pass it as exposure_rate_per_day to experiment-calculate-running-time, scaled by the share of traffic the experiment will include. */
       exposures_per_day_estimate: number;
-      /** Up to 5 SDKs by persons reached. */
+      /** Up to 5 SDKs, most persons reached first. */
       libs: ExperimentSetupLibReach[];
+      /** True when more SDKs sent target events than libs lists. */
+      libs_truncated: boolean;
       /**
          * Among all distinct ids that report whether they are identified, whichever SDK they came from, the share that was anonymous. Null when no target event reported it.
          * @nullable

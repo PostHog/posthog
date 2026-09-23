@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -333,7 +333,7 @@ describe('SlackChannelPicker', () => {
         // Pasting an id is already an unambiguous choice, and the option it matches is labelled by
         // name, so leaving it unselected asks the user to recognize a channel they only have an id for.
         const onChange = jest.fn()
-        const { container } = render(
+        const { container, rerender } = render(
             <Provider>
                 <SlackChannelPicker integration={INTEGRATION} onChange={onChange} />
             </Provider>
@@ -347,6 +347,21 @@ describe('SlackChannelPicker', () => {
         await waitFor(() => expect(onChange).toHaveBeenCalledWith(`${OFF_PAGE_CHANNEL.id}|#off-page-channel`), {
             timeout: 3000,
         })
+        rerender(
+            <Provider>
+                <SlackChannelPicker
+                    integration={INTEGRATION}
+                    value={`${OFF_PAGE_CHANNEL.id}|#off-page-channel`}
+                    onChange={onChange}
+                />
+            </Provider>
+        )
+        expect(input).toHaveFocus()
+        expect(screen.getByText('#off-page-channel')).toBeVisible()
+        expect(screen.queryByText(/No channels found/)).not.toBeInTheDocument()
+        await userEvent.click(screen.getByText('#off-page-channel'))
+        expect(input).toHaveValue('')
+        expect(within(container).getByText('#off-page-channel')).toBeVisible()
         expect(screen.queryByText('No channel selected. Pick one from the list.')).toBeNull()
     })
 
