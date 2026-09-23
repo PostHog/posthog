@@ -10241,9 +10241,9 @@ snapshots:
     scenes-app-notebooks-widget-views--cohort-views--light:
         hash: v1.k794b7964.4d0085a9e284643ac1b101e4c32e9a36cc6b4507411086f13a3ef3a113bb6d97.f2wK3yMByUBnhBKWyAMm_dq3wxZihAXUeJbbhjiLUC8
     scenes-app-notebooks-widget-views--dashboard-views--dark:
-        hash: v1.k794b7964.a7c878fe0c34aafe4fe8ee585b802bec19fc85694db7d6aea4ec0ebfaf1904d3.T9jGsQP2QkUF8Xq-SxEMZEzdEDYSBjJTaXCUH6oJ484
+        hash: v1.k794b7964.266eb42d43a74446f38e6758511e410d94c7a990f0ad71cb59de2d5a9aaa4e50.Z-udt3Q8lqlksFk1rOsQEJfErA17pvvYmGUKFElP0So
     scenes-app-notebooks-widget-views--dashboard-views--light:
-        hash: v1.k794b7964.462a6bfd5eb375f20448a5947e4cd4e8e69c287b0863c80c83ca96e6844fc06d.EC5X5MSr0Dz5BifRSO9NlmCn-fZ6M9mFHgAk0xMCbxs
+        hash: v1.k794b7964.e016c296d337be404d2708d10c017d1f91cc4deca9ec03ec5035b336e7f6875c.Wgra1U00dDNxCLJO6NoM0C5xLO51ZW8T5XOkU8rXmsU
     scenes-app-notebooks-widget-views--early-access-feature-views--dark:
         hash: v1.k794b7964.080e4eb18a5bc5975a3796cb50f3a58e020fb5a0bd9dd5fa37c034861a8361f4.R8ZqTVM9LKrvh-VlgvnQWWlCKV9MsNffT8ovqJh6xOs
     scenes-app-notebooks-widget-views--early-access-feature-views--light:
@@ -11197,9 +11197,9 @@ snapshots:
     scenes-app-signals-artefactloglist--check-lifecycle-narrow--light:
         hash: v1.k794b7964.323182dc2e4da1cc3de88a75d4d027f1d9b561a74752a6e9efda62c307252811.Z7e7sMgVVYTvNNOumDp3_1YmGPVrwuL3MtLQZITadIQ
     scenes-app-signals-artefactloglist--narrow--dark:
-        hash: v1.k794b7964.126364946b3e155e64e07b61da407de2075b63f5449d9b64c0c2228daa055a13.QMcKZPlik4titSS_IK7VuTRw0QAxfbl1sKiuFzmechU
+        hash: v1.k794b7964.a644dd63d1b4c45385ba09aca7fb9c44de2c7a63e14e3387f768e388eb241914.4yhImFvyJvDsS9dA2FmjRwM6gQUIprudK9evKFpc8lU
     scenes-app-signals-artefactloglist--narrow--light:
-        hash: v1.k794b7964.6da5e2a893a09fc8fd8eaad261e700c8f512c5a148d9ee91d27da51365272916.CuzGlvcecyewPGOerRSG4ECX65Wr9lHoI4w9MqEEAME
+        hash: v1.k794b7964.0082c81649512b1b0e07d085212c0649eb1bffc2bebe7bccb019c5be16574f1c.jZyE3Oj0CjcHUvzkqjwdr71V1q_JwzdmeJ2n5NJYt9Y
     scenes-app-signals-artefactloglist--replacement-lifecycle--dark:
         hash: v1.k794b7964.f723b2160bdf85cd5a827fa3dac4c281d75950f47555cdef7fc01f2ef689dfc6.wAOg7AG2Pf4mYO8EjKdD8lFlC1Ulv4MhkXIEMkzfCrg
     scenes-app-signals-artefactloglist--replacement-lifecycle--light:
