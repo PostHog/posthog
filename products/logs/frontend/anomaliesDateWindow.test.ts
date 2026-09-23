@@ -60,6 +60,18 @@ describe('anomaliesDateWindow', () => {
             direction: -1 as const,
             expected: null,
         },
+        {
+            name: 'a shared link with two relative bounds steps like any other week',
+            dateRange: { date_from: '-14d', date_to: '-7d' },
+            direction: -1 as const,
+            expected: { date_from: '2026-09-02T11:00:00.000Z', date_to: '2026-09-09T11:00:00.000Z' },
+        },
+        {
+            name: 'a relative start reads from now, not from the end bound',
+            dateRange: { date_from: '-14d', date_to: '2026-09-16T11:00:00.000Z' },
+            direction: -1 as const,
+            expected: { date_from: '2026-09-02T11:00:00.000Z', date_to: '2026-09-09T11:00:00.000Z' },
+        },
     ])('$name', ({ dateRange, direction, expected }) => {
         expect(stepAnomaliesWindow(dateRange, direction, NOW)).toEqual(expected)
     })

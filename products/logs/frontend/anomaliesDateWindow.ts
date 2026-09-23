@@ -25,18 +25,19 @@ interface AnomaliesWindow {
     end: dayjs.Dayjs
 }
 
+// A shared link can carry a relative value in either bound. The backend resolves each bound on its
+// own against request time, so a relative bound here must not read the other bound either.
+// See _parse_bound in products/logs/backend/series_bands.py.
+function parseBound(value: string, now: dayjs.Dayjs): dayjs.Dayjs {
+    const relative = dateStringToComponents(value)
+    return relative ? componentsToDayJs(relative, now) : dayjs(value)
+}
+
 export function resolveAnomaliesWindow(dateRange: DateRange, now: dayjs.Dayjs): AnomaliesWindow | null {
-    const end = dateRange.date_to ? dayjs(dateRange.date_to) : now
-    const anchor = end.isAfter(now) ? now : end
-    const relative = dateStringToComponents(dateRange.date_from ?? null)
-    let start: dayjs.Dayjs
-    if (relative) {
-        start = componentsToDayJs(relative, anchor)
-    } else if (dateRange.date_from) {
-        start = dayjs(dateRange.date_from)
-    } else {
-        start = anchor.subtract(WEEK_HOURS, 'hour')
-    }
+    const end = dateRange.date_to ? parseBound(dateRange.date_to, now) : now
+    // Without a start the window runs back from the charted end, which the backend caps at now.
+    const defaultStart = (end.isAfter(now) ? now : end).subtract(WEEK_HOURS, 'hour')
+    const start = dateRange.date_from ? parseBound(dateRange.date_from, now) : defaultStart
     return start.isValid() && end.isValid() ? { start, end } : null
 }
 
