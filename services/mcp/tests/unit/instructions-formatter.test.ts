@@ -28,8 +28,7 @@ const realisticQueryTools: QueryToolInfo[] = [
 ]
 const realisticMetadata =
     'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).\n' +
-    'Project timezone: America/New_York.\n' +
-    "The user's name is Jane Doe (jane@acme.com)."
+    'For project settings such as the timezone, call `project-get` without an ID.'
 
 const fullCtx: InstructionsContext = {
     guidelines: 'some guidelines',
@@ -46,8 +45,7 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildToolsInstructions(fullCtx)
             expect(result).toContain('Defined group types: organization')
-            expect(result).toContain("The user's name is Jane Doe")
-            expect(result).toContain('Project timezone: America/New_York.')
+            expect(result).toContain('You are currently in project "My App"')
             expect(result).toContain('- dashboard')
             expect(result).toContain('- feature-flag')
             expect(result).toContain('- execute-sql')
@@ -139,7 +137,7 @@ describe('InstructionsFormatter', () => {
             // Env context is not here — it rides the exec command description, which has no
             // truncation cap, leaving this payload's whole budget to the domain index.
             expect(result).not.toContain('Defined group types: organization')
-            expect(result).not.toContain("The user's name is Jane Doe")
+            expect(result).not.toContain('You are currently in project "My App"')
             expect(result).not.toMatch(
                 /\{tool_domains\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/
             )
@@ -260,7 +258,7 @@ describe('InstructionsFormatter', () => {
         it('embeds env-context and query-tool catalog when stripEnvContext is false', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })
-            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('You are currently in project "My App"')
             expect(result).toContain('Defined group types: organization')
             // Tool domains are temporarily omitted from the command reference while
             // probing claude.ai's per-tool size cap; discovery rides on `search`.
@@ -271,7 +269,7 @@ describe('InstructionsFormatter', () => {
         it('strips env-context and tool-domain list but keeps the query-tool catalog when stripEnvContext is true', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: true })
-            expect(result).not.toContain("The user's name is Jane Doe")
+            expect(result).not.toContain('You are currently in project "My App"')
             expect(result).not.toContain('Defined group types: organization')
             // The query catalog stays on the exec command reference even when env is stripped.
             expect(result).toContain('- `query-trends` — time series')
@@ -289,7 +287,7 @@ describe('InstructionsFormatter', () => {
             // reach the model via the command reference. Tool domains are
             // temporarily omitted (size-cap probe).
             expect(result).not.toContain('dashboard|execute-sql')
-            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('You are currently in project "My App"')
             expect(result).toContain('Defined group types: organization')
         })
 
@@ -353,7 +351,7 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('### Basic functionality')
             expect(result).toContain('### Tool search')
             expect(result).toContain(buildToolDomainsCompact(realisticTools))
-            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('You are currently in project "My App"')
             expect(result).toContain('Defined group types: organization')
             expect(result).not.toContain('### Retrieving data')
             expect(result).not.toContain('### Examples')
@@ -582,15 +580,15 @@ describe('InstructionsFormatter', () => {
                     'business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|query'
                 )
                 expect(instructions).not.toContain('- `query-trends` — time series')
-                expect(instructions).not.toContain("The user's name is Jane Doe")
+                expect(instructions).not.toContain('You are currently in project "My App"')
                 expect(instructions).not.toContain('Defined group types: organization')
-                expect(commandReference).toContain("The user's name is Jane Doe")
+                expect(commandReference).toContain('You are currently in project "My App"')
                 expect(commandReference).toContain('Defined group types: organization')
                 expect(commandReference).not.toContain('dashboard|execute-sql')
             } else {
                 expect(instructions).toBe('')
                 expect(commandReference).toContain('- `query-trends` — time series')
-                expect(commandReference).toContain("The user's name is Jane Doe")
+                expect(commandReference).toContain('You are currently in project "My App"')
                 expect(commandReference).not.toContain('dashboard|execute-sql')
                 expect(commandReference).toContain('Defined group types: organization')
             }

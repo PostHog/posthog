@@ -13,7 +13,7 @@ import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import { buildActiveEnvironmentContextPrompt, buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
 import { getToolCategory, getToolDefinitions } from '@/tools/toolDefinitions'
-import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
+import type { CachedOrg, CachedProject } from '@/tools/types'
 
 // Static, deterministic context shared by all snapshots — mirrors the realistic
 // values used in `instructions-formatter.test.ts` so the rendered prompts cover
@@ -42,8 +42,7 @@ const STATIC_QUERY_TOOLS: QueryToolInfo[] = [
 ]
 const STATIC_METADATA = [
     'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).',
-    'Project timezone: America/New_York.',
-    "The user's name is Jane Doe (jane@acme.com).",
+    'For project settings such as the timezone, call `project-get` without an ID.',
 ].join('\n')
 
 const STATIC_CTX: InstructionsContext = {
@@ -186,14 +185,9 @@ describe('InstructionsFormatter prompt snapshots', () => {
         // learning topic advertised, the full live tool catalog, and long environment
         // context. The metadata goes through the real
         // env-context builder with inputs at the backing columns' max lengths
-        // (Team.name 200, Organization.name 64, email 254, Django names 150) plus
-        // the longer person-on-events branch, so a long org/project/user cannot
-        // push the real schema past the cap while this test passes.
-        const worstCaseUser = {
-            first_name: 'F'.repeat(150),
-            last_name: 'L'.repeat(150),
-            email: `${'e'.repeat(242)}@example.com`,
-        } as CachedUser
+        // (Team.name 200, Organization.name 64) plus the longer person-on-events
+        // branch, so a long org/project cannot push the real schema past the cap
+        // while this test passes.
         const worstCaseOrg = { name: 'O'.repeat(64), id: '00000000-0000-0000-0000-000000000000' } as CachedOrg
         const worstCaseProject = {
             name: 'P'.repeat(200),
@@ -203,7 +197,6 @@ describe('InstructionsFormatter prompt snapshots', () => {
             person_on_events_querying_enabled: true,
         } as CachedProject
         const worstCaseMetadata = buildActiveEnvironmentContextPrompt(
-            worstCaseUser,
             worstCaseOrg,
             worstCaseProject,
             'https://us.posthog.com'
@@ -213,7 +206,6 @@ describe('InstructionsFormatter prompt snapshots', () => {
         // design because they do not fit under the cap (see
         // `buildClaudeExecCommandReference` and `ResolvedState.metadataCompact`).
         const worstCaseMetadataCompact = buildActiveEnvironmentContextPrompt(
-            worstCaseUser,
             worstCaseOrg,
             worstCaseProject,
             'https://us.posthog.com',

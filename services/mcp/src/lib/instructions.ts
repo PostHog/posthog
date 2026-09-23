@@ -1,5 +1,5 @@
 import type { GroupType } from '@/api/client'
-import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
+import type { CachedOrg, CachedProject } from '@/tools/types'
 
 export function buildDefinedGroupsBlock(groupTypes?: GroupType[]): string {
     if (!groupTypes || groupTypes.length === 0) {
@@ -79,29 +79,25 @@ export interface EnvironmentContextOptions {
 }
 
 export function buildActiveEnvironmentContextPrompt(
-    user?: CachedUser,
     org?: CachedOrg,
     project?: CachedProject,
     regionalBaseUrl?: string,
     opts?: EnvironmentContextOptions
 ): string | undefined {
-    if (!user && !org && !project) {
+    if (!org && !project) {
         return undefined
     }
     const lines: string[] = []
-    if (org || project) {
-        const projectName = project?.name ?? 'Unknown'
-        const projectId = project?.id ?? 'unknown'
-
-        if (org) {
-            const orgName = org.name ?? 'Unknown'
-            const orgId = org.id ?? 'unknown'
-            lines.push(
-                `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
-            )
-        } else {
-            lines.push(`You are currently in project "${projectName}" (id: ${projectId}).`)
-        }
+    const projectName = project?.name ?? 'Unknown'
+    const projectId = project?.id ?? 'unknown'
+    if (org) {
+        const orgName = org.name ?? 'Unknown'
+        const orgId = org.id ?? 'unknown'
+        lines.push(
+            `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
+        )
+    } else {
+        lines.push(`You are currently in project "${projectName}" (id: ${projectId}).`)
     }
     if (regionalBaseUrl) {
         const origin = regionalBaseUrl.replace(/^https?:\/\//, '')
@@ -112,7 +108,7 @@ export function buildActiveEnvironmentContextPrompt(
         )
     }
     if (project) {
-        lines.push(`Project timezone: ${project.timezone ?? 'UTC'}.`)
+        lines.push('For project settings such as the timezone, call `project-get` without an ID.')
         if (project.test_account_filters_default_checked) {
             lines.push(
                 'This project filters out internal and test users by default. `query-*` tools apply this automatically when `filterTestAccounts` is omitted; when composing queries for other tools (e.g. insight-create), set `filterTestAccounts: true` unless the user asks to include internal/test data.'
@@ -135,10 +131,6 @@ export function buildActiveEnvironmentContextPrompt(
                 lines.push(integrationsLine)
             }
         }
-    }
-    if (user) {
-        const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown'
-        lines.push(`The user's name is ${fullName} (${user.email}).`)
     }
     // No prose preamble: the heading plus the lines themselves already say the agent
     // is in this project, and the sentence it replaced ("All tool calls and queries

@@ -445,8 +445,7 @@ export class StateManager {
 
     async getEnvironmentPrompt(opts?: { includeProductContext?: boolean }): Promise<string | undefined> {
         const includeProductContext = opts?.includeProductContext !== false
-        const [user, org, project] = await Promise.all([
-            this.getCachedOrFetchUser().catch(() => undefined),
+        const [org, project] = await Promise.all([
             this.getCachedOrFetchOrg().catch(() => undefined),
             this.getCachedOrFetchProject().catch(() => undefined),
         ])
@@ -454,7 +453,7 @@ export class StateManager {
             includeProductContext && project
                 ? await this.getOrFetchIntegrationKinds(String(project.id)).catch(() => undefined)
                 : undefined
-        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl, {
+        return buildActiveEnvironmentContextPrompt(org, project, this._api.publicBaseUrl, {
             integrationKinds,
             includeProductContext,
         })

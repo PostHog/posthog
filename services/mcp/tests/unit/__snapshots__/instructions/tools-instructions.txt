@@ -170,8 +170,7 @@ Default to a notebook when the request reads as "look into", "understand", "figu
 Defined group types: organization, project
 
 You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).
-Project timezone: America/New_York.
-The user's name is Jane Doe (jane@acme.com).
+For project settings such as the timezone, call `project-get` without an ID.
 
 ### URL patterns
 
