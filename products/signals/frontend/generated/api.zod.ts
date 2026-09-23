@@ -10,6 +10,91 @@
 import * as zod from 'zod'
 
 /**
+ * Partial update of the per-project singleton. Omitted fields keep their value.
+ * @summary Update the project's signals config
+ */
+export const signalsConfigCreateBodyDefaultSlackNotificationChannelMax = 255
+
+export const signalsConfigCreateBodyAutostartBaseBranchesMaxOne = 255
+
+export const signalsConfigCreateBodyIssueTrackingConfigMaxOne = 255
+
+export const signalsConfigCreateBodyMaxReportsPerDayMax = 2147483647
+
+export const signalsConfigCreateBodyPullRequestLabelMax = 50
+
+export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
+    autostart_enabled: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set false to opt out, so actionable reports still generate and notify but the team never auto-starts an implementation task or opens a PR — reviewers open PRs manually.'
+        ),
+    default_autostart_priority: zod
+        .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+        .optional()
+        .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'),
+    default_slack_notification_channel: zod
+        .string()
+        .max(signalsConfigCreateBodyDefaultSlackNotificationChannelMax)
+        .nullish()
+        .describe(
+            "Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply."
+        ),
+    autostart_base_branches: zod
+        .record(zod.string(), zod.string().max(signalsConfigCreateBodyAutostartBaseBranchesMaxOne))
+        .optional()
+        .describe(
+            "Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization\/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch."
+        ),
+    issue_tracking_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            'Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.'
+        ),
+    issue_tracking_config: zod
+        .record(zod.string(), zod.string().max(signalsConfigCreateBodyIssueTrackingConfigMaxOne))
+        .optional()
+        .describe(
+            "Where in the tracker the issues land. Required keys depend on the integration kind: github -> {repository}; linear -> {team_id}; jira -> {project_key}; gitlab needs none, because its integration is already bound to one project. An optional 'label' is applied to created GitHub issues."
+        ),
+    max_reports_per_day: zod
+        .number()
+        .min(1)
+        .max(signalsConfigCreateBodyMaxReportsPerDayMax)
+        .nullish()
+        .describe(
+            "Daily cap on new reports surfacing to the inbox, counted per calendar day in the project's timezone. Once reached, signal ingestion, scout runs, and report research pause until local midnight. Null means unlimited."
+        ),
+    default_open_pull_request_ready: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether self-driving pull requests open ready for review instead of draft, so the full CI matrix starts when the pull request is created. False by default. A reviewer's own github_open_pull_request_ready overrides this for reports that suggest them as reviewer."
+        ),
+    github_issue_writeback_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether self-driving comments back on a GitHub issue that raised a report, linking to the report so everybody watching the issue knows it is being researched. The comment is public on the issue thread and carries a link only, never report content. False by default. Needs a GitHub integration that can reach the issue's repository."
+        ),
+    pull_request_label_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether self-driving adds a label to every pull request it opens, so GitHub search, saved searches, and notification rules can separate them from other automation on the repository. False by default. Needs a GitHub integration that can reach the repository.'
+        ),
+    pull_request_label: zod
+        .string()
+        .max(signalsConfigCreateBodyPullRequestLabelMax)
+        .nullish()
+        .describe(
+            "The label name self-driving applies, at most 50 characters. Null or blank means 'self-driving'. The label is created in the repository when it does not exist yet. Only used while pull_request_label_enabled is true."
+        ),
+})
+
+/**
  * View and control signal processing pipeline state for a team.
  */
 export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
@@ -220,6 +305,66 @@ export const SignalsReportsRefundCreateBody = /* @__PURE__ */ zod.object({
             "Optional free-form context for the refund; stored on the refund and echoed in the report's dismissal artefact. Capped at 4000 characters."
         ),
 })
+
+/**
+ * Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
+ * has any. Appends a new latest-wins `suggested_reviewers` status row — the same write the artefact
+ * PUT performs, but addressed by report so a report with zero reviewers (and thus no artefact yet)
+ * can still be assigned one. App-only: agents append reviewers via the artefacts POST instead.
+ * @summary Set a report's suggested reviewers
+ */
+export const signalsReportsReviewersUpdateBodyContentItemGithubLoginMax = 200
+
+export const signalsReportsReviewersUpdateBodyContentItemGithubNameMax = 200
+
+export const signalsReportsReviewersUpdateBodyContentItemReasonMax = 500
+
+export const signalsReportsReviewersUpdateBodyContentMax = 10
+
+export const SignalsReportsReviewersUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .array(
+                zod
+                    .object({
+                        github_login: zod
+                            .string()
+                            .max(signalsReportsReviewersUpdateBodyContentItemGithubLoginMax)
+                            .optional()
+                            .describe(
+                                'GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.'
+                            ),
+                        user_uuid: zod
+                            .uuid()
+                            .optional()
+                            .describe(
+                                "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins."
+                            ),
+                        github_name: zod
+                            .string()
+                            .max(signalsReportsReviewersUpdateBodyContentItemGithubNameMax)
+                            .optional()
+                            .describe(
+                                'Optional human-readable display name. Not backfilled from GitHub by the server.'
+                            ),
+                        reason: zod
+                            .string()
+                            .max(signalsReportsReviewersUpdateBodyContentItemReasonMax)
+                            .nullish()
+                            .describe(
+                                'Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.'
+                            ),
+                    })
+                    .describe(
+                        'Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A\n`user_uuid` only has to name an org member on this team — a member with no linked GitHub\naccount is stored by uuid and routes like any other reviewer.'
+                    )
+            )
+            .max(signalsReportsReviewersUpdateBodyContentMax)
+            .describe('Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.'),
+    })
+    .describe(
+        "PUT body for replacing a `suggested_reviewers` artefact's content.\n\nOnly `suggested_reviewers` artefacts may be modified via this endpoint;\nthe viewset enforces the type check before validation runs."
+    )
 
 /**
  * Transition a report to a new state. The model validates allowed transitions, except that a
@@ -2302,7 +2447,7 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
         ),
 })
 
@@ -2394,7 +2539,7 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
         ),
 })
 
@@ -2488,7 +2633,7 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
         ),
 })
 

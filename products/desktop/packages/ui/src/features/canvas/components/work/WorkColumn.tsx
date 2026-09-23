@@ -19,6 +19,9 @@ import {
   Autocomplete,
   AutocompleteList,
   Button,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
   cn,
   MenuLabel,
   Skeleton,
@@ -27,35 +30,51 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import {
+  commandCenterAssigner,
+  isInCommandCenter,
+} from "@posthog/ui/features/canvas/commandCenterAssign";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
-import type { ChannelItemActions } from "@posthog/ui/features/canvas/components/ChannelItemRow";
+import { SpaceHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
+import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
+import {
+  ChannelActionItems,
+  useChannelActions,
+} from "@posthog/ui/features/canvas/components/ChannelsList";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import { SidebarSearchInput } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
-import { SpaceRowControls } from "@posthog/ui/features/canvas/components/SpaceRowControls";
-import type { TaskRowMenuProps } from "@posthog/ui/features/canvas/components/TaskRowMenu";
-import { WorkItemRow } from "@posthog/ui/features/canvas/components/work/WorkItemRow";
-import { WorkRowSurface } from "@posthog/ui/features/canvas/components/work/WorkRowSurface";
+import { SpaceActionDialogs } from "@posthog/ui/features/canvas/components/SpaceActionDialogs";
+import type { SpacePreviewPayload } from "@posthog/ui/features/canvas/components/SpacePreview";
+import { WorkRowSurface } from "@posthog/ui/features/canvas/components/WorkRowSurface";
+import { useBlockedSessionCount } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
+import { useChannelItemSelection } from "@posthog/ui/features/canvas/hooks/useChannelItemSelection";
+import { useChannelItemActions } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import {
   type Channel,
   useChannels,
 } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { useDashboardMutations } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
-import { useSpacePresence } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
+import {
+  usePrefetchSpaceTasks,
+  useSpacePresence,
+} from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import { useRecentWorkItems } from "@posthog/ui/features/canvas/hooks/useRecentWorkItems";
 import { useSidebarSearchFocus } from "@posthog/ui/features/canvas/hooks/useSidebarSearchFocus";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
+import { useUnreadSessionCount } from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
+import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
+import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
-import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
+import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
-import { toast } from "@posthog/ui/primitives/toast";
 import {
   navigateToChannel,
   navigateToChannelDashboard,
@@ -63,19 +82,30 @@ import {
   navigateToSpaces,
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
+import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
+import { logger } from "@posthog/ui/shell/logger";
 import { useRouterState } from "@tanstack/react-router";
 import {
   Fragment,
   type ReactNode,
   useCallback,
   useDeferredValue,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 
+const log = logger.scope("work-column");
+
 const RECENT_COLLAPSED_COUNT = 5;
+
+const SESSION_PREFETCH_DELAY_MS = 250;
+
+// Recent leads with the newest work, so a pin neither floats a row to the top
+// nor opens a section of its own. The row's badge is what says it is pinned.
+const NO_PINNED_RUN = { pinnedRun: false } as const;
 
 function SectionHeading({
   label,
@@ -134,63 +164,128 @@ function IconAction({
   );
 }
 
-function SpaceRow({
+export function SpaceRow({
   channel,
   isActive,
   unread,
+  unreadSessions,
+  blockedSessions,
   presence,
 }: {
   channel: Channel;
   isActive: boolean;
   unread: boolean;
+  unreadSessions: number;
+  blockedSessions: number;
   presence: ChannelPresence | undefined;
 }) {
   const people = presence?.people ?? [];
+  const noun = useChannelsLayout() ? "space" : "channel";
+  const channelActions = useChannelActions(channel);
+  const { actions } = channelActions;
+  const preview = useMemo<SpacePreviewPayload>(
+    () => ({
+      channel,
+      unreadSessions,
+      blockedSessions,
+      actions: [
+        {
+          key: "new-session",
+          label: "New session",
+          icon: <PlusIcon size={14} />,
+          onSelect: () => {
+            track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+              action_type: "new_task_open",
+              surface: "sidebar",
+              channel_id: channel.id,
+            });
+            openTaskInput({ channelId: channel.id });
+          },
+        },
+        ...actions,
+      ],
+    }),
+    [channel, unreadSessions, blockedSessions, actions],
+  );
+
+  const prefetchSessions = usePrefetchSpaceTasks();
+  const prefetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => () => clearTimeout(prefetchTimer.current), []);
+
   return (
-    <div className="group/chan group relative">
-      <WorkRowSurface
-        optionValue={channel.id}
-        data-selected={isActive || undefined}
-        onClick={() => {
-          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-            action_type: "nav_click",
-            surface: "sidebar",
-            channel_id: channel.id,
-            nav_target: "space",
-          });
-          navigateToChannel(channel.id);
-        }}
-      >
-        <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-          {channelGlyph(channel.name, {
-            size: 13,
-            space: false,
-            personal: channel.channelType === "personal",
-            private: channel.channelType === "private",
-          })}
-        </span>
-        <span
-          className={cn("min-w-0 flex-1 truncate", unread && "font-semibold")}
-        >
-          {channel.name}
-        </span>
-        <span className="flex shrink-0 items-center gap-1.5 group-hover/chan:mr-11">
-          {people.length > 0 && (
-            <PresenceAvatars people={people} liveUuids={presence?.liveUuids} />
-          )}
-          {unread && !isActive && (
-            <span
-              role="img"
-              aria-label="Unread"
-              className="size-1.5 shrink-0 rounded-full bg-primary"
-            />
-          )}
-        </span>
-      </WorkRowSurface>
-      {channel.channelType !== "personal" && (
-        <SpaceRowControls channel={channel} />
-      )}
-    </div>
+    <>
+      <SpaceHoverCard space={preview}>
+        <ContextMenu>
+          <ContextMenuTrigger
+            render={
+              <WorkRowSurface
+                optionValue={channel.id}
+                data-selected={isActive || undefined}
+                onPointerEnter={() => {
+                  clearTimeout(prefetchTimer.current);
+                  prefetchTimer.current = setTimeout(
+                    () => prefetchSessions(channel.id),
+                    SESSION_PREFETCH_DELAY_MS,
+                  );
+                }}
+                onPointerLeave={() => clearTimeout(prefetchTimer.current)}
+                onClick={() => {
+                  track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+                    action_type: "nav_click",
+                    surface: "sidebar",
+                    channel_id: channel.id,
+                    nav_target: "space",
+                  });
+                  navigateToChannel(channel.id);
+                }}
+              >
+                <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+                  {channelGlyph(channel.name, {
+                    size: 13,
+                    space: false,
+                    personal: channel.channelType === "personal",
+                    private: channel.channelType === "private",
+                  })}
+                </span>
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate",
+                    unread && "font-semibold",
+                  )}
+                >
+                  {channel.name}
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {people.length > 0 && (
+                    <PresenceAvatars
+                      people={people}
+                      liveUuids={presence?.liveUuids}
+                    />
+                  )}
+                  {unread && !isActive && (
+                    <span
+                      role="img"
+                      aria-label="Unread"
+                      className="size-1.5 shrink-0 rounded-full bg-primary"
+                    />
+                  )}
+                </span>
+              </WorkRowSurface>
+            }
+          />
+          <ContextMenuContent>
+            <ChannelActionItems actions={preview.actions} kind="context" />
+          </ContextMenuContent>
+        </ContextMenu>
+      </SpaceHoverCard>
+      <SpaceActionDialogs
+        channel={channel}
+        noun={noun}
+        actions={channelActions}
+      />
+    </>
   );
 }
 
@@ -235,22 +330,10 @@ export function WorkColumn() {
     [items],
   );
   const dayStart = useLocalDayStart();
-  const pinnedKeys = useMemo(
-    () =>
-      new Set(
-        items
-          .filter((entry) => entry.item.pinned)
-          .map((entry) => entry.item.key),
-      ),
-    [items],
-  );
   const matchingItems = useMemo(() => {
     const all = items.map((entry) => entry.item);
     const filtered = filterChannelItems(all, { query, filters, me });
-    const unpinned = filtered.map((item) =>
-      item.pinned ? { ...item, pinned: false } : item,
-    );
-    return sortChannelItems(unpinned, sort);
+    return sortChannelItems(filtered, sort, NO_PINNED_RUN);
   }, [items, query, filters, me, sort]);
   const spaceNameById = useMemo(
     () => new Map(channels.map((channel) => [channel.id, channel.name])),
@@ -260,13 +343,17 @@ export function WorkColumn() {
     () => new Map(items.map(({ item, channelId }) => [item.key, channelId])),
     [items],
   );
+  const channelIdOf = useCallback(
+    (item: ChannelItemModel) => channelByKey.get(item.key),
+    [channelByKey],
+  );
   const spaceOf = useCallback(
     (item: ChannelItemModel) => {
-      const channelId = channelByKey.get(item.key);
+      const channelId = channelIdOf(item);
       const label = channelId ? spaceNameById.get(channelId) : undefined;
       return channelId && label ? { key: channelId, label } : null;
     },
-    [channelByKey, spaceNameById],
+    [channelIdOf, spaceNameById],
   );
   const sections = useMemo(
     () =>
@@ -276,6 +363,7 @@ export function WorkColumn() {
         new Date(dayStart),
         grouping,
         spaceOf,
+        NO_PINNED_RUN,
       ),
     [matchingItems, sort, dayStart, grouping, spaceOf],
   );
@@ -288,54 +376,27 @@ export function WorkColumn() {
   );
 
   const presenceBySpace = useSpacePresence();
-  const { togglePin, setPinnedMany } = usePinnedTasks();
-  const { archiveTask } = useArchiveTask({ navigateUnscoped: true });
-  const { setPinned: setCanvasPinned } = useDashboardMutations();
-  const actions = useMemo<ChannelItemActions>(
-    () => ({
-      open: (item: ChannelItemModel) => {
-        const channelId = channelByKey.get(item.key);
-        if (item.kind === "canvas") {
-          if (channelId) navigateToChannelDashboard(channelId, item.id);
-          return;
-        }
-        track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-          action_type: "open_task",
-          surface: "sidebar",
-          channel_id: channelId,
-          task_id: item.id,
-        });
-        if (channelId) navigateToChannelTask(channelId, item.id);
-        else navigateToTaskDetail(item.id);
-      },
-      togglePin: (item) => {
-        const pin =
-          item.kind === "canvas"
-            ? setCanvasPinned(item.id, !item.pinned)
-            : togglePin(item.id);
-        pin.catch(() => {
-          toast.error("Couldn't update pin");
-        });
-      },
-      setPinned: (batch, pinned) => {
-        const onError = () => {
-          toast.error("Couldn't update pin");
-        };
-        const taskIds = batch
-          .filter((item) => item.kind !== "canvas")
-          .map((item) => item.id);
-        if (taskIds.length > 0) setPinnedMany(taskIds, pinned).catch(onError);
-        for (const item of batch) {
-          if (item.kind !== "canvas") continue;
-          setCanvasPinned(item.id, pinned).catch(onError);
-        }
-      },
-      archive: (item) => {
-        void archiveTask({ taskId: item.id });
-      },
-    }),
-    [archiveTask, channelByKey, setCanvasPinned, setPinnedMany, togglePin],
+  const unreadSessionCount = useUnreadSessionCount();
+  const blockedSessionCount = useBlockedSessionCount();
+  const open = useCallback(
+    (item: ChannelItemModel) => {
+      const channelId = channelIdOf(item);
+      if (item.kind === "canvas") {
+        if (channelId) navigateToChannelDashboard(channelId, item.id);
+        return;
+      }
+      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        action_type: "open_task",
+        surface: "sidebar",
+        channel_id: channelId,
+        task_id: item.id,
+      });
+      if (channelId) navigateToChannelTask(channelId, item.id);
+      else navigateToTaskDetail(item.id);
+    },
+    [channelIdOf],
   );
+  const actions = useChannelItemActions({ channelIdOf, open });
 
   const showAllRecent = useDeferredValue(recentExpanded || needle !== "");
   const recentRebuilding = showAllRecent !== (recentExpanded || needle !== "");
@@ -357,27 +418,31 @@ export function WorkColumn() {
   const canExpandRecent =
     needle === "" && matchingItems.length > RECENT_COLLAPSED_COUNT;
   const recentFills = recentOpen && recentExpanded;
+  const {
+    selectedTaskIds,
+    clearSelection,
+    bulkActions,
+    archiveConfirm,
+    marquee,
+    listAnchorRef,
+    onRowClick,
+  } = useChannelItemSelection({ listItems: shownItems, activeKey, open });
+  const commandCenterCells = useCommandCenterStore((state) => state.cells);
+  const { renameTask } = useRenameTask();
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+
   const optionValues = useMemo(
     () => [
-      ...shownItems.map((item) => item.key),
+      ...shownItems
+        .filter((item) => item.id !== editingTaskId)
+        .map((item) => item.key),
       ...starredSpaces.map((channel) => channel.id),
     ],
-    [shownItems, starredSpaces],
+    [shownItems, starredSpaces, editingTaskId],
   );
 
   const spaceNameFor = (item: ChannelItemModel): string | undefined =>
     spaceOf(item)?.label;
-
-  const menuFor = (item: ChannelItemModel): TaskRowMenuProps => ({
-    kind: item.kind,
-    id: item.id,
-    title: item.title,
-    isPinned: pinnedKeys.has(item.key),
-    task: item.task ?? undefined,
-    channelId: channelByKey.get(item.key),
-    onTogglePin: () => actions.togglePin(item),
-    onArchive: item.kind === "task" ? () => actions.archive(item) : undefined,
-  });
 
   return (
     <Autocomplete<string>
@@ -402,8 +467,14 @@ export function WorkColumn() {
         <AutocompleteList className="sidebar-autocomplete-tree !max-h-none !px-2 !pt-2 !pb-2 flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* The expanded list keeps a share of the column instead of all of it,
               so the spaces below it stay on screen. */}
+          {/* Positioned and non-scrolling, because the marquee measures its band
+              against this box and reads the rows inside it. */}
           <div
-            className={cn("flex min-h-0 flex-col", recentFills && "flex-[3]")}
+            ref={listAnchorRef}
+            className={cn(
+              "relative flex min-h-0 flex-col",
+              recentFills && "flex-[3]",
+            )}
           >
             <SectionHeading
               label="Recent"
@@ -477,23 +548,80 @@ export function WorkColumn() {
                             {section.label}
                           </div>
                         )}
-                        {section.items.map((item) => (
-                          <WorkItemRow
-                            key={item.key}
-                            item={item}
-                            isActive={item.key === activeKey}
-                            onOpen={() => actions.open(item)}
-                            menu={menuFor(item)}
-                            spaceName={spaceNameFor(item)}
-                            channelId={channelByKey.get(item.key)}
-                            currentUserUuid={meUuid ?? undefined}
-                          />
-                        ))}
+                        {section.items.map((item) => {
+                          const inSelection =
+                            item.kind === "task" &&
+                            selectedTaskIds.includes(item.id);
+                          return (
+                            <ChannelItemRow
+                              key={item.key}
+                              item={item}
+                              optionValue={item.key}
+                              channelId={channelIdOf(item)}
+                              spaceName={spaceNameFor(item)}
+                              withPrStatus={false}
+                              isActive={item.key === activeKey}
+                              isSelected={inSelection}
+                              actions={actions}
+                              onClick={(event) => onRowClick(item, event)}
+                              bulk={
+                                inSelection && selectedTaskIds.length > 1
+                                  ? {
+                                      actions: bulkActions,
+                                      onArchive: archiveConfirm.requestArchive,
+                                    }
+                                  : null
+                              }
+                              onContextMenuOpenChange={(open) => {
+                                if (open && !inSelection) clearSelection();
+                              }}
+                              isEditing={
+                                item.kind === "task" &&
+                                editingTaskId === item.id
+                              }
+                              onRename={
+                                item.kind === "task"
+                                  ? () => setEditingTaskId(item.id)
+                                  : undefined
+                              }
+                              onAddToCommandCenter={
+                                isInCommandCenter(item, commandCenterCells)
+                                  ? undefined
+                                  : commandCenterAssigner(item)
+                              }
+                              onEditSubmit={
+                                item.kind === "task"
+                                  ? async (newTitle) => {
+                                      setEditingTaskId(null);
+                                      searchRef.current?.focus();
+                                      try {
+                                        await renameTask({
+                                          taskId: item.id,
+                                          currentTitle: item.title,
+                                          newTitle,
+                                        });
+                                      } catch (error) {
+                                        log.error(
+                                          "Failed to rename task",
+                                          error,
+                                        );
+                                      }
+                                    }
+                                  : undefined
+                              }
+                              onEditCancel={() => {
+                                setEditingTaskId(null);
+                                searchRef.current?.focus();
+                              }}
+                            />
+                          );
+                        })}
                       </Fragment>
                     ))}
                   </div>
                 ))}
             </div>
+            <MarqueeOverlay rect={marquee} />
             {recentOpen && canExpandRecent && (
               <button
                 type="button"
@@ -549,6 +677,8 @@ export function WorkColumn() {
                     channel={channel}
                     isActive={channel.id === activeChannelId}
                     unread={isChannelUnread(channel.id)}
+                    unreadSessions={unreadSessionCount(channel.id)}
+                    blockedSessions={blockedSessionCount(channel.id)}
                     presence={presenceBySpace.get(channel.id)}
                   />
                 ))}
@@ -566,7 +696,13 @@ export function WorkColumn() {
             )}
           </div>
         </AutocompleteList>
+        <SidebarBulkActionBar
+          actions={bulkActions}
+          onClearSelection={clearSelection}
+          onArchive={archiveConfirm.requestArchive}
+        />
       </div>
+      {archiveConfirm.dialog}
       <CreateChannelModal open={createOpen} onOpenChange={setCreateOpen} />
       <EditListItemAppearanceDialog
         surface="sidebar"

@@ -1,5 +1,6 @@
-"""Types for the observation media workflow: one thumbnail per succeeded observation today, clips later."""
+"""Types for the observation media workflow: one thumbnail per succeeded observation."""
 
+import datetime as dt
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -15,9 +16,14 @@ FALLBACK_THUMBNAIL_FRACTION = 0.25
 
 MEDIA_WORKFLOW_NAME = "replay-vision-media"
 
+# Bounds the thumbnail's retry chain, queue wait included.
+THUMBNAIL_SCHEDULE_TO_CLOSE = dt.timedelta(hours=6)
+# Past the retry chain, so a stuck render fails its own activity rather than the whole child.
+MEDIA_WORKFLOW_EXECUTION_TIMEOUT = THUMBNAIL_SCHEDULE_TO_CLOSE + dt.timedelta(minutes=30)
+
 
 def build_media_workflow_id(observation_id: UUID) -> str:
-    """One id per observation, so a backfill cannot start a render a scan is already running."""
+    """One id per observation, so a retried scan cannot start a second render beside one still running."""
     return f"{MEDIA_WORKFLOW_NAME}-{observation_id}"
 
 

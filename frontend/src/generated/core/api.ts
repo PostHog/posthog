@@ -24,6 +24,7 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemDestroyParams,
+    FileSystemHomeFolderApi,
     FileSystemListParams,
     FileSystemShortcutApi,
     FileSystemShortcutListParams,
@@ -83,6 +84,7 @@ import type {
     SCIMTokenResponseApi,
     SharingConfigurationApi,
     ToolbarEntitlementsApi,
+    TwoFactorStatusApi,
     UploadedMediaApi,
     UploadedMediaCreate201,
     UploadedMediaCreateBody,
@@ -1733,6 +1735,20 @@ export const fileSystemCountByPathCreate = async (
     })
 }
 
+export const getFileSystemHomeFolderCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/file_system/home_folder/`
+}
+
+export const fileSystemHomeFolderCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<FileSystemHomeFolderApi> => {
+    return apiMutator<FileSystemHomeFolderApi>(getFileSystemHomeFolderCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getFileSystemLogViewRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/log_view/`
 }
@@ -3301,10 +3317,13 @@ export const getUsersTwoFactorStatusRetrieveUrl = (uuid: string) => {
 }
 
 /**
- * Get current 2FA status including backup codes if enabled
+ * Get current 2FA status, including how many backup codes are left.
  */
-export const usersTwoFactorStatusRetrieve = async (uuid: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersTwoFactorStatusRetrieveUrl(uuid), {
+export const usersTwoFactorStatusRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<TwoFactorStatusApi> => {
+    return apiMutator<TwoFactorStatusApi>(getUsersTwoFactorStatusRetrieveUrl(uuid), {
         ...options,
         method: 'GET',
     })

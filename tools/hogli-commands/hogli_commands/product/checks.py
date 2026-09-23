@@ -1213,6 +1213,9 @@ class OrphanedTestFilesCheck(ProductCheck):
         # engine is a flat script bundle with bare sibling imports, so it runs as its own pytest
         # invocation rather than inside the product's Django suite.
         "stamphog": ("packages/pr-approval-agent/",),
+        # kev-vllm is its own uv project outside the workspace: its tests run with `uv run --group dev pytest`
+        # inside the package, and its torch dependency keeps it out of the product matrix.
+        "ml_inference": ("packages/kev-vllm/tests/",),
     }
 
     def run(self, ctx: CheckContext) -> CheckResult:

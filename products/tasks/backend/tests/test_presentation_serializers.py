@@ -9,7 +9,11 @@ from parameterized import parameterized
 
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_EU, ARRAY_APP_CLIENT_ID_US
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_EU,
+    ARRAY_APP_CLIENT_ID_US,
+    POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
+)
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
@@ -121,22 +125,29 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (serializer_class, resume, client_id, sandbox)
+            (serializer_class, resume, caller)
             for serializer_class, resume in [
                 (TaskRunCreateRequestSerializer, False),
                 (TaskRunBootstrapCreateRequestSerializer, False),
                 (TaskRunCreateRequestSerializer, True),
             ]
-            for client_id in [ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU]
-            for sandbox in [False, True]
+            for caller in ["desktop_us", "desktop_eu", "mobile", "sandbox", "session"]
         ]
     )
-    def test_subscription_checks_oauth_origin(self, serializer_class, resume, client_id, sandbox) -> None:
-        authenticator = OAuthAccessTokenAuthentication()
-        authenticator.access_token = OAuthAccessToken(
-            application=OAuthApplication(client_id=client_id),
-            scope="task:write internal_run:read" if sandbox else "task:write",
-        )
+    def test_subscription_checks_oauth_origin(self, serializer_class, resume, caller) -> None:
+        authenticator = None
+        if caller != "session":
+            authenticator = OAuthAccessTokenAuthentication()
+            authenticator.access_token = OAuthAccessToken(
+                application=OAuthApplication(
+                    client_id={
+                        "desktop_eu": ARRAY_APP_CLIENT_ID_EU,
+                        "mobile": POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
+                    }.get(caller, ARRAY_APP_CLIENT_ID_US)
+                ),
+                scope="task:write internal_run:read" if caller == "sandbox" else "task:write",
+                source_refresh_token_id="00000000-0000-0000-0000-000000000002",
+            )
         serializer = serializer_class(
             data={"resume_from_run_id": "00000000-0000-0000-0000-000000000001"}
             if resume
@@ -147,13 +158,14 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
                 "team": SimpleNamespace(id=1),
             },
         )
+        accepted = caller.startswith("desktop") and not resume
         with patch.object(
             tasks_facade,
             "get_task_run_claude_model_access",
             return_value="own-subscription",
         ):
-            assert serializer.is_valid() is (not sandbox and not resume), serializer.errors
-        if sandbox or resume:
+            assert serializer.is_valid() is accepted, serializer.errors
+        if not accepted:
             assert "claude_model_access" in serializer.errors
 
     @patch(

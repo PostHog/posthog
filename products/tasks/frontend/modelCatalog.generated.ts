@@ -43,6 +43,16 @@ export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ult
 
 export const REASONING_EFFORTS: readonly ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']
 
+/** What a picker calls each depth. */
+export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
+    low: 'Low',
+    medium: 'Medium',
+    high: 'High',
+    xhigh: 'Extra high',
+    max: 'Max',
+    ultracode: 'Ultracode',
+}
+
 /** A value for each runtime adapter. */
 export type ByRuntimeAdapter<T> = Record<RuntimeAdapter, T>
 
@@ -213,6 +223,18 @@ export const MODELS: readonly CatalogModel[] = [
         costSummary: 'Input $5 · Output $25 per 1M tokens',
     },
     {
+        id: 'claude-opus-5-5',
+        runtimeAdapter: 'claude',
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        label: 'Claude Opus 5.5',
+        cost: {
+            inputPerMtok: 4,
+            outputPerMtok: 20,
+        },
+        costMultiplier: '2×',
+        costSummary: 'Input $4 · Output $20 per 1M tokens',
+    },
+    {
         id: 'claude-fable-5',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
@@ -356,6 +378,67 @@ export const MODELS: readonly CatalogModel[] = [
 export const DEFAULT_MODEL_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {
     claude: 'claude-sonnet-5',
     codex: 'gpt-5',
+}
+
+export interface CapabilityNotch {
+    model: string
+    effort: ReasoningEffort
+}
+
+type CapabilityLadders = ByRuntimeAdapter<readonly CapabilityNotch[]>
+
+/** The Faster → Smarter rungs each harness offers, cheapest first. Filter them
+    against what the gateway serves before rendering, so a rung naming a retired
+    model drops out instead of becoming a stop that fails on send. */
+export const CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: CapabilityLadders = {
+    claude: [
+        {
+            model: 'claude-sonnet-5',
+            effort: 'medium',
+        },
+        {
+            model: 'claude-sonnet-5',
+            effort: 'high',
+        },
+        {
+            model: 'claude-opus-5-5',
+            effort: 'medium',
+        },
+        {
+            model: 'claude-opus-5-5',
+            effort: 'xhigh',
+        },
+        {
+            model: 'claude-fable-5-1',
+            effort: 'max',
+        },
+    ],
+    codex: [
+        {
+            model: 'gpt-6-luna',
+            effort: 'low',
+        },
+        {
+            model: 'gpt-6-sol',
+            effort: 'low',
+        },
+        {
+            model: 'gpt-6-sol',
+            effort: 'medium',
+        },
+        {
+            model: 'gpt-6-sol',
+            effort: 'high',
+        },
+        {
+            model: 'gpt-6-sol',
+            effort: 'xhigh',
+        },
+        {
+            model: 'gpt-6-astra',
+            effort: 'max',
+        },
+    ],
 }
 
 export interface ModelFamily {
