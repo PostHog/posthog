@@ -231,6 +231,19 @@ export const useCanvasSourceStore = create<CanvasSourceState>((set) => ({
     ),
 }));
 
+export function isRootSelection(
+  entry: CanvasSourceEntry,
+  selection: CanvasEditSelection | null | undefined,
+): boolean {
+  const root = entry.rootSource;
+  return (
+    !!selection?.source &&
+    !!root &&
+    selection.source.file === root.file &&
+    selection.source.start === root.start
+  );
+}
+
 export function isSourceDirty(entry: CanvasSourceEntry | undefined): boolean {
   return !!entry && entry.files !== entry.savedFiles;
 }

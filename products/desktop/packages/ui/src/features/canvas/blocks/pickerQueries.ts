@@ -7,15 +7,13 @@ export const TOP_EVENTS_HOGQL =
 export const TOP_EVENT_PROPERTIES_HOGQL =
   "SELECT k, count() AS c FROM (SELECT arrayJoin(JSONExtractKeys(properties)) AS k FROM events WHERE timestamp > now() - INTERVAL 7 DAY LIMIT 20000) GROUP BY k ORDER BY c DESC LIMIT 200";
 
-export function useHogqlRows(hogql: string | null) {
+export function useTopValues(hogql: string) {
   return useQuery({
     queryKey: ["canvas-block-hogql", hogql],
-    queryFn: async (): Promise<unknown[][]> => {
-      if (!hogql) return [];
+    queryFn: async (): Promise<string[]> => {
       const result = await hostClient().canvasData.query.mutate({ hogql });
-      return result.results as unknown[][];
+      return (result.results as unknown[][]).map((row) => String(row[0]));
     },
-    enabled: hogql != null,
     staleTime: 10 * 60_000,
     retry: false,
   });

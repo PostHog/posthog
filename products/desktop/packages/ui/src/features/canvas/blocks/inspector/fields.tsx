@@ -10,14 +10,21 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@posthog/quill";
-import {
-  MATH_OPTIONS,
-  mathLabel,
-} from "@posthog/ui/features/canvas/blocks/blocksFormat";
 import { settingsToggleItemClassName } from "@posthog/ui/features/settings/components/SettingsSegmented";
 import { type ReactNode, useEffect, useId, useState } from "react";
 
 export type MathValue = "total" | "dau" | "weekly_active" | "monthly_active";
+
+const MATH_OPTIONS: Array<{ value: MathValue; label: string }> = [
+  { value: "total", label: "Total count" },
+  { value: "dau", label: "Unique users" },
+  { value: "weekly_active", label: "Weekly active users" },
+  { value: "monthly_active", label: "Monthly active users" },
+];
+
+function mathLabel(value: MathValue): string {
+  return MATH_OPTIONS.find((option) => option.value === value)?.label ?? value;
+}
 
 export function InspectorField({
   label,

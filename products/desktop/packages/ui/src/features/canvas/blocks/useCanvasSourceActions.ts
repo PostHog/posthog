@@ -21,6 +21,7 @@ import {
 } from "@posthog/core/canvas/blockLibrary/sourceEdits";
 import {
   type CanvasEditSelection,
+  isRootSelection,
   useCanvasSourceStore,
 } from "@posthog/ui/features/canvas/blocks/canvasSourceStore";
 import { libraryLabel } from "@posthog/ui/features/canvas/blocks/libraryCatalog";
@@ -76,17 +77,23 @@ function besideSelection(
 export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
   const setTab = useCanvasChatPanelStore((state) => state.setTab);
   return useMemo(() => {
-    const source = () => useCanvasSourceStore.getState();
-    const store = () => ({
-      ...source(),
-      apply: (
-        id: string,
-        files: SourceFiles,
-        focusBlockId?: string | null,
-        focusSource?: string | null,
-      ) =>
-        source().apply(id, syncBlockLibrary(files), focusBlockId, focusSource),
-    });
+    const store = () => useCanvasSourceStore.getState();
+    const apply = (
+      files: SourceFiles,
+      focusBlockId: string | null = null,
+      focusSource: string | null = null,
+    ) =>
+      store().apply(
+        canvasId,
+        syncBlockLibrary(files),
+        focusBlockId,
+        focusSource,
+      );
+    const note = (verb: string, selection: CanvasEditSelection) =>
+      store().noteChange(
+        canvasId,
+        `${verb} ${libraryLabel(selection.blockType, selection.tag).toLowerCase()}`,
+      );
 
     const insert = (blockType: string, target: SourceDropTarget) => {
       const entry = current(canvasId);
@@ -101,12 +108,9 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
         blockId,
       );
       if (files === entry.files) return;
-      useCanvasSourceStore
-        .getState()
-        .noteChange(canvasId, `Added ${definition.label.toLowerCase()}`);
-      store().apply(canvasId, files, definition.component ? blockId : null);
-      if (definition.needsSetup)
-        useCanvasSourceStore.getState().setLibraryOpen(canvasId, false);
+      store().noteChange(canvasId, `Added ${definition.label.toLowerCase()}`);
+      apply(files, definition.component ? blockId : null);
+      if (definition.needsSetup) store().setLibraryOpen(canvasId, false);
       setTab("blocks");
     };
 
@@ -115,11 +119,6 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
       if (!entry) return;
       const selection = store().selection[canvasId];
       const root = entry.rootSource;
-      const rootSelected =
-        !!selection?.source &&
-        !!root &&
-        selection.source.start === root.start &&
-        selection.source.file === root.file;
       const group = blockDefinition(blockType)?.group;
       const control =
         group === "Controls" && root
@@ -135,7 +134,7 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
       const besideAllowed = group === "Controls" || !controlSelected;
       if (
         selection?.source &&
-        !rootSelected &&
+        !isRootSelection(entry, selection) &&
         besideAllowed &&
         isFresh(canvasId, selection.rev)
       ) {
@@ -155,42 +154,29 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
       if (placeableTarget(entry, inRoot)) insert(blockType, inRoot);
     };
 
-    const drop = (source: SourceDragSource, hit: SourceDropHit) => {
-      if (!isFresh(canvasId, hit.rev)) return;
-      const target = current(canvasId);
-      if (!target || !placeableTarget(target, hit.target)) return;
-      if (source.kind === "new") {
-        insert(source.blockType, hit.target);
+    const drop = (dragged: SourceDragSource, hit: SourceDropHit) => {
+      const entry = current(canvasId);
+      if (!entry || !isFresh(canvasId, hit.rev)) return;
+      if (!placeableTarget(entry, hit.target)) return;
+      if (dragged.kind === "new") {
+        insert(dragged.blockType, hit.target);
         return;
       }
-      const entry = current(canvasId);
-      const range = source.selection.source;
-      if (!entry || !range || !isFresh(canvasId, source.selection.rev)) return;
+      const range = dragged.selection.source;
+      if (!range || !isFresh(canvasId, dragged.selection.rev)) return;
       if (!isJsxRange(entry.files, range)) return;
       const files = moveRange(entry.files, range, hit.target);
-      if (files !== entry.files)
-        useCanvasSourceStore
-          .getState()
-          .noteChange(
-            canvasId,
-            `Moved ${libraryLabel(source.selection.blockType, source.selection.tag).toLowerCase()}`,
-          );
-      store().apply(canvasId, files, source.selection.blockId);
+      if (files !== entry.files) note("Moved", dragged.selection);
+      apply(files, dragged.selection.blockId);
     };
 
     const remove = (selection: CanvasEditSelection) => {
       const entry = current(canvasId);
       if (!entry || !selection.source || !isFresh(canvasId, selection.rev))
         return;
-      if (entry.rootSource && selection.source.start === entry.rootSource.start)
-        return;
-      useCanvasSourceStore
-        .getState()
-        .noteChange(
-          canvasId,
-          `Removed ${libraryLabel(selection.blockType, selection.tag).toLowerCase()}`,
-        );
-      store().apply(canvasId, removeRange(entry.files, selection.source));
+      if (isRootSelection(entry, selection)) return;
+      note("Removed", selection);
+      apply(removeRange(entry.files, selection.source));
       store().setSelection(canvasId, null);
     };
 
@@ -199,14 +185,8 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
       if (!entry || !selection.source || !isFresh(canvasId, selection.rev))
         return;
       const blockId = newBlockId();
-      useCanvasSourceStore
-        .getState()
-        .noteChange(
-          canvasId,
-          `Duplicated ${libraryLabel(selection.blockType, selection.tag).toLowerCase()}`,
-        );
-      store().apply(
-        canvasId,
+      note("Duplicated", selection);
+      apply(
         duplicateRange(entry.files, selection.source, blockId),
         selection.blockId ? blockId : null,
       );
@@ -231,18 +211,13 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
         props,
       );
       if (files === entry.files) return;
-      const focusSource = `${selection.source.file}|${selection.source.start}`;
-      useCanvasSourceStore
-        .getState()
-        .noteChange(
-          canvasId,
-          `Changed ${libraryLabel(selection.blockType, selection.tag).toLowerCase()}`,
-        );
-      store().apply(
-        canvasId,
+      note("Changed", selection);
+      apply(
         files,
         selection.blockId,
-        selection.blockId ? null : focusSource,
+        selection.blockId
+          ? null
+          : `${selection.source.file}|${selection.source.start}`,
       );
       store().setSelection(canvasId, { ...selection, props });
     };
@@ -253,9 +228,8 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
         return;
       const files = replaceElementText(entry.files, selection.source, text);
       if (files === entry.files) return;
-      useCanvasSourceStore.getState().noteChange(canvasId, "Edited text");
-      store().apply(
-        canvasId,
+      store().noteChange(canvasId, "Edited text");
+      apply(
         files,
         selection.blockId,
         `${selection.source.file}|${selection.source.start}`,

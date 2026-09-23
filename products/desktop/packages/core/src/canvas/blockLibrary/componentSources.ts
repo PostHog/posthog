@@ -53,9 +53,7 @@ export function Metric(props: MetricProps) {
   const points = (spark.data?.results?.[0]?.data ?? []).map((point: number, index: number) => ({ index, value: Number(point) }));
   return (
     <Card {...blockRoot("Metric", props)} className="shrink-0 group relative flex min-w-0 flex-col">
-      <span className="absolute top-3 right-3 opacity-0 transition-opacity group-hover:opacity-100">
-        <QueryButton query={query} hogql={value?.data?.hogql} />
-      </span>
+      <QueryButton className="absolute top-3 right-3" query={query} hogql={value?.data?.hogql} />
       <CardContent className="flex flex-1 flex-col gap-1">
         <span className="truncate text-sm font-medium text-muted-foreground" title={title || eventName(event)}>{title || eventName(event)}</span>
         <BlockDescription text={description} />
@@ -187,9 +185,7 @@ export function Trend(props: TrendProps) {
             </div>
           ) : null}
         </div>
-        <span className="opacity-0 transition-opacity group-hover:opacity-100">
-          <QueryButton query={query} hogql={result?.data?.hogql} />
-        </span>
+        <QueryButton query={query} hogql={result?.data?.hogql} />
       </CardHeader>
       <CardContent>
         <BlockState loading={result.loading} error={result.error} empty={rows.length === 0} height={220}>
@@ -285,9 +281,7 @@ export function TopList(props: TopListProps) {
           <BlockDescription text={props.description} />
           <div className="text-xs text-muted-foreground">{eventName(event)} · {scopeLabel(filters, followFilters)}</div>
         </div>
-        <span className="opacity-0 transition-opacity group-hover:opacity-100">
-          <QueryButton query={query} hogql={result?.data?.hogql} />
-        </span>
+        <QueryButton query={query} hogql={result?.data?.hogql} />
       </CardHeader>
       <CardContent>
         <BlockState loading={result.loading} error={result.error} empty={rows.length === 0} height={200}>
@@ -381,9 +375,7 @@ export function Funnel(props: FunnelProps) {
             {scopeLabel(filters, followFilters)}
           </div>
         </div>
-        <span className="opacity-0 transition-opacity group-hover:opacity-100">
-          <QueryButton query={query} hogql={result?.data?.hogql} />
-        </span>
+        <QueryButton query={query} hogql={result?.data?.hogql} />
       </CardHeader>
       <CardContent>
         <BlockState loading={result.loading} error={result.error} empty={first === 0} height={160}>
@@ -418,9 +410,9 @@ import {
   type BlockProps,
   BlockState,
   QueryButton,
+  ResultTable,
   blockRoot,
   filterFields,
-  formatNumber,
   useBlockQuery,
   useCanvasFilters,
 } from "./runtime";
@@ -430,50 +422,23 @@ type SqlTableProps = BlockProps & {
   query?: string;
 };
 
-function cell(value: unknown) {
-  if (value === null || value === undefined) return "null";
-  if (typeof value === "number") return formatNumber(value);
-  return String(value);
-}
-
 export function SqlTable(props: SqlTableProps) {
   const { title, query: hogql = "SELECT event, count() AS total FROM events WHERE {filters} GROUP BY event ORDER BY total DESC LIMIT 10" } = props;
   const filters = useCanvasFilters();
   const query = { kind: "HogQLQuery", query: hogql, filters: filterFields(filters) };
   const result = useBlockQuery(query);
   const columns = result.data?.columns ?? [];
-  const rows = (result.data?.results ?? []).slice(0, 100);
+  const rows = result.data?.results ?? [];
   return (
     <Card {...blockRoot("SqlTable", props)} className="shrink-0 group min-w-0">
       <CardHeader className="flex flex-row items-start justify-between gap-2">
         <CardTitle className="truncate">{title || "Query results"}</CardTitle>
         <BlockDescription text={props.description} />
-        <span className="opacity-0 transition-opacity group-hover:opacity-100">
-          <QueryButton query={query} hogql={result?.data?.hogql} />
-        </span>
+        <QueryButton query={query} hogql={result?.data?.hogql} />
       </CardHeader>
       <CardContent>
         <BlockState loading={result.loading} error={result.error} empty={rows.length === 0} height={160}>
-          <div className="max-h-80 overflow-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr>
-                  {columns.map((column) => (
-                    <th key={column} className="border-b border-border py-1.5 pr-3 text-left text-xs font-normal text-muted-foreground">{column}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, rowIndex) => (
-                  <tr key={JSON.stringify(row) + rowIndex} className="border-b border-border last:border-b-0">
-                    {columns.map((column, columnIndex) => (
-                      <td key={column} className="max-w-60 truncate py-1.5 pr-3 tabular-nums">{cell(row[columnIndex])}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ResultTable columns={columns} rows={rows} />
         </BlockState>
       </CardContent>
     </Card>
@@ -897,9 +862,7 @@ export function Goal(props: GoalProps) {
       })}
       className="group relative flex min-w-0 shrink-0 flex-col"
     >
-      <span className="absolute top-3 right-3 opacity-0 transition-opacity group-hover:opacity-100">
-        <QueryButton query={query} hogql={result?.data?.hogql} />
-      </span>
+      <QueryButton className="absolute top-3 right-3" query={query} hogql={result?.data?.hogql} />
       <CardContent className="flex flex-1 flex-col gap-2">
         <span className="truncate text-sm font-medium text-muted-foreground">{title || eventName(event) + " goal"}</span>
         <BlockDescription text={description} />
@@ -989,9 +952,7 @@ export function RecentEvents(props: RecentEventsProps) {
           {title}
         </CardTitle>
         <BlockDescription text={props.description} />
-        <span className="opacity-0 transition-opacity group-hover:opacity-100">
-          <QueryButton query={query} hogql={result?.data?.hogql} />
-        </span>
+        <QueryButton query={query} hogql={result?.data?.hogql} />
       </CardHeader>
       <CardContent>
         <BlockState loading={result.loading} error={result.error} empty={rows.length === 0} height={200}>
@@ -1075,6 +1036,7 @@ import {
   rangeLabel,
   useBlockInsight,
   useCanvasFilters,
+  ResultTable,
 } from "./runtime";
 
 type InsightProps = BlockProps & {
@@ -1165,31 +1127,6 @@ function FunnelBody({ rows }: { rows: any[] }) {
   );
 }
 
-function TableBody({ columns, rows }: { columns: string[]; rows: any[] }) {
-  return (
-    <div className="max-h-80 overflow-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr>
-            {columns.map((column) => (
-              <th key={column} className="border-b border-border py-1.5 pr-3 text-left text-xs font-normal text-muted-foreground">{column}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.slice(0, 100).map((row, index) => (
-            <tr key={index} className="border-b border-border last:border-b-0">
-              {(Array.isArray(row) ? row : [row]).map((cell: unknown, cellIndex: number) => (
-                <td key={cellIndex} className="py-1.5 pr-3 tabular-nums">{String(cell ?? "")}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 export function Insight(props: InsightProps) {
   const { shortId = "", title, followFilters = true } = props;
   const filters = useCanvasFilters();
@@ -1202,7 +1139,7 @@ export function Insight(props: InsightProps) {
     if (kind === "TrendsQuery" || kind === "StickinessQuery" || kind === "LifecycleQuery") return <TrendsBody rows={rows} display={meta?.display ?? ""} />;
     if (kind === "FunnelsQuery") return <FunnelBody rows={rows} />;
     if (kind === "RetentionQuery") return <RetentionGrid cohorts={rows} period="period" />;
-    if (kind === "HogQLQuery" || kind === "DataVisualizationNode" || kind === "DataTableNode") return <TableBody columns={result.data?.columns ?? []} rows={rows} />;
+    if (kind === "HogQLQuery" || kind === "DataVisualizationNode" || kind === "DataTableNode") return <ResultTable columns={result.data?.columns ?? []} rows={rows} />;
     return <div className="py-8 text-center text-sm text-muted-foreground">This insight type opens in PostHog. Ask the agent to rebuild it here.</div>;
   };
   return (
@@ -1287,9 +1224,7 @@ export function Retention(props: RetentionProps) {
             {eventName(startEvent)} then {eventName(returnEvent)} · {scopeLabel(filters, followFilters)}
           </div>
         </div>
-        <span className="opacity-0 transition-opacity group-hover:opacity-100">
-          <QueryButton query={query} hogql={result?.data?.hogql} />
-        </span>
+        <QueryButton query={query} hogql={result?.data?.hogql} />
       </CardHeader>
       <CardContent>
         <BlockState loading={result.loading} error={result.error} empty={cohorts.length === 0} height={200}>

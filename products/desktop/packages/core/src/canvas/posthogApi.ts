@@ -162,6 +162,36 @@ function buildVariablesOverride(
   );
 }
 
+interface InsightRow {
+  short_id?: string;
+  name?: string | null;
+  derived_name?: string | null;
+  query?: InsightQueryNode | null;
+  columns?: string[] | null;
+  result?: unknown;
+}
+
+async function fetchInsights(
+  authService: AuthService,
+  params: URLSearchParams,
+  action: string,
+): Promise<InsightRow[]> {
+  const { apiHost } = await authService.getValidAccessToken();
+  const projectId = authService.getState().currentProjectId;
+  if (projectId == null) {
+    throw new Error("No PostHog project selected");
+  }
+  const response = await authService.authenticatedFetch(
+    fetch,
+    `${apiHost}/api/projects/${projectId}/insights/?${params.toString()}`,
+  );
+  if (!response.ok) {
+    throw new Error(`${action} failed (${response.status})`);
+  }
+  const body = (await response.json()) as { results?: InsightRow[] };
+  return body.results ?? [];
+}
+
 /**
  * Fetch a SAVED insight by `short_id` and return its STORED result straight from
  * the insights endpoint (`/insights/?short_id=…&refresh=blocking`) — the same
@@ -191,12 +221,6 @@ export async function fetchInsightByShortId(
     variables?: Record<string, unknown>;
   },
 ): Promise<InsightFetchResult> {
-  const { apiHost } = await authService.getValidAccessToken();
-  const projectId = authService.getState().currentProjectId;
-  if (projectId == null) {
-    throw new Error("No PostHog project selected");
-  }
-
   const params = new URLSearchParams({
     short_id: shortId,
     refresh: "blocking",
@@ -211,25 +235,7 @@ export async function fetchInsightByShortId(
     );
   }
 
-  const response = await authService.authenticatedFetch(
-    fetch,
-    `${apiHost}/api/projects/${projectId}/insights/?${params.toString()}`,
-  );
-  if (!response.ok) {
-    throw new Error(`Insight load failed (${response.status})`);
-  }
-
-  const body = (await response.json()) as {
-    results?: Array<{
-      short_id?: string;
-      name?: string | null;
-      derived_name?: string | null;
-      query?: InsightQueryNode | null;
-      columns?: string[] | null;
-      result?: unknown;
-    }>;
-  };
-  const insight = body.results?.[0];
+  const [insight] = await fetchInsights(authService, params, "Insight load");
   if (!insight) {
     throw new Error(`Insight "${shortId}" not found`);
   }
@@ -296,11 +302,6 @@ export async function listSavedInsights(
   authService: AuthService,
   search = "",
 ): Promise<SavedInsight[]> {
-  const { apiHost } = await authService.getValidAccessToken();
-  const projectId = authService.getState().currentProjectId;
-  if (projectId == null) {
-    throw new Error("No PostHog project selected");
-  }
   const params = new URLSearchParams({
     saved: "true",
     basic: "true",
@@ -308,21 +309,8 @@ export async function listSavedInsights(
     order: "-last_modified_at",
   });
   if (search.trim()) params.set("search", search.trim());
-  const response = await authService.authenticatedFetch(
-    fetch,
-    `${apiHost}/api/projects/${projectId}/insights/?${params.toString()}`,
-  );
-  if (!response.ok) {
-    throw new Error(`Insight list failed (${response.status})`);
-  }
-  const body = (await response.json()) as {
-    results?: Array<{
-      short_id?: string;
-      name?: string | null;
-      derived_name?: string | null;
-    }>;
-  };
-  return (body.results ?? []).flatMap((insight) =>
+  const insights = await fetchInsights(authService, params, "Insight list");
+  return insights.flatMap((insight) =>
     insight.short_id
       ? [
           {

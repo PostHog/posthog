@@ -10,18 +10,36 @@ import {
   ComboboxList,
   ComboboxTrigger,
 } from "@posthog/quill";
-import { eventLabel } from "@posthog/ui/features/canvas/blocks/blocksFormat";
 import {
   TOP_EVENT_PROPERTIES_HOGQL,
   TOP_EVENTS_HOGQL,
-  useHogqlRows,
   useSavedInsights,
+  useTopValues,
 } from "@posthog/ui/features/canvas/blocks/pickerQueries";
 import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 const CUSTOM_PREFIX = "__custom__:";
 const NONE_VALUE = "__none__";
+
+function eventLabel(event: string): string {
+  const known: Record<string, string> = {
+    $pageview: "Pageview",
+    $pageleave: "Pageleave",
+    $autocapture: "Autocapture",
+    $screen: "Screen",
+    $identify: "Identify",
+    $exception: "Exception",
+    $web_vitals: "Web vitals",
+    $feature_flag_called: "Feature flag called",
+    $groupidentify: "Group identify",
+    $set: "Set person properties",
+  };
+  if (known[event]) return known[event];
+  if (!event.startsWith("$")) return event;
+  const words = event.slice(1).replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 function sameText(value: string): string {
   return value;
@@ -185,11 +203,7 @@ export function EventPicker({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const { data, isLoading } = useHogqlRows(TOP_EVENTS_HOGQL);
-  const options = useMemo(
-    () => (data ?? []).map((row) => String(row[0])),
-    [data],
-  );
+  const { data: options = [], isLoading } = useTopValues(TOP_EVENTS_HOGQL);
   return (
     <SearchPicker
       value={value}
@@ -217,10 +231,8 @@ export function PropertyPicker({
   allowNone?: boolean;
   noneLabel?: string;
 }) {
-  const { data, isLoading } = useHogqlRows(TOP_EVENT_PROPERTIES_HOGQL);
-  const options = useMemo(
-    () => (data ?? []).map((row) => String(row[0])),
-    [data],
+  const { data: options = [], isLoading } = useTopValues(
+    TOP_EVENT_PROPERTIES_HOGQL,
   );
   return (
     <SearchPicker

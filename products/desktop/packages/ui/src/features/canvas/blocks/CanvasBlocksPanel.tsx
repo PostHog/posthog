@@ -6,10 +6,7 @@ import {
 } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import {
-  canvasEditorFrame,
-  postToCanvasEditor,
-} from "@posthog/ui/features/canvas/blocks/CanvasSourceEditor";
-import {
+  isRootSelection,
   isSourceDirty,
   useCanvasEditSelection,
   useCanvasLibraryOpen,
@@ -258,11 +255,7 @@ export function CanvasBlocksPanel({
       entry.saveError ??
       (entry.conflict ? "This canvas changed somewhere else" : null),
   };
-  const isRoot =
-    !!selection?.source &&
-    !!entry.rootSource &&
-    selection.source.file === entry.rootSource.file &&
-    selection.source.start === entry.rootSource.start;
+  const isRoot = isRootSelection(entry, selection);
   const SelectedIcon = libraryIcon(selection?.blockType ?? null);
   const inspecting = !!selection && !libraryOpen;
   const addsAfter =
@@ -288,8 +281,6 @@ export function CanvasBlocksPanel({
       startX: event.clientX,
       startY: event.clientY,
       startActive: false,
-      frame: canvasEditorFrame,
-      postToFrame: postToCanvasEditor,
       onDrop: (source, hit) => {
         store.setLibraryOpen(canvasId, true);
         actions.drop(source, hit);

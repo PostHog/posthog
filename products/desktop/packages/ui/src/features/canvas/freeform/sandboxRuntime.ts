@@ -608,12 +608,11 @@ export function buildSandboxDocument(
         let url;
         let revoke = true;
         if (input.files) {
-          const compiled = await compileCanvasProject(Babel, input.files, input.entry || "src/canvas.tsx", {
+          url = compileCanvasProject(Babel, input.files, input.entry || "src/canvas.tsx", {
             editing: !!input.editing,
             basePlugins: [jsxUnicodeEscapesPlugin],
             cache: moduleCache,
           });
-          url = compiled.url;
           revoke = false;
         } else {
           const out = Babel.transform(input.code, {

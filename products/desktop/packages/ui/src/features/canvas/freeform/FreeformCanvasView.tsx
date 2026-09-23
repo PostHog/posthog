@@ -440,23 +440,24 @@ export function FreeformCanvasView({
     browseVersionId: browsing ? browseVersionId : null,
   });
   const { currentIndex } = nav;
-  const editHistory = useCanvasSourceEntry(dashboardId);
-  const editsInHistory = interactive && !embedded && !browsing && !!editHistory;
+  const sourceEntry = useCanvasSourceEntry(dashboardId);
+  const sourceEnabled = interactive && !embedded;
+  const sourceEditing = sourceEnabled && !browsing && !!sourceEntry;
   const versionCanUndo = !isGenerating && nav.canUndo;
   const versionCanRedo = !isGenerating && nav.canRedo;
-  const canUndo = editsInHistory ? editHistory.past.length > 0 : versionCanUndo;
-  const canRedo = editsInHistory
-    ? editHistory.future.length > 0
+  const canUndo = sourceEditing ? sourceEntry.past.length > 0 : versionCanUndo;
+  const canRedo = sourceEditing
+    ? sourceEntry.future.length > 0
     : versionCanRedo;
   const onUndo = () => {
-    if (editsInHistory) {
+    if (sourceEditing) {
       useCanvasSourceStore.getState().undo(dashboardId);
       return;
     }
     if (nav.undoTargetId) setBrowseVersion(threadId, nav.undoTargetId);
   };
   const onRedo = () => {
-    if (editsInHistory) {
+    if (sourceEditing) {
       useCanvasSourceStore.getState().redo(dashboardId);
       return;
     }
@@ -810,8 +811,7 @@ export function FreeformCanvasView({
   // published — the record is the always-available signal, so a canvas with
   // content never flashes the empty state while source/builds load.
   const hasSource = !!headVersionId || !!headCode?.trim();
-  const sourceLoad = useCanvasSourceSync(dashboardId, interactive && !embedded);
-  const sourceEntry = useCanvasSourceEntry(dashboardId);
+  const sourceLoad = useCanvasSourceSync(dashboardId, sourceEnabled);
   const hasContent = hasSource || !!pinnedArtifact || !!sourceEntry;
   // `isGenerating` keys off the effective task (the optimistic bridge right after
   // submit, then the polled record) and short-circuits on a terminal run — so a
@@ -900,19 +900,12 @@ export function FreeformCanvasView({
       clearTextSelectionKey={clearTextSelectionKey}
     />
   ) : null;
-  const sourceEditing = interactive && !embedded && !!sourceEntry && !browsing;
   const sourcePending =
-    interactive &&
-    !embedded &&
-    !sourceEntry &&
-    sourceLoad === "loading" &&
-    hasSource;
+    sourceEnabled && !sourceEntry && sourceLoad === "loading" && hasSource;
 
   return (
     <Flex height="100%" overflow="hidden" position="relative">
-      {interactive && !embedded ? (
-        <CanvasSourceAutosave canvasId={dashboardId} />
-      ) : null}
+      {sourceEnabled ? <CanvasSourceAutosave canvasId={dashboardId} /> : null}
       <CanvasAgentRequestDialog
         prompt={agentRequest?.prompt ?? null}
         loading={agentRequest?.submitting ?? false}

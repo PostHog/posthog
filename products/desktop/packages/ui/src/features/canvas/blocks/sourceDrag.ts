@@ -1,6 +1,10 @@
 import { blockDefinition } from "@posthog/core/canvas/blockLibrary/blockDefinitions";
 import type { SourceDropTarget } from "@posthog/core/canvas/blockLibrary/sourceEdits";
 import type { CanvasEditSelection } from "@posthog/ui/features/canvas/blocks/canvasSourceStore";
+import {
+  canvasEditorFrame,
+  postToCanvasEditor,
+} from "@posthog/ui/features/canvas/blocks/editorFrame";
 import { create } from "zustand";
 
 export type SourceDragSource =
@@ -88,8 +92,6 @@ export function beginSourceDrag(options: {
   startX: number;
   startY: number;
   startActive: boolean;
-  frame: () => HTMLIFrameElement | null;
-  postToFrame: (message: Record<string, unknown>) => void;
   onDrop: (source: SourceDragSource, hit: SourceDropHit) => void;
   onClick?: () => void;
 }): SourceDragController {
@@ -132,7 +134,7 @@ export function beginSourceDrag(options: {
   };
 
   const forward = (x: number, y: number) => {
-    const frame = options.frame();
+    const frame = canvasEditorFrame();
     const rect = frame?.getBoundingClientRect();
     const inside =
       !!rect &&
@@ -142,10 +144,10 @@ export function beginSourceDrag(options: {
       y <= rect.bottom;
     if (!rect || !inside) {
       latestHit = null;
-      options.postToFrame({ type: "canvas-edit-drag-end" });
+      postToCanvasEditor({ type: "canvas-edit-drag-end" });
       return;
     }
-    options.postToFrame({
+    postToCanvasEditor({
       type: "canvas-edit-drag-move",
       x: x - rect.left,
       y: y - rect.top,
@@ -174,7 +176,7 @@ export function beginSourceDrag(options: {
       window.removeEventListener("pointermove", onMove, true);
       window.removeEventListener("pointerup", onUp, true);
       window.removeEventListener("keydown", onKey, true);
-      options.postToFrame({ type: "canvas-edit-drag-end", final: true });
+      postToCanvasEditor({ type: "canvas-edit-drag-end", final: true });
       active = null;
       if (!started || !lastGhost) {
         setGhost(null);

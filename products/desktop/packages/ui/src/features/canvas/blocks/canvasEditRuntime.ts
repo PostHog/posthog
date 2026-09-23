@@ -38,14 +38,13 @@ interface CompileOptions {
   cache: Map<string, string>;
 }
 
-export async function compileCanvasProject(
+export function compileCanvasProject(
   Babel: BabelLike,
   files: Record<string, string>,
   entry: string,
   options: CompileOptions,
-): Promise<{ url: string; urls: string[] }> {
+): string {
   const urls = new Map<string, string>();
-  const created: string[] = [];
   const extensions = [
     "",
     ".tsx",
@@ -83,7 +82,6 @@ export async function compileCanvasProject(
       new Blob([code], { type: "text/javascript" }),
     );
     options.cache.set(code, url);
-    created.push(url);
     return url;
   };
 
@@ -185,8 +183,7 @@ export async function compileCanvasProject(
   )) {
     style.remove();
   }
-  const url = build(entry, []);
-  return { url, urls: created };
+  return build(entry, []);
 }
 
 type Post = (message: Record<string, unknown>) => void;
@@ -254,25 +251,6 @@ export function installCanvasEditing(post: Post) {
     return null;
   };
 
-  const fullGridRow = (element: HTMLElement) => {
-    const parent = element.parentElement;
-    if (!parent || !getComputedStyle(parent).display.includes("grid"))
-      return null;
-    const parentSource = parseSource(parent);
-    if (!parentSource || parentSource.repeated) return null;
-    const columns = getComputedStyle(parent)
-      .gridTemplateColumns.split(" ")
-      .filter(Boolean).length;
-    if (columns < 2 || columns >= 4 || parent.children.length !== columns)
-      return null;
-    return {
-      file: parentSource.file,
-      start: parentSource.start,
-      end: parentSource.end,
-      columns,
-    };
-  };
-
   const gridSourceOf = (element: HTMLElement) => {
     const parent = element.parentElement;
     if (!parent || !getComputedStyle(parent).display.includes("grid"))
@@ -282,9 +260,20 @@ export function installCanvasEditing(post: Post) {
     return { file: source.file, start: source.start, end: source.end };
   };
 
+  const fullGridRow = (element: HTMLElement) => {
+    const grid = gridSourceOf(element);
+    const parent = element.parentElement;
+    if (!grid || !parent) return null;
+    const columns = getComputedStyle(parent)
+      .gridTemplateColumns.split(" ")
+      .filter(Boolean).length;
+    if (columns < 2 || columns >= 4 || parent.children.length !== columns)
+      return null;
+    return { ...grid, columns };
+  };
+
   const describe = (element: HTMLElement) => {
     const source = parseSource(element);
-    const rect = element.getBoundingClientRect();
     const blockType = element.getAttribute("data-ph-block");
     let props: Record<string, unknown> = {};
     try {
@@ -311,12 +300,6 @@ export function installCanvasEditing(post: Post) {
           getComputedStyle(element.parentElement).display.includes("grid"),
         grow: fullGridRow(element),
         grid: gridSourceOf(element),
-      },
-      rect: {
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
       },
     };
   };
@@ -743,14 +726,12 @@ export function installCanvasEditing(post: Post) {
     event.stopPropagation();
   };
 
-  const onUp = (event: MouseEvent) => {
+  const onUp = (_event: MouseEvent) => {
     dragOrigin = null;
     if (!forwarding) return;
     forwarding = false;
     post({
       type: "canvas-edit-pointer-up",
-      x: event.clientX,
-      y: event.clientY,
     });
   };
 

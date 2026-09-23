@@ -167,21 +167,23 @@ function isExpressionRoot(source: string, start: number): boolean {
   );
 }
 
-function insertAsSibling(
+function wrapPair(
   source: string,
   target: SourceDropTarget,
   snippet: string,
+  open: string,
+  close: string,
 ): string {
   const indent = indentAt(source, target.start);
   const inner = `${indent}  `;
   const existing = source
     .slice(target.start, target.end)
     .replace(/\n/g, "\n  ");
-  const children =
-    target.place === "before"
-      ? `${inner}${snippet}\n${inner}${existing}`
-      : `${inner}${existing}\n${inner}${snippet}`;
-  return `${source.slice(0, target.start)}<>\n${children}\n${indent}</>${source.slice(target.end)}`;
+  const snippetFirst = target.place === "before" || target.place === "left";
+  const children = snippetFirst
+    ? `${inner}${snippet}\n${inner}${existing}`
+    : `${inner}${existing}\n${inner}${snippet}`;
+  return `${source.slice(0, target.start)}${open}\n${children}\n${indent}${close}${source.slice(target.end)}`;
 }
 
 function insertText(
@@ -193,7 +195,7 @@ function insertText(
   const rootPosition =
     (target.place === "before" || target.place === "after") &&
     isExpressionRoot(source, target.start);
-  if (rootPosition) return insertAsSibling(source, target, snippet);
+  if (rootPosition) return wrapPair(source, target, snippet, "<>", "</>");
   const indent = indentAt(source, target.start);
   if (target.place === "before") {
     const at = lineStart(source, target.start);
@@ -204,15 +206,13 @@ function insertText(
   if (target.place === "after") {
     return `${source.slice(0, target.end)}\n${indent}${snippet}${source.slice(target.end)}`;
   }
-  const existing = source.slice(target.start, target.end);
-  const inner = `${indent}  `;
-  const reindented = existing.replace(/\n/g, `\n  `);
-  const children =
-    target.place === "left"
-      ? `${inner}${snippet}\n${inner}${reindented}`
-      : `${inner}${reindented}\n${inner}${snippet}`;
-  const row = `<div className="${ROW_CLASS}">\n${children}\n${indent}</div>`;
-  return source.slice(0, target.start) + row + source.slice(target.end);
+  return wrapPair(
+    source,
+    target,
+    snippet,
+    `<div className="${ROW_CLASS}">`,
+    "</div>",
+  );
 }
 
 export function insertBlock(
@@ -439,12 +439,6 @@ function scanOpeningTag(source: string, start: number): OpeningTag | null {
   return null;
 }
 
-function formatAttribute(name: string, value: BlockPropValue): string {
-  if (typeof value === "string" && !/["{}\n]/.test(value))
-    return `${name}="${value}"`;
-  return `${name}={${JSON.stringify(value)}}`;
-}
-
 export function setJsxAttributes(
   files: SourceFiles,
   range: SourceRange,
@@ -467,7 +461,7 @@ export function setJsxAttributes(
       edits.push({ start, end: existing.end, text: "" });
       continue;
     }
-    const text = formatAttribute(name, value);
+    const text = jsxAttribute(name, value) ?? `${name}=""`;
     if (existing)
       edits.push({ start: existing.start, end: existing.end, text });
     else appended.push(text);
@@ -538,7 +532,7 @@ export function blockRanges(
 }
 
 export function isJsxRange(files: SourceFiles, range: SourceRange): boolean {
-  const text = files[range.file]?.slice(range.start, range.end) ?? "";
+  const text = rangeText(files, range);
   return text.startsWith("<") && text.endsWith(">");
 }
 

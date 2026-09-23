@@ -11,6 +11,10 @@ import {
   useCanvasSourceEntry,
   useCanvasSourceStore,
 } from "@posthog/ui/features/canvas/blocks/canvasSourceStore";
+import {
+  CANVAS_EDITOR_CHANNEL,
+  postToCanvasEditor,
+} from "@posthog/ui/features/canvas/blocks/editorFrame";
 import { libraryLabel } from "@posthog/ui/features/canvas/blocks/libraryCatalog";
 import { SourceDragOverlay } from "@posthog/ui/features/canvas/blocks/SourceDragOverlay";
 import {
@@ -31,10 +35,7 @@ import {
   useRef,
 } from "react";
 
-const CHANNEL = "posthog-canvas";
-
 interface EditElementMessage extends Omit<CanvasEditSelection, "params"> {
-  rect: { top: number; left: number; width: number; height: number };
   params: string | null;
 }
 
@@ -59,23 +60,6 @@ function toSelection(
     layout: element.layout ?? { inGrid: false, grow: null, grid: null },
     params: parseParamSchema(element.params ?? null),
   };
-}
-
-let editorFrame: HTMLIFrameElement | null = null;
-
-export function canvasEditorFrame(): HTMLIFrameElement | null {
-  if (editorFrame?.isConnected) return editorFrame;
-  editorFrame = document.querySelector<HTMLIFrameElement>(
-    "iframe[data-canvas-source-editor]",
-  );
-  return editorFrame;
-}
-
-export function postToCanvasEditor(message: Record<string, unknown>): void {
-  canvasEditorFrame()?.contentWindow?.postMessage(
-    { channel: CHANNEL, ...message },
-    "*",
-  );
 }
 
 export function CanvasSourceEditor({
@@ -116,17 +100,10 @@ export function CanvasSourceEditor({
     };
   });
 
-  const post = useCallback((message: Record<string, unknown>) => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { channel: CHANNEL, ...message },
-      "*",
-    );
-  }, []);
-
   const sendInit = useCallback(() => {
     const snapshot = useCanvasSourceStore.getState().entries[canvasId];
     if (!snapshot || !readyRef.current) return;
-    post({
+    postToCanvasEditor({
       type: "init",
       files: snapshot.files,
       entry: CANVAS_ENTRY_PATH,
@@ -137,15 +114,7 @@ export function CanvasSourceEditor({
       theme: latest.current.theme,
       highlights: [],
     });
-  }, [canvasId, post]);
-
-  useEffect(() => {
-    const frame = iframeRef.current;
-    editorFrame = frame;
-    return () => {
-      if (editorFrame === frame) editorFrame = null;
-    };
-  }, []);
+  }, [canvasId]);
 
   const rev = entry?.rev;
   useEffect(() => {
@@ -153,8 +122,8 @@ export function CanvasSourceEditor({
   }, [rev, sendInit]);
 
   useEffect(() => {
-    post({ type: "set-theme", theme });
-  }, [theme, post]);
+    postToCanvasEditor({ type: "set-theme", theme });
+  }, [theme]);
 
   const handleEdit = useCallback(
     (data: Record<string, unknown>) => {
@@ -189,8 +158,6 @@ export function CanvasSourceEditor({
             startX: offsetX + Number(data.x),
             startY: offsetY + Number(data.y),
             startActive: true,
-            frame: () => iframeRef.current,
-            postToFrame: post,
             onDrop: latest.current.actions.drop,
           });
           return;
@@ -218,7 +185,7 @@ export function CanvasSourceEditor({
         }
       }
     },
-    [canvasId, post],
+    [canvasId],
   );
 
   useLayoutEffect(() => {
@@ -244,7 +211,7 @@ export function CanvasSourceEditor({
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
       const data = event.data as Record<string, unknown> | null;
-      if (!data || data.channel !== CHANNEL) return;
+      if (!data || data.channel !== CANVAS_EDITOR_CHANNEL) return;
       if (
         typeof data.type === "string" &&
         data.type.startsWith("canvas-edit-")

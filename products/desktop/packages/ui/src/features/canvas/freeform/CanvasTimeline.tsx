@@ -7,28 +7,9 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@posthog/quill";
+import { formatRelativeAge } from "@posthog/shared";
 import { useCanvasVersions } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
-
-const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-const STEPS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-  ["second", 60],
-  ["minute", 60],
-  ["hour", 24],
-  ["day", 7],
-  ["week", 4.35],
-  ["month", 12],
-  ["year", Number.POSITIVE_INFINITY],
-];
-
-function relativeTime(timestamp: number): string {
-  let value = (timestamp - Date.now()) / 1000;
-  for (const [unit, size] of STEPS) {
-    if (Math.abs(value) < size) return RELATIVE.format(Math.round(value), unit);
-    value /= size;
-  }
-  return "";
-}
 
 function versionTitle(version: CanvasVersion): string {
   const prompt = version.prompt?.trim();
@@ -83,7 +64,9 @@ function TimelineRow({
             <span className="truncate">{version.createdBy ?? "Someone"}</span>
           )}
           <span aria-hidden>·</span>
-          <span className="shrink-0">{relativeTime(version.createdAt)}</span>
+          <span className="shrink-0">
+            {formatRelativeAge(version.createdAt)}
+          </span>
           {label ? (
             <>
               <span aria-hidden>·</span>

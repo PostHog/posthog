@@ -465,12 +465,13 @@ export function summarizeQuery(query: unknown): string {
   return parts.join(", ") + ".";
 }
 
-export function QueryButton({ query, hogql }: { query: unknown; hogql?: string }) {
+export function QueryButton({ query, hogql, className = "" }: { query: unknown; hogql?: string; className?: string }) {
   const node = (query ?? {}) as QueryNode;
   const inline = node.kind === "HogQLQuery" && node.query ? node.query : null;
   const text = inline ?? hogql ?? JSON.stringify(query, null, 2);
   const isSql = inline !== null || !!hogql;
   return (
+    <span className={className + " opacity-0 transition-opacity group-hover:opacity-100"}>
     <Dialog>
       <DialogTrigger
         render={
@@ -492,6 +493,41 @@ export function QueryButton({ query, hogql }: { query: unknown; hogql?: string }
         </div>
       </DialogContent>
     </Dialog>
+    </span>
+  );
+}
+
+function tableCell(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "number") return formatNumber(value);
+  return String(value);
+}
+
+export function ResultTable({ columns, rows }: { columns: string[]; rows: unknown[] }) {
+  return (
+    <div className="max-h-80 overflow-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column} className="border-b border-border py-1.5 pr-3 text-left text-xs font-normal text-muted-foreground">{column}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.slice(0, 100).map((row, rowIndex) => {
+            const cells = Array.isArray(row) ? row : [row];
+            return (
+              <tr key={rowIndex} className="border-b border-border last:border-b-0">
+                {columns.map((column, columnIndex) => (
+                  <td key={column} className="max-w-60 truncate py-1.5 pr-3 tabular-nums">{tableCell(cells[columnIndex])}</td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
