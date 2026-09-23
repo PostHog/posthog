@@ -59,7 +59,10 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.services.messages import public_human_ticket_replies
 from products.conversations.backend.slack import get_slack_client
-from products.conversations.backend.support_slack import get_support_slack_bot_token
+from products.conversations.backend.support_slack import (
+    get_support_slack_bot_token,
+    supporthog_lacks_custom_identity_scope,
+)
 from products.conversations.backend.support_slack_channels import (
     SupportSlackChannelsUnavailable as SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured as SupportSlackNotConfigured,
@@ -106,6 +109,14 @@ class SupportMessageSendError(Exception):
         super().__init__(code)
         self.code = code
         self.retry_after = retry_after
+
+
+class SupportSenderIdentityUnavailable(Exception):
+    """This SupportHog install can't post under a name and avatar other than the bot's own.
+
+    Slack only grants scopes at install time, so an install authorized before
+    ``chat:write.customize`` was requested needs an admin to reconnect.
+    """
 
 
 def accept_github_event(delivery: WebhookDelivery) -> None:
@@ -233,7 +244,10 @@ def resolve_support_slack_sender(team_id: int, email: str) -> SupportSlackSender
     Lets a caller post as a teammate's profile rather than the bot's; the message is still
     a bot message, Slack only renders it under that name and avatar.
 
-    Raises :class:`SupportSlackNotConfigured` when the bot isn't connected.
+    Raises :class:`SupportSlackNotConfigured` when the bot isn't connected, and
+    :class:`SupportSenderIdentityUnavailable` when the install can't post under a custom
+    identity at all — resolving a profile it could never post under only produces messages
+    Slack rejects one channel at a time.
     """
     try:
         team = Team.objects.get(id=team_id)
@@ -241,7 +255,10 @@ def resolve_support_slack_sender(team_id: int, email: str) -> SupportSlackSender
     except (Team.DoesNotExist, ValueError):
         raise SupportSlackNotConfigured()
 
-    profile = resolve_slack_profile_by_email(client, email)
+    if supporthog_lacks_custom_identity_scope(team):
+        raise SupportSenderIdentityUnavailable()
+
+    profile = resolve_slack_profile_by_email(client, email, workspace=client.workspace_id)
     if not profile or not profile.get("name"):
         return None
     return SupportSlackSender(name=str(profile["name"]), icon_url=str(profile.get("avatar") or ""))

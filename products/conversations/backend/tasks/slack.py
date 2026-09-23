@@ -690,7 +690,7 @@ def post_reply_to_slack(
     # Resolve the replying user's Slack profile picture
     author_icon_url: str | None = None
     if author_email:
-        author_icon_url = resolve_slack_avatar_by_email(client, author_email)
+        author_icon_url = resolve_slack_avatar_by_email(client, author_email, workspace=client.workspace_id)
 
     icon_url = author_icon_url or bot_icon_url
     message_kwargs: dict = {

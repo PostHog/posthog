@@ -93,6 +93,7 @@ def post_comment_to_slack_thread(
     rich_content: dict | None,
     author_name: str,
     author_email: str = "",
+    workspace: str | None = None,
     thread_ts: str | None = None,
     item_url: str | None = None,
     item_label: str | None = None,
@@ -102,7 +103,9 @@ def post_comment_to_slack_thread(
 
     When ``item_url`` is given (the thread root), the message renders as a card linking back to the
     discussion; otherwise (replies) it's a plain threaded message. ``organization_id`` scopes
-    @-mention resolution — without it every mention renders as a generic teammate. Returns the
+    @-mention resolution — without it every mention renders as a generic teammate. ``workspace``
+    (the Slack team id behind ``client``) scopes the author's avatar lookup, so one workspace's
+    cached profile is never served for another's. Returns the
     posted message's ``ts`` so the caller can anchor a mirror on the first post, or ``None`` when
     there was nothing to post. Raises on a Slack API failure so callers can react (the API action
     surfaces an error; the Celery tasks retry) instead of silently dropping the message.
@@ -114,7 +117,7 @@ def post_comment_to_slack_thread(
         return None
 
     # Show the author's Slack avatar when we can match them by email (needs chat:write.customize).
-    icon_url = resolve_slack_avatar_by_email(client, author_email) if author_email else None
+    icon_url = resolve_slack_avatar_by_email(client, author_email, workspace=workspace) if author_email else None
 
     message_kwargs: dict = {
         "channel": channel,
