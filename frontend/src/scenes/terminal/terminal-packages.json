@@ -17,14 +17,30 @@
             "name": "pi",
             "version": "0.87.1",
             "file": "archives/pi-0.87.1.tar.gz",
-            "sha256": "95ffd3dac5996b471b7d5d3495128c403d3240202913156efb255f2045b4fb8e",
-            "size": 20421625,
+            "sha256": "ad9261590d1617edfb52a2fd8b71351079a37cc18515fd4b6b85f6d8d2511b6d",
+            "size": 20423074,
             "archiveSize": 76257280,
             "dependencies": ["node"],
             "commands": {
                 "pi": "/opt/posthog-packages/pi-0.87.1/bin/pi"
             }
+        },
+        "doom": {
+            "name": "Doom (Freedoom)",
+            "version": "0.13.0-1",
+            "file": "archives/doom-0.13.0-1-linux-i386.tar.gz",
+            "sha256": "470aefa7b775d738b21377b9e764c37c006f730fa665f30acf65258fd42492b0",
+            "size": 10479126,
+            "archiveSize": 29480960,
+            "dependencies": [],
+            "commands": {
+                "doom": "/opt/posthog-packages/doom-0.13.0-1/bin/doom"
+            }
         }
     },
-    "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/852063f5a2ebf979ac834680dcfb1bb3ee985d08"
+    "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/3252dde63282c859393fad84ae89de2f4b19b95e",
+    "kernel": {
+        "file": "images/linux-fb-bzimage.bin",
+        "sha256": "33ca60bd4832f0cf202845fa7ac1a60776c0215e8a20d21a3f07d3722f99e415"
+    }
 }

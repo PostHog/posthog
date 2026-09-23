@@ -11221,9 +11221,9 @@ snapshots:
     scenes-app-signals-artefactloglist--check-lifecycle-narrow--light:
         hash: v1.k794b7964.323182dc2e4da1cc3de88a75d4d027f1d9b561a74752a6e9efda62c307252811.Z7e7sMgVVYTvNNOumDp3_1YmGPVrwuL3MtLQZITadIQ
     scenes-app-signals-artefactloglist--narrow--dark:
-        hash: v1.k794b7964.126364946b3e155e64e07b61da407de2075b63f5449d9b64c0c2228daa055a13.QMcKZPlik4titSS_IK7VuTRw0QAxfbl1sKiuFzmechU
+        hash: v1.k794b7964.a644dd63d1b4c45385ba09aca7fb9c44de2c7a63e14e3387f768e388eb241914.4yhImFvyJvDsS9dA2FmjRwM6gQUIprudK9evKFpc8lU
     scenes-app-signals-artefactloglist--narrow--light:
-        hash: v1.k794b7964.6da5e2a893a09fc8fd8eaad261e700c8f512c5a148d9ee91d27da51365272916.CuzGlvcecyewPGOerRSG4ECX65Wr9lHoI4w9MqEEAME
+        hash: v1.k794b7964.0082c81649512b1b0e07d085212c0649eb1bffc2bebe7bccb019c5be16574f1c.jZyE3Oj0CjcHUvzkqjwdr71V1q_JwzdmeJ2n5NJYt9Y
     scenes-app-signals-artefactloglist--replacement-lifecycle--dark:
         hash: v1.k794b7964.f723b2160bdf85cd5a827fa3dac4c281d75950f47555cdef7fc01f2ef689dfc6.wAOg7AG2Pf4mYO8EjKdD8lFlC1Ulv4MhkXIEMkzfCrg
     scenes-app-signals-artefactloglist--replacement-lifecycle--light:
@@ -11476,6 +11476,10 @@ snapshots:
         hash: v1.k794b7964.9cf16ceae317c34434348b2a81d9c8155f81257886d14608c40448299dd4ae1c.K-_OW8hU0PX7X3wi_KsnzhjcPdcUDcUjMVOB1U-EJTM
     scenes-app-terminal--docked--light:
         hash: v1.k794b7964.a34850192db6d63249686b7ef1922b1b479312471ce974d91295757a4fce059b.2_jI8KKm2oYMSRxI2Fo5n-3tOzjyxTJ3t_YS8iAH1I0
+    scenes-app-terminal--framebuffer--dark:
+        hash: v1.k794b7964.f4b78afd6b1a02a2707edf5b786b418008d12e482d7c931bba7e91261426edbe.-GAYIgMuZUP3lwqpoTb886Ak-9OoKYM3qY4_uIBaZL0
+    scenes-app-terminal--framebuffer--light:
+        hash: v1.k794b7964.71f85fee0826d17254ad9b106e64ccf0d74e7ba7c1cd6a50e8b3bf6497c3748e.hGAR67OvjYRK8o0J1xK7XNt6xkWAITkqoDCmryF1Ab0
     scenes-app-terminal--narrow--dark:
         hash: v1.k794b7964.36aebe98c0f44e2bfd0b6223bfc7fc33ece3cf81d6391d9baaaef157a06693f5.88obmOSvpcyTNe5SBWsYApI9WFSS4pyaJF68cZQ2MU4
     scenes-app-terminal--narrow--light:
