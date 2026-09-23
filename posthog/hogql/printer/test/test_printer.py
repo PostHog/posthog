@@ -2219,6 +2219,15 @@ class TestPrinter(BaseTest):
         )
         self._assert_query_error("select 1 from other", "Unknown table `other`.")
 
+    @parameterized.expand(
+        [
+            ("SELECT * FROM numbers(10)",),
+            ("SELECT * FROM numbers(2, 5) AS n",),
+        ]
+    )
+    def test_unresolved_hogql_keeps_table_function_arguments(self, query: str) -> None:
+        assert parse_select(query).to_hogql() == query
+
     def test_select_from_placeholder(self):
         self.assertEqual(
             self._select(

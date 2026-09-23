@@ -420,6 +420,7 @@ class DataQualityCheckRunSerializer(serializers.ModelSerializer):
             "failed_row_count",
             "observed_value",
             "compiled_query",
+            "audited_staged_refresh",
             "error",
             "duration_ms",
             "started_at",
@@ -430,7 +431,11 @@ class DataQualityCheckRunSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "failed_row_count": {"help_text": "Rows violating the assertion. Null for bounds checks like row_count."},
             "observed_value": {"help_text": "The check's headline number, recorded on passes too."},
-            "compiled_query": {"help_text": "The HogQL that ran. Re-run it to see the offending rows."},
+            "compiled_query": {
+                "help_text": "HogQL selecting the failing rows. Re-run it to see them. For a run that audited a "
+                "staged refresh it inlines the view's definition, so it reads the source tables rather than "
+                "the published table."
+            },
             "error": {"help_text": "Compilation or execution failure, when status is 'errored'."},
         }
 

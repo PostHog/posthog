@@ -19,6 +19,7 @@ const BASE_RUN: DataQualityCheckRunApi = {
     failed_row_count: 0,
     observed_value: 0,
     compiled_query: 'SELECT count() FROM orders',
+    audited_staged_refresh: false,
     error: '',
     duration_ms: 1200,
     started_at: '2026-09-04T09:00:00Z',
@@ -46,7 +47,14 @@ const RUNS_OF_EVERY_TYPE: DataQualityCheckRunApi[] = [
         failed_row_count: null,
         observed_value: 2493355,
     }),
-    run({ check_type: 'not_null', column_name: 'email', status: 'failed', failed_row_count: 7, observed_value: 7 }),
+    run({
+        check_type: 'not_null',
+        column_name: 'email',
+        status: 'failed',
+        failed_row_count: 7,
+        observed_value: 7,
+        audited_staged_refresh: true,
+    }),
     run({ check_type: 'unique', column_name: 'order_id', status: 'failed', failed_row_count: 1, observed_value: 1 }),
     run({
         check_type: 'accepted_values',

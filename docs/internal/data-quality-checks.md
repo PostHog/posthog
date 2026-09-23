@@ -62,6 +62,8 @@ Notification recipient checks retain the existing global warehouse-resource poli
 
 Catalog access is a project permission resource. Notification visibility follows that permission, including after access is revoked.
 
+A run under the materialization gate reads the refresh before it is published, and sets `audited_staged_refresh`. Its stored failing-rows query cannot name the view, because the SQL editor resolves that name to the published table, which after a block is still the previous version. So the query holds the view's definition in a `WITH` clause and reads the view's source tables. Those sources can change after the run, so a replay can return different rows than the run counted.
+
 ## Models overview
 
 The models overview reports one status for the whole project. It shows the status panel only when the model list and the check list have both answered, and when no model and no check needs attention. A request that failed is reported as a failure, so an unanswered request never reads as an all-clear.

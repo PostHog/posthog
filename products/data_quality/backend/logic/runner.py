@@ -32,7 +32,7 @@ from ..models import DataQualityCheck, DataQualitySuiteRun
 from .compiler import compile_check, related_subject_ref
 from .contracts import CompiledCheck, Evaluation, SubjectRef
 from .run_records import record_check_run
-from .staged_audit import StagedSubjectOverride, build_staged_database
+from .staged_audit import StagedSubjectOverride, build_staged_database, replayable_failing_rows_query
 from .subject_access import check_type_reads_beyond_subject, pin_referenced_subjects
 from .subjects import resolve_subject
 from .types.common import within_bounds
@@ -58,6 +58,7 @@ class CheckOutcome:
     compiled_query: str = ""
     error: str = ""
     referenced_subjects: list[dict[str, str]] | None | _ReferenceState = _ReferenceState.NOT_SUPPLIED
+    audited_staged_refresh: bool = False
 
 
 def run_check(
@@ -81,6 +82,7 @@ def run_check(
         outcome = _execute(check, suite_run, team, staged, staged_database_cache)
     except Exception as err:
         outcome = CheckOutcome(status=CheckRunStatus.ERRORED, error=str(err))
+    outcome = replace(outcome, audited_staged_refresh=staged is not None)
 
     duration_ms = int((time.monotonic() - monotonic_start) * 1000)
     finished_at = datetime.now(UTC)
@@ -95,9 +97,10 @@ def record_unrunnable_check(
     suite_run: DataQualitySuiteRun,
     team: Team,
     reason: str,
+    audited_staged_refresh: bool = False,
 ) -> CheckOutcome:
     """A check with no run row reads, in the health state and the API, exactly like one that passed."""
-    outcome = CheckOutcome(status=CheckRunStatus.ERRORED, error=reason)
+    outcome = CheckOutcome(status=CheckRunStatus.ERRORED, error=reason, audited_staged_refresh=audited_staged_refresh)
     finished_at = datetime.now(UTC)
     with team_scope(team.id):
         _record_run(check, suite_run, outcome, finished_at, finished_at, duration_ms=0)
@@ -218,6 +221,8 @@ def _execute(
     )
     if staged is not None and subject.subject_type == SubjectType.METRIC:
         return CheckOutcome(status=CheckRunStatus.ERRORED, error="Metric checks cannot audit staged data.")
+    if staged is not None:
+        compiled = _replayable_against_sources(compiled, team, staged)
     referenced_subjects = pin_referenced_subjects(team.id, check.check_type, check.config, subject=subject)
     try:
         outcome = _execute_compiled(check, subject, compiled, team, authorization, staged, staged_database_cache)
@@ -228,6 +233,13 @@ def _execute(
             compiled_query=compiled.printed_failing_rows_query,
         )
     return replace(outcome, referenced_subjects=referenced_subjects)
+
+
+def _replayable_against_sources(compiled: CompiledCheck, team: Team, staged: StagedSubjectOverride) -> CompiledCheck:
+    replayable = replayable_failing_rows_query(team.pk, staged.saved_query_id, compiled.failing_rows)
+    if replayable is None:
+        return compiled
+    return replace(compiled, printed_failing_rows_query=replayable)
 
 
 def _execute_compiled(
@@ -362,6 +374,7 @@ def _record_run(
         failed_row_count=outcome.failed_row_count,
         observed_value=outcome.observed_value,
         compiled_query=outcome.compiled_query,
+        audited_staged_refresh=outcome.audited_staged_refresh,
         error=outcome.error,
         duration_ms=duration_ms,
         started_at=started_at,

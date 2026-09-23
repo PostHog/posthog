@@ -148,6 +148,11 @@ class DataQualityCheckRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
         blank=True,
         help_text="HogQL selecting the failing rows. Re-run it to see them. Cleared by retention after 30 days.",
     )
+    audited_staged_refresh = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="True when the run read a refresh that was staged but not yet published, under the materialization gate.",
+    )
     error = models.TextField(blank=True, help_text="Compilation or execution failure, for status=errored.")
     duration_ms = models.IntegerField(null=True, blank=True)
 
