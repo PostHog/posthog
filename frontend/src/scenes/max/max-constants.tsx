@@ -22,7 +22,6 @@ import { isObject } from 'lib/utils/guards'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { insightsModel } from '~/models/insightsModel'
 import {
     AgentMode,
     AssistantTool,
@@ -30,7 +29,7 @@ import {
     AssistantToolCallMessage,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
-import { InsightShortId, RecordingUniversalFilters } from '~/types'
+import { RecordingUniversalFilters } from '~/types'
 
 export interface EnhancedToolCall extends AssistantToolCall {
     status: TaskExecutionStatus
@@ -83,7 +82,6 @@ export interface ToolDefinition<N extends string = string> {
         toolCall: EnhancedToolCall,
         { registeredToolMap }: DisplayFormatterContext
     ) => string | [text: string, widgetDef: RecordingsWidgetDef | ReplayVisionScanWidgetDef | null]
-    onResult?: (result: any) => void
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -594,15 +592,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         icon: iconForType('product_analytics'),
         product: Scene.Insight,
         modes: [AgentMode.ProductAnalytics],
-        onResult: (result) => {
-            if (result?.saved_insight?.short_id) {
-                insightsModel.actions.insightSaved(result.saved_insight.short_id as InsightShortId)
-            }
-        },
         displayFormatter: (toolCall, { registeredToolMap }) => {
-            if (toolCall.args?.insight_id) {
-                return toolCall.status === 'completed' ? 'Updated insight' : 'Updating insight...'
-            }
             const isEditing = registeredToolMap.create_insight
             if (isEditing) {
                 return toolCall.status === 'completed'
@@ -1016,6 +1006,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Created email templates'
             }
             return 'Creating email templates...'
+        },
+    },
+    create_broadcast: {
+        name: 'Create broadcasts',
+        description: 'Create broadcasts to email an audience once or on a schedule',
+        product: Scene.Workflows,
+        icon: iconForType('workflows'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created a broadcast'
+            }
+            return 'Creating a broadcast...'
         },
     },
     fix_hogql_query: {
