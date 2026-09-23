@@ -1,10 +1,12 @@
 import { AnnouncementBanner } from "@posthog/ui/features/announcements/AnnouncementBanner";
 import { ConnectivityBanner } from "@posthog/ui/features/connectivity/ConnectivityBanner";
 import { SettingsDialogFrame } from "@posthog/ui/features/settings/components/SettingsDialogFrame";
-import { settingsPageRevealsApp } from "@posthog/ui/features/settings/components/SettingsPageContent";
 import { SettingsPanel } from "@posthog/ui/features/settings/components/SettingsPanel";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import type { SettingsCategory } from "@posthog/ui/features/settings/types";
+import {
+  type SettingsCategory,
+  settingsPageRevealsApp,
+} from "@posthog/ui/features/settings/types";
 import { navigateToSettings } from "@posthog/ui/router/navigationBridge";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import type { ReactNode } from "react";
@@ -39,16 +41,24 @@ export function SettingsLayout({
       : () => navigateToSettings(category)
     : undefined;
 
+  // A report opened inside settings sits on its own route, where
+  // `closeSettings` has no settings route to leave; step back out instead.
+  const dismiss = back ?? closeSettings;
+
   return (
     <SettingsDialogFrame
-      onDismiss={closeSettings}
+      onDismiss={dismiss}
       onEscape={back}
       seeThrough={!children && settingsPageRevealsApp(category)}
     >
       <ConnectivityBanner />
       <AnnouncementBanner />
       <div className="flex min-h-0 flex-1">
-        <SettingsPanel activeCategory={category} onBack={back}>
+        <SettingsPanel
+          activeCategory={category}
+          onClose={dismiss}
+          onBack={back}
+        >
           {children}
         </SettingsPanel>
       </div>

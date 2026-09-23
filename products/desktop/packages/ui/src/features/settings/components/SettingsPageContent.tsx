@@ -45,16 +45,6 @@ function defineSettingsPage(
   return { title, component, layout };
 }
 
-// Pages whose changes show in the app itself, so the dialog drops its backdrop
-// to let the reader watch them land.
-const APP_REVEALING_PAGES: ReadonlySet<SettingsCategory> = new Set([
-  "appearance",
-]);
-
-export function settingsPageRevealsApp(category: SettingsCategory): boolean {
-  return APP_REVEALING_PAGES.has(category);
-}
-
 const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
   general: defineSettingsPage("General", GeneralSettings),
   appearance: defineSettingsPage("Appearance", AppearanceSettings),

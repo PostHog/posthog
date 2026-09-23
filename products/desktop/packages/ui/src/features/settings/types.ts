@@ -82,6 +82,16 @@ export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   discord: "Discord",
 };
 
+// Pages whose changes show in the app itself, so the dialog drops its backdrop
+// to let the reader watch them land.
+const APP_REVEALING_PAGES: ReadonlySet<SettingsCategory> = new Set([
+  "appearance",
+]);
+
+export function settingsPageRevealsApp(category: SettingsCategory): boolean {
+  return APP_REVEALING_PAGES.has(category);
+}
+
 // The app restores the last location on startup, so a renamed category has to
 // keep resolving for anyone whose remembered URL still names the old one.
 const RENAMED_SETTINGS_CATEGORIES: Readonly<Record<string, SettingsCategory>> =

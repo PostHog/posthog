@@ -1,5 +1,6 @@
 import { cn } from "@posthog/quill";
-import type { ReactNode } from "react";
+import { useDialogFocus } from "@posthog/ui/features/settings/components/useDialogFocus";
+import { type ReactNode, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useHotkeys } from "react-hotkeys-hook";
 
@@ -25,6 +26,9 @@ export function SettingsDialogFrame({
     preventDefault: true,
   });
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const trapTab = useDialogFocus(dialogRef);
+
   const container =
     document.getElementById("portal-container") ?? document.body;
   return createPortal(
@@ -41,10 +45,13 @@ export function SettingsDialogFrame({
         onClick={onDismiss}
       />
       <div
+        ref={dialogRef}
         role="dialog"
+        tabIndex={-1}
+        onKeyDown={trapTab}
         aria-modal="true"
         aria-label="Settings"
-        className="relative flex h-[min(760px,100%)] w-[min(1080px,100%)] flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl"
+        className="relative flex h-[min(760px,100%)] w-[min(1080px,100%)] flex-col overflow-hidden rounded-lg border border-border bg-background shadow-2xl outline-none"
       >
         {children}
       </div>

@@ -418,7 +418,7 @@ function NavRailImpl() {
       <div
         data-testid="nav-rail"
         className={cn(
-          "relative z-[60] flex h-full shrink-0 flex-col items-center bg-chrome px-1 pt-1 pb-2",
+          "relative z-[60] flex h-full shrink-0 flex-col items-center overflow-y-auto overflow-x-hidden bg-chrome px-1 pt-1 pb-2 [scrollbar-width:none]",
           gapClassName,
         )}
         style={{ width }}
