@@ -1847,6 +1847,19 @@ impl TestContext {
             .await
     }
 
+    /// Populate cache for a team with the given flags payload and an ETag.
+    pub async fn populate_cache_for_team_with_flags_and_etag(
+        &self,
+        team_id: i32,
+        flags_data: serde_json::Value,
+        etag: &str,
+    ) -> Result<(), Error> {
+        self.populate_cache_for_team_with_flags(team_id, flags_data)
+            .await?;
+        let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
+        self.set_etag_for_team(redis_client, team_id, etag).await
+    }
+
     /// Populate cache for a team and store an ETag alongside it, on the given Redis.
     /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
     /// matching Django's HyperCache behavior.
@@ -1858,7 +1871,15 @@ impl TestContext {
     ) -> Result<(), Error> {
         self.populate_flag_definitions_cache(redis_client.clone(), team_id)
             .await?;
+        self.set_etag_for_team(redis_client, team_id, etag).await
+    }
 
+    async fn set_etag_for_team(
+        &self,
+        redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+        team_id: i32,
+        etag: &str,
+    ) -> Result<(), Error> {
         let etag_key =
             format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag");
         let pickled_etag =

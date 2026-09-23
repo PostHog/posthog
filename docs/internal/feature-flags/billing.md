@@ -98,7 +98,7 @@ The Rust endpoint checks `FeatureFlagsLimiter.is_limited(token)` before the ETag
 
 ### Conditional requests (ETag)
 
-A request that passes the quota check and results in a 304 (ETag match) is counted on the separate `local_evaluation_not_modified_requests` counter. The usage report bills these at 1 unit each, the same as a `/decide` request, instead of the 10 units a full local evaluation response costs. A 304 skips the billable-flag check, because that check needs the payload the 304 path does not read.
+A request that passes the quota check and results in a 304 (ETag match) is counted on the separate `local_evaluation_not_modified_requests` counter. The usage report bills these at 1 unit each, the same as a `/decide` request, instead of the 10 units a full local evaluation response costs. The billable-flag exclusion applies to 304s too: the service remembers, per team and ETag, whether the current definitions contain a billable flag, so it reads the payload at most once per pod per ETag rather than on every poll.
 
 ### SDK tracking
 

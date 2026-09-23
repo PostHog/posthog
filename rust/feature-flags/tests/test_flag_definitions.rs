@@ -2907,12 +2907,19 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
 }
 
 /// A 304 lands on the not-modified counter and leaves the full local evaluation
-/// counter untouched.
+/// counter untouched. It honours the same billable-flag exclusion as a 200.
+#[rstest::rstest]
+#[case::billable_flag("billable-flag", true)]
+#[case::survey_only("survey-targeting-only", false)]
 #[tokio::test]
-async fn test_flag_definitions_304_records_not_modified_billing_counter() {
+async fn test_flag_definitions_304_records_not_modified_billing_counter(
+    #[case] flag_key: &str,
+    #[case] expect_billed: bool,
+) {
     use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
     use feature_flags::flags::flag_request::FlagRequestType;
     use feature_flags::utils::test_utils::{setup_redis_client, TestContext};
+    use serde_json::json;
 
     let config = feature_flags::config::Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;
@@ -2923,7 +2930,15 @@ async fn test_flag_definitions_304_records_not_modified_billing_counter() {
 
     let etag_value = "billed304etag0001";
     context
-        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .populate_cache_for_team_with_flags_and_etag(
+            team.id,
+            json!({
+                "flags": [{"key": flag_key, "active": true}],
+                "group_type_mapping": {},
+                "cohorts": {},
+            }),
+            etag_value,
+        )
         .await
         .unwrap();
 
@@ -2951,17 +2966,30 @@ async fn test_flag_definitions_304_records_not_modified_billing_counter() {
     assert_eq!(response.status(), 304);
     let bucket_after = current_bucket();
 
-    let counter = common::poll_for_billing_counter_across_buckets(
-        &redis,
-        &not_modified_key,
-        bucket_before,
-        bucket_after,
-    )
-    .await;
-    assert_eq!(
-        counter, "1",
-        "304 should be recorded once on the not-modified billing counter"
-    );
+    if expect_billed {
+        let counter = common::poll_for_billing_counter_across_buckets(
+            &redis,
+            &not_modified_key,
+            bucket_before,
+            bucket_after,
+        )
+        .await;
+        assert_eq!(
+            counter, "1",
+            "304 should be recorded once on the not-modified billing counter"
+        );
+    } else {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        for bucket in bucket_before..=bucket_after {
+            let counter = redis
+                .hget(not_modified_key.clone(), bucket.to_string())
+                .await;
+            assert!(
+                counter.is_err(),
+                "304 for non-billable flags must not be billed, got {counter:?}"
+            );
+        }
+    }
     for bucket in bucket_before..=bucket_after {
         let full = redis
             .hget(full_response_key.clone(), bucket.to_string())

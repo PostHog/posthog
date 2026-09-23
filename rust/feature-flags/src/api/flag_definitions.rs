@@ -113,6 +113,38 @@ pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<Tea
 /// This is returned as raw JSON from cache to avoid deserialization overhead
 pub type FlagDefinitionsResponse = Value;
 
+/// Per-team `(etag, billable)` memo so a 304 can apply the billable-flag
+/// exclusion without reading the payload it deliberately skips. The ETag
+/// changes whenever the payload does, so a matching entry is never stale.
+#[derive(Clone)]
+pub struct DefinitionsBillableCache {
+    entries: moka::future::Cache<i32, (String, bool)>,
+}
+
+impl DefinitionsBillableCache {
+    pub fn new(max_capacity: u64) -> Self {
+        Self {
+            entries: moka::future::Cache::builder()
+                .max_capacity(max_capacity)
+                .build(),
+        }
+    }
+
+    pub async fn get(&self, team_id: i32, etag: &str) -> Option<bool> {
+        self.entries
+            .get(&team_id)
+            .await
+            .filter(|(cached_etag, _)| cached_etag == etag)
+            .map(|(_, billable)| billable)
+    }
+
+    pub async fn insert(&self, team_id: i32, etag: &str, billable: bool) {
+        self.entries
+            .insert(team_id, (etag.to_string(), billable))
+            .await;
+    }
+}
+
 /// Query parameters for the flag definitions endpoint
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FlagDefinitionsQueryParams {
@@ -235,8 +267,9 @@ pub async fn flags_definitions(
                 &[("result".to_string(), "hit".to_string())],
                 1,
             );
-            // No billable-flag check here: it needs the payload this path never reads.
-            if !*state.config.skip_writes {
+            if !*state.config.skip_writes
+                && is_billable_for_etag(&state, &team_key, team.id, current_val).await
+            {
                 state.billing_aggregator.record(
                     team.id,
                     FlagRequestType::FlagDefinitionsNotModified,
@@ -262,7 +295,14 @@ pub async fn flags_definitions(
     let cached_response = get_from_cache(&state, &team_key, team.id).await?;
 
     // Record usage for billing, filtering out non-billable flags (surveys, product tours).
-    if !*state.config.skip_writes && has_billable_flags(&cached_response) {
+    let billable = has_billable_flags(&cached_response);
+    if let Some(etag) = &current_etag {
+        state
+            .definitions_billable_cache
+            .insert(team.id, etag, billable)
+            .await;
+    }
+    if !*state.config.skip_writes && billable {
         let library = Library::from_headers(&headers);
         state
             .billing_aggregator
@@ -399,6 +439,29 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
     }
 
     Err(FlagError::NoAuthenticationProvided)
+}
+
+/// Reads the payload at most once per pod per ETag. An unreadable payload is
+/// treated as not billable, because a 304 was already free before this check
+/// existed and over-billing is the worse failure.
+async fn is_billable_for_etag(
+    state: &AppState,
+    team_key: &KeyType,
+    team_id: i32,
+    etag: &str,
+) -> bool {
+    if let Some(billable) = state.definitions_billable_cache.get(team_id, etag).await {
+        return billable;
+    }
+    let Ok(response) = get_from_cache(state, team_key, team_id).await else {
+        return false;
+    };
+    let billable = has_billable_flags(&response);
+    state
+        .definitions_billable_cache
+        .insert(team_id, etag, billable)
+        .await;
+    billable
 }
 
 /// Retrieves the cached response using the pre-initialized HyperCacheReader
