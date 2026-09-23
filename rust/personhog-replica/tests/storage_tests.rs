@@ -809,6 +809,14 @@ async fn test_delete_persons_batch_for_team_removes_tombstoned_rows() {
         );
     }
     assert_eq!(counts, vec![2, 0]);
+    let queued: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM person_tombstone_publish_queue WHERE team_id = $1",
+    )
+    .bind(ctx.team_id as i32)
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(queued, 0);
 
     for person in [&live, &tombstoned] {
         let remaining: i64 = sqlx::query_scalar(

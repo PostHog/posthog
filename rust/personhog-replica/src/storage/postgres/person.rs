@@ -516,6 +516,13 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
+        sqlx::query!(
+            "DELETE FROM person_tombstone_publish_queue WHERE team_id = $1",
+            team_id as i32
+        )
+        .execute(&self.bulk_primary_pool)
+        .await?;
+
         // Team teardown always removes the rows, tombstoned ones included: nothing
         // sweeps a deleted team's tombstones into the cleanup queue.
         let mut person_ids: Vec<i64> = sqlx::query_scalar!(
