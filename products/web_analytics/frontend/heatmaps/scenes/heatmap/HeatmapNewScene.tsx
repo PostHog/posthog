@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonCard, LemonLabel, Spinner } from '@posth
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { hasWildcard } from 'lib/components/heatmaps/heatmapUrlMatch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -21,7 +22,7 @@ import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/ty
 import { HeatmapAdvancedSettings } from '../../components/HeatmapAdvancedSettings'
 import { HeatmapRecording } from '../../components/HeatmapRecording'
 import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
-import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { heatmapsBrowserLogic } from '../../components/heatmapsBrowserLogic'
 import { HeatmapScreenshotAccessNotice } from '../../components/HeatmapScreenshotAccessNotice'
 import { HeatmapsEnableCapture } from '../../components/HeatmapsEnableCapture'
 import { HeatmapsInvalidURL } from '../../components/HeatmapsInvalidURL'
@@ -526,7 +527,7 @@ function ReviewStep(): JSX.Element {
                     <dt className="font-semibold">Matching rule</dt>
                     <dd>
                         <span className="font-medium">
-                            {isUrlPattern(effectiveDataUrl ?? '') ? 'Pattern' : 'Exact URL'}:
+                            {hasWildcard(effectiveDataUrl ?? '') ? 'Pattern' : 'Exact URL'}:
                         </span>{' '}
                         <span className="ph-no-capture break-all">{effectiveDataUrl}</span>
                     </dd>
