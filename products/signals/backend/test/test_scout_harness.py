@@ -544,7 +544,7 @@ class TestCloseOutTaskSummary(SimpleTestCase):
 
 
 class TestCloseOutSummaryToolContract(SimpleTestCase):
-    _HARNESS_ROOT = Path(__file__).parents[3] / "desktop/packages/harness/src/extensions"
+    _HARNESS_ROOT = Path(__file__).parents[4] / "packages/agent/packages/harness/src/extensions"
 
     def test_prompt_names_the_tool_the_harness_registers(self) -> None:
         # The prompt hardcodes the qualified tool id the scout calls. The harness owns both halves
