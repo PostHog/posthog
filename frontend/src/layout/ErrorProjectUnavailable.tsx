@@ -5,7 +5,6 @@ import { Link } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,8 +13,11 @@ import { organizationLogic } from '../scenes/organizationLogic'
 export function ErrorProjectUnavailable(): JSX.Element {
     const { projectCreationForbiddenReason } = useValues(organizationLogic)
     const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
     const [options, setOptions] = useState<JSX.Element[]>([])
+    // `organization.teams` lists only the projects this user can open, so a current project
+    // that is unavailable is never in it. The list says nothing about whether access was
+    // granted before, so the copy must not claim that access was removed.
+    const hasVisibleProjects = (user?.organization?.teams?.length ?? 0) >= 1
 
     useOnMountEffect(() => {
         const options: JSX.Element[] = []
@@ -26,7 +28,7 @@ export function ErrorProjectUnavailable(): JSX.Element {
                 </Link>
             )
         }
-        if (user?.organization?.teams && user.organization?.teams.length >= 1) {
+        if (hasVisibleProjects) {
             options.push(<>switch to a project you have access to</>)
         }
         options.push(<>reach out to your administrator for access</>)
@@ -48,18 +50,12 @@ export function ErrorProjectUnavailable(): JSX.Element {
         return <CreateOrganizationModal isVisible inline />
     }
 
-    const accessRemoved =
-        (user?.team && !user.organization?.teams.some((team) => team.id === user?.team?.id || user.team)) ||
-        currentTeam?.user_access_level === 'none'
-
     return (
         <div className="flex flex-col items-center max-w-2xl p-4 mx-auto my-24 text-center">
-            {accessRemoved ? (
+            {hasVisibleProjects ? (
                 <>
-                    <h1 className="text-3xl font-bold mt-4 mb-0">Project access has been removed</h1>
-                    <p className="text-sm mt-3 mb-0">
-                        Someone in your organization has removed your access to this project. You can{listOptions()}.
-                    </p>
+                    <h1 className="text-3xl font-bold mt-4 mb-0">You don't have access to this project</h1>
+                    <p className="text-sm mt-3 mb-0">You can{listOptions()}.</p>
                 </>
             ) : (
                 <>
