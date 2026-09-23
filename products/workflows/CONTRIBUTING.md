@@ -416,6 +416,9 @@ A code-managed workflow has no manual save, so the schedule picker shows a "Save
 That writes only the schedule, and edits to the graph stay in the form.
 
 On the workflow scene, a code-managed workflow has no save button and no draft actions.
+A primary **Copy code** button takes the save button's place, with a help icon that names the file and says to commit the copied code there and push.
+It posts the editor's current state to `code`, so the copied file includes the unsaved edits.
+A workflow this app owns keeps **Save**, with a secondary **Copy code** button among the other actions.
 `CodeManagedTag` renders the badge beside the title and in the list.
 `CodeManagedSource` renders one line below the title with the file, the repository and the ref of the last push, linked through `GitMetadataParser` for GitHub and GitLab and plain text for any other host.
 The versions table adds a "Source" column that shows that ref on the live version.
