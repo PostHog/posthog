@@ -11,11 +11,14 @@ export interface MarketingMetricCardProps {
 
 /** One card per grid instance, so a notice keeps its place in the configured order instead of
  * being pushed past every metric. */
-export function MarketingMetricCard({ spec, loading, labelFromKey }: MarketingMetricCardProps): JSX.Element {
-    if (loading || !spec) {
+export function MarketingMetricCard({ spec, loading, labelFromKey }: MarketingMetricCardProps): JSX.Element | null {
+    if (loading) {
         return (
             <OverviewMetricCardGrid layout="contents" items={[]} loading numSkeletons={1} labelFromKey={labelFromKey} />
         )
+    }
+    if (!spec) {
+        return null
     }
     if (spec.kind === 'notice') {
         return <MetricNoticeCard title={spec.title} message={spec.message} value={spec.value} action={spec.action} />
