@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+import coverage
+
 SCRIPT_PATH = Path(__file__).with_name("coverage_report.py")
 SPEC = importlib.util.spec_from_file_location("coverage_report", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -45,6 +47,28 @@ def test_product_from_path(xml_path: Path, expected: str | None) -> None:
 )
 def test_repo_path_for(product: str, filename: str, expected: str) -> None:
     assert coverage_report.repo_path_for(product, filename) == expected
+
+
+# ---------- convert_product_data ----------
+
+
+def test_convert_product_data_combines_shards_under_repo_paths(tmp_path: Path) -> None:
+    source = tmp_path / "products" / "links" / "backend" / "api.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def a():\n    return 1\n\n\ndef b():\n    return 2\n")
+    artifacts = tmp_path / "cov-artifacts"
+    for shard, executed in enumerate([{1, 2, 5}, {1, 5}]):
+        shard_dir = artifacts / f"coverage-products-{shard}"
+        shard_dir.mkdir(parents=True)
+        data = coverage.CoverageData(basename=str(shard_dir / "links.coverage"))
+        data.add_lines({str(source): executed})
+        data.write()
+
+    coverage_report.convert_product_data(artifacts, tmp_path)
+    covered, valid = coverage_report.aggregate(artifacts)
+
+    assert [coverage_report.repo_path_for("links", f) for f in valid["links"]] == ["products/links/backend/api.py"]
+    assert coverage_report.collect(covered, valid) == [coverage_report.ProductCoverage("links", covered=3, valid=4)]
 
 
 # ---------- resolve_core_path ----------

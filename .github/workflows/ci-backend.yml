@@ -1157,7 +1157,7 @@ jobs:
                       --junitxml=junit-product.xml
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations' || '' }}
-                      ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}
+                      ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=' || '' }}
                   # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
                   # scopes coverage to that product and writes products/<name>/coverage.xml — works for
                   # bin-packed buckets (each product writes its own file) and split products (unioned later).
@@ -1288,16 +1288,16 @@ jobs:
                   retention-days: 2
 
             - name: Stage product coverage
-              # Rename each products/<name>/coverage.xml to <name>.xml so the product name
+              # Rename each products/<name>/.coverage to <name>.coverage so the product name
               # survives upload-artifact's least-common-ancestor path collapse.
               if: ${{ always() && github.event_name == 'pull_request' }}
               shell: bash
               run: |
                   mkdir -p cov-staging
-                  for f in products/*/coverage.xml; do
+                  for f in products/*/.coverage; do
                       [ -f "$f" ] || continue
                       product=$(basename "$(dirname "$f")")
-                      cp "$f" "cov-staging/${product}.xml"
+                      cp "$f" "cov-staging/${product}.coverage"
                   done
 
             - name: Upload product coverage
@@ -1305,8 +1305,8 @@ jobs:
               # always(): a failing test shard still has partial coverage worth reporting.
               if: ${{ always() && github.event_name == 'pull_request' }}
               with:
-                  name: coverage-xml-${{ strategy.job-index }}
-                  path: cov-staging/*.xml
+                  name: coverage-products-${{ strategy.job-index }}
+                  path: cov-staging/*.coverage
                   if-no-files-found: ignore
                   retention-days: 2
                   overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
@@ -3445,7 +3445,7 @@ jobs:
                   # backend-coverage-report skips narrowed runs (patch coverage would read
                   # as false gaps), so instrumenting one just costs time and uploads an
                   # artifact nothing reads.
-                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=xml:coverage-core.xml' || '' }}
+                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=' || '' }}
               # Wrap bash with signal-fanout so the runner's cancel signal is
               # propagated to the entire process tree (incl. pytest). Without
               # this, GHA only signals the top-level bash and pytest survives
@@ -3562,7 +3562,8 @@ jobs:
               if: ${{ always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core' }}
               with:
                   name: coverage-core-${{ strategy.job-index }}
-                  path: coverage-core.xml
+                  path: .coverage
+                  include-hidden-files: true
                   if-no-files-found: ignore
                   retention-days: 2
                   overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
@@ -4598,11 +4599,11 @@ jobs:
                   fi
             - name: Download coverage artifacts
               if: steps.reporter.outputs.available == 'true'
-              continue-on-error: true # a run where no shard emitted coverage.xml is not a failure
+              continue-on-error: true # a run where no shard emitted coverage data is not a failure
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
                   path: ./cov-artifacts
-                  pattern: coverage-xml-*
+                  pattern: coverage-products-*
             - name: Download core coverage artifacts
               if: steps.reporter.outputs.available == 'true'
               continue-on-error: true # core coverage only present once the Core segment ran with --cov
