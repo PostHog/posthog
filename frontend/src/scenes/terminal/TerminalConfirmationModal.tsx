@@ -12,7 +12,8 @@ export function TerminalConfirmationModal(): JSX.Element | null {
     }
     return (
         <LemonModal
-            fullScreen
+            width={640}
+            overlayClassName="!items-center !bg-black/70"
             closable={false}
             forceAbovePopovers
             title={confirmation.title}

@@ -122,7 +122,7 @@ inside /posthog/files. Keep .md or .json extensions when renaming files.
 Moves preserve object IDs and folder contents. Existing destinations cannot be
 replaced. Folders inferred from file paths cannot be moved; move their files instead.
 Use rm to remove files, rmdir for empty folders, and rm -r for folder trees.
-Deletes require a fullscreen confirmation. Click a button to approve or cancel;
+Deletes require a blocking confirmation. Click a button to approve or cancel;
 keyboard input cannot approve a deletion. rm groups all its PostHog targets into
 one confirmation. Other programs confirm each removal. Local Linux files do not
 require confirmation. Delete local and PostHog files in separate commands.
