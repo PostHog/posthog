@@ -80,7 +80,7 @@ from posthog.utils import human_list, pluralize
 from products.engineering_analytics.backend.facade.api import resolve_path_owners
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 
-from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, TOLERATION_PILEUP_WINDOW_DAYS, VARIANT_PILEUP_MIN
+from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, TOLERATION_PILEUP_WINDOW_DAYS
 from ..facade.enums import RunType
 from ..models import QuarantinedIdentifier, Repo, Run
 from . import quarantine, run_queries, story_index, toleration
@@ -423,14 +423,12 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
     expiring = quarantine.list_expiring_quarantines(repo.id, now=now, within_days=_DIGEST_EXPIRY_WINDOW_DAYS)
     quarantined_keys = quarantine.active_quarantine_keys(repo.id, now=now)
     piled_up = {
-        key: count
-        for key, count in toleration.count_recent_intentional_tolerations(
-            repo.id, since=now - timedelta(days=TOLERATION_PILEUP_WINDOW_DAYS), newest_run_by_type=newest_run_by_type
-        ).items()
+        key: counts.intentional
+        for key, counts in toleration.list_toleration_pileups(repo.id, now=now, newest_run_by_type=newest_run_by_type)
         # Any live quarantine, expiring or not, already says somebody knows the snapshot is
         # unreliable, so asking them about the tolerations underneath it is a second reminder about
         # one problem.
-        if count >= VARIANT_PILEUP_MIN and key not in quarantined_keys
+        if key not in quarantined_keys
     }
 
     run_types = {entry.run_type for entry in expiring} | {key.run_type for key in piled_up}
@@ -456,10 +454,8 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
                 line=_pileup_line(repo, key.run_type, key.identifier, count),
                 facts=_pileup_facts(count),
             )
-            # Biggest pile first, then by identity so a tie reads the same way every morning.
-            for key, count in sorted(
-                piled_up.items(), key=lambda item: (-item[1], item[0].run_type, item[0].identifier)
-            )
+            # Already in pile order: `list_toleration_pileups` sorts, and the dict keeps it.
+            for key, count in piled_up.items()
         ],
     )
 
