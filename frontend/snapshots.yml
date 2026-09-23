@@ -2252,6 +2252,10 @@ snapshots:
         hash: v1.k794b7964.2706bc3f6a6a560eeb7c2a7b25b0feafb0438bb7f2b94aa6f584de1eed7338a2.WscXFEXWmTCQX3rgoirWxfA_iSvW47pO5ZaLo7TFx3U
     components-slack-channel-picker--multiple-selection--light:
         hash: v1.k794b7964.ab1f574ecf1b582f420f90a56175b32bb1f76c585a6aa79a37d3bb351d21f20c.iPJrGKVub6zHD-M3h6qSWNrHWiqyBOXaSVMB1w1d_-E
+    components-slack-channel-picker--pasted-channel-id--dark:
+        hash: v1.k794b7964.d60e6043c5b85c4f8b8ba603cf0f0c568099d99921459bce9293cbfbd74fbf65.oS3gE2jgEoNm-sghm05J20yNWJqDlORObayJlsTlVlA
+    components-slack-channel-picker--pasted-channel-id--light:
+        hash: v1.k794b7964.dabe969bb89f1aaecb8d641eaa1c91f777306e4776eb80740fd30056d4d12030.SR_9HPnp47-t-kBbVGrPdqV3GHRQE6vSOvUq-ZT2Vmw
     components-slack-channel-picker--recently-subscribed-first--dark:
         hash: v1.k794b7964.de1b275c97b6eac538ac35f64bf4cf3ec79f224cf500d0078f748c063eb83601.qqYmyCsR4ryfUqltT9sX9UikOHaAkMvWoWGDrQZ164s
     components-slack-channel-picker--recently-subscribed-first--light:
