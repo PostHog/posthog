@@ -50,6 +50,16 @@ ULTRACODE = "ultracode"
 # this, so a new tier reaches both projections by being added here and nowhere else.
 REASONING_EFFORTS: tuple[str, ...] = (LOW, MEDIUM, HIGH, XHIGH, MAX, ULTRACODE)
 
+# What a picker calls each tier. Sentence case, like every other label in the product.
+REASONING_EFFORT_LABELS: dict[str, str] = {
+    LOW: "Low",
+    MEDIUM: "Medium",
+    HIGH: "High",
+    XHIGH: "Extra high",
+    MAX: "Max",
+    ULTRACODE: "Ultracode",
+}
+
 _STANDARD = (LOW, MEDIUM, HIGH)
 _THROUGH_MAX = (*_STANDARD, XHIGH, MAX)
 _EXTENDED = (*_THROUGH_MAX, ULTRACODE)
@@ -208,6 +218,39 @@ FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER: dict[str, tuple[str, ...]] = {
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
     CLAUDE: "claude-sonnet-5",
     CODEX: "gpt-5",
+}
+
+
+@dataclass(frozen=True)
+class CapabilityNotch:
+    """One stop on a picker's Faster → Smarter slider: a model and the depth it runs at.
+
+    The rungs are a curated ordering over two dimensions, chosen so each is worth its extra
+    cost over the one below, rather than anything derivable from the rest of the catalog.
+    """
+
+    model: str
+    effort: str
+
+
+# Cheapest first. A consumer filters these against what the gateway serves before rendering,
+# so a rung naming a retired model drops out instead of becoming a stop that fails on send.
+CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: dict[str, tuple[CapabilityNotch, ...]] = {
+    CLAUDE: (
+        CapabilityNotch("claude-sonnet-5", MEDIUM),
+        CapabilityNotch("claude-sonnet-5", HIGH),
+        CapabilityNotch("claude-opus-5-5", MEDIUM),
+        CapabilityNotch("claude-opus-5-5", XHIGH),
+        CapabilityNotch("claude-fable-5-1", MAX),
+    ),
+    CODEX: (
+        CapabilityNotch("gpt-6-luna", LOW),
+        CapabilityNotch("gpt-6-sol", LOW),
+        CapabilityNotch("gpt-6-sol", MEDIUM),
+        CapabilityNotch("gpt-6-sol", HIGH),
+        CapabilityNotch("gpt-6-sol", XHIGH),
+        CapabilityNotch("gpt-6-astra", MAX),
+    ),
 }
 
 
@@ -413,6 +456,7 @@ def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...
 
 __all__ = [
     "ANTHROPIC",
+    "CAPABILITY_LADDER_BY_RUNTIME_ADAPTER",
     "CLAUDE",
     "CODEX",
     "COST_BASELINE_MODEL",
@@ -422,8 +466,10 @@ __all__ = [
     "OPENAI",
     "PROVIDER_BY_RUNTIME_ADAPTER",
     "REASONING_EFFORTS",
+    "REASONING_EFFORT_LABELS",
     "access_flag_for_model",
     "RUNTIME_ADAPTERS",
+    "CapabilityNotch",
     "CatalogModel",
     "ModelCost",
     "cost_for_model",
