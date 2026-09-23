@@ -1,3 +1,5 @@
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { evaluationsList, llmAnalyticsEvaluationReportsList } from '../generated/api'
 import type { EvaluationApi, EvaluationReportApi } from '../generated/api.schemas'
 import { listAllEvaluationReports, listAllEvaluations } from './evaluationsApi'
@@ -7,6 +9,8 @@ jest.mock('../generated/api', () => ({
     evaluationsPartialUpdate: jest.fn(),
     llmAnalyticsEvaluationReportsList: jest.fn(),
 }))
+
+jest.mock('lib/lemon-ui/LemonToast', () => ({ lemonToast: { warning: jest.fn() } }))
 
 const evaluationApi = (id: string): EvaluationApi => ({
     id,
@@ -65,6 +69,20 @@ const evaluationReportApi = (id: string, evaluation: string): EvaluationReportAp
 })
 
 describe('evaluationsApi', () => {
+    it.each(['categorical', 'future_output'])(
+        'keeps supported rows when a page contains a future %s output',
+        async (output_type) => {
+            jest.mocked(evaluationsList).mockResolvedValueOnce({
+                count: 2,
+                next: null,
+                previous: null,
+                results: [evaluationApi('1'), { ...evaluationApi('2'), output_type } as EvaluationApi],
+            })
+
+            await expect(listAllEvaluations('1')).resolves.toEqual([expect.objectContaining({ id: '1' })])
+            expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('Refresh'), expect.any(Object))
+        }
+    )
     beforeEach(() => {
         jest.mocked(evaluationsList).mockReset()
         jest.mocked(llmAnalyticsEvaluationReportsList).mockReset()
