@@ -6761,6 +6761,32 @@ class TestSurveyBulkDuplication(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert not Survey.objects.filter(team__in=[self.team2, self.team3]).exists()
 
+    @parameterized.expand([("private_project", True, 403, 0), ("open_project", False, 201, 1)])
+    def test_bulk_duplicate_resolves_an_environment_to_its_project(
+        self, _name: str, project_private: bool, expected_status: int, expected_project_surveys: int
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        environment = Team.objects.create(organization=self.organization, name="Team 3 env", parent_team=self.team3)
+        if project_private:
+            AccessControl.objects.create(
+                team=self.team3, resource="project", resource_id=str(self.team3.id), access_level="none"
+            )
+        member = self._create_user("duplicate-env-member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [environment.id]},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.content
+        assert Survey.objects.filter(team=self.team3).count() == expected_project_surveys
+        assert not Survey.objects.filter(team=environment).exists()
+
     def test_bulk_duplicate_rejects_key_not_scoped_to_target(self) -> None:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(

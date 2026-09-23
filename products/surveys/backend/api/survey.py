@@ -3306,11 +3306,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             raise exceptions.ValidationError("target_team_ids must be a non-empty list of team IDs")
 
         organization_id = self.team.organization_id
-        target_teams = Team.objects.filter(id__in=target_team_ids, organization_id=organization_id)
+        requested_teams = Team.objects.select_related("parent_team").filter(
+            id__in=target_team_ids, organization_id=organization_id
+        )
+        # Surveys are project-scoped, so an environment resolves to its project, as RootTeamMixin.save does.
+        # The checks below and bulk_create must see the project, because bulk_create skips that save.
+        target_teams = list({team.id: team for team in (t.parent_team or t for t in requested_teams)}.values())
         # for_team_ids loads the teams again, so a team deleted between the two queries is missing from its result
         target_access_controls = self.user_access_control.for_team_ids(team.id for team in target_teams)
 
-        if len(target_teams) != len(target_team_ids) or len(target_access_controls) != len(target_teams):
+        if len(requested_teams) != len(target_team_ids) or len(target_access_controls) != len(target_teams):
             raise exceptions.ValidationError("One or more target teams not found or you don't have access to them")
 
         for target_team in target_teams:
