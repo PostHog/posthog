@@ -85,6 +85,8 @@ describe('computeSankeyLayout', () => {
         const columnOf = (id: string): number | undefined => layout.nodes.find((n) => n.id === id)?.column
         expect([columnOf('x'), columnOf('y')]).toEqual([0, 3])
         expect(layout.columnCount).toBe(4)
+        // Headers over the empty columns need an x too, evenly spaced between the pinned ones.
+        expect(layout.columnX).toEqual([0, 590 / 3, (2 * 590) / 3, 590])
     })
 
     it('resolves node colors by label and defaults link color to the source node', () => {

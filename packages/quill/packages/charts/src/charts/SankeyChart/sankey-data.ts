@@ -228,10 +228,10 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     })
 
     const columnCount = Math.max(0, ...graph.nodes.map((node) => node.layer + 1))
-    const columnX: number[] = []
-    for (const node of graph.nodes) {
-        columnX[node.layer] = node.x0
-    }
+    // A pinned column can hold no node, so derive every column's x from the engine's spacing
+    // rather than from the nodes that happen to land in it, and headers never read a hole.
+    const columnStep = columnCount > 1 ? (plot.plotWidth - nodeWidth) / (columnCount - 1) : 0
+    const columnX = Array.from({ length: columnCount }, (_, column) => plot.plotLeft + column * columnStep)
 
     const total = graph.nodes.filter((node) => node.targetLinks.length === 0).reduce((sum, node) => sum + node.value, 0)
 
