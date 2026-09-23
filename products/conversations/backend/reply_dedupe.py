@@ -124,7 +124,7 @@ class ReplyFingerprint:
     team_id: int
     scope: str
     item_id: str
-    created_by_id: int
+    created_by_id: int | None
     source_comment_id: str | None
     content: str
     rich_content: Any
@@ -168,6 +168,26 @@ class ReplyFingerprint:
             source_comment_id=str(source_comment_id) if source_comment_id else None,
             content=content,
             rich_content=rich_content,
+            item_context=item_context,
+        )
+
+    @classmethod
+    def for_workflow(
+        cls, *, team_id: int, item_id: str, content: str, item_context: dict[str, Any]
+    ) -> "ReplyFingerprint":
+        """Fingerprint for a workflow send, which has no PostHog user.
+
+        ``build`` refuses these: it only collapses human replies. The worker retries a dropped
+        response, and without this a retry delivers the message again.
+        """
+        return cls(
+            team_id=team_id,
+            scope=SUPPORT_TICKET_SCOPE,
+            item_id=str(item_id),
+            created_by_id=None,
+            source_comment_id=None,
+            content=content,
+            rich_content=None,
             item_context=item_context,
         )
 

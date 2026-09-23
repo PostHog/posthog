@@ -18,7 +18,7 @@ async function callInternalTicketApi(
     context: AsyncFunctionContext,
     result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
     ticketId: string,
-    options: { method: 'GET' | 'PATCH'; query?: string; body?: string; extraHeaders?: Record<string, string> }
+    options: { method: 'GET' | 'PATCH' | 'POST'; query?: string; body?: string; extraHeaders?: Record<string, string> }
 ): Promise<void> {
     // Reaches the operator verbatim in the workflow logs. Keep it free of square brackets,
     // which the log viewer parses as entity chips and would swallow.
@@ -150,6 +150,50 @@ registerAsyncFunction('postHogUpdateTicket', {
         return {
             status: 200,
             body: { ok: true },
+        }
+    },
+})
+
+registerAsyncFunction('postHogSendTicketMessage', {
+    execute: async (args, context, result) => {
+        const [opts] = args as [Record<string, any> | undefined]
+        const ticketId = opts?.ticket_id
+        const message = typeof opts?.message === 'string' ? opts.message.trim() : ''
+
+        if (!ticketId || typeof ticketId !== 'string') {
+            throw new Error("[HogFunction] - postHogSendTicketMessage call missing 'ticket_id' property")
+        }
+        if (!message) {
+            throw new Error("[HogFunction] - postHogSendTicketMessage call missing 'message' property")
+        }
+
+        await callInternalTicketApi(context, result, ticketId, {
+            method: 'POST',
+            body: JSON.stringify({
+                message,
+                is_private: opts?.is_private === true,
+            }),
+        })
+    },
+
+    mock: (args, logs) => {
+        logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `Async function 'postHogSendTicketMessage' was mocked with arguments:`,
+        })
+        logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `postHogSendTicketMessage(${JSON.stringify(args[0], null, 2)})`,
+        })
+
+        return {
+            status: 201,
+            body: {
+                id: 'mock-message-id',
+                is_private: args[0]?.is_private === true,
+            },
         }
     },
 })

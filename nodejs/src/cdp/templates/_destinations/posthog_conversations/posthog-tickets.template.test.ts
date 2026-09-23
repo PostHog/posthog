@@ -1,5 +1,8 @@
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { TemplateTester } from '../../test/test-helpers'
 import { template as getTicketTemplate } from './posthog-get-ticket.template'
+import { template as sendTicketMessageTemplate } from './posthog-send-ticket-message.template'
 import { template as updateTicketTemplate } from './posthog-update-ticket.template'
 
 const TICKET_UUID = '0198a5c1-2f6e-7c3a-9b41-b6d21c0aa111'
@@ -17,6 +20,12 @@ describe('posthog conversations ticket templates', () => {
             template: updateTicketTemplate,
             inputs: { ticket_id: TICKET_UUID, status: 'new' },
             failurePrefix: 'Failed to update ticket (401):',
+        },
+        {
+            name: 'send message',
+            template: sendTicketMessageTemplate,
+            inputs: { ticket_id: TICKET_UUID, message: 'We are on it.' },
+            failurePrefix: 'Failed to send message (401):',
         },
     ]
 
@@ -48,6 +57,34 @@ describe('posthog conversations ticket templates', () => {
             expect(response.error).toBeUndefined()
             expect(response.finished).toBe(true)
             expect(response.execResult).toEqual({ id: TICKET_UUID, status: 'new' })
+        })
+    })
+
+    describe('send message', () => {
+        const tester = new TemplateTester(sendTicketMessageTemplate)
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+            tester.mockInternalFetchResponse({ status: 201, body: { id: 'message-1', is_private: false } })
+        })
+
+        const postedBody = (): { message: string; is_private: boolean } => {
+            const [, options] = tester.mockInternalFetch.mock.calls[0] as unknown as [string, { body: string }]
+            return parseJSON(options.body)
+        }
+
+        it('posts a public reply by default and treats 201 as success', async () => {
+            let response = await tester.invoke({ ticket_id: TICKET_UUID, message: 'We are on it.' })
+            response = await tester.resumeInvocation(response.invocation)
+
+            expect(response.error).toBeUndefined()
+            expect(response.finished).toBe(true)
+            expect(postedBody()).toEqual({ message: 'We are on it.', is_private: false })
+        })
+
+        it('sends the private-note flag when the checkbox is on', async () => {
+            await tester.invoke({ ticket_id: TICKET_UUID, message: 'Internal only', is_private: true })
+            expect(postedBody().is_private).toBe(true)
         })
     })
 
