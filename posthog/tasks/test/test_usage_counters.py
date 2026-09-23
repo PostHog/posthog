@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.tasks import usage_report
 from posthog.usage_counters import (
+    COUNTER_FLAG_NAMES,
     SHADOW_FAILURES,
     UsageCounter,
     UsageCounterCaller,
@@ -32,7 +33,21 @@ class TestUsageCounterReport(SimpleTestCase):
         self.records = Mock(return_value=[])
         self.exceptions = Mock(side_effect=lambda begin, end: ({}, self.legacy[UsageCounter.EXCEPTIONS](begin, end)))
         self.events = Mock(side_effect=lambda begin, end, **kwargs: self.legacy[UsageCounter.EVENTS](begin, end))
+        self.logs_retention = Mock(
+            side_effect=lambda begin, end: {"30d": self.legacy[UsageCounter.LOGS_RETENTION_30D_BYTES](begin, end)}
+        )
         patches = {
+            "get_teams_with_logs_retention_bytes_in_period": self.logs_retention,
+            "get_teams_with_rows_synced_in_period": self.legacy[UsageCounter.ROWS_SYNCED],
+            "get_teams_with_free_historical_rows_synced_in_period": self.legacy[
+                UsageCounter.FREE_HISTORICAL_ROWS_SYNCED
+            ],
+            "get_teams_with_rows_exported_in_period": self.legacy[UsageCounter.ROWS_EXPORTED],
+            "get_teams_with_logs_bytes_in_period": self.legacy[UsageCounter.LOGS_BYTES],
+            "get_teams_with_ai_credits_used_in_period": self.legacy[UsageCounter.AI_CREDITS],
+            "get_teams_with_signals_credits_used_in_period": self.legacy[UsageCounter.SIGNALS_CREDITS],
+            "get_teams_with_posthog_code_credits_used_in_period": self.legacy[UsageCounter.POSTHOG_CODE_CREDITS],
+            "get_teams_with_replay_vision_credits_used_in_period": self.legacy[UsageCounter.REPLAY_VISION_CREDITS],
             "get_teams_with_billable_event_count_in_period": self.events,
             "get_teams_with_billable_enhanced_persons_event_count_in_period": Mock(
                 side_effect=lambda begin, end, **kwargs: self.legacy[UsageCounter.ENHANCED_PERSON_EVENTS](begin, end)
@@ -97,7 +112,7 @@ class TestUsageCounterReport(SimpleTestCase):
             flag.side_effect = None
             flag.return_value = "legacy"
             report = service.fetch_report(period, plan=plan)
-            assert flag.call_count == len(UsageCounter)
+            assert flag.call_count == len(COUNTER_FLAG_NAMES)
 
         assert report.counts == {
             **{counter.value: [] for counter in UsageCounter},
@@ -182,7 +197,7 @@ class TestUsageCounterReport(SimpleTestCase):
             assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == [(1, 9 if flag_value == "realtime" else 12)]
             assert (report.realtime_counters is not None) == (flag_value == "both")
             assert records_query.call_count == int(flag_value in ("both", "realtime"))
-            assert flag.call_count == len(UsageCounter)
+            assert flag.call_count == len(COUNTER_FLAG_NAMES)
 
     @parameterized.expand([("both", True), ("legacy", False), ("unknown", False)])
     def test_local_override_does_not_consult_flag_service(self, mode: str, enabled: bool) -> None:
@@ -241,21 +256,27 @@ class TestUsageCounterReport(SimpleTestCase):
             patch("posthoganalytics.get_feature_flag", return_value="both") as flag,
         ):
             modes = resolve_modes("daily_report")
-            assert modes == dict.fromkeys(UsageCounter, UsageCounterMode.BOTH)
+            assert modes == {
+                counter: UsageCounterMode.BOTH if counter in COUNTER_FLAG_NAMES else UsageCounterMode.LEGACY
+                for counter in UsageCounter
+            }
             plan = service.resolve_plan(period, caller="daily_report")
             flag.return_value = "realtime"
             assert resolve_modes("usage_reports_v2") == modes
             assert resolve_modes("quota_limiting") == modes
-            assert flag.call_count == len(UsageCounter)
+            assert flag.call_count == len(COUNTER_FLAG_NAMES)
             clock.return_value = 161
-            assert resolve_modes("daily_report") == dict.fromkeys(UsageCounter, UsageCounterMode.REALTIME)
-            assert flag.call_count == 2 * len(UsageCounter)
+            assert resolve_modes("daily_report") == {
+                counter: UsageCounterMode.REALTIME if counter in COUNTER_FLAG_NAMES else UsageCounterMode.LEGACY
+                for counter in UsageCounter
+            }
+            assert flag.call_count == 2 * len(COUNTER_FLAG_NAMES)
             with self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:legacy"):
                 assert resolve_modes("daily_report")[UsageCounter.CDP_INVOCATIONS] == UsageCounterMode.LEGACY
             report = service.fetch_report(period, plan=plan)
             assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == []
             assert report.realtime_counters == {
-                counter.value.removeprefix("teams_with_"): {} for counter in UsageCounter
+                counter.value.removeprefix("teams_with_"): {} for counter in COUNTER_FLAG_NAMES
             }
 
     @parameterized.expand([(False,), (True,)])
@@ -385,3 +406,47 @@ class TestUsageCounterReport(SimpleTestCase):
             plan = service.resolve_plan(period, caller="quota_limiting", counters=(UsageCounter.EXCEPTIONS,))
         assert service.fetch_report(period, plan=plan).counts == {UsageCounter.EXCEPTIONS: [(1, 7)]}
         self.exceptions.assert_not_called()
+
+    @parameterized.expand([(mode,) for mode in UsageCounterMode])
+    def test_legacy_only_counters_preserve_values_and_log_retention_tiers(self, flag_mode: UsageCounterMode) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        counters = (
+            UsageCounter.ROWS_SYNCED,
+            UsageCounter.FREE_HISTORICAL_ROWS_SYNCED,
+            UsageCounter.ROWS_EXPORTED,
+            UsageCounter.LOGS_BYTES,
+            UsageCounter.LOGS_RETENTION_30D_BYTES,
+            UsageCounter.AI_CREDITS,
+            UsageCounter.SIGNALS_CREDITS,
+            UsageCounter.POSTHOG_CODE_CREDITS,
+            UsageCounter.REPLAY_VISION_CREDITS,
+        )
+        expected = {counter.value: [(1, index + 1)] for index, counter in enumerate(counters)}
+        for counter in counters:
+            self.legacy[counter].return_value = expected[counter]
+        self.logs_retention.side_effect = None
+        self.logs_retention.return_value = {
+            "14d": [(1, 17)],
+            "30d": expected[UsageCounter.LOGS_RETENTION_30D_BYTES],
+            "90d": [(2, 23)],
+        }
+        expected.update(
+            {
+                "teams_with_logs_retention_14d_bytes_in_period": [(1, 17)],
+                "teams_with_logs_retention_90d_bytes_in_period": [(2, 23)],
+            }
+        )
+        with patch("posthoganalytics.get_feature_flag", return_value=flag_mode) as flag:
+            service = UsageCounterService()
+            plan = service.resolve_plan(period, caller="daily_report", counters=counters)
+        report = service.fetch_report(period, plan=plan)
+
+        assert plan.modes == dict.fromkeys(counters, UsageCounterMode.LEGACY)
+        assert report.counts == expected
+        assert report.usage_sources is None
+        assert report.realtime_counters is None
+        assert {call.args[0] for call in flag.call_args_list} == {
+            f"usage-counter-realtime-{suffix}" for suffix in COUNTER_FLAG_NAMES.values()
+        }
+        self.records.assert_not_called()
+        self.logs_retention.assert_called_once_with(period.start, period.end)
