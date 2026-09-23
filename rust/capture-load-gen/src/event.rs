@@ -212,11 +212,8 @@ impl EventFactory {
     }
 
     /// A person update: a regular event carrying a `$set` payload. The value
-    /// is unique per event so every update actually changes the person. The
-    /// key names the sending user, so a person built from a merged pair holds
-    /// one key per user and each key has a single writer: with a shared key,
-    /// the two users' writes reach the backends in different orders and the
-    /// final value is not comparable.
+    /// is unique per event so every update actually changes the person, and
+    /// the key names the user so a merged pair's keys each have one writer.
     fn person_update_event(base: RawEvent, event: String, user: &str) -> RawEvent {
         let mut set = HashMap::new();
         set.insert(
