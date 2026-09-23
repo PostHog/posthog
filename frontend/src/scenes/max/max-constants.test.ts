@@ -45,6 +45,16 @@ describe('max-constants', () => {
         expect(args.skipped).toEqual([{ sessionId: 'a', reason: 'some_future_outcome' }])
     })
 
+    it('gives every tool its own status line', () => {
+        // Without a formatter the activity row falls back to generic copy, which tells the user nothing
+        // about what the agent is doing.
+        const withoutFormatter = Object.entries(TOOL_DEFINITIONS)
+            .filter(([, tool]) => !tool.displayFormatter)
+            .map(([key]) => key)
+
+        expect(withoutFormatter).toEqual([])
+    })
+
     it('does not offer the retired session summarization tool in any mode', () => {
         // The tool is gone; the definition only remains so old conversations still render its calls.
         const offered = Object.values(AgentMode).flatMap((mode) => getToolsForMode(mode).map((tool) => tool.name))

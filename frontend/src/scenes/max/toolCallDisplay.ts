@@ -22,7 +22,9 @@ export const getToolCallDescriptionAndWidgetDef = (
 ): [string, ToolCallWidgetDef | null] => {
     const commentary = toolCall.args.commentary as string
     const definition = getToolDefinitionFromToolCall(toolCall)
-    let description = `${toolCall.status === TaskExecutionStatus.InProgress ? 'Executing' : 'Executed'} ${toolCall.name}`
+    // A tool with no definition, or a definition with no displayFormatter, must never print its own
+    // internal name to the user, so the fallback stays generic.
+    let description = toolCall.status === TaskExecutionStatus.InProgress ? 'Working on it...' : 'Done'
     let widgetDef: ToolCallWidgetDef | null = null
     if (definition) {
         if (definition.displayFormatter) {

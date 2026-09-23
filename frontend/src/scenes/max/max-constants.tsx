@@ -230,6 +230,14 @@ function replayVisionScanWidgetDef(toolCall: EnhancedToolCall): ReplayVisionScan
     return { widget: 'replay_vision_scan', args: { scanId, sessionIds, skipped } }
 }
 
+const MEMORY_ACTION_LABELS: Record<string, [pending: string, completed: string]> = {
+    create: ['Saving to memory', 'Saved to memory'],
+    query: ['Searching memory', 'Searched memory'],
+    update: ['Updating memory', 'Updated memory'],
+    delete: ['Deleting from memory', 'Deleted from memory'],
+    list_metadata_keys: ['Reading memory', 'Read memory'],
+}
+
 export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     call_mcp_server: {
         name: 'Call an MCP server',
@@ -1339,6 +1347,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         name: 'Manage memories',
         description: 'Manage memories to store and retrieve persistent information',
         icon: <IconMemory />,
+        displayFormatter: (toolCall) => {
+            const nested = toolCall.args?.args
+            const action = isObject(nested) && typeof nested.action === 'string' ? nested.action : ''
+            const [pending, completed] = MEMORY_ACTION_LABELS[action] ?? ['Updating memory', 'Updated memory']
+            return toolCall.status === 'completed' ? completed : `${pending}...`
+        },
     },
     create_notebook: {
         name: 'Create a document',
