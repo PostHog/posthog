@@ -137,7 +137,9 @@ export function CreateChannelModal({
   const { createChannel, isCreating } = useChannelMutations();
   const { generate, isStarting } = useGenerateContext();
   const { setup, isStarting: isSettingUp } = useSetupSpace();
-  const setupEnabled = useFeatureFlag(SPACE_SETUP_FLAG);
+  // Dev builds default the step on, like the spaces layout, so it can be tried
+  // without flag plumbing; force it off with the ph-dev-flags-off kill switch.
+  const setupEnabled = useFeatureFlag(SPACE_SETUP_FLAG, import.meta.env.DEV);
   const linkRepositories = useUpdateTaskChannelRepositories();
   const navigate = useNavigate();
   const [name, setName] = useState("");
