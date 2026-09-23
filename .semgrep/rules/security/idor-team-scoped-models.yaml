@@ -351,6 +351,7 @@ rules:
                               |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportSlackThread
+                              |SignalReportSuggestedReviewer
                               |SignalReportTask
                               |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
@@ -769,6 +770,7 @@ rules:
                         |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportSlackThread
+                        |SignalReportSuggestedReviewer
                         |SignalReportTask
                         |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
