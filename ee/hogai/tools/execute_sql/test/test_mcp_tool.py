@@ -150,8 +150,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
     )
     async def test_width_suffixed_numeric_conversions_are_accepted(self, _name: str, query: str) -> None:
-        # Plain ClickHouse spellings that callers reach for first. Rejecting one cost a retry even
-        # though the error named the HogQL equivalent, so the contract is acceptance, not advice.
+        # Plain ClickHouse spellings that callers reach for first, so each one has to run here.
         result = await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
         self.assertIsNotNone(result.content)
 

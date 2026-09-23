@@ -1870,8 +1870,7 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_width_suffixed_conversion_aliases(self, _name: str, expr: str, expected: str) -> None:
-        # A caller writing plain ClickHouse reaches for the 64-bit spelling first. Rejecting it
-        # costs a retry, so each one prints as its HogQL equivalent instead.
+        # Each 64-bit ClickHouse spelling prints as the HogQL function it aliases.
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr(expr, context), expected)
 
