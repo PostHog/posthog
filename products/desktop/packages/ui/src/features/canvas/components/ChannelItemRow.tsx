@@ -11,6 +11,7 @@ import {
   AvatarFallback,
   AvatarGroup,
   Button,
+  cn,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -26,6 +27,7 @@ import {
   TaskRowContextMenu,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
+import { WorkRowSurface } from "@posthog/ui/features/canvas/components/WorkRowSurface";
 import { useChannelItemMetadata } from "@posthog/ui/features/canvas/hooks/useChannelItemFacts";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
@@ -49,6 +51,10 @@ import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSe
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
 import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
+import {
+  OverflowTickerText,
+  useOverflowTickerReveal,
+} from "@posthog/ui/primitives/OverflowTickerText";
 import {
   type DragEvent,
   type ReactNode,
@@ -181,12 +187,59 @@ function ChannelItemDot({
 }
 
 /**
+ * A row's trailing stack: who is here, then what the row is. Shared by both
+ * surfaces below, so the marks a list is scanned for can't differ between them.
+ */
+function ChannelItemTrailing({
+  item,
+  status,
+  pinBadge,
+  currentUserUuid,
+}: {
+  item: ChannelItemModel;
+  status: TaskStatusInput | null;
+  pinBadge: boolean;
+  currentUserUuid?: string;
+}) {
+  return (
+    <span className={TRAILING_CLASS}>
+      {/* Who's here, ahead of the badges: presence is the row's most
+          time-sensitive fact, and it's absent on a quiet row. */}
+      <RowPresence item={item} currentUserUuid={currentUserUuid} />
+      {/* Badges take the timestamp's slot: identity (pin, source, cloud,
+          PR) is what you scan a task list for, and the age is still on the
+          preview card. */}
+      {status ? (
+        <TaskBadgeStack status={status} pinned={pinBadge} />
+      ) : item.kind === "canvas" ? (
+        <CanvasBadgeStack item={item} pinned={pinBadge} />
+      ) : (
+        <>
+          {pinBadge && (
+            <AvatarGroup stacked reverse size="xs" className="shrink-0">
+              <PinnedBadge />
+            </AvatarGroup>
+          )}
+          <span className={TIMESTAMP_CLASS}>
+            {formatRelativeTimeShort(item.ts)}
+          </span>
+        </>
+      )}
+    </span>
+  );
+}
+
+/**
  * What a row looks like, with nothing behind it, so the drag preview can draw
  * one without wiring it. Rendering `ChannelItemRow` for that opened a second PR
  * lookup per drag, plus a hover card and a context menu nothing could reach.
  *
  * Takes `status` rather than resolving it: how much is worth resolving is the
  * caller's call, see `useChannelTaskStatus`.
+ *
+ * `optionValue` picks the root. A list that walks its rows with the keyboard is
+ * an Autocomplete, and only an `AutocompleteItem` is on that path; every other
+ * list keeps the plain `SidebarItem` button. The body is the same either way.
  */
 export function ChannelItemRowView({
   item,
@@ -198,6 +251,7 @@ export function ChannelItemRowView({
   showPinBadge = true,
   draggable = false,
   currentUserUuid,
+  optionValue,
   onClick,
   onDragStart,
   onDragEnd,
@@ -214,13 +268,82 @@ export function ChannelItemRowView({
   showPinBadge?: boolean;
   draggable?: boolean;
   currentUserUuid?: string;
+  /** Renders the row as an autocomplete option under this value. */
+  optionValue?: string;
   onClick?: (e: React.MouseEvent) => void;
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: (e: DragEvent) => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }) {
-  const pinBadge = item.pinned && showPinBadge;
+  const pinBadge = Boolean(item.pinned && showPinBadge);
+  const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
+  const icon = isArchiving ? (
+    <>
+      <DotsCircleSpinner size={12} className="text-muted-foreground" />
+      <span className="sr-only">Archiving</span>
+    </>
+  ) : (
+    <ChannelItemDot item={item} status={status} />
+  );
+  // Lets a drag-selection find the row and its session; canvases are not
+  // selectable, so they stay unmarked and the marquee passes over them.
+  const sessionAttribute =
+    item.kind === "task" ? { [SESSION_ROW_ATTRIBUTE]: item.id } : {};
+  const trailing = (
+    <ChannelItemTrailing
+      item={item}
+      status={status}
+      pinBadge={pinBadge}
+      currentUserUuid={currentUserUuid}
+    />
+  );
+
+  if (optionValue !== undefined) {
+    return (
+      <WorkRowSurface
+        optionValue={optionValue}
+        data-selected={isActive || undefined}
+        aria-busy={isArchiving || undefined}
+        disabled={isArchiving}
+        className={cn(
+          subtitle && "h-auto py-1",
+          isArchiving && "opacity-60",
+          // The open row keeps `data-selected`; a picked one takes the accent
+          // over it, a shade above the rows picked around it.
+          isSelected && (isActive ? "bg-primary/20!" : "bg-primary/10"),
+        )}
+        draggable={draggable && !isArchiving}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onClick={onClick}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        {...sessionAttribute}
+        {...hoverProps}
+        {...focusProps}
+      >
+        <span
+          className={cn(
+            "flex size-3.5 shrink-0 items-center justify-center",
+            subtitle && "self-start pt-0.5",
+          )}
+        >
+          {icon}
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <OverflowTickerText reveal={reveal}>{item.title}</OverflowTickerText>
+          {subtitle && (
+            <span className="truncate text-muted-foreground/70 text-xxs group-data-selected/button:text-muted-foreground">
+              {subtitle}
+            </span>
+          )}
+        </span>
+        {trailing}
+      </WorkRowSurface>
+    );
+  }
+
   return (
     <SidebarItem
       onMouseEnter={onMouseEnter}
@@ -230,16 +353,7 @@ export function ChannelItemRowView({
       // which keeps SidebarItem's native cursor-default.
       className={isArchiving ? "cursor-default" : "cursor-pointer"}
       depth={0}
-      icon={
-        isArchiving ? (
-          <>
-            <DotsCircleSpinner size={12} className="text-muted-foreground" />
-            <span className="sr-only">Archiving</span>
-          </>
-        ) : (
-          <ChannelItemDot item={item} status={status} />
-        )
-      }
+      icon={icon}
       // A non-string label opts out of SidebarItem's truncation tooltip.
       label={<span>{item.title}</span>}
       subtitle={subtitle}
@@ -248,39 +362,12 @@ export function ChannelItemRowView({
       aria-busy={isArchiving || undefined}
       isDimmed={isArchiving}
       disabled={isArchiving}
-      // Lets a drag-selection find the row and its session; canvases are not
-      // selectable, so they stay unmarked and the marquee passes over them.
-      {...(item.kind === "task" ? { [SESSION_ROW_ATTRIBUTE]: item.id } : {})}
+      {...sessionAttribute}
       draggable={draggable && !isArchiving}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={onClick}
-      endContent={
-        <span className={TRAILING_CLASS}>
-          {/* Who's here, ahead of the badges: presence is the row's most
-              time-sensitive fact, and it's absent on a quiet row. */}
-          <RowPresence item={item} currentUserUuid={currentUserUuid} />
-          {/* Badges take the timestamp's slot: identity (pin, source, cloud,
-              PR) is what you scan a task list for, and the age is still on the
-              preview card. */}
-          {status ? (
-            <TaskBadgeStack status={status} pinned={pinBadge} />
-          ) : item.kind === "canvas" ? (
-            <CanvasBadgeStack item={item} pinned={pinBadge} />
-          ) : (
-            <>
-              {pinBadge && (
-                <AvatarGroup stacked reverse size="xs" className="shrink-0">
-                  <PinnedBadge />
-                </AvatarGroup>
-              )}
-              <span className={TIMESTAMP_CLASS}>
-                {formatRelativeTimeShort(item.ts)}
-              </span>
-            </>
-          )}
-        </span>
-      }
+      endContent={trailing}
     />
   );
 }
@@ -301,6 +388,9 @@ export function ChannelItemRow({
   onDragStart,
   onDragEnd,
   bulk,
+  optionValue,
+  spaceName,
+  withPrStatus = true,
   onContextMenuOpenChange,
 }: {
   item: ChannelItemModel;
@@ -330,10 +420,19 @@ export function ChannelItemRow({
    * `onArchive` belongs to the list, which owns the selection.
    */
   bulk?: TaskRowBulkMenu | null;
+  /** Renders the row as an autocomplete option, for a list the keyboard walks. */
+  optionValue?: string;
+  /** Named in the subtitle by a list that spans spaces, where it is not implied. */
+  spaceName?: string;
+  /**
+   * Off for a long list that spans spaces: the lookup is a query per row into
+   * git. The PR still shows where the task carries its own `prUrl`.
+   */
+  withPrStatus?: boolean;
   onContextMenuOpenChange?: (open: boolean) => void;
 }) {
-  const status = useChannelTaskStatus(item);
-  const subtitle = useChannelItemMetadata(item);
+  const status = useChannelTaskStatus(item, { withPrStatus });
+  const subtitle = useChannelItemMetadata(item, spaceName);
   const archivePresentation = useArchivingTasksStore((state) =>
     item.kind !== "task"
       ? null
@@ -465,6 +564,7 @@ export function ChannelItemRow({
       showPinBadge={showPinBadge}
       draggable
       currentUserUuid={currentUser.data?.uuid}
+      optionValue={optionValue}
       onDragStart={handleDragStart}
       onDragEnd={onDragEnd}
       onClick={
