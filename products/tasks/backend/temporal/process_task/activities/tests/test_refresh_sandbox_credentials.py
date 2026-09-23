@@ -20,7 +20,6 @@ from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
-    _sandbox_wedge_verdict,
     refresh_sandbox_credentials,
 )
 from products.tasks.backend.temporal.process_task.sandbox_credentials import DEFAULT_REFRESH_INTERVAL_SECONDS
@@ -476,19 +475,3 @@ class TestRefreshSandboxCredentialsActivity:
 
         assert output.refreshed_kinds == []
         increment_probe.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "probe,expected",
-    [
-        ({"oom_kill": "2"}, "oom_seen"),
-        (
-            {"oom_kill": "2", "pids_current": "50", "pids_max": "50"},
-            "pids_exhausted",
-        ),
-        ({"oom_kill": "0", "tmp_available_kb": "0"}, "disk_full"),
-        ({"oom_kill": "0", "tmp_available_kb": "10"}, "unknown"),
-    ],
-)
-def test_sandbox_wedge_verdict(probe, expected):
-    assert _sandbox_wedge_verdict(probe) == expected

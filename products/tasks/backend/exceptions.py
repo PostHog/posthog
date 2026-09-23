@@ -149,6 +149,19 @@ class SandboxExecutionError(ProcessTaskTransientError):
     pass
 
 
+class SandboxProcessKilledError(SandboxExecutionError):
+    """A command in the sandbox was killed by a signal instead of failing on its own terms.
+
+    The shell reports a signal kill as 128 plus the signal number, so 137 is SIGKILL: the
+    sandbox went away under the command, and the command's own failure text describes
+    nothing. A fresh attempt gets a healthy sandbox, so this stays retryable and is not
+    captured — an issue per kill is noise for something the retry already recovers.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]):
+        ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=False)
+
+
 class SandboxControlPlaneError(SandboxExecutionError):
     """The sandbox control plane refused or failed a call, before the sandbox itself saw it.
 

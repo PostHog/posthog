@@ -11,7 +11,7 @@ from products.tasks.backend.constants import (
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
 )
-from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProcessKilledError
 from products.tasks.backend.logic.services.modal_sandbox import (
     DEFAULT_MODAL_APP_NAME,
     LOCAL_MODAL_AGENT_SHADOW_DIR,
@@ -52,7 +52,16 @@ def test_destroy_updates_status_before_modal_termination_settles(mocker):
 
 
 class TestModalSandboxWriteFile:
-    def test_required_file_write_failure_raises(self, mocker):
+    @pytest.mark.parametrize(
+        "exit_code,expected_error,expected_message,expected_signal",
+        [
+            (1, SandboxExecutionError, "Failed to write required sandbox file", "none"),
+            (137, SandboxProcessKilledError, "killed by SIGKILL", "SIGKILL"),
+        ],
+    )
+    def test_required_file_write_failure_raises(
+        self, mocker, exit_code, expected_error, expected_message, expected_signal
+    ):
         handle = MagicMock(object_id="sb-test")
         handle.poll.return_value = None
         mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
@@ -60,16 +69,31 @@ class TestModalSandboxWriteFile:
         mocker.patch.object(
             sandbox,
             "write_file",
-            return_value=ExecutionResult(stdout="", stderr="", exit_code=1, error="atomic_move"),
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=exit_code, error="atomic_move"),
         )
+        mocker.patch.object(
+            sandbox,
+            "execute",
+            return_value=ExecutionResult(
+                stdout="oom_kill=1\npids_current=10\npids_max=100\ntmp_available_kb=42\n", stderr="", exit_code=0
+            ),
+        )
+        increment_probe = mocker.patch(
+            "products.tasks.backend.logic.services.agent_server_launcher.increment_sandbox_wedge_probe"
+        )
+        capture_exception = mocker.patch("products.tasks.backend.exceptions.capture_exception")
 
-        with pytest.raises(SandboxExecutionError, match="Failed to write required sandbox file") as error:
+        with pytest.raises(expected_error, match=expected_message) as error:
             sandbox._write_required_file("/etc/agentsh/config.yaml", b"config")
 
         assert error.value.context["sandbox_id"] == "sb-test"
         assert error.value.context["path"] == "/etc/agentsh/config.yaml"
-        assert error.value.context["exit_code"] == "1"
+        assert error.value.context["exit_code"] == str(exit_code)
         assert error.value.context["write_stage"] == "atomic_move"
+        assert error.value.context["signal"] == expected_signal
+        assert error.value.context["wedge_verdict"] == "oom_seen"
+        increment_probe.assert_called_once_with("oom_seen", "atomic_move")
+        assert capture_exception.called is (expected_signal == "none")
 
     def test_exec_fallback_moves_into_place_within_the_last_write_command(self, mocker):
         handle = MagicMock(object_id="sb-test")
