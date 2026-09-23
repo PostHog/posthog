@@ -129,6 +129,19 @@ describe('trace redaction', () => {
         }
     )
 
+    it.each([[[{ authorization: 'Bearer invented-token-value' }]], ['Bearer invented-token-value']])(
+        'empties a property bag that is not a record: %s',
+        (properties) => {
+            const { results, notice } = redactTraceResults([
+                { id: 'trace-1', events: [{ id: 'e1', event: '$ai_generation', properties }] },
+            ]) as any
+
+            expect(JSON.stringify(results)).not.toContain('invented-token-value')
+            expect(results[0].events[0].properties).toEqual({})
+            expect(notice).toBeTruthy()
+        }
+    )
+
     it('redacts the person properties a trace carries, not only its events', () => {
         const { results } = redactTraceResults([
             {

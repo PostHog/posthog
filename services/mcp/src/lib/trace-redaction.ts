@@ -60,10 +60,7 @@ export function redactTraceResults(results: unknown): RedactedTraceResults {
     }
     let withheldAny = false
 
-    function redactProperties(properties: unknown): unknown {
-        if (!isRecord(properties)) {
-            return properties
-        }
+    function redactProperties(properties: Record<string, unknown>): Record<string, unknown> {
         const kept: Record<string, unknown> = {}
         const withheld: string[] = []
         for (const [key, value] of Object.entries(properties)) {
@@ -105,7 +102,15 @@ export function redactTraceResults(results: unknown): RedactedTraceResults {
         if (!('properties' in owner)) {
             return owner
         }
-        return { ...owner, properties: redactProperties(owner.properties) }
+        const properties = owner.properties
+        if (!isRecord(properties)) {
+            // The filter decides key by key, so it has no rule for a bag that is not a
+            // record. Empty it, because returning the value whole would hand the client
+            // the one shape the filter cannot read.
+            withheldAny = true
+            return { ...owner, properties: {} }
+        }
+        return { ...owner, properties: redactProperties(properties) }
     }
 
     function redactTrace(trace: unknown): unknown {
