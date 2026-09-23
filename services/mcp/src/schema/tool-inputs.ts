@@ -7,6 +7,7 @@ import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
 export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
 export const CanvasStateKeysOnlySchema = z.boolean().default(true)
 export const WikiPageReadLimitSchema = z.number().int().min(1).max(12000).default(12000)
+export const WorkflowCodeIdSchema = z.string().uuid().describe('UUID of the workflow to render as code.')
 
 // Mirrors the Django serializer's `validate` rule so a continuation without the revision
 // fails here instead of at the API with a 400.

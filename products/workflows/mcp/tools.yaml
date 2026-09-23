@@ -218,6 +218,9 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        param_overrides:
+            id:
+                input_schema: WorkflowCodeIdSchema
         enrich_url: '{params.id}/workflow'
         title: Get workflow as code
         description: >

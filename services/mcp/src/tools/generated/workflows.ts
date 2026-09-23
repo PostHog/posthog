@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
+import { WorkflowActionEmailPatchSchema, WorkflowCodeIdSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -105,7 +105,7 @@ const workflowsGet = (): ToolBase<ReturnType<typeof WorkflowsGetSchema>, WithPos
 
 const WorkflowsGetCodeSchema = () => {
     const HogFlowsCodeRetrieveParams = orvalSchemas.HogFlowsCodeRetrieveParams()
-    return HogFlowsCodeRetrieveParams.omit({ project_id: true })
+    return HogFlowsCodeRetrieveParams.omit({ project_id: true }).extend({ id: WorkflowCodeIdSchema })
 }
 
 const workflowsGetCode = (): ToolBase<
