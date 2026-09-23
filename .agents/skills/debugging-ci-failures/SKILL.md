@@ -257,9 +257,9 @@ Read the failure from Depot with the `depot` CLI, which the flox environment ins
 Run the `depot ci diagnose` command from the relay log, which already fills in the org and workflow ids.
 For logs, artifacts, and test results, load the `depot-ci` skill.
 Its `references/posthog-check-run-semantics.md` gets Depot ids from a commit's check runs when you have no relay log.
-If a `depot` command fails to authenticate, ask the user to run `! depot login --clear`.
+If a `depot` command fails to authenticate, check `DEPOT_TOKEN` first: it overrides the saved login, so a wrong one fails every command.
+Without it, ask the user to run `! depot login --clear`.
 Do not run it yourself: it waits on a browser sign-in.
-A `DEPOT_TOKEN` in the environment takes precedence over that login.
 If the user has no access to the Depot org, report the relay log's no-Depot retry options instead.
 
 ## Classification
