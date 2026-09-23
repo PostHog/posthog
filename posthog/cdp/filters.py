@@ -527,9 +527,22 @@ TEMPLATE_CALLABLES: set[str] = set(_RUNTIME["callables"])
 _UNKNOWN_GLOBAL = "Unknown global variable: "
 
 
+def _declared_globals(cohort_membership_supported: bool) -> dict[str, None]:
+    declared = dict.fromkeys(FILTER_GLOBALS)
+    if cohort_membership_supported:
+        # The runtime prefetches the person's memberships under this name for the generated
+        # inCohort/notInCohort calls; it is not part of the shared filter globals.
+        declared["cohort_ids"] = None
+    return declared
+
+
 def _unknown_filter_globals(expr: ast.Expr, cohort_membership_supported: bool = False) -> list[str]:
     """Compile once with the runtime's globals declared, and return the roots the runtime will not have."""
-    context = HogQLContext(team_id=None, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS)
+    context = HogQLContext(
+        team_id=None,
+        globals=_declared_globals(cohort_membership_supported),
+        allowed_functions=FILTER_FUNCTIONS,
+    )
     create_bytecode(expr, context=context, cohort_membership_supported=cohort_membership_supported)
     return sorted(
         {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
@@ -552,7 +565,11 @@ def _compile_against_runtime(
 ) -> _RuntimeCompilation:
     # Declaring the globals turns the compiler's field resolution into a check: it warns on a
     # root that is neither a local, an upvalue, nor one of ours.
-    context = HogQLContext(team_id=team.id, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS)
+    context = HogQLContext(
+        team_id=team.id,
+        globals=_declared_globals(cohort_membership_supported),
+        allowed_functions=FILTER_FUNCTIONS,
+    )
     bytecode = create_bytecode(
         expr,
         context=context,
