@@ -541,6 +541,22 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 isOldAndInvalid: logic.values.isOldAndInvalid,
             }).toEqual(expected)
         })
+
+        // The still-ingesting screen's only affordance. A check that cannot report an outcome is the
+        // dead end this replaced, and a poll already in flight must not hold the outcome back.
+        it('reports the outcome of a viewer-requested check even while a poll is in flight', async () => {
+            mountWithSnapshots(incrementalOnlySnapshotsAsJSONLines(dayjs().subtract(1, 'minute').valueOf()))
+            await loadFully()
+            expect(logic.values.snapshotCheckState).toBe('idle')
+
+            logic.actions.loadSnapshotSources(60000)
+            logic.actions.checkForNewSnapshots()
+            expect(logic.values.snapshotCheckState).toBe('checking')
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.snapshotCheckState).toBe('checked')
+        })
     })
 
     // TODO need deduplication tests for blob_v2 sources before we deprecate blob_v1

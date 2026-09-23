@@ -828,7 +828,10 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
 
         checkForNewSnapshots: () => {
-            actions.loadSnapshots()
+            // Straight to the source list, not through `loadSnapshots`: that one stands down while a
+            // poll is in flight, which leaves the viewer's check waiting out the whole poll interval.
+            // Re-listing cancels the polling loader and fetches now.
+            actions.loadSnapshotSources()
         },
 
         loadRecordingMetaSuccess: () => {
