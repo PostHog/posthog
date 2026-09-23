@@ -1,6 +1,33 @@
-import type { UserBasic } from "@posthog/shared/domain-types";
-import { describe, expect, it } from "vitest";
-import { spacePeople } from "./useRecentSpaceTasks";
+import type { Task, UserBasic } from "@posthog/shared/domain-types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderHook, waitFor } from "@testing-library/react";
+import { createElement, type ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  getTasksPage: vi.fn(),
+  timestamps: {} as Record<string, { lastViewedAt: number | null }>,
+}));
+
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => ({ getTasksPage: mocks.getTasksPage }),
+}));
+vi.mock("@posthog/ui/features/archive/useArchivedTaskIds", () => ({
+  useArchivedTaskIds: () => EMPTY_IDS,
+}));
+vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", () => ({
+  usePinnedTasks: () => ({ pinnedTaskIds: EMPTY_IDS }),
+}));
+vi.mock("@posthog/ui/features/sidebar/useTaskViewed", () => ({
+  useTaskViewed: () => ({ timestamps: mocks.timestamps }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useBlockedSessionCount", () => ({
+  useBlockedTaskIds: () => EMPTY_IDS,
+}));
+
+const EMPTY_IDS: ReadonlySet<string> = new Set();
+
+import { spacePeople, useRecentSpaceTasks } from "./useRecentSpaceTasks";
 
 function user(name: string): UserBasic {
   return {
@@ -49,5 +76,93 @@ describe("spacePeople", () => {
   ])("$case", ({ createdBy, ran, limit, expected }) => {
     const tasks = ran.map((created_by) => ({ created_by }));
     expect(spacePeople(tasks, createdBy, limit)).toEqual(expected);
+  });
+});
+
+const OPENED_AT = Date.UTC(2026, 0, 2);
+
+function spaceTask(id: string, activityAt: number): Task {
+  return {
+    id,
+    title: id,
+    created_at: new Date(Date.UTC(2026, 0, 1)).toISOString(),
+    last_activity_at: new Date(activityAt).toISOString(),
+  } as Task;
+}
+
+// Newest first, the order the server pages a space in.
+const FRESH = spaceTask("fresh", Date.UTC(2026, 0, 3));
+const UNREAD = spaceTask("unread", Date.UTC(2026, 0, 2) - 1);
+
+let queryClient: QueryClient;
+function wrapper({ children }: { children: ReactNode }) {
+  return createElement(QueryClientProvider, { client: queryClient }, children);
+}
+
+describe("useRecentSpaceTasks", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    mocks.timestamps = {
+      fresh: { lastViewedAt: Date.UTC(2026, 0, 4) },
+      unread: { lastViewedAt: Date.UTC(2026, 0, 1) },
+    };
+    mocks.getTasksPage.mockResolvedValue({
+      tasks: [FRESH, UNREAD],
+      count: 2,
+    });
+  });
+
+  it("keeps a row where it is when the reader opens it", async () => {
+    const view = renderHook(() => useRecentSpaceTasks(["space-1"]), {
+      wrapper,
+    });
+    await waitFor(() =>
+      expect(
+        view.result.current.get("space-1")?.items.map((item) => item.id),
+      ).toEqual(["unread", "fresh"]),
+    );
+
+    // Opening the unread session marks it viewed. Its dot clears, but the row
+    // must not drop below the quiet one under the reader's pointer.
+    mocks.timestamps = {
+      ...mocks.timestamps,
+      unread: { lastViewedAt: OPENED_AT },
+    };
+    view.rerender();
+
+    expect(
+      view.result.current.get("space-1")?.items.map((item) => item.id),
+    ).toEqual(["unread", "fresh"]);
+  });
+
+  it("takes the viewed state again when the space's sessions change", async () => {
+    const view = renderHook(() => useRecentSpaceTasks(["space-1"]), {
+      wrapper,
+    });
+    await waitFor(() =>
+      expect(
+        view.result.current.get("space-1")?.items.map((item) => item.id),
+      ).toEqual(["unread", "fresh"]),
+    );
+
+    mocks.timestamps = {
+      ...mocks.timestamps,
+      unread: { lastViewedAt: OPENED_AT },
+    };
+    // New activity on the other session, which is what a refreshed list is.
+    mocks.getTasksPage.mockResolvedValue({
+      tasks: [spaceTask("fresh", Date.UTC(2026, 0, 5)), UNREAD],
+      count: 2,
+    });
+    await queryClient.refetchQueries();
+
+    await waitFor(() =>
+      expect(
+        view.result.current.get("space-1")?.items.map((item) => item.id),
+      ).toEqual(["fresh", "unread"]),
+    );
   });
 });

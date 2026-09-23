@@ -103,7 +103,6 @@ interface CachedSpaceTasks {
   page: SpaceTaskPage;
   archivedTaskIds: ReadonlySet<string>;
   pinnedTaskIds: ReadonlySet<string>;
-  viewedAt: TaskTimestamps;
   blockedTaskIds: ReadonlySet<string>;
   built: SpaceTasks;
 }
@@ -204,6 +203,13 @@ export function useRecentSpaceTasks(
   // already-open row a new array — enough to re-render every session row in the
   // tree on every expand.
   const cache = useRef(new Map<string, CachedSpaceTasks>());
+  // Read through a ref rather than as a dependency, and left out of the reuse
+  // key below. Opening a session marks it viewed, and ordering on that the
+  // moment it changes moves the row the reader just clicked — down a tier, and
+  // sometimes off the five the space shows. The rows take the viewed state
+  // again the next time the list itself changes.
+  const viewedAtRef = useRef(viewedAt);
+  viewedAtRef.current = viewedAt;
 
   return useMemo(() => {
     const bySpace = new Map<string, SpaceTasks>();
@@ -215,7 +221,6 @@ export function useRecentSpaceTasks(
         cached.page === page &&
         cached.archivedTaskIds === archivedTaskIds &&
         cached.pinnedTaskIds === pinnedTaskIds &&
-        cached.viewedAt === viewedAt &&
         cached.blockedTaskIds === blockedTaskIds
       ) {
         bySpace.set(spaceId, cached.built);
@@ -236,10 +241,11 @@ export function useRecentSpaceTasks(
       // archived and not yet mirrored, which `useServerArchiveSync` is working
       // through.
       const built: SpaceTasks = {
-        items: spaceTreeOrder(available, viewedAt, blockedTaskIds).slice(
-          0,
-          RECENT_TASKS_PER_SPACE,
-        ),
+        items: spaceTreeOrder(
+          available,
+          viewedAtRef.current,
+          blockedTaskIds,
+        ).slice(0, RECENT_TASKS_PER_SPACE),
         total:
           page.tasks.length < TREE_FETCH_LIMIT ? available.length : page.count,
       };
@@ -247,21 +253,13 @@ export function useRecentSpaceTasks(
         page,
         archivedTaskIds,
         pinnedTaskIds,
-        viewedAt,
         blockedTaskIds,
         built,
       });
       bySpace.set(spaceId, built);
     });
     return bySpace;
-  }, [
-    spaceIds,
-    pagePerSpace,
-    archivedTaskIds,
-    pinnedTaskIds,
-    viewedAt,
-    blockedTaskIds,
-  ]);
+  }, [spaceIds, pagePerSpace, archivedTaskIds, pinnedTaskIds, blockedTaskIds]);
 }
 
 /**
