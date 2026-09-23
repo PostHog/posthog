@@ -121,10 +121,12 @@ export function NavBar(): JSX.Element {
         showLayoutPanel,
         clearActivePanelIdentifier,
         setNavbarWidth,
+        setNavOverlayOpen,
     } = useActions(panelLayoutLogic)
     const {
         isLayoutPanelVisible,
-        isLayoutNavCollapsed,
+        isLayoutNavCollapsed: isNavCollapsed,
+        isNavOverlayOpen,
         navExperimentActiveTab,
         activePanelIdentifier,
         visitedNavTabs,
@@ -133,6 +135,8 @@ export function NavBar(): JSX.Element {
     const { toggleCommand } = useActions(commandLogic)
     const { sidebarDensity } = useValues(uiCustomizationLogic)
     const isSimpleSidepanelEnabled = useFeatureFlag('SIMPLE_SIDEPANEL')
+    const isOverlayOpen = isSimpleSidepanelEnabled && isNavCollapsed && isNavOverlayOpen
+    const isLayoutNavCollapsed = isNavCollapsed && !isOverlayOpen
     const isFlatNavEnabled = useFeatureFlag('FLAT_NAV', 'test')
     const activeTab =
         !isSimpleSidepanelEnabled &&
@@ -156,10 +160,10 @@ export function NavBar(): JSX.Element {
     const openWidth = Math.max(Math.round(desiredSize ?? PANEL_NAVBAR_DEFAULT_WIDTH), PANEL_NAVBAR_COLLAPSE_THRESHOLD)
 
     useEffect(() => {
-        if (!isLayoutNavCollapsed && !isMobileLayout) {
+        if (!isNavCollapsed && !isMobileLayout) {
             setNavbarWidth(openWidth)
         }
-    }, [openWidth, isLayoutNavCollapsed, isMobileLayout, setNavbarWidth])
+    }, [openWidth, isNavCollapsed, isMobileLayout, setNavbarWidth])
 
     useShortcut({
         name: 'ToggleLeftNav',
@@ -179,8 +183,28 @@ export function NavBar(): JSX.Element {
         }
     }
 
+    function openCollapsedTab(tab: NavExperimentTab): void {
+        if (isSimpleSidepanelEnabled && isNavCollapsed) {
+            if (tab === 'chat') {
+                toggleLayoutNavCollapsed(false)
+            } else {
+                setNavOverlayOpen(true)
+            }
+        }
+    }
+
     return (
-        <div className="flex gap-0 relative">
+        <div className={cn('flex gap-0 relative', isOverlayOpen && 'w-[var(--project-navbar-width-collapsed)]')}>
+            {isOverlayOpen && (
+                <button
+                    type="button"
+                    className="fixed inset-0 z-[var(--z-layout-navbar)] cursor-default"
+                    aria-label="Close navigation"
+                    data-attr="nav-overlay-dismiss"
+                    tabIndex={-1}
+                    onClick={() => setNavOverlayOpen(false)}
+                />
+            )}
             <nav
                 className={cn(
                     navBarStyles({
@@ -188,9 +212,18 @@ export function NavBar(): JSX.Element {
                         isMobileLayout,
                     }),
                     isLayoutNavCollapsed && 'gap-px',
-                    isSimpleSidepanelEnabled && '@container/sidebar'
+                    isSimpleSidepanelEnabled && '@container/sidebar',
+                    isOverlayOpen && 'absolute top-0 left-0 shadow-lg border-r'
                 )}
                 data-nav-density={sidebarDensity}
+                data-nav-overlay={isOverlayOpen || undefined}
+                onKeyDown={(event) => {
+                    if (isOverlayOpen && event.key === 'Escape' && !event.defaultPrevented) {
+                        event.stopPropagation()
+                        setNavOverlayOpen(false)
+                        containerRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus()
+                    }
+                }}
                 ref={containerRef}
             >
                 <div
@@ -267,12 +300,10 @@ export function NavBar(): JSX.Element {
                     onValueChange={(value) => {
                         posthog.capture('nav tab clicked', { tab: value })
                         setNavExperimentTab(value as NavExperimentTab)
+                        openCollapsedTab(value as NavExperimentTab)
                         if (isSimpleSidepanelEnabled) {
                             clearActivePanelIdentifier()
                             showLayoutPanel(false)
-                            if (isLayoutNavCollapsed) {
-                                toggleLayoutNavCollapsed(false)
-                            }
                         }
                         if (value === 'chat') {
                             router.actions.push(urls.ai())
@@ -291,11 +322,7 @@ export function NavBar(): JSX.Element {
                                 <Tabs.Tab
                                     key={tab.id}
                                     value={tab.id}
-                                    onClick={() => {
-                                        if (isSimpleSidepanelEnabled && isLayoutNavCollapsed) {
-                                            toggleLayoutNavCollapsed(false)
-                                        }
-                                    }}
+                                    onClick={() => openCollapsedTab(tab.id)}
                                     render={(props) => (
                                         <ButtonPrimitive
                                             {...props}
@@ -402,7 +429,7 @@ export function NavBar(): JSX.Element {
                         <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />
                     </div>
                 </Tabs.Root>
-                {!isMobileLayout && (
+                {!isMobileLayout && !isOverlayOpen && (
                     <Resizer
                         {...resizerLogicProps}
                         data-attr="tree-navbar-resizer"
