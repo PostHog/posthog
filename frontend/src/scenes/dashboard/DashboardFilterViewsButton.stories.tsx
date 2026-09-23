@@ -22,6 +22,8 @@ const meta: Meta<typeof DashboardFilterViewsButton> = {
         onCreate: () => {},
         onSelect: () => {},
         onDelete: () => {},
+        onEdit: () => {},
+        onSaveChanges: () => {},
     },
     parameters: {
         featureFlags: [FEATURE_FLAGS.DASHBOARD_FILTER_SAVED_VIEWS],
@@ -36,6 +38,13 @@ export const SavedViews: Story = {}
 export const ActiveView: Story = {
     args: {
         activeView: views[0],
+    },
+}
+
+export const EditedView: Story = {
+    args: {
+        activeView: views[0],
+        hasUnsavedChanges: true,
     },
 }
 

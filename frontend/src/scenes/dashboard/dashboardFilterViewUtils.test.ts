@@ -1,13 +1,15 @@
+import { DashboardFilter } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     createDashboardFilterView,
+    DASHBOARD_FILTER_VIEW_PARAM,
     dashboardFilterViewAnalyticsProperties,
     dashboardFilterViewSearchParams,
-} from './dashboardFilterViews'
+} from './dashboardFilterViewUtils'
 import { parseURLFilters, SEARCH_PARAM_FILTERS_KEY } from './dashboardUtils'
 
-const propertyFilters = [
+const propertyFilters: NonNullable<DashboardFilter['properties']> = [
     {
         key: 'plan',
         type: PropertyFilterType.Person,
@@ -58,22 +60,43 @@ describe('dashboard filter views', () => {
         ['test accounts excluded', { filterTestAccounts: false }],
         ['all supported filter types', combinedFilters],
     ])('applies %s through the URL without changing its filter payload', (_, filters) => {
-        const view = createDashboardFilterView('view-id', 'View', filters)
+        const view = createDashboardFilterView('view-id', 'View', filters as DashboardFilter)
         const searchParams = dashboardFilterViewSearchParams({ tab: 'overview' }, undefined, view)
 
         expect(searchParams.tab).toBe('overview')
+        expect(searchParams[DASHBOARD_FILTER_VIEW_PARAM]).toBe('view-id')
         expect(parseURLFilters(searchParams)).toEqual(filters)
     })
 
     it('clears the active view without removing unrelated URL state', () => {
         const view = createDashboardFilterView('view-id', 'View', combinedFilters)
         const searchParams = dashboardFilterViewSearchParams(
-            { tab: 'overview', [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify(combinedFilters) },
+            {
+                tab: 'overview',
+                [DASHBOARD_FILTER_VIEW_PARAM]: view.id,
+                [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify(combinedFilters),
+            },
             view.id,
             view
         )
 
         expect(searchParams).toEqual({ tab: 'overview' })
+    })
+
+    it('restores a selected view when the URL filters differ from its saved filters', () => {
+        const view = createDashboardFilterView('view-id', 'View', combinedFilters)
+        const searchParams = dashboardFilterViewSearchParams(
+            {
+                tab: 'overview',
+                [DASHBOARD_FILTER_VIEW_PARAM]: view.id,
+                [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
+            },
+            view.id,
+            view
+        )
+
+        expect(searchParams[DASHBOARD_FILTER_VIEW_PARAM]).toBe(view.id)
+        expect(parseURLFilters(searchParams)).toEqual(combinedFilters)
     })
 
     it('describes every applied filter family without capturing values', () => {

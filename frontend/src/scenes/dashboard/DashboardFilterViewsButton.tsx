@@ -10,21 +10,29 @@ import { DashboardFilterView } from '~/types'
 export interface DashboardFilterViewsButtonProps {
     views: DashboardFilterView[]
     activeView?: DashboardFilterView
+    hasUnsavedChanges?: boolean
     canEdit: boolean
+    saving?: boolean
     defaultOpen?: boolean
     onCreate: () => void
     onSelect: (view: DashboardFilterView) => void
     onDelete: (view: DashboardFilterView) => void
+    onEdit: (view: DashboardFilterView) => void
+    onSaveChanges: (view: DashboardFilterView) => void
 }
 
 export function DashboardFilterViewsButton({
     views,
     activeView,
+    hasUnsavedChanges,
     canEdit,
+    saving,
     defaultOpen = false,
     onCreate,
     onSelect,
     onDelete,
+    onEdit,
+    onSaveChanges,
 }: DashboardFilterViewsButtonProps): JSX.Element {
     const [visible, setVisible] = useState(defaultOpen)
 
@@ -35,6 +43,18 @@ export function DashboardFilterViewsButton({
             onClickOutside={() => setVisible(false)}
             overlay={
                 <div className="flex w-72 flex-col py-1" data-attr="dashboard-filter-views-popover">
+                    {canEdit && activeView && hasUnsavedChanges && (
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            type="tertiary"
+                            className="justify-start rounded-none px-3"
+                            loading={saving}
+                            onClick={() => onSaveChanges(activeView)}
+                        >
+                            Save changes to {activeView.name}
+                        </LemonButton>
+                    )}
                     {canEdit && views.length < 20 && (
                         <LemonButton
                             fullWidth
@@ -42,6 +62,7 @@ export function DashboardFilterViewsButton({
                             type="tertiary"
                             className="justify-start rounded-none px-3"
                             icon={<IconPlus />}
+                            loading={saving}
                             onClick={onCreate}
                         >
                             Save current filters
@@ -57,6 +78,7 @@ export function DashboardFilterViewsButton({
                             setVisible(false)
                         }}
                         onDelete={canEdit ? onDelete : undefined}
+                        onEdit={canEdit ? onEdit : undefined}
                     />
                 </div>
             }
@@ -68,7 +90,7 @@ export function DashboardFilterViewsButton({
                 sideIcon={<IconChevronDown />}
                 onClick={() => setVisible(!visible)}
             >
-                {activeView?.name ?? 'Views'}
+                {activeView ? `${activeView.name}${hasUnsavedChanges ? ' (edited)' : ''}` : 'Views'}
             </LemonButton>
         </Popover>
     )

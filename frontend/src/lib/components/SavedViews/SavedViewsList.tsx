@@ -1,4 +1,4 @@
-import { IconCheck, IconTrash } from '@posthog/icons'
+import { IconCheck, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 export interface SavedViewListItem {
@@ -12,6 +12,7 @@ export interface SavedViewsListProps<T extends SavedViewListItem> {
     emptyMessage: string
     onSelect: (view: T) => void
     onDelete?: (view: T) => void
+    onEdit?: (view: T) => void
 }
 
 export function SavedViewsList<T extends SavedViewListItem>({
@@ -20,6 +21,7 @@ export function SavedViewsList<T extends SavedViewListItem>({
     emptyMessage,
     onSelect,
     onDelete,
+    onEdit,
 }: SavedViewsListProps<T>): JSX.Element {
     if (views.length === 0) {
         return <div className="px-3 py-3 text-sm text-secondary">{emptyMessage}</div>
@@ -39,6 +41,16 @@ export function SavedViewsList<T extends SavedViewListItem>({
                     >
                         <span className="truncate">{view.name}</span>
                     </LemonButton>
+                    {onEdit && (
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            icon={<IconPencil />}
+                            tooltip={`Rename ${view.name}`}
+                            aria-label={`Rename ${view.name}`}
+                            onClick={() => onEdit(view)}
+                        />
+                    )}
                     {onDelete && (
                         <LemonButton
                             size="small"

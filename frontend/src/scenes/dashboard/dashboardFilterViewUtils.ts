@@ -1,6 +1,9 @@
-import { DashboardFilter, DashboardFilterView } from '~/types'
+import { deepEqual } from 'fast-equals'
 
-import { searchParamsWithUrlFilters } from './dashboardUtils'
+import { DashboardFilter } from '~/queries/schema/schema-general'
+import { DashboardFilterView } from '~/types'
+
+import { parseURLFilters, searchParamsWithUrlFilters } from './dashboardUtils'
 
 export interface DashboardFilterViewAnalyticsProperties {
     has_date_filter: boolean
@@ -9,6 +12,8 @@ export interface DashboardFilterViewAnalyticsProperties {
     has_interval_filter: boolean
     has_test_account_filter: boolean
 }
+
+export const DASHBOARD_FILTER_VIEW_PARAM = 'filter_view'
 
 export function createDashboardFilterView(id: string, name: string, filters: DashboardFilter): DashboardFilterView {
     return { id, name: name.trim(), filters }
@@ -19,7 +24,15 @@ export function dashboardFilterViewSearchParams(
     activeViewId: string | undefined,
     view: DashboardFilterView
 ): Record<string, unknown> {
-    return searchParamsWithUrlFilters(searchParams, activeViewId === view.id ? {} : view.filters)
+    const otherParams = { ...searchParams }
+    delete otherParams[DASHBOARD_FILTER_VIEW_PARAM]
+    if (activeViewId === view.id && deepEqual(parseURLFilters(searchParams), view.filters)) {
+        return searchParamsWithUrlFilters(otherParams, {})
+    }
+    return {
+        ...searchParamsWithUrlFilters(otherParams, view.filters),
+        [DASHBOARD_FILTER_VIEW_PARAM]: view.id,
+    }
 }
 
 export function dashboardFilterViewAnalyticsProperties(
