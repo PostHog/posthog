@@ -5,7 +5,11 @@ from temporalio import activity
 from posthog.models import Integration
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import (
+    SandboxConfig,
+    SandboxTemplate,
+    get_sandbox_class_for_run_backend,
+)
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_user
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import get_github_token, get_sandbox_api_url
@@ -53,7 +57,7 @@ def create_sandbox(input: CreateSandboxInput) -> CreateSandboxOutput:
             metadata={"purpose": "snapshot_creation"},
         )
 
-        sandbox = Sandbox.create(config)
+        sandbox = get_sandbox_class_for_run_backend(ctx.sandbox_backend).create(config)
 
         activity.logger.info(f"Created sandbox {sandbox.id} for snapshot creation")
 
