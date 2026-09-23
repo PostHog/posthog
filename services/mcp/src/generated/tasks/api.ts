@@ -1341,7 +1341,7 @@ export const TasksRunCreateBody = () => zod.union([
                 ])
                 .optional()
                 .describe(
-                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
                 ),
             mode: zod
                 .enum(['interactive', 'background'])
@@ -1505,7 +1505,7 @@ export const TasksRunCreateBody = () => zod.union([
                 ])
                 .optional()
                 .describe(
-                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
                 ),
             mode: zod
                 .enum(['interactive', 'background'])
