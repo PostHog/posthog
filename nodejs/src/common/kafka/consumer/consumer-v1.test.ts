@@ -1,6 +1,5 @@
 import { CODES, Message, MessageHeader, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
 
-import { defaultConfig } from '~/common/config/config'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 
 import { delay } from '../../utils/utils'
@@ -116,7 +115,6 @@ describe('consumer', () => {
             incrementalAssign: jest.fn(),
             rebalanceProtocol: jest.fn().mockReturnValue('COOPERATIVE'),
         }
-        defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE = true
 
         // Mock the RdKafkaConsumer constructor to return our configured mock
         jest.mocked(require('node-rdkafka').KafkaConsumer).mockImplementation(() => mockRdKafkaConsumerInstance)
@@ -438,33 +436,6 @@ describe('consumer', () => {
             expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
                 { topic: 'test-topic', partition: 1 },
             ])
-        })
-
-        it('should not wait when waitForBackgroundTasksOnRebalance is disabled', async () => {
-            defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE = false
-            // Create a consumer with feature disabled
-            const consumerDisabled = new KafkaConsumer({
-                groupId: 'test-group',
-                topic: 'test-topic',
-            })
-
-            const mockConsumerDisabled = jest.mocked(consumerDisabled['rdKafkaConsumer'])
-
-            // Add background tasks with metadata
-            // Explicitly assign promise array (handled in cleanup)
-            void (consumerDisabled['backgroundTask'] = [{ promise: Promise.resolve(), createdAt: Date.now() }])
-
-            consumerDisabled.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
-                { topic: 'test-topic', partition: 1 },
-            ])
-
-            // Should proceed immediately without waiting
-            await delay(1)
-            expect(mockConsumerDisabled.incrementalUnassign).toHaveBeenCalledWith([
-                { topic: 'test-topic', partition: 1 },
-            ])
-
-            await consumerDisabled.disconnect()
         })
     })
 })

@@ -110,7 +110,6 @@ export type KafkaConsumerConfig = {
     autoOffsetStore?: boolean
     autoCommit?: boolean
     enablePartitionEof?: boolean
-    waitForBackgroundTasksOnRebalance?: boolean
     /**
      * Messages pulled per poll, overriding CONSUMER_BATCH_SIZE for this consumer only.
      *
@@ -125,8 +124,6 @@ export type RdKafkaConsumerConfig = Omit<
     ConsumerGlobalConfig,
     'group.id' | 'enable.auto.offset.store' | 'enable.auto.commit'
 >
-
-type RebalanceCallback = boolean | ((err: LibrdKafkaError, assignments: Assignment[]) => void)
 
 interface RebalanceCoordination {
     isRebalancing: boolean
@@ -172,17 +169,12 @@ export class KafkaConsumer {
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
-        this.config.waitForBackgroundTasksOnRebalance = defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
         this.consumerLoopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS
         this.consumerLogStatsLevel = defaultConfig.CONSUMER_LOG_STATS_LEVEL
-
-        const rebalancecb: RebalanceCallback = this.config.waitForBackgroundTasksOnRebalance
-            ? this.rebalanceCallback.bind(this)
-            : true
 
         this.consumerConfig = stripClassicProtocolConfig({
             'client.id': hostname(),
@@ -215,7 +207,7 @@ export class KafkaConsumer {
             'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
-            rebalance_cb: rebalancecb,
+            rebalance_cb: this.rebalanceCallback.bind(this),
             offset_commit_cb: true,
         })
 
@@ -407,9 +399,7 @@ export class KafkaConsumer {
 
         if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
             // Mark rebalancing as complete when partitions are assigned
-            if (this.config.waitForBackgroundTasksOnRebalance) {
-                this.resetRebalanceCoordination()
-            }
+            this.resetRebalanceCoordination()
             assignments.forEach((tp) => {
                 kafkaConsumerAssignment.set(
                     {
@@ -428,10 +418,8 @@ export class KafkaConsumer {
             }
         } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
             // Mark rebalancing as starting when partitions are revoked
-            if (this.config.waitForBackgroundTasksOnRebalance) {
-                this.rebalanceCoordination.isRebalancing = true
-                this.rebalanceCoordination.rebalanceStartTime = Date.now()
-            }
+            this.rebalanceCoordination.isRebalancing = true
+            this.rebalanceCoordination.rebalanceStartTime = Date.now()
             logger.info('🔁', 'partition_revocation_starting', {
                 backgroundTaskCount: this.backgroundTask.length,
                 revokedPartitions: assignments.map((tp) => ({
@@ -441,7 +429,7 @@ export class KafkaConsumer {
             })
 
             // Handle background task coordination asynchronously
-            if (this.config.waitForBackgroundTasksOnRebalance && this.backgroundTask.length > 0) {
+            if (this.backgroundTask.length > 0) {
                 // Don't block the rebalance callback, but coordinate in the background
                 Promise.all(this.backgroundTask.map((t) => t.promise))
                     .then(() => {
@@ -486,7 +474,7 @@ export class KafkaConsumer {
                         }
                     })
             } else {
-                // No background tasks or feature disabled, proceed immediately
+                // No background tasks, proceed immediately
                 if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
                     this.rdKafkaConsumer.incrementalUnassign(assignments)
                 } else {
@@ -673,9 +661,9 @@ export class KafkaConsumer {
                     this.lastConsumerLoopTime = Date.now()
                     logger.debug('🔁', 'main_loop_consuming')
 
-                    // If we're rebalancing and feature flag is enabled, skip consuming to avoid processing messages
+                    // If we're rebalancing, skip consuming to avoid processing messages
                     // during rebalancing when background tasks might be running
-                    if (this.rebalanceCoordination.isRebalancing && this.config.waitForBackgroundTasksOnRebalance) {
+                    if (this.rebalanceCoordination.isRebalancing) {
                         if (
                             Date.now() - this.rebalanceCoordination.rebalanceStartTime >
                             this.rebalanceCoordination.rebalanceTimeoutMs
