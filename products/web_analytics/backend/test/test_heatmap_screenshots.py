@@ -546,7 +546,10 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         data.update(overrides)
         return self.client.post(f"/api/environments/{self.team.id}/saved/capture/", data, format="multipart")
 
-    def test_capture_creates_completed_toolbar_heatmap_and_serves_bytes(self, mock_task: MagicMock) -> None:
+    @parameterized.expand([(None,), ("https://app.example.com/*",)])
+    def test_capture_creates_completed_toolbar_heatmap_and_serves_bytes(
+        self, mock_task: MagicMock, data_url: str | None
+    ) -> None:
         image_bytes = _jpeg_bytes()
         resp = self.client.post(
             f"/api/environments/{self.team.id}/saved/capture/",
@@ -555,6 +558,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
                 "url": "https://app.example.com/dashboard",
                 "width": 1440,
                 "name": "Dashboard",
+                **({"data_url": data_url} if data_url is not None else {}),
             },
             format="multipart",
         )
@@ -564,7 +568,9 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         self.assertEqual(resp.data["type"], "screenshot")
 
         saved = SavedHeatmap.objects.get(id=resp.data["id"])
-        self.assertEqual(saved.data_url, "https://app.example.com/dashboard")
+        self.assertEqual(saved.url, "https://app.example.com/dashboard")
+        self.assertEqual(saved.data_url, data_url or saved.url)
+        self.assertEqual(resp.data["data_url"], saved.data_url)
         self.assertEqual(saved.target_widths, [1440])
         self.assertEqual(saved.created_by, self.user)
 
@@ -643,6 +649,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
                 "images": [SimpleUploadedFile(f"heatmap-{w}.jpg", img, "image/jpeg") for w, img in zip(widths, images)],
                 "widths": widths,
                 "url": "https://app.example.com/dashboard",
+                "data_url": "https://app.example.com/*",
                 "name": "Dashboard",
             },
             format="multipart",
@@ -651,6 +658,8 @@ class TestHeatmapToolbarCapture(APIBaseTest):
 
         saved = SavedHeatmap.objects.get(id=resp.data["id"])
         self.assertEqual(saved.source, SavedHeatmap.Source.TOOLBAR)
+        self.assertEqual(saved.url, "https://app.example.com/dashboard")
+        self.assertEqual(saved.data_url, "https://app.example.com/*")
         self.assertEqual(saved.target_widths, widths)
         self.assertEqual(sorted(s.width for s in saved.snapshots.all()), widths)
 
@@ -676,7 +685,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         self.assertEqual(resp.status_code, 400)
         mock_task.assert_not_called()
 
-    def test_partial_update_blocks_render_input_change_for_toolbar_but_allows_rename(
+    def test_partial_update_blocks_render_input_change_for_toolbar_but_allows_metadata(
         self, mock_task: MagicMock
     ) -> None:
         saved = SavedHeatmap.objects.create(
@@ -705,11 +714,16 @@ class TestHeatmapToolbarCapture(APIBaseTest):
 
         renamed = self.client.patch(
             f"/api/environments/{self.team.id}/saved/{saved.short_id}/",
-            {"name": "Renamed"},
+            {"name": "Renamed", "data_url": "https://example.com/*"},
         )
         self.assertEqual(renamed.status_code, 200, renamed.data)
         saved.refresh_from_db()
         self.assertEqual(saved.name, "Renamed")
+        self.assertEqual(saved.data_url, "https://example.com/*")
+        self.assertEqual(saved.url, "https://example.com")
+        self.assertEqual(saved.status, SavedHeatmap.Status.COMPLETED)
+        self.assertEqual(saved.snapshots.count(), 1)
+        mock_task.assert_not_called()
 
 
 class TestSavedHeatmapCaptureRequestSerializer(SimpleTestCase):
