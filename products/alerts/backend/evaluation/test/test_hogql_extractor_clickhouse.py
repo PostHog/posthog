@@ -180,6 +180,15 @@ class TestHogQLDetectorPagination(APIBaseTest):
 
 
 DETECTOR = {"type": "zscore", "threshold": 3.0, "window": 30}
+NESTED_SQL = """SELECT h AS window_start, greatest(viewers, senders) AS value FROM (
+    SELECT toStartOfHour(timestamp) AS h,
+           uniqIf(person_id, event = 'signup') AS viewers,
+           uniqIf(person_id, event = 'signup' AND toString(properties.src) = 'a') AS senders
+    FROM events
+    WHERE timestamp >= toStartOfHour(now()) - INTERVAL 48 HOUR
+      AND timestamp < toStartOfHour(now())
+    GROUP BY h
+) ORDER BY window_start ASC"""
 FLAG_PATH = "products.alerts.backend.evaluation.detector_history.feature_enabled_or_false"
 CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
 SERIES_SQL = """SELECT toStartOfHour(timestamp) AS bucket, count() AS value FROM events
@@ -272,6 +281,40 @@ class TestHogQLDetectorIncrementalHistory(APIBaseTest, ClickhouseDestroyTablesMi
         assert self._values(incremental) == self._values(full)
         assert calculator.call_count == 1
         assert calculator.call_args_list[-1].kwargs["query_override"] is not None
+        assert evaluate_with_detector(incremental, DETECTOR).breaches == evaluate_with_detector(full, DETECTOR).breaches
+
+    def test_a_projection_query_without_a_limit_matches_the_full_scan(self) -> None:
+        with time_machine.travel("2026-10-25T04:37:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": NESTED_SQL})
+            alert = AlertConfiguration.objects.create(
+                team=self.team,
+                insight=insight,
+                name="nested projection anomaly",
+                condition={"type": "absolute_value"},
+                detector_config=DETECTOR,
+                config={
+                    "type": "HogQLAlertConfig",
+                    "evaluation": "last_row",
+                    "column": "value",
+                    "label_column": "window_start",
+                },
+                calculation_interval="hourly",
+            )
+
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+                with patch(CALC_PATH, wraps=calculate_for_query_based_insight) as calculator:
+                    incremental = self._extract(alert)
+
+        assert self._values(full) != []
+        assert self._values(incremental) == self._values(full)
+        narrowed_sql = calculator.call_args_list[-1].kwargs["query_override"]["query"]
+        assert "now()" not in narrowed_sql
+        assert "LIMIT 97" in narrowed_sql
         assert evaluate_with_detector(incremental, DETECTOR).breaches == evaluate_with_detector(full, DETECTOR).breaches
 
     def test_a_check_an_hour_later_matches_the_full_scan(self) -> None:
