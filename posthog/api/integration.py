@@ -21,7 +21,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_field, extend_sch
 from prometheus_client import Counter
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -106,6 +106,7 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    TimeSensitiveActionPermission,
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.tasks.email import send_integration_access_request
@@ -211,8 +212,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         separators=(",", ":"),
     )
     try:
-        # 300s tolerance matches the Stripe provisioning HMAC check at ee/partners/stripe/api/provisioning/signature.py.
-        # nosemgrep: inbound-webhooks-go-through-ingress -- this signs a marketplace install redirect, not a webhook delivery, so there is nothing for the dispatcher to fan out
+        # 300s tolerance matches the Stripe provisioning check at ee/partners/stripe/api/provisioning/signature.py.
         stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
@@ -1241,6 +1241,24 @@ class IntegrationManagementPermission(TeamMemberStrictManagementPermission):
         )
 
 
+class PersonalConnectionRecentAuthPermission(BasePermission):
+    """A `posthog` connection is the creator's personal credential, so creating or removing one needs a fresh
+    session, like the other personal integrations. Team-shared kinds keep their existing rules."""
+
+    message = TimeSensitiveActionPermission.message
+    code = TimeSensitiveActionPermission.code
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) == "create" and request.data.get("kind") == POSTHOG_CONNECT_KIND:
+            return TimeSensitiveActionPermission().has_permission(request, view)
+        return True
+
+    def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
+        if isinstance(obj, Integration) and obj.kind == POSTHOG_CONNECT_KIND:
+            return TimeSensitiveActionPermission().has_permission(request, view)
+        return True
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -1279,7 +1297,7 @@ class IntegrationViewSet(
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
     ]
-    permission_classes = [IntegrationManagementPermission]
+    permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
     # page boundary. Clients page this list to find one kind, so a dropped row reads as
     # "not configured". Order oldest-first: several clients take the first row of a kind as their
@@ -1310,6 +1328,7 @@ class IntegrationViewSet(
             APIScopePermission(),
             AccessControlPermission(),
             TeamMemberAccessPermission(),
+            PersonalConnectionRecentAuthPermission(),
         ]
         # Adding an integration only requires project membership. Every edit and removal uses the
         # viewset permission class, including the creator exception for Google account removal.

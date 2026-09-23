@@ -1223,7 +1223,15 @@ class TestExternalDataSchema(APIBaseTest):
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
-    def test_update_schema_to_xmin_rejected_for_non_postgres(self):
+    @parameterized.expand(
+        [
+            ("xmin", "xmin", "postgres"),
+            ("cdc", "cdc", "cdc is not supported"),
+        ]
+    )
+    def test_update_schema_replication_sync_type_rejected_for_unsupported_source(
+        self, _name: str, sync_type: str, expected_message: str
+    ):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.MYSQL,
@@ -1238,13 +1246,17 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-            data={"sync_type": "xmin", "primary_key_columns": ["id"]},
-        )
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
+            return_value=True,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": sync_type, "primary_key_columns": ["id"]},
+            )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "postgres" in str(response.json()).lower()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert expected_message in str(response.json()).lower()
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
@@ -3364,6 +3376,33 @@ class TestTriggerFailureDoesNotPaintRunning(APIBaseTest):
         schema.refresh_from_db()
         assert schema.status == ExternalDataSchema.Status.RUNNING
 
+    @parameterized.expand([("reload",), ("resync",)])
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+    )
+    def test_missing_schedule_without_a_sync_frequency_is_reported(self, endpoint, mock_trigger, mock_create_schedule):
+        # Recovery builds the schedule from the schema's own cadence, so a schema without one has
+        # nothing to recover with. Say so instead of crashing inside the schedule builder.
+        from temporalio.service import RPCError
+
+        schema = self._create_schema()
+        ExternalDataSchema.objects.filter(id=schema.id).update(sync_frequency_interval=None)
+        mock_trigger.side_effect = RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/{endpoint}/",
+        )
+
+        assert response.status_code == 400
+        assert "Set a sync frequency first" in str(response.json())
+        mock_create_schedule.assert_not_called()
+
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.FAILED
+
 
 class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
     def _make_api_key(self, scopes: list[str]) -> str:
@@ -3460,6 +3499,44 @@ class TestExternalDataSchemaSerializerValidation(APIBaseTest):
         assert response.status_code == 200
         self.schema.refresh_from_db()
         assert self.schema.sync_type is None
+
+    @parameterized.expand(
+        [
+            ("never_frequency", timedelta(hours=6), {"sync_frequency": "never"}, 400, "set should_sync to false"),
+            ("enable_without_frequency", None, {"should_sync": True}, 400, "Set a sync frequency first"),
+            ("retime_without_frequency", None, {"sync_time_of_day": "03:00:00"}, 400, "Set a sync frequency first"),
+            ("disable_without_frequency", None, {"should_sync": False}, 200, None),
+        ]
+    )
+    def test_schedule_needs_a_usable_sync_frequency(
+        self, _name, stored_interval, payload, expected_status, expected_message
+    ):
+        # A null interval builds no schedule: "never" maps to one, and rows written before it was
+        # rejected still carry one. Both used to crash the schedule builder. Disabling stays allowed
+        # because pausing needs no cadence, and it is how a table with no frequency is turned off.
+        ExternalDataSchema.objects.filter(id=self.schema.id).update(sync_frequency_interval=stored_interval)
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_build_schedule,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/",
+                payload,
+                format="json",
+            )
+
+        assert response.status_code == expected_status, response.content
+        if expected_message is not None:
+            assert expected_message in str(response.json())
+        mock_build_schedule.assert_not_called()
+        self.schema.refresh_from_db()
+        assert self.schema.sync_frequency_interval == stored_interval
 
     def test_update_absent_sync_type_preserves_existing_value(self):
         response = self.client.patch(

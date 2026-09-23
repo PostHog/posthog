@@ -1,6 +1,9 @@
 import uuid
+from datetime import timedelta
 
 from posthog.test.base import BaseTest
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -69,6 +72,19 @@ class TestWarehouseSourcesFacade(BaseTest):
         assert self.source.id in {s.id for s in api.list_sources(self.team.pk)}
         assert deleted.id not in {s.id for s in api.list_sources(self.team.pk)}
         assert deleted.id in {s.id for s in api.list_sources(self.team.pk, include_deleted=True)}
+
+    def test_list_source_health_reports_the_newest_completed_run(self) -> None:
+        ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Completed")
+        newest = ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Completed")
+        ExternalDataJob.objects.create(team_id=self.team.pk, pipeline=self.source, status="Running")
+        self.schema.latest_error = "permission denied for table users"
+        self.schema.save()
+
+        results = api.list_source_health(self.team.pk)
+
+        assert [r.source_type for r in results] == ["Postgres"]
+        assert results[0].last_run_at == newest.created_at
+        assert results[0].latest_error == "permission denied for table users"
 
     def test_list_revenue_sources_maps_settings_schemas_and_tables(self) -> None:
         other_source = ExternalDataSource.objects.create(
@@ -263,6 +279,37 @@ class TestWarehouseSourcesFacade(BaseTest):
         assert results[0].rows_synced == 10
         assert results[0].source_type == "Postgres"
         assert results[0].source_prefix == "stripe_"
+
+    @parameterized.expand(
+        [
+            ("within_the_limit", 2, 2),
+            ("above_the_cap", api.MAX_JOBS_PER_SOURCE + 1, api.MAX_JOBS_PER_SOURCE),
+            ("zero", 0, 1),
+        ]
+    )
+    def test_list_jobs_for_source_returns_the_newest_within_the_limit(
+        self, _name: str, limit: int, expected_count: int
+    ) -> None:
+        total = api.MAX_JOBS_PER_SOURCE + 1
+        jobs = ExternalDataJob.objects.bulk_create(
+            ExternalDataJob(
+                team_id=self.team.pk,
+                pipeline=self.source,
+                schema=self.schema,
+                status="Completed",
+                schema_snapshot={},
+                rows_synced=n,
+            )
+            for n in range(1, total + 1)
+        )
+        base = timezone.now() - timedelta(days=1)
+        for job in jobs:
+            job.created_at = base + timedelta(seconds=job.rows_synced or 0)
+        ExternalDataJob.objects.bulk_update(jobs, ["created_at"])
+
+        results = api.list_jobs_for_source(self.source.id, self.team.pk, limit=limit)
+
+        assert [r.rows_synced for r in results] == list(range(total, total - expected_count, -1))
 
     def test_facade_enforces_team_isolation(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")

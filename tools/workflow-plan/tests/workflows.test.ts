@@ -16,6 +16,7 @@ import {
 } from '../src/plan.ts'
 import {
     REPO_ROOT,
+    SCRIPT_STUBS,
     allFiltersChanged,
     defaultScenarios,
     mergeQueue,
@@ -23,6 +24,7 @@ import {
     pullRequest,
     push,
     schedule,
+    workflowDispatch,
 } from '../src/scenarios.ts'
 
 const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github/workflows')
@@ -66,17 +68,73 @@ type ExpectationBuilder = (
     rest: Omit<Expectation, 'file' | 'scenario'>
 ) => Expectation
 
-const suite = (file: string, selectors: Stubs): ExpectationBuilder => {
+const suite = (file: string, selectors: Stubs = {}): ExpectationBuilder => {
     const filters = allFiltersChanged(workflow(file))
+    const scripted = SCRIPT_STUBS[`.github/workflows/${file}`]
     return (overrides, rest) => ({
         file,
-        scenario: { github: pullRequest(), ...overrides, steps: { ...filters, ...selectors, ...overrides.steps } },
+        scenario: {
+            github: pullRequest(),
+            ...scripted,
+            ...overrides,
+            steps: { ...filters, ...selectors, ...overrides.steps },
+        },
         ...rest,
     })
 }
 const backend = suite('ci-backend.yml', backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
+const deltalite = suite('build-deltalite.yml')
 const PINNED_WORKFLOWS = ['ci-backend.yml', 'ci-frontend.yml']
+
+interface ReleaseWorkflow {
+    file: string
+    // The job that decides whether the version needs a release, plus the step and output carrying
+    // that verdict. Naming them rather than deriving them keeps a renamed job a test failure.
+    check: string
+    step: string
+    output: string
+    build: string
+    publish: string
+}
+
+// The two PyPI parsers share a job layout; the npm one names everything differently.
+const PYPI_PARSER_JOBS = {
+    check: 'check-version',
+    step: 'version',
+    output: 'parser-release-needed',
+    build: 'build-wheels',
+    publish: 'publish',
+} as const
+
+const RELEASE_WORKFLOWS: ReleaseWorkflow[] = [
+    { file: 'build-hogql-parser.yml', ...PYPI_PARSER_JOBS },
+    { file: 'build-hogql-parser-rs.yml', ...PYPI_PARSER_JOBS },
+    {
+        file: 'build-hogql-parser-npm.yml',
+        check: 'check-package-version',
+        step: 'check-package-version',
+        output: 'is-new-version',
+        build: 'build-wasm',
+        publish: 'publish-npm',
+    },
+]
+
+// A release workflow builds its artifacts on a pull request as a check. Only a manual dispatch
+// from master reaches the job that uploads to a registry. The version verdict is stubbed true,
+// so the publish job is held back by the event and the ref alone.
+const releaseExpectations = ({ file, check, step, output, build, publish }: ReleaseWorkflow): Expectation[] => {
+    const release = suite(file, { [check]: { [step]: { outputs: { [output]: 'true' } } } })
+    return [
+        release({ name: 'ready PR' }, { runs: [check, build], skipped: [publish] }),
+        release({ name: 'fork PR', github: pullRequest({ fork: true }) }, { runs: [check], skipped: [build, publish] }),
+        release({ name: 'master dispatch', github: workflowDispatch() }, { runs: [check, build, publish] }),
+        release(
+            { name: 'branch dispatch', github: workflowDispatch('feat/example') },
+            { runs: [check, build], skipped: [publish] }
+        ),
+    ]
+}
 
 const frontendOnlyFilters: Stubs = {
     changes: {
@@ -122,6 +180,7 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'ready PR' },
         {
             runs: [
+                'dynamic-ci-filter',
                 'turbo-tests',
                 'django',
                 'backend-coverage-report',
@@ -132,21 +191,54 @@ const EXPECTATIONS: Expectation[] = [
                 'test-selection-verdict',
                 'capture-test-selection',
             ],
-            skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure'],
+            skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure', 'hand-off-to-depot'],
+        }
+    ),
+    // Handed off to Depot: it runs the tests and the side effects, GitHub Actions relays the
+    // verdict. Every heavy job and every side effect here stands down, and the required gate
+    // keeps reporting.
+    backend(
+        {
+            name: 'ready PR handed off to Depot',
+            steps: { changes: { route: { outputs: { engine: 'depot' } } } },
+        },
+        {
+            runs: ['changes', 'hand-off-to-depot', 'django_tests'],
+            skipped: [
+                'detect-snapshot-mode',
+                'turbo-discover',
+                'repo-checks',
+                'validate-product-yamls',
+                'check-migrations',
+                'check-openapi-types',
+                'get_clickhouse_versions',
+                'build_django_matrix',
+                'build-product-test-matrix',
+                'django',
+                'turbo-tests',
+                'handle-snapshots',
+                'test-selection-verdict',
+                'capture-test-selection',
+                'report-test-timings',
+                'calculate-running-time',
+                'backend-coverage-report',
+                'cancel-backend-on-repo-check-failure',
+                'cancel-backend-on-openapi-check-failure',
+            ],
         }
     ),
     backend(
         { name: 'merge queue', github: mergeQueue() },
         {
             runs: ['turbo-tests', 'django', 'django_tests'],
-            skipped: ['backend-coverage-report'],
+            skipped: ['backend-coverage-report', 'dynamic-ci-filter'],
         }
     ),
     backend(
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
             runs: ['django_tests'],
-            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'check-migrations'],
+            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'check-migrations', 'dynamic-ci-filter'],
         }
     ),
     backend(
@@ -154,6 +246,7 @@ const EXPECTATIONS: Expectation[] = [
         {
             runs: ['changes', 'django', 'django_tests'],
             skipped: [
+                'dynamic-ci-filter',
                 'validate-product-yamls',
                 'calculate-running-time',
                 'report-test-timings',
@@ -180,6 +273,7 @@ const EXPECTATIONS: Expectation[] = [
         {
             runs: ['changes', 'repo-checks', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
             skipped: [
+                'dynamic-ci-filter',
                 'detect-snapshot-mode',
                 'turbo-tests',
                 'django',
@@ -237,14 +331,21 @@ const EXPECTATIONS: Expectation[] = [
     frontend(
         { name: 'draft PR', github: pullRequest({ draft: true }) },
         {
-            runs: ['changes', 'select-jest-tests', 'jest', 'frontend-typescript-checks', 'frontend_tests'],
+            runs: [
+                'changes',
+                'dynamic-ci-filter',
+                'select-jest-tests',
+                'jest',
+                'frontend-typescript-checks',
+                'frontend_tests',
+            ],
         }
     ),
     frontend(
         { name: 'merge queue', github: mergeQueue() },
         {
             runs: ['jest', 'frontend_tests'],
-            skipped: ['select-jest-tests'],
+            skipped: ['select-jest-tests', 'dynamic-ci-filter'],
         }
     ),
     frontend(
@@ -258,21 +359,21 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
             runs: ['frontend_tests'],
-            skipped: ['changes', 'jest', 'frontend-format', 'frontend-typescript-checks'],
+            skipped: ['changes', 'jest', 'frontend-format', 'frontend-typescript-checks', 'dynamic-ci-filter'],
         }
     ),
     frontend(
         { name: 'fork PR', github: pullRequest({ fork: true }) },
         {
             runs: ['jest', 'frontend_tests'],
-            skipped: ['capture-jest-selection', 'report-test-signals', 'calculate-running-time'],
+            skipped: ['dynamic-ci-filter', 'capture-jest-selection', 'report-test-signals', 'calculate-running-time'],
         }
     ),
     frontend(
         { name: 'master push', github: push() },
         {
             runs: ['frontend-format', 'frontend-typescript-checks', 'frontend_tests'],
-            skipped: ['jest', 'select-jest-tests'],
+            skipped: ['jest', 'select-jest-tests', 'dynamic-ci-filter'],
         }
     ),
     frontend(
@@ -287,6 +388,20 @@ const EXPECTATIONS: Expectation[] = [
         {
             results: { frontend_tests: 'cancelled' },
         }
+    ),
+    ...RELEASE_WORKFLOWS.flatMap(releaseExpectations),
+    deltalite({ name: 'ready PR' }, { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }),
+    deltalite(
+        { name: 'fork PR', github: pullRequest({ fork: true }) },
+        { runs: ['check-version'], skipped: ['build-wheels', 'publish'] }
+    ),
+    deltalite(
+        { name: 'master dispatch', github: workflowDispatch() },
+        { runs: ['check-version', 'build-wheels', 'publish'] }
+    ),
+    deltalite(
+        { name: 'branch dispatch', github: workflowDispatch('feat/example') },
+        { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }
     ),
 ]
 
@@ -322,6 +437,52 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('.github/workflows run plans', () => {
+    it('Phrocs executes tests even when setup-go restores a warm build cache', () => {
+        const testStep = workflow('ci-phrocs.yml').jobs.test.steps?.find((step) => step.name === 'Run tests')
+        expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)
+    })
+
+    it.each([
+        ['master schedule', schedule(), 'success', true],
+        ['same-repo PR', pullRequest(), 'success', false],
+        ['fork PR', pullRequest({ fork: true }), 'success', false],
+        ['failed master typecheck', schedule(), 'failure', false],
+    ] as const)('mypy cache writer on %s', (_name, github, outcome, runs) => {
+        const wf = workflow('ci-python.yml')
+        const plan = planWorkflow(wf, {
+            name: _name,
+            github,
+            steps: {
+                ...allFiltersChanged(wf),
+                'code-quality': { 'Check static typing': { outcome } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs['code-quality'].steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
+    })
+
+    it.each(['success', 'failure'] as const)(
+        'sccache counters survive a %s build without changing its verdict',
+        (outcome) => {
+            const wf = workflow('ci-rust.yml')
+            const plan = planWorkflow(wf, {
+                name: outcome,
+                github: pullRequest(),
+                steps: {
+                    ...allFiltersChanged(wf),
+                    affected: { shards: { outputs: { matrix: '{"include":[{"packages":"common-types"}]}' } } },
+                    build: {
+                        'Run cargo build': { outcome },
+                        'Report sccache counters': { outcome: 'failure' },
+                    },
+                },
+            })
+            expect(plan.errors).toEqual([])
+            expect(plan.jobs.build.steps.find((step) => step.name === 'Report sccache counters')?.runs).toBe(true)
+            expect(plan.jobs.build.result).toBe(outcome)
+        }
+    )
+
     it.each(PINNED_WORKFLOWS)('%s names every conditional job in an expectation row', (file) => {
         const unnamed = Object.entries(workflow(file).jobs)
             .filter(([id, job]) => job.if !== undefined && !namedJobs(file).has(id))

@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -38,6 +39,8 @@ from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
     SignalScoutConfig,
     SignalScoutEmission,
     SignalScoutNote,
@@ -284,8 +287,6 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
 def _make_emission(team: Team, run: SignalScoutRun, *, finding_id: str, **overrides) -> SignalScoutEmission:
     defaults: dict = {
         "description": "Checkout 500s post-deploy",
-        "weight": 0.7,
-        "confidence": 0.85,
         "severity": "P1",
         "source_id": f"run:{run.id}:finding:{finding_id}",
     }
@@ -308,8 +309,8 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         first = body[0]
         assert first["run_id"] == str(run.id)
         assert first["description"] == "Checkout 500s post-deploy"
-        assert first["weight"] == 0.7
-        assert first["confidence"] == 0.85
+        assert "weight" not in first
+        assert "confidence" not in first
         assert first["severity"] == "P1"
         assert first["tags"] == ["cost-spike"]
         assert first["source_id"] == f"run:{run.id}:finding:{newer.finding_id}"
@@ -805,7 +806,6 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def _payload(self, **overrides) -> dict:
         body: dict = {
             "description": "Checkout 500s spike correlates with payment-flag rollout",
-            "confidence": 0.7,
             "evidence": [
                 {
                     "source_product": "error_tracking",
@@ -856,6 +856,19 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_emit.assert_not_called()
+
+    @parameterized.expand([("in_range", 0.7), ("out_of_range", 1.1)])
+    def test_emit_finding_ignores_retired_confidence_field(self, _name: str, confidence: float) -> None:
+        # A custom scout still sending the retired field must keep emitting: the serializer drops the
+        # unknown key, so no value reaches the signal's `extra`, whatever it holds.
+        run = _make_run(self.team)
+        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+            response = self.client.post(
+                self._emit_signal_url(str(run.id)), data=self._payload(confidence=confidence), format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_emit.await_args is not None
+        assert "confidence" not in mock_emit.await_args.kwargs["extra"]
 
     def test_emit_finding_rejects_non_in_progress_run(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -2274,6 +2287,43 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         # No second row written.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
 
+    @parameterized.expand([(False,), (True,)])
+    def test_scout_read_reports_its_own_dry_run_block_though_the_team_can_emit(self, summary_only: bool) -> None:
+        run = _make_run(self.team)
+        assert run.scout_config is not None
+        SignalScoutConfig.objects.filter(pk=run.scout_config.pk).update(emit=False)
+        self._seed_profile()
+        # The sandbox token is bound to the task that dispatched the run, which is how the endpoint
+        # knows which scout is asking — the scout passes nothing.
+        _authenticate_as_scout(self, sandbox_task_id=run.task_run.task_id)
+
+        response = self.client.get(self._list_url(), {"summary_only": str(summary_only).lower()})
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        eligibility = body["summary"]["emit_eligibility"]
+        if summary_only:
+            assert "payload" not in body
+        else:
+            assert body["payload"]["inventory"]["emit_eligibility"] == eligibility
+
+        assert eligibility["can_emit"] is False
+        assert eligibility["scout_emit_enabled"] is False
+        assert eligibility["blocking_reason"] == "scout_emit_disabled"
+        assert eligibility["remediation"]
+        # The team-wide gates are untouched, so the block really is this scout's own posture.
+        assert eligibility["ai_processing_approved"] is True
+        assert eligibility["source_enabled"] is True
+        stored = SignalProjectProfile.objects.get(team=self.team).payload["inventory"]["emit_eligibility"]
+        assert stored["can_emit"] is True
+        assert stored["scout_emit_enabled"] is None
+
+    def test_read_outside_a_run_keeps_the_team_wide_eligibility(self) -> None:
+        # No scout to answer for, so there is no per-scout toggle to report and the stored floor stands.
+        self._seed_profile()
+        eligibility = self.client.get(self._list_url()).json()["payload"]["inventory"]["emit_eligibility"]
+        assert eligibility["scout_emit_enabled"] is None
+        assert eligibility["can_emit"] is True
+
     def test_scout_read_inventory_payload_carries_expected_keys(self) -> None:
         _authenticate_as_scout(self)
         response = self.client.get(self._list_url())
@@ -2336,7 +2386,9 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert set(body["summary"]["emit_eligibility"]) == {
             "ai_processing_approved",
             "source_enabled",
+            "scout_emit_enabled",
             "can_emit",
+            "blocking_reason",
             "remediation",
         }
         assert set(body["summary"]["existing_inbox_reports"]) == {"total", "by_status"}
@@ -2388,6 +2440,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             body="# test scout",
         )
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_display_name_update_preserves_identity_and_running_history(self) -> None:
         skill = self._make_skill("signals-scout-daily-digest")
         config = SignalScoutConfig.objects.create(
@@ -2406,15 +2459,21 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id)
         )
         assert original_config["display_name"] == ""
+        assert original_config["updated_at"] == "2026-09-01T12:00:00Z"
 
-        response = self.client.patch(
-            self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
-        )
+        with time_machine.travel("2026-09-01T13:00:00Z", tick=False):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
+            )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {**original_config, "display_name": "Checkout / daily digest"}
+        assert response.json() == {
+            **original_config,
+            "display_name": "Checkout / daily digest",
+            "updated_at": "2026-09-01T13:00:00Z",
+        }
         saved_config = next(item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id))
-        assert saved_config["display_name"] == "Checkout / daily digest"
+        assert saved_config == response.json()
         config.refresh_from_db()
         skill.refresh_from_db()
         run.refresh_from_db()
@@ -2663,6 +2722,33 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["owners"] == []
+
+    def test_list_says_who_turned_a_scout_off(self) -> None:
+        # The roster could only say *when* a scout went off, so a reader had to open the activity
+        # log to learn who did it, and a system pause looked like somebody's decision.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self.client.patch(
+            self._detail_url(str(SignalScoutConfig.objects.get(skill_name="signals-scout-checkout").id)),
+            data={"enabled": False},
+            format="json",
+        )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["status_changed_by"]["email"] == self.user.email
+
+    def test_list_hides_who_turned_a_scout_off_from_a_scout_sandbox_token(self) -> None:
+        # Same rule as `owners`: the actor is member PII, and the sandbox token carries
+        # `signal_scout:read`, so a run must not read it off the fleet's configs.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
+        _authenticate_as_scout(self)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["status_changed_by"] is None
 
     def test_list_origin_defaults_to_custom_when_skill_absent(self) -> None:
         # A config with no live skill row isn't a canonical scout.
@@ -4513,6 +4599,52 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
             content="pending",
         )
         SignalScratchpad.all_teams.filter(pk=entry.pk).update(created_at=run.created_at - timedelta(hours=2))
+        assert self._stamp(run)["has_self_validation"] is False
+
+    def test_self_validation_counts_a_run_that_wrote_a_report_check(self) -> None:
+        # Writing a check *is* the validation being scheduled, unlike writing a queue entry, which
+        # only asks a future run to do it. Keeping the same field name is deliberate: the flag means
+        # "this run closed a loop", and scouts are moving from the queue onto checks.
+        run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            title="Checkout errors stay low",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Re-read the issue."},
+            next_run_at=timezone.now() + timedelta(days=3),
+            expires_at=timezone.now() + timedelta(days=30),
+            task_id=run.task_run.task_id,
+        )
+        assert self._stamp(run)["has_self_validation"] is True
+
+    def test_self_validation_counts_a_run_that_recorded_a_verdict(self) -> None:
+        run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            content="{}",
+            task_id=run.task_run.task_id,
+        )
+        assert self._stamp(run)["has_self_validation"] is True
+
+    def test_another_runs_check_does_not_count(self) -> None:
+        run = _make_run(self.team)
+        other_run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            title="Checkout errors stay low",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Re-read the issue."},
+            next_run_at=timezone.now() + timedelta(days=3),
+            expires_at=timezone.now() + timedelta(days=30),
+            task_id=other_run.task_run.task_id,
+        )
         assert self._stamp(run)["has_self_validation"] is False
 
     def test_derived_map_round_trips_as_an_object_not_a_string(self) -> None:

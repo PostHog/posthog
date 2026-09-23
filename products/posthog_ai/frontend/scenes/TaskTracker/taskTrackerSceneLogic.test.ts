@@ -19,6 +19,7 @@ import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
+import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
@@ -322,6 +323,24 @@ describe('taskTrackerSceneLogic', () => {
         expect(router.values.location.pathname).toContain('/tasks/new-task')
     })
 
+    // The backend strips `pending_user_message` and echoes the stripped text. An optimistic bubble that keeps
+    // the trailing whitespace never matches that echo, so the first message rendered twice.
+    it('sends and echoes the first message without surrounding whitespace', async () => {
+        logic.mount()
+        logic.actions.setNewTaskData({ description: '  do the thing \n' })
+        logic.actions.submitNewTask()
+        const streamKey = logic.values.activeCreation!.streamKey
+        expect(runStreamLogic({ streamKey }).values.threadItems).toEqual([
+            expect.objectContaining({ type: 'human_message', text: 'do the thing' }),
+        ])
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({ description: 'do the thing' })
+        expect(runBody).toMatchObject({ pending_user_message: 'do the thing' })
+        expect(logic.values.newTaskData.description).toBe('')
+    })
+
     // A warm sandbox is adopted inside `tasks/create`, which returns the activated Run as `latest_run`.
     // Issuing the usual run-create on top would strand that warm sandbox and cold-boot a second one —
     // exactly the ~16s the warm existed to avoid. The create must also carry the warm-reuse hints, since
@@ -588,7 +607,7 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     // The side panel shares this logic, so a hidden picker can still hold a remembered repo. It must not reach the requests.
-    it('keeps a hidden repository out of the warm and create requests', async () => {
+    it.each(['global', 'runner'])('keeps a repository hidden by a %s override out of requests', async (scope) => {
         useMocks({
             get: {
                 '/api/projects/:team/integrations/': {
@@ -598,7 +617,10 @@ describe('taskTrackerSceneLogic', () => {
         })
         const overrides = composerOverrideLogic()
         overrides.mount()
-        overrides.actions.registerComposerOverride('new-workflow', { hideRepositorySelector: true })
+        overrides.actions.registerComposerOverride('new-workflow', { hideRepositorySelector: scope === 'global' })
+        if (scope === 'runner') {
+            logic = taskTrackerSceneLogic({ panelId: 'btw', composerOverride: { hideRepositorySelector: true } })
+        }
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setNewTaskData({ repositoryConfig: { integrationId: 7, repository: 'acme/widgets' } })
@@ -612,6 +634,35 @@ describe('taskTrackerSceneLogic', () => {
 
         expect(createBody).toMatchObject({ repository: null, github_integration: null })
 
+        overrides.unmount()
+    })
+
+    it('keeps runner composer settings independent of scene overrides', () => {
+        const overrides = composerOverrideLogic()
+        const headlines = welcomeOverrideLogic()
+        overrides.mount()
+        headlines.mount()
+        overrides.actions.registerComposerOverride('scene', { placeholder: 'Edit this notebook' })
+        headlines.actions.registerHeadlines('scene', ['Make changes'])
+        logic.mount()
+        const panel = taskTrackerSceneLogic({
+            panelId: 'btw',
+            composerOverride: { placeholder: 'Ask a side question...', hideRepositorySelector: true },
+            welcomeHeadlines: ['What would you like to know?'],
+        })
+        panel.mount()
+
+        expect(panel.values.effectiveComposerOverride).toEqual({
+            placeholder: 'Ask a side question...',
+            hideRepositorySelector: true,
+        })
+        expect(panel.values.displayHeadline).toBe('What would you like to know?')
+        expect(logic.values.effectiveComposerOverride).toEqual({ placeholder: 'Edit this notebook' })
+        expect(logic.values.displayHeadline).toBe('Make changes')
+
+        panel.unmount()
+        expect(logic.values.effectiveComposerOverride).toEqual({ placeholder: 'Edit this notebook' })
+        headlines.unmount()
         overrides.unmount()
     })
 

@@ -4,6 +4,8 @@ import uuid
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.core.management import call_command
+
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
@@ -19,15 +21,18 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     Priority,
     PriorityAssessment,
+    ReportLink,
     SuggestedReviewerEntry,
     SuggestedReviewers,
     TaskRunArtefact,
 )
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportSuggestedReviewer,
 )
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
 
@@ -83,6 +88,11 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         if github_login is not None:
             _attach_github_login(user, github_login, uid=f"gh-{email}")
         return user
+
+    def _reviewer_filter_matches(self, report: SignalReport, reviewer: User) -> bool:
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?suggested_reviewers={reviewer.uuid}")
+        assert response.status_code == status.HTTP_200_OK
+        return str(report.id) in {row["id"] for row in response.json()["results"]}
 
     def _latest_reviewers(self, report: SignalReport) -> list:
         # suggested_reviewers is append-only: the current reviewers are the latest row's content.
@@ -205,6 +215,34 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         stored = self._latest_reviewers(report)
         assert [r["github_login"] for r in stored] == ["bob", "carol"]
         assert all(r["relevant_commits"] == [] for r in stored)
+
+    def test_put_keeps_legacy_reviewer_with_oversized_reasons(self):
+        report = self._create_report()
+        artefact = self._create_artefact(
+            report,
+            content=[
+                {
+                    "github_login": "alice",
+                    "reason": "x" * 501,
+                    "relevant_commits": [
+                        {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": "y" * 501}
+                    ],
+                }
+            ],
+        )
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice"}]}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        reviewer = self._latest_reviewers(report)[0]
+        assert reviewer["reason"] is None
+        assert reviewer["relevant_commits"] == [
+            {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": ""}
+        ]
 
     def test_put_appends_new_status_row_keeping_history(self):
         report = self._create_report()
@@ -920,6 +958,34 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert str(report.id) in {row["id"] for row in original_response.json()["results"]}
         assert str(report.id) not in {row["id"] for row in replacement_response.json()["results"]}
 
+    def test_filter_follows_the_reviewers_row_that_survives_a_delete(self):
+        alice = self._create_org_member("alice@example.com", github_login="alice")
+        bob = self._create_org_member("bob@example.com", github_login="bob")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(alice.uuid)}])
+        current = self._create_artefact(report, content=[{"user_uuid": str(bob.uuid)}])
+
+        assert self._reviewer_filter_matches(report, bob)
+        assert not self._reviewer_filter_matches(report, alice)
+
+        delete_response = self.client.delete(self._detail_url(str(report.id), str(current.id)))
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+
+        assert self._reviewer_filter_matches(report, alice)
+        assert not self._reviewer_filter_matches(report, bob)
+
+    def test_backfill_command_restores_the_filter_for_a_report_missing_its_rows(self):
+        # The state every report written before the reviewer index existed starts in.
+        alice = self._create_org_member("alice@example.com", github_login="alice")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(alice.uuid)}])
+        SignalReportSuggestedReviewer.all_teams.filter(report_id=report.id).delete()
+        assert not self._reviewer_filter_matches(report, alice)
+
+        call_command("backfill_suggested_reviewer_index", "--team-id", str(self.team.id))
+
+        assert self._reviewer_filter_matches(report, alice)
+
     def test_diff_with_non_dict_content_returns_400_not_500(self):
         # Log content is stored as arbitrary JSON; a non-object commit payload must not 500.
         report = self._create_report()
@@ -1013,6 +1079,51 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["type"] == artefact_type
+
+    def test_post_rejects_report_link(self) -> None:
+        report = self._create_report()
+        target_id = str(self._create_report().id)
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps(
+                {"artefact_type": "report_link", "content": {"kind": "depends_on", "report_id": target_id}}
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (
+            response.json()["error"]
+            == "Artefact type 'report_link' is read-only and cannot be created through the API."
+        )
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.REPORT_LINK
+        ).exists()
+
+    @parameterized.expand([("patch",), ("delete",)])
+    def test_report_link_is_readable_but_not_writable(self, method: str) -> None:
+        report = self._create_report()
+        content = ReportLink(kind=ReportLinkKind.DEPENDS_ON, report_id=str(self._create_report().id))
+        artefact = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=content,
+            attribution=ArtefactAttribution.system(),
+        )
+        url = self._detail_url(str(report.id), str(artefact.id))
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["content"] == content.model_dump(mode="json")
+
+        response = getattr(self.client, method)(
+            url,
+            data=json.dumps({"content": {**content.model_dump(mode="json"), "reason": "Changed"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "read-only" in response.json()["error"]
+        artefact.refresh_from_db()
+        assert json.loads(artefact.content) == content.model_dump(mode="json")
 
     def test_post_log_artefacts_accumulate(self):
         report = self._create_report()

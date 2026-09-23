@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB2",
+    "cluster": 31,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:111-138 checks the toggle before dispatch, but stamphog/backend/tasks/tasks.py:1158-1181 fetches the current PR and stamps the queued reviewer identity without checking the registered resolver. Its rate-limit retry can defer execution by at least 60 seconds (1160-1162); on retry it can fetch even a newly pushed head after opt-out, then create a run at 1223-1229. Settings PATCH only saves the new value (review_hog/backend/api/settings.py:131-137), so it does not cancel that message. The later webhook does consult the current toggle through receivers.py:151-155, meaning the delayed initial path can review a head whose webhook correctly skipped after opt-out.",
+            "refutation": "I first considered whether this simply allows an already accepted, head-pinned review to finish. The queued payload contains no head and the task fetches the current head afresh on execution, so it can create a new review for later commits after opt-out rather than finish an old one. The sibling ReviewHog workflow explicitly rechecks the receiver-side opt-in at execution (temporal/workflow.py:424-436), and stamphog/AGENTS.md:106-109 says opt-out stops new runs. Existing webhook checks cannot affect the separate queued receiver task. This is a real delayed/retry preference bypass with a narrow timing window, hence should_fix rather than must_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:126-138 gates Celery publication on the saved toggle, but /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1110-1234 uses the captured acting_user_id without rereading that preference. A concrete window is the GitHub rate-limit retry at :1160-1162, delayed at least 60 seconds before a ReviewRun exists. A settings PATCH at review_hog/backend/api/settings.py:131-137 can turn the toggle off during that delay; the retry subsequently stamps provenance at :1176-1181 and creates/starts a new run at :1223-1234. activities.py:451 derives self-driving from that persisted provenance and :745 can post its approval.",
+            "refutation": "First checked whether the existing registered resolver or settings update cancels pending work. receivers.py:144-155 does enforce the current toggle, tested by tests/test_inbox_trigger.py:371-387, but only the webhook path calls it at Stamphog tasks.py:201-207. The initial task has no corresponding check, and settings PATCH only saves the row. The retained case creates new review work after opt-out, rather than requiring cancellation of an already-delivered verdict. This is limited to queued/delayed initial dispatches, with the ordinary webhook opt-out guard intact, so should_fix rather than must_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "review_hog/backend/receivers.py:114,126-137 snapshots the toggle and queues a delivery. stamphog/backend/tasks/tasks.py:1109 allows delayed execution/retries, but the execution-time gate at 1140-1146 checks only repository configuration; 1176-1181 stamps the original acting_user_id and 1223-1229 creates the run without reloading settings or invoking the resolver. The marker enables self_driving_review (temporal/activities.py:448-451) and a passing review can publish at 723-745. A queued task that executes after the user's opt-out therefore still starts a new approval-capable run.",
+            "refutation": "I checked whether this was an intentional immutable snapshot or guarded later. The resolver explicitly promises that switching off stops new Stamphog runs (review_hog/backend/receivers.py:144-155), and the parallel ReviewHog inbox workflow rechecks the receiver-side preference at execution-time resolution (temporal/workflow.py:424-435). Stamphog's final guards check supersession and head SHA, not the per-user setting (stamphog/backend/temporal/activities.py:666-704). Current repository eligibility does not substitute for that setting. The trigger is restricted to already-published deliveries/retries after opt-out, so should_fix rather than must_fix."
+        }
+    ]
+}

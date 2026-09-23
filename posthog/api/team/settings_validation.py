@@ -12,6 +12,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
+from posthog.models.team.logs_retention import LOGS_CUSTOM_RETENTION_FLAG
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.types import AnyPropertyFilter
 
 from . import team_config
@@ -164,6 +166,20 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
         return cast(Organization | None, get_organization())
 
     return None
+
+
+def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team: Team | None) -> bool:
+    organization = _get_organization_for_logs_settings_check(serializer)
+    request = serializer.context.get("request")
+    user = getattr(request, "user", None)
+    if organization is None or user is None or not user.is_authenticated:
+        return False
+    return posthog_feature_flag_enabled(
+        LOGS_CUSTOM_RETENTION_FLAG,
+        str(user.distinct_id),
+        organization_id=organization.id,
+        team_id=team.id if team is not None else None,
+    )
 
 
 def validate_team_attrs(

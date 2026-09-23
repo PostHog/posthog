@@ -743,6 +743,24 @@ export interface EvaluationRunRequestApi {
     distinct_id?: string | null
 }
 
+export interface EvaluationRunEvaluationApi {
+    /** UUID of the evaluation being run. */
+    id: string
+    /** Display name of the evaluation being run. */
+    name: string
+}
+
+export interface EvaluationRunResponseApi {
+    /** Temporal workflow ID of the enqueued run. */
+    workflow_id: string
+    /** Workflow status at the time of the response. */
+    status: string
+    /** Evaluation selected for this run. */
+    evaluation: EvaluationRunEvaluationApi
+    /** UUID of the event being evaluated. */
+    target_event_id: string
+}
+
 /**
  * * `active` - Active
  * * `paused` - Paused
@@ -2721,6 +2739,18 @@ export interface LLMPromptLabelSummaryApi {
     version: number
 }
 
+export interface LLMPromptResolvedReferenceApi {
+    /** Name of the referenced prompt that was spliced in. */
+    name: string
+    /** Exact version whose content was spliced in. */
+    version: number
+    /**
+     * Label the reference used, or null when it pinned a version directly.
+     * @nullable
+     */
+    label: string | null
+}
+
 /**
  * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
  * @nullable
@@ -2760,6 +2790,8 @@ export interface LLMPromptListApi {
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
     readonly all_labels: readonly LLMPromptLabelSummaryApi[]
+    /** @nullable */
+    readonly resolved_references: readonly LLMPromptResolvedReferenceApi[] | null
 }
 
 export interface PaginatedLLMPromptListListApi {
@@ -2818,18 +2850,6 @@ export interface LLMPromptApi {
  * @nullable
  */
 export type LLMPromptPublicApiConfig = { [key: string]: unknown } | null
-
-export interface LLMPromptResolvedReferenceApi {
-    /** Name of the referenced prompt that was spliced in. */
-    name: string
-    /** Exact version whose content was spliced in. */
-    version: number
-    /**
-     * Label the reference used, or null when it pinned a version directly.
-     * @nullable
-     */
-    label: string | null
-}
 
 export interface LLMPromptPublicApi {
     id: string
@@ -2941,12 +2961,29 @@ export interface LLMPromptVersionSummaryApi {
     readonly labels: readonly string[]
 }
 
+export interface LLMPromptReferencedByApi {
+    /** Prompt whose latest or labeled version references this prompt. */
+    name: string
+    /**
+     * Label of this prompt the reference follows, or null when it pins a version.
+     * @nullable
+     */
+    label: string | null
+    /**
+     * Version of this prompt the reference pins, or null when it follows a label.
+     * @nullable
+     */
+    version: number | null
+}
+
 export interface LLMPromptResolveResponseApi {
     prompt: LLMPromptApi
     versions: LLMPromptVersionSummaryApi[]
     has_more: boolean
     /** All labels on this prompt with the version each one currently points to, across all versions (not just the returned page). */
     labels: LLMPromptLabelApi[]
+    /** Prompts whose latest or labeled version references this prompt, with the label or version each reference uses. Empty when nothing references this prompt. At most 100 entries, ordered by prompt name. */
+    referenced_by: LLMPromptReferencedByApi[]
 }
 
 /**
@@ -3388,8 +3425,6 @@ export type DatasetsRevisionsListParams = {
     offset?: number
 }
 
-export type EvaluationRunsCreate200 = { [key: string]: unknown }
-
 export type EvaluationsListParams = {
     /**
      * Filter evaluations by directory UUID.
@@ -3732,6 +3767,10 @@ export type LlmPromptsListParams = {
      * @minLength 1
      */
     order_by?: string
+    /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled results with full content. Set to false to get the raw text with the reference tags.
+     */
+    resolve?: boolean
     /**
      * Optional substring filter applied to prompt names and prompt content.
      */

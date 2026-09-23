@@ -197,6 +197,16 @@ CONSTANCE_CONFIG = {
         "Used to validate Slack events for example when unfurling links",
         str,
     ),
+    "SLACK_DEV_APP_CLIENT_ID": (
+        get_from_env("SLACK_DEV_APP_CLIENT_ID", default=""),
+        "OAuth client ID for the project-restricted Slack MCP connection",
+        str,
+    ),
+    "SLACK_DEV_APP_CLIENT_SECRET": (
+        get_from_env("SLACK_DEV_APP_CLIENT_SECRET", default=""),
+        "OAuth client secret for the project-restricted Slack MCP connection",
+        str,
+    ),
     "SUPPORT_SLACK_APP_CLIENT_ID": (
         get_from_env("SUPPORT_SLACK_APP_CLIENT_ID", default=""),
         "Used to enable the 'Add to Slack' button for the SupportHog Slack app.",
@@ -384,6 +394,14 @@ CONSTANCE_CONFIG = {
         "CPU to match (dagster-k8s/config on the job). Clamped to 1-16; applies at the next run.",
         int,
     ),
+    "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED": (
+        get_from_env("WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED", default=False, type_cast=str_to_bool),
+        "Whether web analytics warming also selects the query shapes teams ran under a saved filter "
+        "preset, below the usual demand floor. Bounded per team by the preset lane's own caps. The "
+        "flag is part of the selection cache key, so turning it off drops preset shapes on the next "
+        "run rather than at the end of the cache TTL.",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -421,6 +439,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "SLACK_DEV_APP_CLIENT_ID",
+    "SLACK_DEV_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_ID",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
@@ -449,6 +469,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_MAX_SHAPES",
     "WEB_ANALYTICS_WARMING_SHARD_THREADS",
     "WEB_ANALYTICS_WARMING_SHARDS",
+    "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
@@ -456,6 +477,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
 SECRET_SETTINGS = [
     "EMAIL_HOST_PASSWORD",
     "SLACK_APP_CLIENT_SECRET",
+    "SLACK_DEV_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",

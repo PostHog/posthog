@@ -28,14 +28,13 @@ import {
     IconToggle,
     IconWarning,
 } from '@posthog/icons'
-import { Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonSkeleton, lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isNotNil } from 'lib/utils/guards'
-import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { onboardingVariantChrome, resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -695,39 +694,57 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             sideAction: {
                                 identifier: 'replay-dropdown',
                                 dropdown: {
+                                    onVisibilityChange: (visible: boolean): void => {
+                                        if (visible) {
+                                            sessionRecordingSavedFiltersLogic.actions.loadSavedFiltersIfNeeded()
+                                        }
+                                    },
                                     overlay: (
                                         <LemonMenuOverlay
                                             items={
-                                                savedFilters.count > 0
+                                                savedFiltersLoading
                                                     ? [
                                                           {
                                                               title: 'Saved filters',
-                                                              items: savedFilters.results.map((savedFilter) => ({
-                                                                  label:
-                                                                      savedFilter.name ||
-                                                                      savedFilter.derived_name ||
-                                                                      'Unnamed',
-                                                                  to: combineUrl(urls.replay(ReplayTabs.Home), {
-                                                                      savedFilterId: savedFilter.short_id,
-                                                                  }).url,
-                                                              })),
-                                                              footer: savedFiltersLoading && (
-                                                                  <div className="px-2 py-1 text-tertiary">
-                                                                      <Spinner /> Loading…
-                                                                  </div>
-                                                              ),
+                                                              items: [
+                                                                  {
+                                                                      label: () => (
+                                                                          <div className="px-2 py-1">
+                                                                              <LemonSkeleton
+                                                                                  className="h-4 w-32"
+                                                                                  repeat={3}
+                                                                              />
+                                                                          </div>
+                                                                      ),
+                                                                  },
+                                                              ],
                                                           },
                                                       ]
-                                                    : [
-                                                          {
-                                                              label: 'All recordings',
-                                                              to: urls.replay(ReplayTabs.Home),
-                                                          },
-                                                          {
-                                                              label: 'Saved filters',
-                                                              to: urls.replay(ReplayTabs.Home),
-                                                          },
-                                                      ]
+                                                    : savedFilters.count > 0
+                                                      ? [
+                                                            {
+                                                                title: 'Saved filters',
+                                                                items: savedFilters.results.map((savedFilter) => ({
+                                                                    label:
+                                                                        savedFilter.name ||
+                                                                        savedFilter.derived_name ||
+                                                                        'Unnamed',
+                                                                    to: combineUrl(urls.replay(ReplayTabs.Home), {
+                                                                        savedFilterId: savedFilter.short_id,
+                                                                    }).url,
+                                                                })),
+                                                            },
+                                                        ]
+                                                      : [
+                                                            {
+                                                                label: 'All recordings',
+                                                                to: urls.replay(ReplayTabs.Home),
+                                                            },
+                                                            {
+                                                                label: 'Saved filters',
+                                                                to: urls.replay(ReplayTabs.Home),
+                                                            },
+                                                        ]
                                             }
                                         />
                                     ),
@@ -817,7 +834,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'SQL editor',
                             icon: <IconServer />,
                             to: urls.sqlEditor(),
-                            logic: editorSceneLogic,
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
                         {

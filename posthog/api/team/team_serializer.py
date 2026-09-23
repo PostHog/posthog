@@ -15,7 +15,7 @@ from rest_framework import exceptions, serializers
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.api.utils import validate_authorized_url_wildcards
-from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
+from posthog.constants import AvailableFeature
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -25,6 +25,11 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     cached_product_intents_for_team,
     enqueue_product_activation_calc_debounced,
+)
+from posthog.models.team.logs_retention import (
+    LOGS_RETENTION_BASE_TIERS_DAYS,
+    logs_retention_days_error,
+    required_logs_retention_feature,
 )
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
@@ -707,6 +712,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["ai_reply_modes"] = cleaned_modes
             else:
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
+        from products.conversations.backend.api.ai_context import validate_ai_context_conversations_settings
+        from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
+
+        existing = getattr(self.instance, "conversations_settings", None) if self.instance is not None else None
+        validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
+        validate_ai_context_conversations_settings(
+            value, team_id=self.instance.id if self.instance is not None else None
+        )
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
@@ -731,8 +744,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
-    VALID_RETENTION_DAYS = {14, 30}
-
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
@@ -751,22 +762,31 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 )
             value["json_parse_logs_attribute_key"] = attribute_key.strip()
 
-        new_retention = value.get("retention_days")
-        if new_retention is not None and new_retention not in TeamSerializer.VALID_RETENTION_DAYS:
-            raise exceptions.ValidationError(
-                f"retention_days must be one of {sorted(TeamSerializer.VALID_RETENTION_DAYS)}"
-            )
-
         team = (
             self.instance.passthrough_team
             if self.instance is not None and hasattr(self.instance, "passthrough_team")
             else self.instance
         )
+
         logs_settings = team.logs_settings if team is not None else None
         old_retention = logs_settings.get("retention_days") if logs_settings else None
 
+        new_retention = value.get("retention_days")
+        if new_retention is not None and (isinstance(new_retention, bool) or not isinstance(new_retention, int)):
+            raise exceptions.ValidationError("retention_days must be an integer")
+
+        # Only a changed period is checked against the flag and the entitlement. Unrelated settings
+        # updates send the stored period back, and must not fail when the flag is turned off later.
         if new_retention is not None and old_retention != new_retention:
-            required_feature = LOGS_RETENTION_FEATURES_BY_DAYS.get(new_retention)
+            # Only evaluate the flag for values outside the base tiers, so the common path makes no flag call.
+            custom_enabled = new_retention not in LOGS_RETENTION_BASE_TIERS_DAYS and (
+                settings_validation._custom_logs_retention_enabled(self, team)
+            )
+            error = logs_retention_days_error(new_retention, custom_retention_enabled=custom_enabled)
+            if error:
+                raise exceptions.ValidationError(error)
+
+            required_feature = required_logs_retention_feature(new_retention)
             if required_feature:
                 organization = settings_validation._get_organization_for_logs_settings_check(self)
                 if organization is None or not organization.is_feature_available(required_feature):
