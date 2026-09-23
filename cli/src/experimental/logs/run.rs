@@ -9,9 +9,9 @@ use reqwest::blocking::Client;
 use super::checkpoint::Checkpoint;
 use super::config::LokiImportConfig;
 use super::emit::{batch_records, Batch};
-use super::loki::LokiClient;
+use super::loki::{Entry, LokiClient};
 use super::mapping::Mapper;
-use super::send::{classify, Disposition};
+use super::send::{backoff, classify, Disposition};
 use super::shard::shards;
 
 /// The intake rejects a personal API token, so the import takes the project write key. That key is
@@ -54,11 +54,62 @@ impl Pacer {
     }
 }
 
-/// Cheap identity for a log line at a shared timestamp, so the boundary dedup set stays small.
-fn line_key(line: &str) -> u64 {
+/// Suppresses entries already sent at one instant, across however many pages that instant spans.
+///
+/// Loki truncates a page by entry count, so a timestamp holding more entries than a page is read
+/// over several pages that all start at it. Forgetting the earlier pages re-sends them.
+#[derive(Debug)]
+struct BoundaryFilter {
+    cursor: i64,
+    sent: HashSet<u64>,
+}
+
+impl BoundaryFilter {
+    fn new(cursor: i64) -> Self {
+        Self {
+            cursor,
+            sent: HashSet::new(),
+        }
+    }
+
+    fn cursor(&self) -> i64 {
+        self.cursor
+    }
+
+    fn keep(&self, entry: &Entry) -> bool {
+        entry.timestamp_ns != self.cursor || !self.sent.contains(&entry_key(entry))
+    }
+
+    /// Moves to the next page's start. Staying on the same instant accumulates; moving off it
+    /// discards, so the set never grows past one timestamp's worth of entries.
+    fn advance(&mut self, fresh: &[Entry], resume: i64) {
+        let boundary = fresh
+            .iter()
+            .filter(|entry| entry.timestamp_ns == resume)
+            .map(entry_key);
+
+        if resume == self.cursor {
+            self.sent.extend(boundary);
+        } else {
+            self.sent = boundary.collect();
+            self.cursor = resume;
+        }
+    }
+}
+
+/// Cheap identity for one entry at a shared timestamp, so the boundary dedup set stays small.
+///
+/// Covers the stream labels as well as the line: two pods emitting the same line in the same
+/// nanosecond are different records, and hashing the line alone would drop one of them.
+fn entry_key(entry: &Entry) -> u64 {
     use std::hash::{Hash, Hasher};
+
+    let mut labels: Vec<(&String, &String)> = entry.labels.iter().collect();
+    labels.sort();
+
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    line.hash(&mut hasher);
+    labels.hash(&mut hasher);
+    entry.line.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -117,28 +168,25 @@ impl Importer<'_> {
             );
 
             for window in windows {
-                let mut cursor = window
+                let cursor = window
                     .start
                     .timestamp_nanos_opt()
                     .context("shard start is outside the nanosecond range")?;
                 let mut records_in_shard = 0u64;
                 let mut bytes_in_shard = 0u64;
-                // Lines already sent at exactly `cursor`. The page resumes at that instant rather
-                // than past it, so this is what stops the boundary entries arriving twice.
-                let mut sent_at_cursor: HashSet<u64> = HashSet::new();
+                let mut boundary = BoundaryFilter::new(cursor);
 
                 loop {
-                    let (entries, next) = self.loki.query_page(selector, cursor, window.end)?;
+                    let (entries, next) =
+                        self.loki
+                            .query_page(selector, boundary.cursor(), window.end)?;
                     if entries.is_empty() {
                         break;
                     }
 
                     let fresh: Vec<_> = entries
                         .into_iter()
-                        .filter(|entry| {
-                            entry.timestamp_ns != cursor
-                                || !sent_at_cursor.contains(&line_key(&entry.line))
-                        })
+                        .filter(|entry| boundary.keep(entry))
                         .collect();
 
                     let mapped: Vec<_> = fresh.iter().map(|e| self.mapper.map(e)).collect();
@@ -150,6 +198,7 @@ impl Importer<'_> {
                     }
 
                     let Some(resume) = next else { break };
+                    let cursor = boundary.cursor();
 
                     // Loki answering with entries at or before the cursor would otherwise re-fetch
                     // and re-send the same page forever.
@@ -166,12 +215,7 @@ impl Importer<'_> {
                         );
                     }
 
-                    sent_at_cursor = fresh
-                        .iter()
-                        .filter(|entry| entry.timestamp_ns == resume)
-                        .map(|entry| line_key(&entry.line))
-                        .collect();
-                    cursor = resume;
+                    boundary.advance(&fresh, resume);
                 }
 
                 // Only after every batch in the window is acknowledged, so a crash re-sends this
@@ -195,28 +239,45 @@ impl Importer<'_> {
     }
 
     fn send(&self, batch: &Batch) -> Result<()> {
+        let mut last_transport_error = None;
+
         for attempt in 0..MAX_ATTEMPTS {
-            let response = self
+            let sent = self
                 .http
                 .post(&self.intake_url)
                 .header("Content-Type", "application/json")
                 .bearer_auth(&self.project_key)
                 .body(batch.body.clone())
-                .send()
-                .context("failed to reach the PostHog logs intake")?;
+                .send();
 
-            let retry_after = response
-                .headers()
-                .get(reqwest::header::RETRY_AFTER)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_string);
+            let disposition = match sent {
+                Ok(response) => {
+                    let retry_after = response
+                        .headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|value| value.to_str().ok())
+                        .map(str::to_string);
+                    classify(response.status(), retry_after.as_deref(), attempt)
+                }
+                // A reset connection, a DNS blip or a client timeout is transient. Failing the
+                // whole run on one costs a shard of duplicates when it restarts.
+                Err(error) if error.is_timeout() || error.is_connect() => {
+                    last_transport_error = Some(error.to_string());
+                    Disposition::Retry(backoff(attempt))
+                }
+                Err(error) => return Err(error).context("failed to reach the PostHog logs intake"),
+            };
 
-            match classify(response.status(), retry_after.as_deref(), attempt) {
+            match disposition {
                 Disposition::Accepted => return Ok(()),
                 Disposition::Permanent(message) => bail!(message),
                 Disposition::Retry(wait) => {
+                    // Sleeping before giving up wastes up to five minutes on a doomed run.
+                    if attempt + 1 == MAX_ATTEMPTS {
+                        break;
+                    }
                     eprintln!(
-                        "intake asked to wait {}s (attempt {}/{MAX_ATTEMPTS})",
+                        "retrying in {}s (attempt {}/{MAX_ATTEMPTS})",
                         wait.as_secs(),
                         attempt + 1
                     );
@@ -225,7 +286,12 @@ impl Importer<'_> {
             }
         }
 
-        bail!("gave up after {MAX_ATTEMPTS} attempts against the logs intake")
+        match last_transport_error {
+            Some(error) => bail!(
+                "gave up after {MAX_ATTEMPTS} attempts against the logs intake; last error: {error}"
+            ),
+            None => bail!("gave up after {MAX_ATTEMPTS} attempts against the logs intake"),
+        }
     }
 }
 
@@ -242,6 +308,67 @@ pub fn intake_url(host: &str, from: chrono::DateTime<chrono::Utc>) -> String {
 mod tests {
     use super::*;
     use chrono::{Duration, Utc};
+
+    fn at(timestamp_ns: i64, line: &str, pod: &str) -> Entry {
+        Entry {
+            timestamp_ns,
+            line: line.to_string(),
+            structured_metadata: Default::default(),
+            labels: std::collections::HashMap::from([("pod".to_string(), pod.to_string())]),
+        }
+    }
+
+    #[test]
+    fn an_instant_spanning_several_pages_never_resends_an_earlier_page() {
+        // Loki truncates by entry count, so one timestamp can be read over several pages that all
+        // start at it. Replacing the boundary set instead of extending it forgets page one, and
+        // page three sends it again.
+        let mut boundary = BoundaryFilter::new(100);
+        let page_one = vec![at(100, "a", "p1"), at(100, "b", "p1")];
+        boundary.advance(&page_one, 100);
+
+        let page_two = vec![at(100, "c", "p1")];
+        boundary.advance(&page_two, 100);
+
+        assert!(
+            !boundary.keep(&at(100, "a", "p1")),
+            "page one must stay suppressed"
+        );
+        assert!(
+            !boundary.keep(&at(100, "c", "p1")),
+            "page two must stay suppressed"
+        );
+        assert!(
+            boundary.keep(&at(100, "d", "p1")),
+            "an unseen entry must pass"
+        );
+    }
+
+    #[test]
+    fn two_streams_emitting_the_same_line_at_one_instant_are_different_records() {
+        // Hashing the line alone drops one of them, which is data loss rather than duplication.
+        let mut boundary = BoundaryFilter::new(100);
+        boundary.advance(&[at(100, "health check ok", "pod-a")], 100);
+
+        assert!(!boundary.keep(&at(100, "health check ok", "pod-a")));
+        assert!(boundary.keep(&at(100, "health check ok", "pod-b")));
+    }
+
+    #[test]
+    fn moving_off_an_instant_forgets_it() {
+        // Otherwise the set grows for the whole shard rather than one timestamp's worth.
+        let mut boundary = BoundaryFilter::new(100);
+        boundary.advance(&[at(100, "a", "p1")], 100);
+
+        boundary.advance(&[at(200, "b", "p1")], 200);
+
+        assert_eq!(boundary.cursor(), 200);
+        assert!(
+            boundary.keep(&at(100, "a", "p1")),
+            "a past instant is no longer suppressed"
+        );
+        assert!(!boundary.keep(&at(200, "b", "p1")));
+    }
 
     #[test]
     fn the_backfill_window_covers_the_oldest_record_in_the_range() {
