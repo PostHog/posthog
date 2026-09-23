@@ -373,7 +373,7 @@ class TestProxyRecordAPI(APIBaseTest):
     def test_allowlisted_org_can_create_reserved_posthog_domain(self, mock_capture, mock_sync_connect):
         mock_sync_connect.return_value = AsyncMock()
 
-        with override_settings(PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS=[str(self.organization.id)]):
+        with override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(self.organization.id)]):
             response = self.client.post(
                 f"/api/organizations/{self.organization.id}/proxy_records/",
                 {"domain": "internal-cf.posthog.com"},
@@ -392,7 +392,7 @@ class TestProxyRecordAPI(APIBaseTest):
     )
     @patch("posthog.api.proxy_record.sync_connect")
     def test_allowlisted_org_cannot_create_non_subdomain_reserved(self, _name, domain, mock_sync_connect):
-        with override_settings(PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS=[str(self.organization.id)]):
+        with override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(self.organization.id)]):
             response = self.client.post(
                 f"/api/organizations/{self.organization.id}/proxy_records/",
                 {"domain": domain},
@@ -415,7 +415,7 @@ class TestProxyRecordAPI(APIBaseTest):
             status=ProxyRecord.Status.ERRORING,
         )
 
-        with override_settings(PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS=[str(self.organization.id)]):
+        with override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(self.organization.id)]):
             response = self.client.post(
                 f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
             )
@@ -436,7 +436,7 @@ class TestProxyRecordAPI(APIBaseTest):
             status=ProxyRecord.Status.ERRORING,
         )
 
-        with override_settings(PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS=[str(self.organization.id)]):
+        with override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(self.organization.id)]):
             response = self.client.post(
                 f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
             )

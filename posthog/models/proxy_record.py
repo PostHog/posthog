@@ -107,7 +107,7 @@ def org_may_register_reserved_domain(organization_id: str | UUID, domain: str) -
     """Whether `organization_id` may register the reserved `domain`.
 
     `is_reserved_proxy_domain` keeps every org from claiming a PostHog-owned hostname. This is
-    its only exception: an org allowlisted via `PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS` (PostHog's
+    its only exception: an org listed in `POSTHOG_INTERNAL_ORG_IDS` (PostHog's
     own org, set per environment) may register a domain under
     `RESERVED_PROXY_DOMAIN_EXCEPTION_APEXES` — i.e. a posthog.com subdomain, for internal
     proxies. A domain under any other reserved apex, and every non-allowlisted org, is still
@@ -117,7 +117,7 @@ def org_may_register_reserved_domain(organization_id: str | UUID, domain: str) -
     domain = domain.lower()
     if not any(domain.endswith(f".{apex}") for apex in RESERVED_PROXY_DOMAIN_EXCEPTION_APEXES):
         return False
-    return str(organization_id) in settings.PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS
+    return str(organization_id) in settings.POSTHOG_INTERNAL_ORG_IDS
 
 
 class ProxyRecord(UUIDTModel):
