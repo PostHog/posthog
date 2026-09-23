@@ -10892,6 +10892,14 @@ snapshots:
         hash: v1.k794b7964.c2bdcdc0dae9ab40e695772337ae95876f4f65dee34af627210f5af55fa567e9.OrMBp-9yqlfHY7s8HIzZg8R6M2i0lPVY5q9mx__VSjk
     scenes-app-settings-user--settings-user-api-keys--light:
         hash: v1.k794b7964.2fcad88dd8709df220d60e553cea06b9e7af4bf32c0e98dc7c6631bba44b8822.6tMZsPffcNgEVB_bav3sBcfddnKuPexrLg2WphmxIGk
+    scenes-app-settings-user--settings-user-backup-codes-modal--dark:
+        hash: v1.k794b7964.fee174652504bedf45b5050dae77b7f38ffaac07d04c14c8c77b010d565cba97.n_drnTbGpOMa04Hy05-KZlJhx74bmdscz3V2bjDSQiw
+    scenes-app-settings-user--settings-user-backup-codes-modal--light:
+        hash: v1.k794b7964.a6d4de942462e384228d3160e0aa72ac6de80f9ae1fd544d0262b46b986c4f1f.dqZ70IdpK5mzkvC9o6S19kkXOkUeC-2p2vtwAUsWbP0
+    scenes-app-settings-user--settings-user-backup-codes-modal-generated--dark:
+        hash: v1.k794b7964.ebaed96fc7dd67f79c20a1ea701db4b94f83c25a092d18e901815d616bcfb98a.3XttF9XT00MDZeExeKWDDS3Svqh-w8JJSQk7f0i1sag
+    scenes-app-settings-user--settings-user-backup-codes-modal-generated--light:
+        hash: v1.k794b7964.9c51bd1bd794659c4b6fdf9a5612dbf375e08f30375778c77cd79caff47c5aa7.s_2QKaTg7Wc2fBiUbAXjD4TG43A37T9Bpbrj3XFCN_Q
     scenes-app-settings-user--settings-user-customization--dark:
         hash: v1.k794b7964.e3cb983829969c536ba751fc3ab560e00a5e04d7ae3c8b97af48a2c838777a3d.myN7aIIAXAlJSkiJ4315fH6yebYG0XL86cRebeBvYv8
     scenes-app-settings-user--settings-user-customization--light:
@@ -10916,6 +10924,10 @@ snapshots:
         hash: v1.k794b7964.239346cd0abcf55998302af26ff564e92f56a261f6bb43b3d2063a2404c7cbdb.NvuonbjMwGbrkFpqCPGxUx4zmuSPU_CQKSI_PEIjQpY
     scenes-app-settings-user--settings-user-profile-hedgehog-avatar--light:
         hash: v1.k794b7964.38fa67af25aa26dbad8e49e9e2acb0b021f755284ded1b1178b43256a47aeb05.KfjJ7Ia0xPCen9TOxy81P2LFHWKQGGDAMR80AJofFic
+    scenes-app-settings-user--settings-user-profile-stale-session--dark:
+        hash: v1.k794b7964.3b7c016ddd09e595239ead276cf9ee430ffc41ebbd80d611b21f5e8be484bcca.Ht4Lfz6Ty0dOyyhvXAHPE-gUW6Rvb8dAid1ZVaAh4sI
+    scenes-app-settings-user--settings-user-profile-stale-session--light:
+        hash: v1.k794b7964.7065458715c17c9b865c3574e941fe1ff3a9a8370f5774031d05e38033f9a919.0DsA-uuULQts_SJaYekwBuM3d5D0UcEh1o2adba-6J8
     scenes-app-settings-user--settings-user-reminders-modal--dark:
         hash: v1.k794b7964.d0767a8deef594f605dea9ffde6b7fc39276ba9dd2673558fbffa4452afa17a3.nAo3JBm4U0nqWPSI9hPJDAiTYAZjhytrSWTCcBeh5to
     scenes-app-settings-user--settings-user-reminders-modal--light:
