@@ -64,6 +64,18 @@ tools:
     dashboards-sharing-refresh-create:
         operation: dashboards_sharing_refresh_create
         enabled: false
+    data-deletion-requests-create:
+        operation: data_deletion_requests_create
+        enabled: false
+    data-deletion-requests-list:
+        operation: data_deletion_requests_list
+        enabled: false
+    data-deletion-requests-preview-create:
+        operation: data_deletion_requests_preview_create
+        enabled: false
+    data-deletion-requests-retrieve:
+        operation: data_deletion_requests_retrieve
+        enabled: false
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
