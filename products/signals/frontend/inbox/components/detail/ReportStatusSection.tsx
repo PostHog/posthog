@@ -56,7 +56,7 @@ export function ReportStatusSection({
     const trackerUrl = safeHttpUrl(report.tracker_issue_url ?? '')
 
     return (
-        <DetailSection icon={<IconInfo />} title="Status" rightSlot={rightSlot}>
+        <DetailSection icon={<IconInfo />} title="Status" rightSlot={rightSlot} collapsible>
             <dl className="m-0 flex flex-col gap-2">
                 <StatusRow label="Report status">{STATUS_LABELS[report.status] ?? report.status}</StatusRow>
                 {externalClaim && <StatusRow label="In progress by">{externalClaim}</StatusRow>}
