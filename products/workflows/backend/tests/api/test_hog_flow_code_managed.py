@@ -89,10 +89,18 @@ class TestCodeManagedHogFlow(APIBaseTest):
         assert body["extra"]["source_repository"] == "github.com/example/flows"
         assert body["extra"]["source_path"] == "workflows/welcome.ts"
 
-    def test_a_push_that_lands_mid_request_still_refuses_the_write(self) -> None:
+    @parameterized.expand(
+        [
+            ("update", "patch", {"name": "Renamed in the UI"}),
+            ("destroy", "delete", None),
+        ]
+    )
+    def test_a_push_that_lands_mid_request_still_refuses_the_write(
+        self, _name: str, method: str, payload: dict | None
+    ) -> None:
         # The race the locked re-read exists for: the permission check passes on a workflow the app
-        # owns, a push claims it, and the write lands on a row that is now code-managed. The flip runs
-        # after get_object() returns, which is the moment between the check and the row lock.
+        # owns, a push claims it, and the mutation would land on a row that is now code-managed. The
+        # flip runs after get_object() returns, which is the moment between the check and the row lock.
         gui_workflow = self._create_workflow(managed_by=HogFlow.ManagedBy.GUI)
         original_get_object = HogFlowViewSet.get_object
 
@@ -101,10 +109,10 @@ class TestCodeManagedHogFlow(APIBaseTest):
             HogFlow.objects.filter(pk=hog_flow.pk).update(managed_by=HogFlow.ManagedBy.CODE)
             return hog_flow
 
+        call = getattr(self.client, method)
+        url = f"/api/projects/{self.team.id}/hog_flows/{gui_workflow.id}"
         with patch.object(HogFlowViewSet, "get_object", get_object_then_push):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/hog_flows/{gui_workflow.id}", {"name": "Renamed in the UI"}
-            )
+            response = call(url, payload) if payload is not None else call(url)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert response.json()["code"] == "immutable", response.json()
