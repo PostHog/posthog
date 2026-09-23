@@ -434,53 +434,16 @@ export class KafkaConsumer {
                 Promise.all(this.backgroundTask.map((t) => t.promise))
                     .then(() => {
                         logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
-                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
-                            this.rdKafkaConsumer.incrementalUnassign(assignments)
-                        } else {
-                            this.rdKafkaConsumer.unassign()
-                        }
-                        this.updateMetricsAfterRevocation(assignments)
-                        try {
-                            if (this.assignments().length === 0) {
-                                this.resetRebalanceCoordination()
-                            }
-                        } catch (error) {
-                            // Consumer might be in an erroneous state, reset anyway to be safe
-                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
-                                error: String(error),
-                            })
-                            this.resetRebalanceCoordination()
-                        }
+                        this.completeRevocation(assignments)
                     })
                     .catch((error) => {
                         logger.error('🔁', 'background_task_error_during_revocation', { error })
                         // Still proceed with revocation even if background tasks fail
-                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
-                            this.rdKafkaConsumer.incrementalUnassign(assignments)
-                        } else {
-                            this.rdKafkaConsumer.unassign()
-                        }
-                        this.updateMetricsAfterRevocation(assignments)
-                        try {
-                            if (this.assignments().length === 0) {
-                                this.resetRebalanceCoordination()
-                            }
-                        } catch (error) {
-                            // Consumer might be in an erroneous state, reset anyway to be safe
-                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
-                                error: String(error),
-                            })
-                            this.resetRebalanceCoordination()
-                        }
+                        this.completeRevocation(assignments)
                     })
             } else {
                 // No background tasks, proceed immediately
-                if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
-                    this.rdKafkaConsumer.incrementalUnassign(assignments)
-                } else {
-                    this.rdKafkaConsumer.unassign()
-                }
-                this.updateMetricsAfterRevocation(assignments)
+                this.completeRevocation(assignments)
             }
         } else {
             // Ignore exceptions if we are not connected
@@ -491,6 +454,16 @@ export class KafkaConsumer {
                 logger.warn('🔥', 'kafka_consumer_rebalancing_error_while_not_connected', { err })
             }
         }
+    }
+
+    private completeRevocation(assignments: Assignment[]): void {
+        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+            this.rdKafkaConsumer.incrementalUnassign(assignments)
+        } else {
+            this.rdKafkaConsumer.unassign()
+        }
+        this.updateMetricsAfterRevocation(assignments)
+        this.resetRebalanceCoordination()
     }
 
     private updateMetricsAfterRevocation(assignments: Assignment[]): void {

@@ -369,16 +369,6 @@ describe('consumer', () => {
     })
 
     describe('rebalancing', () => {
-        it('should set rebalancing state during partition revocation', () => {
-            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
-
-            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
-                { topic: 'test-topic', partition: 1 },
-            ])
-
-            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(true)
-        })
-
         it('should clear rebalancing state during partition assignment', () => {
             consumer['rebalanceCoordination'].isRebalancing = true
 
@@ -389,8 +379,9 @@ describe('consumer', () => {
             expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
         })
 
-        it('should call incrementalUnassign when no background tasks exist', async () => {
+        it('should unassign and resume consuming when no background tasks exist', async () => {
             consumer['backgroundTask'] = []
+            mockRdKafkaConsumer.assignments.mockReturnValue([{ topic: 'test-topic', partition: 2 }])
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
@@ -400,9 +391,11 @@ describe('consumer', () => {
             expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
                 { topic: 'test-topic', partition: 1 },
             ])
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
         })
 
         it('should wait for background tasks before calling incrementalUnassign', async () => {
+            mockRdKafkaConsumer.assignments.mockReturnValue([{ topic: 'test-topic', partition: 2 }])
             // Create controllable promises to test actual waiting behavior
             const task1 = triggerablePromise()
             const task2 = triggerablePromise()
@@ -436,6 +429,7 @@ describe('consumer', () => {
             expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
                 { topic: 'test-topic', partition: 1 },
             ])
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
         })
     })
 })
