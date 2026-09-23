@@ -1,3 +1,4 @@
+import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
@@ -153,7 +154,8 @@ export interface PostgresMergePolicy {
 function propertyChanges(before: Properties, after: Properties): { toSet: Properties; toUnset: string[] } {
     const toSet: Properties = {}
     for (const [key, value] of Object.entries(after)) {
-        if (before[key] !== value) {
+        // Structural: the outcome is a deep copy, so a reference check would re-send every object value.
+        if (!isEqual(before[key], value)) {
             toSet[key] = value
         }
     }
@@ -258,31 +260,35 @@ export class PostgresPersonMerge {
     private async lockedMergeOutcome(
         tx: PersonsStoreTransactionForBatch,
         target: InternalPerson,
-        sources: InternalPerson[],
+        sources: { person: InternalPerson; distinctId: string }[],
         missing: (role: 'target' | 'source') => Error
     ): Promise<{ changes: { toSet: Properties; toUnset: string[] }; createdAt: DateTime }> {
         const rows = await tx.lockPersons(
             target.team_id,
-            [target.id, ...sources.map((source) => source.id)],
+            [target.id, ...sources.map((source) => source.person.id)],
             this.targetDistinctId
         )
         const byId = new Map(rows.map((row) => [row.id, row]))
+        // This batch's unflushed changes ride on the locked row; the move clears the source's entry.
+        const withPending = (row: InternalPerson, distinctId: string): InternalPerson => {
+            const pending = tx.pendingPropertyChanges(row.team_id, distinctId)
+            const properties = { ...row.properties, ...pending?.toSet }
+            for (const key of pending?.toUnset ?? []) {
+                delete properties[key]
+            }
+            return { ...row, properties }
+        }
         const lockedRow = byId.get(target.id)
         if (!lockedRow) {
             throw missing('target')
         }
-        const pending = tx.pendingPropertyChanges(target.team_id, this.targetDistinctId)
-        const targetProperties = { ...lockedRow.properties, ...pending?.toSet }
-        for (const key of pending?.toUnset ?? []) {
-            delete targetProperties[key]
-        }
-        const lockedTarget = { ...lockedRow, properties: targetProperties }
+        const lockedTarget = withPending(lockedRow, this.targetDistinctId)
         const lockedSources = sources.map((source) => {
-            const row = byId.get(source.id)
+            const row = byId.get(source.person.id)
             if (!row) {
                 throw missing('source')
             }
-            return row
+            return withPending(row, source.distinctId)
         })
         const merged: Properties = {}
         for (let i = lockedSources.length - 1; i >= 0; i--) {
@@ -487,40 +493,47 @@ export class PostgresPersonMerge {
             const distinctId2 = otherPersonDistinctId
 
             this.discardOverrideCounts()
-            const [person, kafkaMessages] = await this.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
-                // See comment above about `distinctIdVersion`: the first Distinct ID derives the
-                // new Person's UUID so it never needs an override; the second always gets one.
-                const distinctId1Version = 0
-                const distinctId2Version = 1
-                this.recordOverrideCount('neitherExist')
+            const [person, needsPersonUpdate, kafkaMessages] = await this.inTransaction(
+                'mergeDistinctIds-NeitherExist',
+                async (tx) => {
+                    // See comment above about `distinctIdVersion`: the first Distinct ID derives the
+                    // new Person's UUID so it never needs an override; the second always gets one.
+                    const distinctId1Version = 0
+                    const distinctId2Version = 1
+                    this.recordOverrideCount('neitherExist')
 
-                const [created, wasCreated, messages] = await this.createService.createPerson(
-                    this.timestamp,
-                    this.request.eventOps.set,
-                    this.request.eventOps.setOnce,
-                    teamId,
-                    null,
-                    true,
-                    this.request.eventUuid,
-                    { distinctId: distinctId1, version: distinctId1Version },
-                    [{ distinctId: distinctId2, version: distinctId2Version }],
-                    tx
-                )
-                if (!wasCreated) {
-                    // Another writer now owns one of the ids and this create wrote nothing, so the
-                    // other id is still unmapped. Re-entering from fresh state attaches it.
-                    throw new PersonMergeRaceConditionError(
-                        `person for ${distinctId1} or ${distinctId2} was created concurrently during a merge`
+                    const [created, wasCreated, messages] = await this.createService.createPerson(
+                        this.timestamp,
+                        this.request.eventOps.set,
+                        this.request.eventOps.setOnce,
+                        teamId,
+                        null,
+                        true,
+                        this.request.eventUuid,
+                        { distinctId: distinctId1, version: distinctId1Version },
+                        [{ distinctId: distinctId2, version: distinctId2Version }],
+                        tx
                     )
+                    if (!wasCreated) {
+                        // A retry can attach only when another writer now owns one of the ids.
+                        const owned =
+                            (await this.store.fetchForUpdate(teamId, distinctId1, this.batchId)) ??
+                            (await this.store.fetchForUpdate(teamId, distinctId2, this.batchId))
+                        if (owned) {
+                            throw new PersonMergeRaceConditionError(
+                                `person for ${distinctId1} or ${distinctId2} was created concurrently during a merge`
+                            )
+                        }
+                    }
+                    return [created, !wasCreated && !created.is_identified, messages] as const
                 }
-                return [created, messages] as const
-            })
+            )
             this.flushOverrideCounts()
             const kafkaAck = this.produceMessages(kafkaMessages)
             return {
                 survivor: person,
                 results: [{ sourceDistinctId: otherPersonDistinctId, outcome: 'attached' }],
-                survivorNeedsUpdate: false,
+                survivorNeedsUpdate: needsPersonUpdate,
                 kafkaAck,
             }
         }
@@ -639,6 +652,7 @@ export class PostgresPersonMerge {
 
         // Partition sources, preserving order for property-merge precedence.
         const mergeSources: InternalPerson[] = []
+        const mergeSourceDistinctIds: string[] = []
         const mergedSourceOutcomes: MergePersonsSourceResult[] = []
         const seenSourceIds = new Set<string>([target.id])
         const missingSources: MergePersonsSource[] = []
@@ -672,6 +686,7 @@ export class PostgresPersonMerge {
             }
             seenSourceIds.add(source.id)
             mergeSources.push(source)
+            mergeSourceDistinctIds.push(pair.distinctId)
             mergedSourceOutcomes.push({
                 sourceDistinctId: pair.distinctId,
                 outcome: 'merged',
@@ -720,7 +735,7 @@ export class PostgresPersonMerge {
                 const { changes, createdAt } = await this.lockedMergeOutcome(
                     tx,
                     currentTarget,
-                    mergeSources,
+                    mergeSources.map((person, i) => ({ person, distinctId: mergeSourceDistinctIds[i] })),
                     (role) => new MergeFoldConflictError(`Fold ${role} was deleted concurrently`)
                 )
                 ;[person, updateMessages] = await tx.updatePersonForMerge(
@@ -905,7 +920,8 @@ export class PostgresPersonMerge {
 
     private async executeTransaction(
         currentTargetPerson: InternalPerson,
-        currentSourcePerson: InternalPerson
+        currentSourcePerson: InternalPerson,
+        sourceDistinctId: string
     ): Promise<PersonMergeResult> {
         try {
             mergeTxnAttemptCounter
@@ -955,7 +971,7 @@ export class PostgresPersonMerge {
                 const { changes, createdAt } = await this.lockedMergeOutcome(
                     tx,
                     currentTargetPerson,
-                    [currentSourcePerson],
+                    [{ person: currentSourcePerson, distinctId: sourceDistinctId }],
                     (role) =>
                         role === 'target'
                             ? new TargetPersonNotFoundError('Target person was deleted concurrently')
@@ -1204,7 +1220,7 @@ export class PostgresPersonMerge {
         let currentSourcePerson = sourcePerson
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            const result = await this.executeTransaction(currentTargetPerson, currentSourcePerson)
+            const result = await this.executeTransaction(currentTargetPerson, currentSourcePerson, sourceDistinctId)
 
             if (result.success) {
                 return result

@@ -2117,7 +2117,7 @@ export class PostgresPersonRepository
      * No version assertion. Every field merges with the row rather than replacing it, so a
      * snapshot read before another writer's flush cannot undo that write: properties apply
      * as a diff, created_at only moves earlier, is_identified only turns on, last_seen_at only advances.
-     * The per-key metadata maps are not written here; the store never changes them, so unset only removes keys.
+     * The per-key metadata maps are left untouched; the store never changes them.
      */
     async updatePersonsBatch(
         personUpdates: PersonUpdate[]
@@ -2147,7 +2147,7 @@ export class PostgresPersonRepository
             // Only this update's own sets travel; the row keeps every key another
             // writer landed since this snapshot was read.
             properties.push(sanitizeJsonbValue(update.properties_to_set))
-            propertiesToUnset.push(JSON.stringify(update.properties_to_unset))
+            propertiesToUnset.push(sanitizeJsonbValue(update.properties_to_unset))
             isIdentified.push(update.is_identified)
             createdAt.push(update.created_at.toISO()!)
             lastSeenAt.push(update.last_seen_at?.toISO() ?? null)
@@ -2161,8 +2161,6 @@ export class PostgresPersonRepository
                 `
                 UPDATE posthog_person AS p SET
                     properties = (p.properties || batch.new_properties::jsonb) - unset.keys,
-                    properties_last_updated_at = p.properties_last_updated_at - unset.keys,
-                    properties_last_operation = p.properties_last_operation - unset.keys,
                     is_identified = p.is_identified OR batch.new_is_identified,
                     created_at = LEAST(p.created_at, batch.new_created_at::timestamp with time zone),
                     last_seen_at = GREATEST(p.last_seen_at, batch.new_last_seen_at::timestamp with time zone),

@@ -357,10 +357,39 @@ describe('PostgresPersonRepository', () => {
                 'fetchAfterBatch'
             )
             expect(rows.rows[0].properties).toEqual({ own: 'v2', from_merge: 'kept?' })
-            expect(rows.rows[0].properties_last_updated_at).toEqual({ from_merge: 'new' })
+            expect(rows.rows[0].properties_last_updated_at).toEqual({ from_merge: 'new', gone: 'x' })
             expect(Number(rows.rows[0].created_at_epoch)).toBe(Math.floor(olderCreatedAt.toSeconds()))
             expect(rows.rows[0].is_identified).toBe(true)
             expect(Number(rows.rows[0].last_seen_at_epoch)).toBe(Math.floor(laterLastSeenAt.toSeconds()))
+        })
+
+        it('updatePersonsBatch sanitizes null bytes in unset keys the same way as set keys', async () => {
+            const person = await createTestPerson(team.id, 'batch-null-byte-did')
+            const nullByteKey = 'bad\u0000key'
+            const sanitizedKey = 'bad\uFFFDkey'
+
+            // A set of the key lands sanitized; an unset of the same raw key must remove it, not fail the statement.
+            const setting = {
+                ...buildPersonUpdate(person, 'batch-null-byte-did', person.version),
+                properties_to_set: { [nullByteKey]: 'x', keep: 'y' },
+            }
+            expect((await repository.updatePersonsBatch([setting])).get(person.uuid)).toMatchObject({ success: true })
+
+            const unsetting = {
+                ...buildPersonUpdate(person, 'batch-null-byte-did', person.version),
+                properties_to_set: {},
+                properties_to_unset: [nullByteKey],
+            }
+            expect((await repository.updatePersonsBatch([unsetting])).get(person.uuid)).toMatchObject({ success: true })
+
+            const rows = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT properties FROM posthog_person WHERE team_id = $1 AND id = $2',
+                [team.id, person.id],
+                'fetchAfterNullByteUnset'
+            )
+            expect(rows.rows[0].properties).not.toHaveProperty(sanitizedKey)
+            expect(rows.rows[0].properties).toMatchObject({ keep: 'y' })
         })
 
         it('updatePersonsBatch skips tombstoned persons and leaves the death version intact', async () => {

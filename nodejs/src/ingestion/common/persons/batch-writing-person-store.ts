@@ -1,3 +1,4 @@
+import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
@@ -694,7 +695,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // that mutate an entry between this clear and the async DB write
         // will re-set `needs_write=true` and be picked up by the next flush.
         // DO NOT introduce any `await` inside this block.
+        // Write records are copies taken here; the settle step below mutates only the cache entry.
         const updateEntries: [string, PersonUpdate][] = []
+        const entriesByUuid = new Map<string, PersonUpdate>()
         for (const [key, update] of this.personCache.getUpdateCacheEntries()) {
             // Skip null entries - these are deleted persons or cleared cache entries
             if (!update) {
@@ -722,7 +725,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 })
                 metricsKeys.forEach((propertyKey) => personPropertyKeyUpdateCounter.labels({ key: propertyKey }).inc())
 
-                updateEntries.push([key, update])
+                updateEntries.push([
+                    key,
+                    {
+                        ...update,
+                        properties_to_set: { ...update.properties_to_set },
+                        properties_to_unset: [...update.properties_to_unset],
+                    },
+                ])
+                entriesByUuid.set(update.uuid, update)
             }
 
             // Clear needs_write for every dirty entry we considered, including
@@ -765,6 +776,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 }
             }
 
+            const recordsByUuid = new Map(updateEntries.map(([, record]) => [record.uuid, record]))
+            for (const result of allKafkaMessages) {
+                const entry = result.uuid === undefined ? undefined : entriesByUuid.get(result.uuid)
+                const record = result.uuid === undefined ? undefined : recordsByUuid.get(result.uuid)
+                if (entry && record) {
+                    this.settleWrittenChanges(entry, record)
+                }
+            }
+
             // Record successful flush
             const flushLatency = (performance.now() - flushStartTime) / 1000
             personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, flushLatency)
@@ -789,6 +809,22 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     getFlushStats(): BatchWritingStoreFlushStats {
         return this.personCache.getFlushStats()
+    }
+
+    /** Folds a landed write into the entry's base and out of its pending maps; a key re-set since keeps its newer value pending. */
+    private settleWrittenChanges(entry: PersonUpdate, written: PersonUpdate): void {
+        entry.properties = { ...entry.properties, ...written.properties_to_set }
+        for (const key of written.properties_to_unset) {
+            delete entry.properties[key]
+        }
+        for (const [key, value] of Object.entries(written.properties_to_set)) {
+            if (isEqual(entry.properties_to_set[key], value)) {
+                delete entry.properties_to_set[key]
+            }
+        }
+        entry.properties_to_unset = entry.properties_to_unset.filter(
+            (key) => !written.properties_to_unset.includes(key)
+        )
     }
 
     /**

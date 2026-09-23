@@ -2947,13 +2947,12 @@ describe('BatchWritingPersonStore', () => {
 
             // No second fetch — persistent cache had the person
             expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
-            // Second flush writes the accumulated state — which includes the
-            // batch 1 changes still in the cache (`a`, `b`) merged with batch
-            // 2 changes (`c` added, `a` unset).
+            // Batch 1's sets were folded into the base when they landed; only batch 2's changes travel.
             expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
             const secondCallPayload = mockRepo.updatePersonsBatch.mock.calls[1][0][0]
-            expect(secondCallPayload.properties_to_set).toEqual(expect.objectContaining({ b: '2', c: '3' }))
-            expect(secondCallPayload.properties_to_unset).toContain('a')
+            expect(secondCallPayload.properties_to_set).toEqual({ c: '3' })
+            expect(secondCallPayload.properties_to_unset).toEqual(['a'])
+            expect(secondCallPayload.properties).toEqual(expect.objectContaining({ a: '1', b: '2' }))
         })
 
         it('two distinct_ids pointing to the same person share a single cache entry across batches', async () => {

@@ -2133,9 +2133,19 @@ describe('PersonState.processEvent()', () => {
             await createPerson(hub, timestamp, { a: 1, b: 2 }, {}, {}, teamId, null, false, oldUserUuid, {
                 distinctId: oldUserDistinctId,
             })
-            await createPerson(hub, timestamp2, { b: 3, c: 4, d: 5 }, {}, {}, teamId, null, false, newUserUuid, {
-                distinctId: newUserDistinctId,
-            })
+            // `nested` is object-valued: unchanged by the merge, it must not travel as a set either.
+            await createPerson(
+                hub,
+                timestamp2,
+                { b: 3, c: 4, d: 5, nested: { k: [1, 2] } },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                { distinctId: newUserDistinctId }
+            )
 
             const mergeService = personMergeService({
                 event: '$identify',
@@ -2159,7 +2169,57 @@ describe('PersonState.processEvent()', () => {
             ])
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(1)
-            expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { a: 1, b: 3, d: 6 } })
+            expect(persons[0]).toMatchObject({
+                uuid: newUserUuid,
+                properties: { a: 1, b: 3, d: 6, nested: { k: [1, 2] } },
+            })
+        })
+
+        it(`merge carries a property this batch set on the source but has not flushed yet`, async () => {
+            await createPerson(hub, timestamp, { a: 1 }, {}, {}, teamId, null, false, oldUserUuid, {
+                distinctId: oldUserDistinctId,
+            })
+            await createPerson(hub, timestamp2, { b: 2 }, {}, {}, teamId, null, false, newUserUuid, {
+                distinctId: newUserDistinctId,
+            })
+            const batchStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+
+            // A $set on the source, buffered in the store; the row does not have it yet.
+            const source = await batchStore.fetchForUpdate(teamId, oldUserDistinctId, 0)
+            await batchStore.updatePersonWithPropertiesDiffForUpdate(
+                source!,
+                { pending: 'yes' },
+                [],
+                {},
+                oldUserDistinctId,
+                0
+            )
+
+            const mergeService = personMergeService(
+                {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    properties: { $anon_distinct_id: oldUserDistinctId },
+                },
+                hub,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                batchStore
+            )
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { a: 1, b: 2, pending: 'yes' } })
         })
 
         it(`merge carries a property another writer lands on the source after the merge read it`, async () => {
@@ -2230,6 +2290,25 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0].uuid).toEqual(newUserUuid)
             const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+        })
+
+        it(`does not retry a neither-exists merge when the uuid's holder owns neither id`, async () => {
+            // A live person already carries the target's uuid under a third distinct id, so the
+            // two-id create conflicts on the uuid alone; no retry can attach anything.
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, newUserUuid, {
+                distinctId: 'stranded-holder',
+            })
+            const created = jest.spyOn(personRepository, 'createPerson')
+
+            const mergeService = personMergeService({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: { $anon_distinct_id: oldUserDistinctId },
+            })
+            const result = await mergeService.handleIdentifyOrAlias()
+
+            expect(result.success).toBe(true)
+            expect(created).toHaveBeenCalledTimes(1)
         })
 
         it(`handles race condition when other thread creates the user`, async () => {

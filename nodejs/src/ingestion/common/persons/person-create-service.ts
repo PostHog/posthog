@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 import { personCreateConflictResolvedCounter } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
-import { logger } from '~/common/utils/logger'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { Properties } from '~/plugin-scaffold'
@@ -71,11 +70,6 @@ export class PersonCreateService {
 
             // Handle creation conflict - another process created the person concurrently
             if (result.error === 'CreationConflict') {
-                logger.info('person creation lost a race', {
-                    team_id: teamId,
-                    distinct_ids: result.distinctIds,
-                    conflicting_uuid: result.conflictingPerson?.uuid ?? null,
-                })
                 // Try to fetch the person that was created concurrently
                 const allDistinctIds = [primaryDistinctId, ...(extraDistinctIds || [])]
                 for (const distinctIdInfo of allDistinctIds) {
