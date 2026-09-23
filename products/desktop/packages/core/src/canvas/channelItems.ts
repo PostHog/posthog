@@ -376,10 +376,24 @@ function compareChannelItems(
  * below the sort it would fall off the end of the list's cap. The order inside
  * each half is the one that was chosen.
  */
+/**
+ * A list without a pinned run. A pin then orders and groups with everything
+ * else, and only the row's own badge says it is pinned. For a list that is not
+ * capped, or that a reader scrolls rather than scans, holding pins at the top
+ * moves a row the reader did not ask to move.
+ */
+export interface ChannelItemPinOptions {
+  pinnedRun?: boolean;
+}
+
 export function sortChannelItems(
   items: readonly ChannelItemModel[],
   sort: ChannelItemSort,
+  { pinnedRun = true }: ChannelItemPinOptions = {},
 ): ChannelItemModel[] {
+  if (!pinnedRun) {
+    return [...items].sort((a, b) => compareChannelItems(a, b, sort));
+  }
   const pinned = items.filter((item) => item.pinned);
   const rest = items.filter((item) => !item.pinned);
   return [
@@ -417,15 +431,16 @@ export function groupChannelItems(
   now: Date = new Date(),
   grouping: ChannelItemGrouping = DEFAULT_CHANNEL_ITEM_GROUPING,
   spaceOf?: (item: ChannelItemModel) => ChannelItemGroupKey | null,
+  { pinnedRun = true }: ChannelItemPinOptions = {},
 ): ChannelItemSection[] {
   const sections: ChannelItemSection[] = [];
 
-  const pinned = items.filter((item) => item.pinned);
+  const pinned = pinnedRun ? items.filter((item) => item.pinned) : [];
   if (pinned.length > 0) {
     sections.push({ key: PINNED_SECTION_KEY, label: "Pinned", items: pinned });
   }
 
-  const rest = items.filter((item) => !item.pinned);
+  const rest = pinnedRun ? items.filter((item) => !item.pinned) : [...items];
   if (rest.length === 0) return sections;
   if (grouping === "repository") {
     sections.push(...repositorySections(rest));

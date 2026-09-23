@@ -43,3 +43,9 @@ Users do not need to include items that already have a result to retry them.
 
 A provider rejection of an invalid token setting does not count as a truncated reply.
 The playground keeps the provider's explanation so users can correct the setting before trying again.
+
+## Browser compatibility
+
+The evaluations list keeps supported rows visible if the API returns an output type the browser cannot display.
+A refresh message explains that some evaluations are omitted.
+Deploy this compatibility behavior before enabling creation of a new evaluation output type.

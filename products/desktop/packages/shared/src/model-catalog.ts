@@ -1,5 +1,6 @@
 import type { Adapter } from "./adapter";
 import {
+  type CatalogModel,
   FALLBACK_REASONING_EFFORTS,
   FAMILY_REASONING_EFFORTS,
   MODELS,
@@ -9,8 +10,11 @@ import {
 
 export {
   type CatalogModel,
+  COST_BASELINE_LABEL,
+  COST_BASELINE_MODEL,
   DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
   MODELS,
+  type ModelCost,
   PROVIDER_BY_RUNTIME_ADAPTER,
   REASONING_EFFORTS,
   type ReasoningEffort,
@@ -68,12 +72,14 @@ export function reasoningEffortsForModel(
 }
 
 /**
- * The name the catalog pins for a model, or `undefined` to let the caller format the id.
- *
- * Only the ids whose derived name reads wrong carry one, so a caller keeps its formatter
- * for everything else. Mirrors `label_for_model` in
- * products/tasks/backend/model_catalog.py, so both surfaces name a model identically.
+ * The catalog's entry for a model id in any form a picker hands back. The gateway serves
+ * ids the catalog omits, so a miss is the ordinary case and never an error.
  */
+export function catalogModelFor(modelId: string): CatalogModel | undefined {
+  const normalized = normalizeModelId(modelId);
+  return MODELS.find((candidate) => candidate.id === normalized);
+}
+
 /**
  * Every access flag the catalog gates a model behind, without duplicates.
  *
@@ -97,11 +103,16 @@ export const MODEL_ACCESS_FLAGS: readonly string[] = [
  * projection can hide a model a person may use, never the other way round.
  */
 export function accessFlagForModel(modelId: string): string | undefined {
-  const normalized = normalizeModelId(modelId);
-  return MODELS.find((candidate) => candidate.id === normalized)?.accessFlag;
+  return catalogModelFor(modelId)?.accessFlag;
 }
 
+/**
+ * The name the catalog pins for a model, or `undefined` to let the caller format the id.
+ *
+ * Only the ids whose derived name reads wrong carry one, so a caller keeps its formatter
+ * for everything else. Mirrors `label_for_model` in
+ * products/tasks/backend/model_catalog.py, so both surfaces name a model identically.
+ */
 export function labelForModel(modelId: string): string | undefined {
-  const normalized = normalizeModelId(modelId);
-  return MODELS.find((candidate) => candidate.id === normalized)?.label;
+  return catalogModelFor(modelId)?.label;
 }
