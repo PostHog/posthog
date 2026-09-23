@@ -31,10 +31,9 @@ TABLE_NAME = "logs_volume_buckets"
 
 
 def LOGS_VOLUME_BUCKETS_TABLE_SQL():
-    # No TTL in tests: fixture timestamps are fixed calendar dates that age past 42 days against
-    # the real clock, and this clause is a custom shape (a per-row column, not a fixed interval)
-    # that ttl_period() (posthog/clickhouse/kafka_engine.py) doesn't cover, so its guard is inlined
-    # here instead of reused.
+    # Tests use no TTL. Test fixtures use fixed dates, and the TTL deletes rows older than 42 days.
+    # This TTL uses a column per row, not a fixed interval. ttl_period() in
+    # posthog/clickhouse/kafka_engine.py does not support this, so this function has its own guard.
     ttl_clause = "" if settings.TEST else "TTL time_bucket + toIntervalDay(greatest(42, retention_days))"
     return f"""
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}

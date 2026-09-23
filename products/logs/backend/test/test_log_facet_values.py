@@ -34,9 +34,9 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             {sql}
         """)
 
-        # severity_text/service_name facets read logs_volume_buckets, not the logs table
-        # directly (see LogFacetValuesQueryRunner._column_facet_query_from_rollup) — derive rollup
-        # rows from the same fixture, on its 5-minute bucket grid, so the two can't drift apart.
+        # The severity_text and service_name facets read logs_volume_buckets, not the logs table.
+        # See LogFacetValuesQueryRunner._column_facet_query_from_rollup. Make the rollup rows from
+        # the same fixture, in 5-minute buckets, so that the two tables always agree.
         bucket_counts: Counter[tuple[int, dt.datetime, str, str]] = Counter()
         for log_item in log_items:
             timestamp = dt.datetime.fromisoformat(log_item["timestamp"]).replace(tzinfo=dt.UTC)
