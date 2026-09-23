@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,6 +10,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { UserBasicType } from '~/types'
 
 import type { HogFlowRevisionBasicApi } from '../generated/api.schemas'
+import { workflowSource } from './codeManagedWorkflow'
 import { workflowLogic } from './workflowLogic'
 import { workflowRevisionsLogic } from './workflowRevisionsLogic'
 
@@ -17,9 +18,13 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
     const logic = workflowRevisionsLogic({ id })
     const { revisions, revisionsCount, revisionsResponseLoading, restoringVersion } = useValues(logic)
     const { restoreRevision } = useActions(logic)
-    const { originalWorkflow, workflowUserAccessLevel, workflowSaveDisabledReason } = useValues(workflowLogic({ id }))
+    const { originalWorkflow, workflowUserAccessLevel, workflowSaveDisabledReason, isCodeManaged } = useValues(
+        workflowLogic({ id })
+    )
 
     const liveVersion = originalWorkflow?.version
+    // A revision records no ref, so only the live version can say which push produced it.
+    const liveSource = isCodeManaged ? workflowSource(originalWorkflow) : null
 
     return (
         <div className="flex flex-col gap-2">
@@ -72,6 +77,29 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
                         key: 'created_at',
                         render: (_, revision) => <TZLabel time={revision.created_at} />,
                     },
+                    ...(liveSource
+                        ? [
+                              {
+                                  title: 'Source',
+                                  key: 'source',
+                                  render: (_: unknown, revision: HogFlowRevisionBasicApi) =>
+                                      revision.version === liveVersion && liveSource.ref ? (
+                                          liveSource.refUrl ? (
+                                              <Link
+                                                  to={liveSource.refUrl}
+                                                  target="_blank"
+                                                  className="font-mono"
+                                                  data-attr="workflow-revision-source-ref"
+                                              >
+                                                  {liveSource.ref}
+                                              </Link>
+                                          ) : (
+                                              <span className="font-mono">{liveSource.ref}</span>
+                                          )
+                                      ) : null,
+                              },
+                          ]
+                        : []),
                     {
                         key: 'actions',
                         width: 0,

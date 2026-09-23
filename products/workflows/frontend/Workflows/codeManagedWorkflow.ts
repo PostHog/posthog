@@ -1,3 +1,5 @@
+import { GitMetadataParser } from 'lib/components/Git/gitMetadataParser'
+
 import { HogFlow } from './hogflows/types'
 
 /**
@@ -27,4 +29,32 @@ export function codeManagedReason(workflow: HogFlow | null | undefined): string 
 /** Why a code-managed workflow cannot be deleted here. */
 export function codeManagedDeleteReason(workflow: HogFlow | null | undefined): string {
     return `This workflow is managed by code, in ${workflowSourceLabel(workflow)}. It cannot be deleted here.`
+}
+
+/**
+ * The recorded source of a workflow, with a link for each part that the host lets us build one for.
+ * A part the row does not record is null, and a part on a host we cannot link has no URL.
+ */
+export interface WorkflowSource {
+    path: string | null
+    fileUrl: string | undefined
+    repository: string | null
+    repositoryUrl: string | undefined
+    /** A sha shortened to 7 characters, or a branch as it is. */
+    ref: string | null
+    refUrl: string | undefined
+}
+
+export function workflowSource(workflow: HogFlow | null | undefined): WorkflowSource {
+    const repository = workflow?.source_repository || undefined
+    const path = workflow?.source_path || undefined
+    const ref = workflow?.source_ref || undefined
+    return {
+        path: path ?? null,
+        fileUrl: GitMetadataParser.getFileLink(repository, ref, path),
+        repository: repository ?? null,
+        repositoryUrl: GitMetadataParser.getRepoLink(repository),
+        ref: ref ? (GitMetadataParser.isCommitSha(ref) ? ref.slice(0, 7) : ref) : null,
+        refUrl: GitMetadataParser.getRefLink(repository, ref),
+    }
 }
