@@ -841,6 +841,22 @@ class BillingManager:
     def get_organization_forecast(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._organization_get(organization, grants, "forecast/")
 
+    def get_organization_export(
+        self, organization: Organization, grants: EffectiveBillingGrants, kind: str, params: dict[str, Any]
+    ) -> requests.Response:
+        """Stream a usage or spend CSV from billing's organization export route, with the export
+        timeout. Returns the response rather than parsed data, so the file streams through."""
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}/api/v2/billing/{kind}/export/",
+            headers=self.organization_api_headers(organization, grants),
+            params=self._to_query_params(params),
+            timeout=BILLING_EXPORT_REQUEST_TIMEOUT,
+            stream=True,
+        )
+        _raise_for_organization_error(res)
+        handle_billing_service_error(res, valid_codes=(200,))
+        return res
+
     def get_organization_invoices(
         self,
         organization: Organization,

@@ -502,6 +502,40 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
         self.assertIn("scoped projects", response.json()["detail"])
 
     @patch("ee.billing.billing_manager.http_session.get")
+    async def test_export_streams_billing_csv_with_project_names_written_in(self, mock_get):
+        upstream = MagicMock()
+        upstream.status_code = 200
+        upstream.headers = {"Content-Type": "text/csv", "Content-Disposition": 'attachment; filename="usage.csv"'}
+        upstream.iter_content.return_value = iter(
+            [b"Product,Project,Project ID,Total\n", f"events,{self.team.id},{self.team.id},10\n".encode()]
+        )
+        mock_get.return_value = upstream
+        await self.async_client.aforce_login(self.user)
+        response = await self.async_client.get(
+            self._url(
+                "usage/export/?start_date=2026-09-01&end_date=2026-09-14&breakdowns=%5B%22type%22%2C%22team%22%5D"
+            )
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, getattr(response, "content", b"")[:200])
+        self.assertEqual(response["Content-Disposition"], 'attachment; filename="usage.csv"')
+        body = b"".join([chunk async for chunk in cast(Any, response).streaming_content])
+        self.assertEqual(
+            body.decode(), f"Product,Project,Project ID,Total\nevents,{self.team.name},{self.team.id},10\n"
+        )
+        sent = mock_get.call_args
+        self.assertTrue(sent.args[0].endswith("/api/v2/billing/usage/export/"), sent.args[0])
+        self.assertTrue(sent.kwargs["stream"])
+        self.assertNotIn("teams_map", sent.kwargs["params"])
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_member_without_the_read_flag_is_refused_the_export_before_billing_is_called(self, mock_get):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get(self._url("spend/export/?start_date=2026-09-01&end_date=2026-09-14"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get.assert_not_called()
+
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_member_series_are_clipped_to_the_teams_they_can_see(self, mock_get):
         mock_get.return_value = _response(SERIES)
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
