@@ -1,6 +1,7 @@
 from .alerts import AlertsRecommendation
 from .base import Recommendation
 from .long_running_issues import LongRunningIssuesRecommendation
+from .quiet_issues import QuietIssuesRecommendation
 from .rate_limits import RateLimitsRecommendation
 from .source_maps import SourceMapsRecommendation
 
@@ -9,6 +10,7 @@ from .source_maps import SourceMapsRecommendation
 RECOMMENDATIONS: list[Recommendation] = [
     AlertsRecommendation(),
     LongRunningIssuesRecommendation(),
+    QuietIssuesRecommendation(),
     RateLimitsRecommendation(),
     SourceMapsRecommendation(),
 ]

@@ -14,6 +14,7 @@ from posthog.models.utils import uuid7
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.error_tracking.backend.logic.recommendations.alerts import AlertsRecommendation
 from products.error_tracking.backend.logic.recommendations.long_running_issues import LongRunningIssuesRecommendation
+from products.error_tracking.backend.logic.recommendations.quiet_issues import QuietIssuesRecommendation
 from products.error_tracking.backend.logic.recommendations.rate_limits import RateLimitsRecommendation
 from products.error_tracking.backend.logic.recommendations.source_maps import SourceMapsRecommendation
 from products.error_tracking.backend.models import (
@@ -79,9 +80,9 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         response = self._list()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 4)
+        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 5)
         types = {r["type"] for r in response.json()["results"]}
-        self.assertEqual(types, {"alerts", "long_running_issues", "rate_limits", "source_maps"})
+        self.assertEqual(types, {"alerts", "long_running_issues", "quiet_issues", "rate_limits", "source_maps"})
 
     @patch(
         "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
@@ -287,6 +288,75 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         meta = {"issues": [{"id": "x"}]}
         self.assertFalse(LongRunningIssuesRecommendation().is_completed(meta))
 
+    def test_quiet_returns_active_issues_with_no_recent_exceptions(self):
+        quiet = self._create_issue(created_at=timezone.now() - timedelta(days=120), name="Gone quiet")
+        still_firing = self._create_issue(created_at=timezone.now() - timedelta(days=120), name="Still firing")
+        self._create_exception(quiet.id, _days_ago(90))
+        self._create_exception(still_firing.id, _days_ago(90))
+        self._create_exception(still_firing.id, _days_ago(1))
+        flush_persons_and_events()
+
+        meta = QuietIssuesRecommendation().compute(self.team)
+
+        self.assertEqual([i["name"] for i in meta["issues"]], ["Gone quiet"])
+        self.assertEqual(meta["total"], 1)
+        self.assertEqual(meta["issues"][0]["status"], ErrorTrackingIssue.Status.ACTIVE)
+
+    def test_quiet_ignores_issues_first_seen_inside_the_window(self):
+        recent = self._create_issue(created_at=timezone.now() - timedelta(days=3), name="Brand new")
+        self._create_exception(recent.id, _days_ago(3))
+        flush_persons_and_events()
+
+        meta = QuietIssuesRecommendation().compute(self.team)
+
+        self.assertEqual(meta["issues"], [])
+
+    def test_quiet_excludes_non_active_issues(self):
+        resolved = self._create_issue(
+            created_at=timezone.now() - timedelta(days=120),
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            name="Already resolved",
+        )
+        self._create_exception(resolved.id, _days_ago(90))
+        flush_persons_and_events()
+
+        meta = QuietIssuesRecommendation().compute(self.team)
+
+        self.assertEqual(meta["issues"], [])
+
+    def test_quiet_reports_total_beyond_the_sample_and_lists_oldest_first(self):
+        for i in range(8):
+            issue = self._create_issue(created_at=timezone.now() - timedelta(days=120 - i), name=f"Quiet {i:02d}")
+            self._create_exception(issue.id, _days_ago(90))
+        flush_persons_and_events()
+
+        meta = QuietIssuesRecommendation().compute(self.team)
+
+        self.assertEqual([i["name"] for i in meta["issues"]], [f"Quiet {i:02d}" for i in range(5)])
+        self.assertEqual(meta["total"], 8)
+
+    def test_quiet_ignores_other_teams_issues(self):
+        other_issue_id = str(uuid4())
+        self._create_exception(other_issue_id, _days_ago(90))
+        flush_persons_and_events()
+
+        meta = QuietIssuesRecommendation().compute(self.team)
+
+        self.assertEqual(meta["issues"], [])
+
+    def test_quiet_enrich_overrides_status_with_live_value(self):
+        issue = self._create_issue(created_at=timezone.now() - timedelta(days=120), name="Boom")
+        meta = {"issues": [{"id": str(issue.id), "name": "Boom", "status": ErrorTrackingIssue.Status.ACTIVE}]}
+        ErrorTrackingIssue.objects.filter(id=issue.id).update(status=ErrorTrackingIssue.Status.RESOLVED)
+
+        enriched = QuietIssuesRecommendation().enrich(self.team, meta)
+
+        self.assertEqual(enriched["issues"][0]["status"], ErrorTrackingIssue.Status.RESOLVED)
+
+    def test_quiet_is_completed_when_no_issues(self):
+        self.assertTrue(QuietIssuesRecommendation().is_completed({"issues": []}))
+        self.assertFalse(QuietIssuesRecommendation().is_completed({"issues": [{"id": "x"}]}))
+
     def test_alerts_is_completed_when_all_enabled(self):
         self.assertTrue(AlertsRecommendation().is_completed(MOCK_ALERTS_META_UPDATED))
 
@@ -391,7 +461,13 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         statuses = {r["type"]: r["status"] for r in response.json()["results"]}
         self.assertEqual(
             statuses,
-            {"alerts": "ready", "long_running_issues": "ready", "rate_limits": "ready", "source_maps": "ready"},
+            {
+                "alerts": "ready",
+                "long_running_issues": "ready",
+                "quiet_issues": "ready",
+                "rate_limits": "ready",
+                "source_maps": "ready",
+            },
         )
         # Each recommendation row should have been computed exactly once via the celery task path.
         self.assertEqual(mock_alerts.call_count, 1)
