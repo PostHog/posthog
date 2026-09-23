@@ -285,6 +285,35 @@ tools:
                 - assignee
                 - created_at
                 - updated_at
+    inbox-reports-merge:
+        operation: signals_reports_merge_create
+        enabled: false
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        enrich_url: '{id}'
+        title: Merge duplicate reports into one
+        description: >
+            Fold duplicate inbox reports into the one report that survives them, when the same issue landed in more than
+            one report. The URL names the survivor and `source_report_ids` (1–10) names the duplicates. Pick the
+            survivor deliberately: prefer the older report, and prefer the one holding an open implementation PR or an
+            active claim. The sources' signals, work-log artefacts, pull requests, task runs and checks move onto the
+            survivor, the survivor's signal counters take theirs on, and each source is archived with a 'duplicate of'
+            link back. A source's open pull request stays open, because the survivor holds it after the move; any active
+            claim on a source is released first, so re-claim the survivor if you were working on one. Titles and
+            summaries are NOT combined, so follow with `inbox-reports-update` if the survivor needs a rewrite. Both ends
+            must be a live report, and the whole call applies or none of it does: 409 and no writes when the survivor is
+            resolved, or when a source is the survivor itself, is resolved or archived, is still being researched
+            (`in_progress`), or carries more signals than one merge can move. A merged report keeps its URL but can
+            never be restored, so merge only reports you are confident are the same issue, and use an
+            `inbox-report-artefacts-create` `related_to` link when they are merely related.
+        param_overrides:
+            id:
+                aliases:
+                    - survivor_report_id
     inbox-reports-retrieve:
         operation: signals_reports_retrieve
         enabled: true
@@ -1133,6 +1162,12 @@ tools:
             `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or
             `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from
             returning every entry's full prose. Results capped at 1000.
+    signals-config-create:
+        operation: signals_config_create
+        enabled: false
+    signals-config-list:
+        operation: signals_config_list
+        enabled: false
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
@@ -1160,6 +1195,12 @@ tools:
     signals-report-pr-review-comments-create:
         operation: signals_report_pr_review_comments_create
         enabled: false
+    signals-reports-available-reviewers-retrieve:
+        operation: signals_reports_available_reviewers_retrieve
+        enabled: false
+    signals-reports-destroy:
+        operation: signals_reports_destroy
+        enabled: false
     signals-reports-feedback-create:
         operation: signals_reports_feedback_create
         enabled: false
@@ -1174,6 +1215,12 @@ tools:
         enabled: false
     signals-reports-refund-summary-retrieve:
         operation: signals_reports_refund_summary_retrieve
+        enabled: false
+    signals-reports-reingest-create:
+        operation: signals_reports_reingest_create
+        enabled: false
+    signals-reports-reviewers-update:
+        operation: signals_reports_reviewers_update
         enabled: false
     signals-reports-signals-retrieve:
         operation: signals_reports_signals_retrieve

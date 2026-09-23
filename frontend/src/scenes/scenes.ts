@@ -150,7 +150,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'data_pipeline',
     },
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },
+    [Scene.ProjectFiles]: { projectBased: true, name: 'Files', layout: 'app-full-scene-height' },
     [Scene.DebugQuery]: { projectBased: true },
+    [Scene.Terminal]: { projectBased: true, name: 'Terminal', layout: 'app-full-scene-height' },
 
     [Scene.Error404]: { name: 'Not found', projectBased: true },
     [Scene.ErrorAccessDenied]: { name: 'Access denied' },
@@ -891,6 +893,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
+    [urls.terminal()]: [Scene.Terminal, 'terminal'],
+    [urls.projectFiles()]: [Scene.ProjectFiles, 'projectFiles'],
 
     [urls.notebook(':shortId')]: [Scene.Notebook, 'notebook'],
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],

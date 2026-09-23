@@ -36,7 +36,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
-import api from '~/lib/api'
+import api, { ApiConfig } from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
 import { tagsModel } from '~/models/tagsModel'
@@ -46,6 +46,7 @@ import type { Breadcrumb, CommentType, PersonType, UserType } from '~/types'
 import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import {
+    conversationsTicketsAiFeedbackCreate,
     conversationsTicketsAiHumanOutcomeCreate,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
@@ -62,10 +63,17 @@ import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/feat
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
-import { aiDraftComposerHtml } from '../../components/Chat/aiDraftAction'
+import { aiDraftAction, aiDraftComposerHtml } from '../../components/Chat/aiDraftAction'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
-import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
+import type {
+    AiReplyFeedbackRating,
+    ChatMessage,
+    MessageDeliveryStatus,
+    Ticket,
+    TicketPriority,
+    TicketStatus,
+} from '../../types'
 import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeLogic'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
@@ -74,6 +82,7 @@ const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
 const DISCUSSION_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
 const SEND_RECOVERY_WINDOW_SECONDS = 120
+const EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID = new Map<string, MessageDeliveryStatus>()
 
 /**
  * How a failed send request should be treated. `null` means the send definitely did not happen:
@@ -234,6 +243,7 @@ export interface supportTicketSceneLogicValues {
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
     composerPrefillAt: number
+    deliveryStatusByMessageId: Map<string, MessageDeliveryStatus>
     discussionsEnabled: boolean
     draftContent: string | JSONContent | null
     draftIsPrivate: boolean
@@ -249,6 +259,7 @@ export interface supportTicketSceneLogicValues {
     hasMoreMessages: boolean
     hasPendingWork: boolean
     hasUnsavedChanges: boolean
+    latestAiDraftId: string | null
     latestAiMessage: ChatMessage | null
     linkedReports: SignalReportApi[]
     linkedReportsLoading: boolean
@@ -526,9 +537,14 @@ export interface supportTicketSceneLogicMeta {
         ) => boolean
         hasPendingWork: (hasUnsavedChanges: boolean, editingMessageId: string | null) => boolean
         chatMessages: (messages: CommentType[], ticket: Ticket | null, featureFlags: FeatureFlagsSet) => ChatMessage[]
+        deliveryStatusByMessageId: (
+            chatMessages: ChatMessage[],
+            ticket: Ticket | null
+        ) => Map<string, MessageDeliveryStatus>
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
+        latestAiDraftId: (chatMessages: ChatMessage[]) => string | null
     }
 }
 
@@ -1147,6 +1163,30 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     })
             },
         ],
+        deliveryStatusByMessageId: [
+            (s) => [s.chatMessages, s.ticket],
+            (chatMessages: ChatMessage[], ticket: Ticket | null): Map<string, MessageDeliveryStatus> => {
+                if (ticket?.channel_source !== 'widget') {
+                    return EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID
+                }
+
+                const statusMap = new Map<string, MessageDeliveryStatus>()
+                let unreadRemaining = ticket.unread_customer_count ?? 0
+                for (let i = chatMessages.length - 1; i >= 0; i--) {
+                    const message = chatMessages[i]
+                    if (message.authorType === 'customer' || message.isPrivate) {
+                        continue
+                    }
+                    if (unreadRemaining > 0) {
+                        statusMap.set(message.id, 'sent')
+                        unreadRemaining--
+                    } else {
+                        statusMap.set(message.id, 'read')
+                    }
+                }
+                return statusMap
+            },
+        ],
         eventsQuery: [
             (s) => [s.ticket],
             (ticket: Ticket | null): DataTableNode | null => {
@@ -1175,6 +1215,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
                 }
                 return null
+            },
+        ],
+        latestAiDraftId: [
+            (s) => [s.chatMessages],
+            (chatMessages: ChatMessage[]): string | null => {
+                let latestDraft: ChatMessage | null = null
+                for (const message of chatMessages) {
+                    if (
+                        aiDraftAction(message) !== null &&
+                        (!latestDraft || new Date(message.createdAt) >= new Date(latestDraft.createdAt))
+                    ) {
+                        latestDraft = message
+                    }
+                }
+                return latestDraft?.id ?? null
             },
         ],
     }),
@@ -1600,7 +1655,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     if (rating !== 'bad') {
                         return
                     }
-                    await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                    await conversationsTicketsAiFeedbackCreate(String(ApiConfig.getCurrentProjectId()), ticket.id, {
                         message_id: messageId,
                         rating,
                         feedback_text: feedbackText,
@@ -1610,7 +1665,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (values.feedbackByMessageId[messageId]) {
                     return
                 }
-                await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                await conversationsTicketsAiFeedbackCreate(String(ApiConfig.getCurrentProjectId()), ticket.id, {
                     message_id: messageId,
                     rating,
                 })

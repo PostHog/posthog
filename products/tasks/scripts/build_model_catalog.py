@@ -107,6 +107,8 @@ def render(catalog: dict[str, Any], style: Style) -> str:
     families: tuple[tuple[str, str, tuple[str, ...]], ...] = catalog["FAMILY_REASONING_EFFORTS"]
     models: tuple[Any, ...] = catalog["MODELS"]
     efforts: tuple[str, ...] = catalog["REASONING_EFFORTS"]
+    effort_labels: dict[str, str] = catalog["REASONING_EFFORT_LABELS"]
+    ladders: dict[str, tuple[Any, ...]] = catalog["CAPABILITY_LADDER_BY_RUNTIME_ADAPTER"]
     runtimes: tuple[str, ...] = catalog["RUNTIMES"]
     runtime_options: tuple[Any, ...] = catalog["RUNTIME_OPTIONS"]
     display_name = catalog["display_name_for_model"]
@@ -159,8 +161,25 @@ def render(catalog: dict[str, Any], style: Style) -> str:
             ]
         )
 
+    def ladder_entries(adapter: str) -> str:
+        """One adapter's rungs, as an array of objects at depth 1."""
+        notches = "\n".join(
+            "\n".join(
+                [
+                    f"{i}{i}{{",
+                    f"{i}{i}{i}model: {style.s(notch.model)},",
+                    f"{i}{i}{i}effort: {style.s(notch.effort)},",
+                    f"{i}{i}}},",
+                ]
+            )
+            for notch in ladders[adapter]
+        )
+        return f"{i}{adapter}: [\n{notches}\n{i}],"
+
     model_entries = "\n".join(model_entry(model) for model in models)
     runtime_option_entries = "\n".join(runtime_option_entry(option) for option in runtime_options)
+    effort_label_entries = "\n".join(f"{i}{effort}: {style.s(effort_labels[effort])}," for effort in efforts)
+    ladder_adapter_entries = "\n".join(ladder_entries(adapter) for adapter in adapters)
     provider_entries = "\n".join(f"{i}{adapter}: {style.s(providers[adapter])}," for adapter in adapters)
     default_entries = "\n".join(f"{i}{adapter}: {style.s(defaults[adapter])}," for adapter in adapters)
     fallback_entries = "\n".join(
@@ -201,6 +220,11 @@ export const RUNTIME_OPTIONS: readonly RuntimeOption[] = [
 {style.union(efforts, prefix="export type ReasoningEffort = ")}
 
 {style.array(efforts, prefix="export const REASONING_EFFORTS: readonly ReasoningEffort[] = ", suffix=semi, depth=0)}
+
+/** What a picker calls each depth. */
+export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {{
+{effort_label_entries}
+}}{semi}
 
 /** A value for each runtime adapter. */
 export type ByRuntimeAdapter<T> = Record<RuntimeAdapter, T>{semi}
@@ -256,6 +280,20 @@ export const MODELS: readonly CatalogModel[] = [
 /** The model a run uses when it pins none. */
 export const DEFAULT_MODEL_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {{
 {default_entries}
+}}{semi}
+
+export interface CapabilityNotch {{
+{i}model: string{semi}
+{i}effort: ReasoningEffort{semi}
+}}
+
+type CapabilityLadders = ByRuntimeAdapter<readonly CapabilityNotch[]>{semi}
+
+/** The Faster → Smarter rungs each harness offers, cheapest first. Filter them
+    against what the gateway serves before rendering, so a rung naming a retired
+    model drops out instead of becoming a stop that fails on send. */
+export const CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: CapabilityLadders = {{
+{ladder_adapter_entries}
 }}{semi}
 
 export interface ModelFamily {{

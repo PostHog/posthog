@@ -186,7 +186,7 @@ describe("buildCloudTaskConfigOptions", () => {
       [
         model("gpt-5.5", "openai"),
         model("claude-opus-4-7", "anthropic"),
-        model("claude-opus-4-8", "anthropic", false),
+        model("claude-opus-5-5", "anthropic", false),
         model("@cf/zai-org/glm-5.2", "cloudflare"),
       ],
       "claude",
@@ -199,11 +199,11 @@ describe("buildCloudTaskConfigOptions", () => {
         currentValue: "@cf/zai-org/glm-5.2",
         options: [
           { value: "claude-opus-4-7" },
+          { value: "@cf/zai-org/glm-5.2" },
           {
-            value: "claude-opus-4-8",
+            value: "claude-opus-5-5",
             _meta: { "posthog.code/restrictedModel": true },
           },
-          { value: "@cf/zai-org/glm-5.2" },
         ],
       },
       {
@@ -224,7 +224,7 @@ describe("buildCloudTaskConfigOptions", () => {
       [
         model("claude-opus-4-8"),
         model("gpt-5.6", "openai"),
-        model("gpt-5.5", "openai"),
+        model("gpt-6-sol", "openai"),
       ],
       "codex",
     );
@@ -233,8 +233,8 @@ describe("buildCloudTaskConfigOptions", () => {
       { id: "mode", currentValue: "auto" },
       {
         id: "model",
-        currentValue: "gpt-5.5",
-        options: [{ value: "gpt-5.6" }, { value: "gpt-5.5" }],
+        currentValue: "gpt-6-sol",
+        options: [{ value: "gpt-5.6" }, { value: "gpt-6-sol" }],
       },
       {
         id: "reasoning_effort",
@@ -244,6 +244,7 @@ describe("buildCloudTaskConfigOptions", () => {
           { value: "medium" },
           { value: "high" },
           { value: "xhigh" },
+          { value: "max" },
         ],
       },
     ]);
