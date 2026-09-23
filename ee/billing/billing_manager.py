@@ -836,10 +836,10 @@ class BillingManager:
         path = f"products/{product_key}/" if product_key else "products/"
         return self._organization_get(organization, grants, path, {"include_plans": "true"} if include_plans else None)
 
-    def get_organization_product_catalog(
+    def get_organization_products_summary(
         self, organization: Organization, grants: EffectiveBillingGrants
     ) -> dict[str, Any]:
-        return self._organization_get(organization, grants, "products/catalog/")
+        return self._organization_get(organization, grants, "products/summary/")
 
     def get_organization_usage(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._organization_get(organization, grants, "usage/")

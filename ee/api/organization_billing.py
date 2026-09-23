@@ -257,7 +257,7 @@ class BillingProductsSerializer(serializers.Serializer):
     results = BillingProductSerializer(many=True)
 
 
-class BillingCatalogFeatureSerializer(serializers.Serializer):
+class BillingProductsSummaryFeatureSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The feature key.")
     name = serializers.CharField(help_text="The feature name, as the billing page shows it.")
     included = serializers.BooleanField(
@@ -269,7 +269,7 @@ class BillingCatalogFeatureSerializer(serializers.Serializer):
     )
 
 
-class BillingCatalogAddonSerializer(serializers.Serializer):
+class BillingProductsSummaryAddonSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The add-on key.")
     name = serializers.CharField(help_text="The add-on name, as the billing page shows it.")
     description = serializers.CharField(allow_blank=True, help_text="What the add-on does.")
@@ -278,7 +278,7 @@ class BillingCatalogAddonSerializer(serializers.Serializer):
     )
 
 
-class BillingCatalogProductSerializer(BillingCatalogAddonSerializer):
+class BillingProductsSummaryProductSerializer(BillingProductsSummaryAddonSerializer):
     key = serializers.CharField(help_text="The product key. Pass it to the product route for prices and plans.")
     name = serializers.CharField(help_text="The product name, as the billing page shows it.")
     description = serializers.CharField(allow_blank=True, help_text="What the product does.")
@@ -289,14 +289,14 @@ class BillingCatalogProductSerializer(BillingCatalogAddonSerializer):
             "price of its own, such as Platform and support, where the plan the organization is on is what counts."
         ),
     )
-    addons = BillingCatalogAddonSerializer(many=True, help_text="The product's add-ons.")
-    features = BillingCatalogFeatureSerializer(
+    addons = BillingProductsSummaryAddonSerializer(many=True, help_text="The product's add-ons.")
+    features = BillingProductsSummaryFeatureSerializer(
         many=True, help_text="The features the product and its add-ons carry, each one listed once."
     )
 
 
-class BillingCatalogSerializer(serializers.Serializer):
-    results = BillingCatalogProductSerializer(many=True, help_text="Every product in the catalog.")
+class BillingProductsSummarySerializer(serializers.Serializer):
+    results = BillingProductsSummaryProductSerializer(many=True, help_text="Every product, add-ons included.")
 
 
 class UsageKeySummarySerializer(serializers.Serializer):
@@ -555,7 +555,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "features",
         "products",
         "product",
-        "catalog",
+        "summary",
         "usage",
         "usage_status",
         "spend",
@@ -754,18 +754,16 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return Response({"available_product_features": data.get("available_product_features", [])})
 
     @extend_schema(
-        operation_id="billing_products_catalog_retrieve",
-        summary="Get the product catalog without prices",
+        operation_id="billing_products_summary_retrieve",
+        summary="Get every product in summary",
         description=BETA_NOTICE,
-        responses={200: OpenApiResponse(response=BillingCatalogSerializer)},
+        responses={200: OpenApiResponse(response=BillingProductsSummarySerializer)},
     )
-    # The router registers actions in name order, and the product route takes any word after
-    # products/. This name sorts before `product`, so products/catalog reaches this action.
-    @action(methods=["GET"], detail=False, url_path="products/catalog")
-    def catalog(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    @action(methods=["GET"], detail=False, url_path="products/summary")
+    def summary(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self.organization
         grants = self._grants(request, organization)
-        data = self._manager().get_organization_product_catalog(organization, grants)
+        data = self._manager().get_organization_products_summary(organization, grants)
         return Response({"results": data.get("products", [])})
 
     @extend_schema(
@@ -794,7 +792,9 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         ],
         responses={200: OpenApiResponse(response=BillingProductSerializer)},
     )
-    @action(methods=["GET"], detail=False, url_path=r"products/(?P<product_key>[^/.]+)")
+    # The product route takes any word after products/, so it has to leave summary/ to the
+    # summary action, which the router registers after it.
+    @action(methods=["GET"], detail=False, url_path=r"products/(?P<product_key>(?!summary/?$)[^/.]+)")
     def product(self, request: Request, *args: Any, product_key: str = "", **kwargs: Any) -> Response:
         organization = self.organization
         grants = self._grants(request, organization)

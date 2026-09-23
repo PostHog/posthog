@@ -131,15 +131,15 @@ const BillingProductsSummaryGetSchema = () => z.object({})
 
 const billingProductsSummaryGet = (): ToolBase<
     ReturnType<typeof BillingProductsSummaryGetSchema>,
-    Schemas.BillingCatalog
+    Schemas.BillingProductsSummary
 > => ({
     name: 'billing-products-summary-get',
     schema: BillingProductsSummaryGetSchema(),
     handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProductsSummaryGetSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.BillingCatalog>({
+        const result = await context.api.request<Schemas.BillingProductsSummary>({
             method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/products/catalog/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/products/summary/`,
         })
         return result
     },

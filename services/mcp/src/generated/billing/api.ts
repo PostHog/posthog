@@ -173,9 +173,9 @@ export const BillingProductsRetrieveQueryParams = () => zod.object({
 
 /**
  * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
- * @summary Get the product catalog without prices
+ * @summary Get every product in summary
  */
-export const BillingProductsCatalogRetrieveParams = () => zod.object({
+export const BillingProductsSummaryRetrieveParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(

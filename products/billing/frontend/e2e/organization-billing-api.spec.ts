@@ -66,11 +66,11 @@ test.describe('Organization billing API', () => {
             }
             expect((await (await get('products/product_analytics/')).json()).key).toBe('product_analytics')
 
-            const catalog = (await (await get('products/catalog/')).json()).results
-            expect(catalog.map((product: { key: string }) => product.key)).toEqual(
+            const summary = (await (await get('products/summary/')).json()).results
+            expect(summary.map((product: { key: string }) => product.key)).toEqual(
                 products.results.map((product: { key: string }) => product.key)
             )
-            for (const product of catalog) {
+            for (const product of summary) {
                 expect(product).not.toHaveProperty('tiers')
                 expect(product).not.toHaveProperty('plans')
                 expect(Array.isArray(product.features)).toBe(true)
@@ -175,7 +175,7 @@ test.describe('Organization billing API', () => {
             for (const path of ['subscription/', 'features/', 'products/', 'usage/status/']) {
                 expect((await get(path)).status(), path).toBe(200)
             }
-            expect((await get('products/catalog/')).status()).toBe(200)
+            expect((await get('products/summary/')).status()).toBe(200)
             for (const path of ['forecast/', 'invoices/', 'limits/']) {
                 expect((await get(path)).status(), path).toBe(403)
             }

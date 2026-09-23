@@ -201,7 +201,7 @@ tools:
         operation: billing_products_list
         enabled: false
     billing-products-summary-get:
-        operation: billing_products_catalog_retrieve
+        operation: billing_products_summary_retrieve
         enabled: true
         scopes:
             - billing:read

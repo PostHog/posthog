@@ -971,7 +971,7 @@ export interface BillingProductsApi {
     results: BillingProductApi[]
 }
 
-export interface BillingCatalogAddonApi {
+export interface BillingProductsSummaryAddonApi {
     /** The add-on key. */
     key: string
     /** The add-on name, as the billing page shows it. */
@@ -985,7 +985,7 @@ export interface BillingCatalogAddonApi {
     subscribed: boolean | null
 }
 
-export interface BillingCatalogFeatureApi {
+export interface BillingProductsSummaryFeatureApi {
     /** The feature key. */
     key: string
     /** The feature name, as the billing page shows it. */
@@ -996,7 +996,7 @@ export interface BillingCatalogFeatureApi {
     addon_keys: string[]
 }
 
-export interface BillingCatalogProductApi {
+export interface BillingProductsSummaryProductApi {
     /** The product key. Pass it to the product route for prices and plans. */
     key: string
     /** The product name, as the billing page shows it. */
@@ -1009,14 +1009,14 @@ export interface BillingCatalogProductApi {
      */
     subscribed: boolean | null
     /** The product's add-ons. */
-    addons: BillingCatalogAddonApi[]
+    addons: BillingProductsSummaryAddonApi[]
     /** The features the product and its add-ons carry, each one listed once. */
-    features: BillingCatalogFeatureApi[]
+    features: BillingProductsSummaryFeatureApi[]
 }
 
-export interface BillingCatalogApi {
-    /** Every product in the catalog. */
-    results: BillingCatalogProductApi[]
+export interface BillingProductsSummaryApi {
+    /** Every product, add-ons included. */
+    results: BillingProductsSummaryProductApi[]
 }
 
 export interface BillingProjectApi {
