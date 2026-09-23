@@ -77,19 +77,36 @@ class TestLanguageServiceRouting(SimpleTestCase):
         [
             (
                 "new_payload",
+                "SELECT '😀', event FROM events",
                 [
                     {"message": "Field 'event' is of type 'String'", "start": 13, "end": 18},
                     {"message": "Table 'events'", "start": 24, "end": 30},
                 ],
-                2,
+                (13, 18),
+                (24, 30),
             ),
-            ("old_payload", None, 0),
+            (
+                "lone_surrogate",
+                "SELECT '\ud800', event FROM events",
+                [
+                    {"message": "Field 'event' is of type 'String'", "start": 12, "end": 17},
+                    {"message": "Table 'events'", "start": 23, "end": 29},
+                ],
+                (12, 17),
+                (23, 29),
+            ),
+            ("old_payload", "SELECT '😀', event FROM events", None, None, None),
         ]
     )
     def test_metadata_maps_optional_notices_with_utf16_positions(
-        self, _name: str, raw_notices: list[dict[str, object]] | None, expected_count: int
+        self,
+        _name: str,
+        query_text: str,
+        raw_notices: list[dict[str, object]] | None,
+        expected_field_span: tuple[int, int] | None,
+        expected_table_span: tuple[int, int] | None,
     ) -> None:
-        query = HogQLMetadata(query="SELECT '😀', event FROM events", language=HogLanguage.HOG_QL)
+        query = HogQLMetadata(query=query_text, language=HogLanguage.HOG_QL)
         body: dict[str, object] = {"valid": True, "diagnostics": [], "tableNames": ["events"]}
         if raw_notices is not None:
             body["notices"] = raw_notices
@@ -98,15 +115,13 @@ class TestLanguageServiceRouting(SimpleTestCase):
         )
 
         assert response.isValid is True
-        assert len(response.notices or []) == expected_count
-        if expected_count:
+        assert len(response.notices or []) == len(raw_notices or [])
+        if expected_field_span is not None:
             assert response.notices[0].message == "Field 'event' is of type 'String'"
-            assert response.notices[0].start == 13
-            assert response.notices[0].end == 18
+            assert (response.notices[0].start, response.notices[0].end) == expected_field_span
             assert response.notices[0].fix is None
             assert response.notices[1].message == "Table 'events'"
-            assert response.notices[1].start == 24
-            assert response.notices[1].end == 30
+            assert (response.notices[1].start, response.notices[1].end) == expected_table_span
 
     def test_served_backend_counter_is_exported_for_prometheus(self) -> None:
         labels = {"operation": "metadata", "backend": "python", "reason": "service_error"}

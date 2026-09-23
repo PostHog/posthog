@@ -283,7 +283,7 @@ def _metadata_response_from_language_service(
     raw_notices = body.get("notices", [])
     if not isinstance(raw_notices, list):
         raise TypeError("notices must be a list")
-    query_length_utf16 = len(query.query.encode("utf-16-le")) // 2
+    query_length_utf16 = len(query.query.encode("utf-16-le", errors="surrogatepass")) // 2
     errors: list[HogQLNotice] = []
     warnings: list[HogQLNotice] = []
     for diagnostic in body["diagnostics"]:
