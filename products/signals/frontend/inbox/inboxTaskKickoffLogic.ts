@@ -89,7 +89,7 @@ type ReportRuntimeSelection = ClaudeRuntimeSelection | Record<string, never>
 // length of the conversation; Create PR because pressing it commits to a real implementation run.
 const REPORT_FALLBACK_RUNTIME: ClaudeRuntimeSelection = {
     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
-    model: 'claude-opus-5',
+    model: 'claude-opus-5-5',
     reasoning_effort: ReasoningEffortEnumApi.High,
 }
 

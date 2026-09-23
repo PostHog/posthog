@@ -49,11 +49,11 @@ describe('inboxTaskKickoffLogic', () => {
         let runDefaultsGate: Promise<void> | null
         const report = makeReport({ id: 'report-sidebar', status: SignalReportStatus.READY })
 
-        // Which model it names does not matter; what counts is that a default exists.
+        // Names a model the fallback never picks, so a run that carries it came from the default.
         const RESOLVED_TEAM_DEFAULT = {
             runtime: 'acp',
             runtime_adapter: 'claude',
-            model: 'claude-opus-5-5',
+            model: 'claude-sonnet-5',
             reasoning_effort: 'xhigh',
             source: 'team',
         }
@@ -160,7 +160,7 @@ describe('inboxTaskKickoffLogic', () => {
                         description: expect.stringContaining('- insight insight-one ("Conversion rate")'),
                         signal_report_discussion_question: 'Explain the recommendation',
                         branch: null,
-                        model: 'claude-opus-5',
+                        model: 'claude-opus-5-5',
                     })
                     expect(createdTasks[0].pending_user_message).toBe(createdTasks[0].description)
                     expect(startedRuns[0].pending_user_message).toBe(createdTasks[0].description)
@@ -204,7 +204,7 @@ describe('inboxTaskKickoffLogic', () => {
                 signal_report: report.id,
                 branch: null,
                 runtime_adapter: 'claude',
-                model: 'claude-opus-5',
+                model: 'claude-opus-5-5',
             })
             expect(warmRequests[0]).not.toHaveProperty('repository')
             expect(logic.values.reportWarmLease).toEqual({
