@@ -5,9 +5,9 @@ register_policy(
     "typesafe",
     per_minute_and_hourly_policy(
         per_minute_setting="TYPESAFE_EGRESS_PER_MINUTE_BUDGET",
-        per_minute_default=60,
+        per_minute_default=600,
         hourly_setting="TYPESAFE_EGRESS_HOURLY_BUDGET",
-        hourly_default=1_000,
+        hourly_default=36_000,
     ),
 )
 

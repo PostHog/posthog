@@ -565,7 +565,10 @@ Scores below 0.2 are hidden.
 An empty search restores the grouped catalog; a failed Jev request shows name matches and an availability message.
 
 The demo calls TypeSafe's `jev-1.13.0` model through the server's egress transport.
-`TYPESAFE_EGRESS_PER_MINUTE_BUDGET` and `TYPESAFE_EGRESS_HOURLY_BUDGET` cap outbound requests, with defaults of 60 and 1,000.
+The decisions API has separate per-user limits from other AI endpoints: `ML_INFERENCE_DECISIONS_BURST_RATE` defaults to `600/minute`, and `ML_INFERENCE_DECISIONS_SUSTAINED_RATE` defaults to `36000/hour`.
+`TYPESAFE_EGRESS_PER_MINUTE_BUDGET` and `TYPESAFE_EGRESS_HOURLY_BUDGET` cap outbound requests across the instance, with defaults of 600 and 36,000.
+The normal priority lane reserves 10% of these outbound budgets.
+Set these overrides in `.env.local` and restart the stack to tune the demo's limits.
 The key stays on the server.
 Other decision-model callers keep their existing default model.
 

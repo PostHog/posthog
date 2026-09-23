@@ -8,13 +8,15 @@ Credentials and request content never become metric labels.
 ## Budget
 
 TypeSafe publishes a limit of 1,200 requests per minute and 250,000 tokens per second, subject to change.
-The demo uses lower operator ceilings: `TYPESAFE_EGRESS_PER_MINUTE_BUDGET` (60) and `TYPESAFE_EGRESS_HOURLY_BUDGET` (1,000).
+The demo uses lower operator ceilings: `TYPESAFE_EGRESS_PER_MINUTE_BUDGET` (600) and `TYPESAFE_EGRESS_HOURLY_BUDGET` (36,000).
+Autocomplete can send two batches every 250 milliseconds, so the minute budget allows sustained typing by one user.
 These cap requests, not tokens or dollars; the decisions API separately bounds request size.
 
 ## Lanes and callers
 
 ML inference sends explicit Jev requests on `NORMAL`, including app search.
 The default priority reserves apply.
+The `NORMAL` lane can use 90% of each ceiling: 540 requests per minute and 32,400 per hour across the instance.
 A denied request or provider error returns through the decisions API; app search falls back to text matching without retrying automatically.
 
 ## Rate-limit headers

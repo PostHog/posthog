@@ -1,10 +1,18 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.core.cache.backends.locmem import LocMemCache
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import Throttled
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
+from rest_framework.throttling import SimpleRateThrottle
+
+from posthog.models import User
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from products.ml_inference.backend.facade.contracts import (
     ChoiceAnswer,
@@ -15,6 +23,7 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.presentation.serializers import DecideRequestSerializer
+from products.ml_inference.backend.presentation.views import DecisionViewSet
 
 QUESTIONS = {
     "urgent": {"type": "noul", "instructions": "Is this urgent?"},
@@ -89,6 +98,57 @@ class TestDecideRequestValidation(SimpleTestCase):
 
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["model"] == "posthog/posthog/decision-4b"
+
+
+class TestDecisionThrottles(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.cache = LocMemCache(self.id(), {})
+        self.cache.clear()
+        self.addCleanup(self.cache.clear)
+        cache_patch = patch.object(SimpleRateThrottle, "cache", self.cache)
+        cache_patch.start()
+        self.addCleanup(cache_patch.stop)
+        timer_patch = patch.object(SimpleRateThrottle, "timer", return_value=1_000.0)
+        self.timer = timer_patch.start()
+        self.addCleanup(timer_patch.stop)
+        self.request = Request(APIRequestFactory().post("/"))
+        self.request.user = User(pk=1)
+        self.view = DecisionViewSet()
+
+    def test_autocomplete_has_its_own_budget_even_when_other_ai_limits_are_exhausted(self) -> None:
+        for throttle in [AIBurstRateThrottle(), AISustainedRateThrottle()]:
+            request_limit, _ = throttle.parse_rate(throttle.rate)
+            assert request_limit is not None
+            self.cache.set(throttle.get_cache_key(self.request, self.view), [1_000.0] * request_limit)
+
+        for _ in range(12):
+            self.view.check_throttles(self.request)
+
+    @parameterized.expand(
+        [
+            ("burst", "2/minute", "100/hour", 61),
+            ("sustained", "100/minute", "2/hour", 3_601),
+        ]
+    )
+    def test_configured_limits_block_then_recover_per_user(
+        self, _name: str, burst_rate: str, sustained_rate: str, recovery_seconds: int
+    ) -> None:
+        with override_settings(
+            ML_INFERENCE_DECISIONS_BURST_RATE=burst_rate,
+            ML_INFERENCE_DECISIONS_SUSTAINED_RATE=sustained_rate,
+        ):
+            self.view.check_throttles(self.request)
+            self.view.check_throttles(self.request)
+            with self.assertRaises(Throttled):
+                self.view.check_throttles(self.request)
+
+            self.request.user = User(pk=2)
+            self.view.check_throttles(self.request)
+
+            self.request.user = User(pk=1)
+            self.timer.return_value = 1_000.0 + recovery_seconds
+            self.view.check_throttles(self.request)
 
 
 class TestDecideEndpoint(APIBaseTest):
