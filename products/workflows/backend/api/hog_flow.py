@@ -1,4 +1,5 @@
 import re
+import copy
 import json
 import uuid as uuid_mod
 import hashlib
@@ -3890,7 +3891,7 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
         cache = self.context.setdefault("proposal_conflicts", {})
         key = (proposal.hog_flow_id, proposal.base_version, json.dumps(proposal.content, sort_keys=True))
         if key not in cache:
-            cache[key] = conflicting_step_ids(proposal.hog_flow, proposal)
+            cache[key] = conflicting_parts(proposal.hog_flow, proposal)
         return bool(cache[key])
 
 
@@ -3901,7 +3902,8 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
         help_text=(
             "Only the workflow content fields this proposal changes. Approving merges them over the live "
             "content to build the staged draft, so unrelated parts of the workflow stay as they are. "
-            "In `actions`, send only the steps you change, each with its `id`."
+            "In `actions`, send each step you change with its `id` and only the fields you change; they "
+            "merge into the live step, and a null field deletes it."
         )
     )
     evidence = WorkflowProposalEvidenceField(
@@ -4112,8 +4114,9 @@ class ProposalOutOfDateError(exceptions.APIException):
 
 
 def merge_proposal_content(live_content: dict, proposal_content: dict) -> dict:
-    """Live content with the proposal applied. Whole-list fields replace; `actions` merges per step,
-    so a proposal that rewrites one email leaves the rest of the graph exactly as it is now."""
+    """Live content with the proposal applied. Whole-list fields replace; `actions` merges per step
+    and, within a step, per field, so a proposal that rewrites one subject line leaves the rest of
+    that email and the rest of the graph exactly as they are now."""
     merged = {**live_content, **proposal_content}
     for field in PROPOSAL_MERGE_BY_ID_FIELDS:
         if field in proposal_content:
@@ -4122,9 +4125,15 @@ def merge_proposal_content(live_content: dict, proposal_content: dict) -> dict:
 
 
 def _merge_by_id(live_items: list, changed_items: list) -> list:
+    """Merge each changed step into the live step with the same id, field by field, the way the
+    graph API's `update_action` does: a producer sends the fields it changes and nothing else, so a
+    step can never lose its template inputs to a payload that only carried a subject line."""
     changed_by_id = {item["id"]: item for item in changed_items if isinstance(item, dict) and "id" in item}
-    merged = [changed_by_id.pop(_item_id(item), item) for item in live_items]
-    # Anything left names a step the workflow does not have yet, so the proposal is adding it.
+    merged = []
+    for item in live_items:
+        patch = changed_by_id.pop(_item_id(item), None)
+        merged.append(_deep_merge(copy.deepcopy(item), patch) if patch is not None else item)
+    # Anything left names a step the workflow does not have yet, so the proposal is adding it whole.
     merged.extend(changed_by_id.values())
     return merged
 
@@ -4156,32 +4165,127 @@ def describe_steps(hog_flow: HogFlow, step_ids: list[str]) -> list[str]:
     return [names.get(step_id) or step_id for step_id in step_ids]
 
 
-def conflicting_step_ids(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[str]:
-    """Steps the proposal changes that someone else already changed since it was written.
+def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[str]:
+    """Parts of the workflow the proposal changes that someone else already changed since it was
+    written: step ids for `actions`, field names for everything else.
 
-    Merging per step means an unrelated edit elsewhere in the workflow is no longer a reason to
-    refuse, so the comparison is against the snapshot the proposal actually read: the steps it
-    names, as they were at `base_version`, against the steps as they are now."""
-    touched = {_item_id(item) for item in proposal.content.get("actions") or []} - {None}
-    changes_whole_list = any(field in proposal.content for field in PROPOSAL_WHOLE_LIST_FIELDS)
+    The check follows merge semantics. A step merges per field, so only the fields the proposal sets
+    on the steps it names are compared, as they were at `base_version` against as they are now. A
+    whole-list field replaces the list, so any publish since counts. Every other field replaces one
+    value, so that value is compared. An edit elsewhere merges cleanly, and an edit that already made
+    the proposed change is nothing to undo, so neither is a reason to refuse."""
     if hog_flow.version == proposal.base_version:
         return []
-    if changes_whole_list:
+    base_content = base_content_of(hog_flow, proposal)
+    content = proposal_changes(proposal, base_content)
+    touched_steps = {_item_id(item) for item in content.get("actions") or []} - {None}
+    touched_lists = [field for field in PROPOSAL_WHOLE_LIST_FIELDS if field in content]
+    touched_fields = [
+        field
+        for field in content
+        if field not in PROPOSAL_MERGE_BY_ID_FIELDS and field not in PROPOSAL_WHOLE_LIST_FIELDS
+    ]
+    if touched_lists:
         # A whole-list field replaces the list, so any publish since counts.
-        return sorted(touched) or [field for field in PROPOSAL_WHOLE_LIST_FIELDS if field in proposal.content]
-    base_revision = HogFlowRevision.objects.filter(hog_flow=hog_flow, version=proposal.base_version).first()
-    if base_revision is None:
+        return sorted({*touched_steps, *touched_lists, *touched_fields})
+    if base_content is None:
         # Without the snapshot the proposal read, "changed since" is unanswerable.
-        return sorted(touched)
-    base_actions = {_item_id(item): item for item in base_revision.content.get("actions") or []}
-    live_actions = {_item_id(item): item for item in snapshot_flow_content(hog_flow).get("actions") or []}
-    return sorted(
+        return sorted({*touched_steps, *touched_fields})
+    live_content = snapshot_flow_content(hog_flow)
+    base_actions = {_item_id(item): item for item in base_content.get("actions") or []}
+    live_actions = {_item_id(item): item for item in live_content.get("actions") or []}
+    proposed_actions = {_item_id(item): item for item in content.get("actions") or []}
+    moved_steps = [
         step_id
-        for step_id in touched
-        if base_actions.get(step_id) != live_actions.get(step_id)
+        for step_id in touched_steps
         # A step the proposal adds is only a conflict if that id now exists.
-        and not (step_id not in base_actions and step_id not in live_actions)
+        if not (step_id not in base_actions and step_id not in live_actions)
+        and _moved_since(base_actions.get(step_id), live_actions.get(step_id), proposed_actions[step_id])
+    ]
+    moved_fields = [
+        field
+        for field in touched_fields
+        if _moved_since(base_content.get(field), live_content.get(field), content[field])
+    ]
+    return sorted({*moved_steps, *moved_fields})
+
+
+def base_content_of(hog_flow: HogFlow, proposal: WorkflowProposal) -> dict | None:
+    """The workflow as the proposal read it. That is the live workflow while its version has not
+    moved; after a publish it is the revision snapshot, which a workflow that has never been
+    published under revision tracking may not have."""
+    if hog_flow.version == proposal.base_version:
+        return snapshot_flow_content(hog_flow)
+    revision = HogFlowRevision.objects.filter(hog_flow=hog_flow, version=proposal.base_version).first()
+    return dict(revision.content) if revision is not None else None
+
+
+def proposal_changes(proposal: WorkflowProposal, base_content: dict | None) -> dict:
+    """The proposal's content reduced to what it changes against the workflow as it read it: a
+    step keeps only the fields that read differently there, and a step that reads the same drops
+    out. A producer that sends a whole step therefore still merges as the one-field change it made,
+    and never writes the rest of that step back over a later edit. Without the snapshot the content
+    stands as sent."""
+    content = dict(proposal.content)
+    if base_content is None or "actions" not in content:
+        return content
+    base_steps = {_item_id(item): item for item in base_content.get("actions") or []}
+    changed_steps = []
+    for item in content.get("actions") or []:
+        base_step = base_steps.get(_item_id(item))
+        if not isinstance(item, dict) or base_step is None:
+            changed_steps.append(item)
+            continue
+        changed = _changed_leaves(base_step, {key: value for key, value in item.items() if key != "id"})
+        if changed is not _ABSENT:
+            changed_steps.append({"id": item["id"], **changed})
+    content["actions"] = changed_steps
+    return content
+
+
+_ABSENT = object()
+
+
+def _changed_leaves(base: Any, patch: Any) -> Any:
+    """`patch` without every leaf that already reads the same in `base`, read the way `_deep_merge`
+    writes it; `_ABSENT` when nothing is left."""
+    if isinstance(patch, dict) and isinstance(base, dict):
+        kept = {}
+        for key, value in patch.items():
+            changed = _changed_leaves(base.get(key), value)
+            if changed is not _ABSENT:
+                kept[key] = changed
+        return kept if kept else _ABSENT
+    if patch is None:
+        return _ABSENT if base is None else None
+    return _ABSENT if patch == base else patch
+
+
+def _moved_since(base: Any, live: Any, proposed: Any) -> bool:
+    """Whether someone changed, since `base`, something the proposal sets, and to a value other than
+    the proposed one. Reads the patch the way `_deep_merge` writes it: a dict compares leaf by leaf,
+    anything else as one value."""
+    if not isinstance(proposed, dict) or base is None or live is None:
+        return base != live and live != proposed
+    return any(
+        _leaf(live, path) != _leaf(base, path) and _leaf(live, path) != _leaf(proposed, path)
+        for path in _patch_paths(proposed)
     )
+
+
+def _patch_paths(patch: Any, prefix: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
+    if not isinstance(patch, dict) or not patch:
+        return [prefix]
+    return [path for key, value in patch.items() for path in _patch_paths(value, (*prefix, key))]
+
+
+def _leaf(item: Any, path: tuple[str, ...]) -> Any:
+    for key in path:
+        if not isinstance(item, dict) or key not in item:
+            return _ABSENT
+        item = item[key]
+    # A null leaf in a patch deletes the key, so it reads as the key being absent.
+    return _ABSENT if item is None else item
 
 
 def unstage_workflow_proposals(hog_flow: HogFlow) -> None:
@@ -5666,7 +5770,7 @@ class HogFlowViewSet(
                 raise ProposalAlreadyResolvedError()
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
-            conflicts = conflicting_step_ids(locked, locked_proposal)
+            conflicts = conflicting_parts(locked, locked_proposal)
             if conflicts:
                 raise ProposalOutOfDateError(describe_steps(locked, conflicts))
             expected_draft_updated_at = param_serializer.validated_data.get("expected_draft_updated_at")
