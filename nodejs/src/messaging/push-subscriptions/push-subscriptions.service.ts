@@ -3,9 +3,9 @@ import { LRUCache } from 'lru-cache'
 
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { TeamManager } from '~/common/utils/team-manager'
 
 import { verifyPushIdentityToken } from './identity-token'
+import { ProjectTokenLookup } from './project-token-lookup'
 import { PushCaptureService } from './push-capture'
 import { InflatedBodyTooLargeError, RawRequest, decodeRequest } from './request-decoding'
 
@@ -80,7 +80,7 @@ export class PushSubscriptionsService {
     private configuredAppIdsCache: LRUCache<number, string[]>
 
     constructor(
-        private teamManager: TeamManager,
+        private projectTokens: Pick<ProjectTokenLookup, 'getTeamByToken'>,
         private postgres: PostgresRouter,
         private encryptedFields: EncryptedFields,
         private capture: PushCaptureService,
@@ -143,8 +143,8 @@ export class PushSubscriptionsService {
             })
         }
 
-        const team = await this.teamManager.getTeamByToken(apiKey)
-        if (!team) {
+        const team = await this.projectTokens.getTeamByToken(apiKey)
+        if (!team || team.api_token !== apiKey) {
             this.invalidTokens.set(fingerprint, true)
             return reject('invalid_api_key', 401, 'authentication_error', 'Invalid project token.', {
                 appId: appIdField,

@@ -5,7 +5,7 @@ import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
 import { isProdEnv, isTestEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
-import { TeamManager } from '~/common/utils/team-manager'
+import { ProjectTokenLookup } from '~/messaging/push-subscriptions/project-token-lookup'
 import { PushCaptureService } from '~/messaging/push-subscriptions/push-capture'
 import { createPushSubscriptionsHandler } from '~/messaging/push-subscriptions/push-subscriptions-http'
 import { PushSubscriptionsService } from '~/messaging/push-subscriptions/push-subscriptions.service'
@@ -79,11 +79,16 @@ export class PushApiServer implements NodeServer {
             logger.warn('⚠️', 'SECRET_KEY is unset, so rejection fingerprints are unkeyed and do not match Django')
         }
 
+        if (!this.config.ENCRYPTION_SALT_KEYS && isProdEnv()) {
+            // Every stored registration would fail to encrypt while the health check stays green.
+            throw new Error('ENCRYPTION_SALT_KEYS is required to serve push subscriptions')
+        }
+
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
         logger.info('👍', 'Postgres Router ready')
 
         const service = new PushSubscriptionsService(
-            new TeamManager(this.postgres),
+            new ProjectTokenLookup(this.postgres),
             this.postgres,
             new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS),
             new PushCaptureService(this.config.CAPTURE_INTERNAL_URL),
@@ -111,7 +116,9 @@ export class PushApiServer implements NodeServer {
     }
 
     private listen(handler: (req: any, res: any) => Promise<void>): Promise<Server> {
-        const server = createServer((req, res) => {
+        // Node checks the header and request timeouts only this often, 30 seconds by default, which
+        // lets a slow client hold a socket well past them.
+        const server = createServer({ connectionsCheckingInterval: 1_000 }, (req, res) => {
             void handler(req, res).catch((error) => {
                 // A throw here would otherwise reach the process-level handler and take the pod down
                 // over one request, so the connection is answered and the error is left to the logs.

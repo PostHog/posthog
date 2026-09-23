@@ -163,6 +163,18 @@ describe('PushSubscriptionsService', () => {
         expect(result.body).toMatchObject({ code: 'missing_api_key' })
     })
 
+    it('refuses a token that resolves to a team without being its project token', async () => {
+        teamManager.getTeamByToken.mockImplementation((token: string) =>
+            Promise.resolve(token === 'phc_real' || token === 'phc_alias' ? team : null)
+        )
+
+        const result = await service.handle(request({ ...valid, api_key: 'phc_alias' }))
+
+        expect(result.status).toEqual(401)
+        expect(result.body).toMatchObject({ code: 'invalid_api_key' })
+        expect(capture.capture).not.toHaveBeenCalled()
+    })
+
     it('stops asking the database for a token that resolved to nothing', async () => {
         const first = await service.handle(request({ ...valid, api_key: 'phc_unknown' }))
         const second = await service.handle(request({ ...valid, api_key: 'phc_unknown' }))

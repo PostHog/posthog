@@ -85,8 +85,8 @@ describe('push subscriptions http', () => {
         expect(response.status).toEqual(200)
     })
 
-    it('does not serve any other path', async () => {
-        const response = await post('/api/push_subscriptions/extra', { body: '{}' })
+    it.each([['/api/push_subscriptions/extra'], ['//']])('does not serve %s', async (path) => {
+        const response = await post(path, { body: '{}' })
 
         expect(response.status).toEqual(404)
         expect(seen).toEqual([])
@@ -99,7 +99,7 @@ describe('push subscriptions http', () => {
         })
 
         expect(response.status).toEqual(200)
-        expect(response.headers['access-control-allow-origin']).toEqual('https://app.example.com')
+        expect(response.headers['access-control-allow-origin']).toEqual('*')
         expect(seen).toEqual([])
     })
 
@@ -113,14 +113,14 @@ describe('push subscriptions http', () => {
         expect(response.headers['access-control-allow-methods']).toEqual('GET, POST, DELETE, OPTIONS')
     })
 
-    it('echoes only the origin, never a wildcard with credentials', async () => {
+    it('never lets another site make a credentialed call', async () => {
         const response = await post('/api/push_subscriptions/', {
-            headers: { Origin: 'https://app.example.com:8443' },
+            headers: { Origin: 'https://evil.example' },
             body: '{}',
         })
 
-        expect(response.headers['access-control-allow-origin']).toEqual('https://app.example.com:8443')
-        expect(response.headers.vary).toEqual('Origin')
+        expect(response.headers['access-control-allow-origin']).toEqual('*')
+        expect(response.headers['access-control-allow-credentials']).toBeUndefined()
     })
 
     it('stops reading once a body passes the limit, and still answers', async () => {

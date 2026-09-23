@@ -47,10 +47,20 @@ let discardedTeamsThisWindow = new Set<number>()
  */
 export function createPushSubscriptionsHandler(service: PushSubscriptionsService) {
     return async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-        const url = new URL(req.url ?? '/', 'http://localhost')
-        if (!PATHS.has(url.pathname)) {
+        const rawUrl = req.url ?? '/'
+        const queryStart = rawUrl.indexOf('?')
+        // Matched on the raw path, so dot segments and other spellings that URL parsing would
+        // normalize onto this path are not served.
+        const path = queryStart === -1 ? rawUrl : rawUrl.slice(0, queryStart)
+        if (!PATHS.has(path)) {
             res.writeHead(404).end()
             return
+        }
+        let query: URLSearchParams
+        try {
+            query = new URLSearchParams(queryStart === -1 ? '' : rawUrl.slice(queryStart + 1))
+        } catch {
+            query = new URLSearchParams()
         }
 
         applyCors(req, res)
@@ -69,7 +79,7 @@ export function createPushSubscriptionsHandler(service: PushSubscriptionsService
             body,
             contentType: header(req, 'content-type'),
             contentEncoding: header(req, 'content-encoding'),
-            query: url.searchParams,
+            query,
         })
 
         const methodLabel = req.method === 'POST' || req.method === 'DELETE' ? req.method : 'other'
@@ -153,19 +163,12 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
 }
 
 function applyCors(req: IncomingMessage, res: ServerResponse): void {
-    const origin = header(req, 'origin')
-    if (!origin) {
+    if (!header(req, 'origin')) {
         return
     }
-    let allowed = '*'
-    try {
-        const parsed = new URL(origin)
-        allowed = `${parsed.protocol}//${parsed.host}`
-    } catch {
-        allowed = '*'
-    }
-    res.setHeader('Access-Control-Allow-Origin', allowed)
-    res.setHeader('Access-Control-Allow-Credentials', 'true')
+    // A wildcard, as Django answers, and no credentials: nothing here reads a cookie, and a
+    // reflected origin with credentials would let any site make credentialed calls.
+    res.setHeader('Access-Control-Allow-Origin', '*')
     // Django advertises only GET, POST and OPTIONS here while accepting DELETE, so a browser
     // preflight for the unregister call is refused. Native SDKs never preflight, which is why that
     // has gone unnoticed; this deliberately advertises the verb the endpoint actually serves.
