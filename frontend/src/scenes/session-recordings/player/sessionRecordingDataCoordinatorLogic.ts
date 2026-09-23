@@ -300,6 +300,9 @@ export function buildAnchorDiagnostic(
 // Where a viewer-requested check for late-arriving snapshot data has got to.
 export type SnapshotCheckState = 'idle' | 'checking' | 'checked'
 
+const settleSnapshotCheck = (state: SnapshotCheckState): SnapshotCheckState =>
+    state === 'checking' ? 'checked' : state
+
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
     // allows disabling polling for new sources in tests
@@ -318,7 +321,6 @@ export interface SessionRecordingDataCoordinatorLogicProps {
 // ~5 minutes but measure from different events, so tune them together, not in isolation.
 export const INGESTION_GRACE_PERIOD_MINUTES = 5
 
-// `capturedAt` is a Dayjs or an epoch-millisecond timestamp, whichever the caller holds.
 export function isWithinIngestionGracePeriod(capturedAt: Dayjs | number | null): boolean {
     return capturedAt != null && now().diff(capturedAt, 'minute') <= INGESTION_GRACE_PERIOD_MINUTES
 }
@@ -353,7 +355,6 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     trackedWindow: number | null // metaLogic
     uuidToIndex: Record<string, number> // metaLogic
     snapshotStore: SnapshotStore // snapLogic
-    snapshotSourcesLoading: boolean // snapLogic
     sourceLoadingStates: SourceLoadingState[] // snapLogic
     storeVersion: number // snapLogic
     bufferedToTime: number | null
@@ -562,6 +563,9 @@ export interface sessionRecordingDataCoordinatorLogicActions {
         error: string
         errorObject?: any
     } // snapLogic
+    retrySnapshotLoading: () => {
+        value: true
+    } // snapLogic
     checkForNewSnapshots: () => {
         value: true
     }
@@ -738,7 +742,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'loadRecordingNotebookCommentsSuccess',
                 ],
                 snapLogic,
-                ['storeUpdated', 'loadSnapshotSourcesSuccess', 'loadSnapshotSourcesFailure'],
+                ['storeUpdated', 'loadSnapshotSourcesSuccess', 'loadSnapshotSourcesFailure', 'retrySnapshotLoading'],
             ],
             values: [
                 metaLogic,
@@ -777,7 +781,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionNotebookCommentsLoading',
                 ],
                 snapLogic,
-                ['snapshotStore', 'storeVersion', 'sourceLoadingStates', 'snapshotSourcesLoading'],
+                ['snapshotStore', 'storeVersion', 'sourceLoadingStates'],
                 featureFlagLogic,
                 ['featureFlags'],
             ],
@@ -795,7 +799,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         snapshotProcessingFailed: true,
         // A viewer asking for one more look at the source list. Background polling gives up after
         // POLLING_INACTIVITY_TIMEOUT_MS, so this is the only way back for a recording whose data
-        // lands after that, and its outcome is reported through `snapshotCheckState`.
+        // lands after that. It wraps the snapshot retry only to report an outcome through
+        // `snapshotCheckState`, which a bare retry cannot do.
         checkForNewSnapshots: true,
     }),
     reducers(() => ({
@@ -817,8 +822,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             'idle' as SnapshotCheckState,
             {
                 checkForNewSnapshots: () => 'checking',
-                loadSnapshotSourcesSuccess: (state: SnapshotCheckState) => (state === 'checking' ? 'checked' : state),
-                loadSnapshotSourcesFailure: (state: SnapshotCheckState) => (state === 'checking' ? 'checked' : state),
+                loadSnapshotSourcesSuccess: settleSnapshotCheck,
+                loadSnapshotSourcesFailure: settleSnapshotCheck,
             },
         ],
     })),
@@ -828,10 +833,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
 
         checkForNewSnapshots: () => {
-            // Straight to the source list, not through `loadSnapshots`: that one stands down while a
-            // poll is in flight, which leaves the viewer's check waiting out the whole poll interval.
-            // Re-listing cancels the polling loader and fetches now.
-            actions.loadSnapshotSources()
+            actions.retrySnapshotLoading()
         },
 
         loadRecordingMetaSuccess: () => {
