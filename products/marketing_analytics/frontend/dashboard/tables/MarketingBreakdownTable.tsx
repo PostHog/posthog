@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useId } from 'react'
 
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 
-import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { TileId } from 'scenes/web-analytics/common'
 import { displayBreakdownValue } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingBreakdown'
 import { WebTileHeader, WebTileHeaderProps } from 'scenes/web-analytics/WebTileHeader'
@@ -12,6 +12,7 @@ import { CurrencyCode } from '~/queries/schema/schema-general'
 import { BreakdownTableColumn, compareByCurrent } from './breakdownTableColumn'
 import { buildExportMenuItems, buildExportRows } from './breakdownTableExport'
 import { ChangeValueCell } from './ChangeValueCell'
+import { marketingBreakdownTableLogic } from './marketingBreakdownTableLogic'
 
 export interface MarketingBreakdownTableProps<Row extends object> {
     tileId: TileId
@@ -56,7 +57,10 @@ export function MarketingBreakdownTable<Row extends object>({
     focusedBreakdownValue,
     onFocusBreakdown,
 }: MarketingBreakdownTableProps<Row>): JSX.Element {
-    const [sorting, setSorting] = useState<Sorting | null>({ columnKey: defaultSortKey, order: -1 })
+    const tableKey = useId()
+    const logic = marketingBreakdownTableLogic({ tableKey, defaultSortKey })
+    const { sorting } = useValues(logic)
+    const { setSorting } = useActions(logic)
     const tableColumns: LemonTableColumn<Row, keyof Row | undefined>[] = [
         {
             title: breakdownLabel,
@@ -128,6 +132,7 @@ export function MarketingBreakdownTable<Row extends object>({
                             breakdownLabel,
                             breakdownValue: (row) => displayBreakdownValue(breakdownValue(row), breakdownLabel),
                             compare,
+                            sorting,
                         }),
                     exportFilename,
                     !loading && !error && rows.length > 0
@@ -135,12 +140,20 @@ export function MarketingBreakdownTable<Row extends object>({
             />
             {error && !loading ? (
                 <div className="p-3">
-                    <LemonBanner type="error" action={{ children: 'Retry', onClick: onRetry }}>
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Retry',
+                            onClick: onRetry,
+                            'data-attr': 'marketing-breakdown-table-retry',
+                        }}
+                    >
                         Couldn't load this table. Try again.
                     </LemonBanner>
                 </div>
             ) : (
                 <div className="max-h-[36rem] overflow-auto">
+                    {/* Cap long breakdowns so later dashboard sections stay within reach. */}
                     <LemonTable
                         className="@max-[40rem]:[&_th_svg]:hidden @max-[40rem]:[&_.sorting-indicator]:hidden"
                         embedded
