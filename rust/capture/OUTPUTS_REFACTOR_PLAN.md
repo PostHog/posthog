@@ -24,7 +24,7 @@ All three use one mechanism:
 
 A fallback is then a configuration of an output's targets, not a new code path. The policy tree already composes two outputs (Step 7). It needs targets that can be configured independently, a policy that picks the live target at boot (Step 17), and for objective 3, a way to change that pick at runtime.
 
-Today this is not possible. One deployment-wide `KafkaConfig` holds ten topic names, each with a compiled-in default, so a boot check cannot tell a configured topic from a missing one. The existing completeness flag demands all ten on every pod, so no deployment can enable it. v1 publishes through its own sinks, so nothing in the outputs layer moves its traffic.
+Today this is not possible. One deployment-wide `KafkaConfig` holds ten topic names, each with a compiled-in default, so a boot check cannot tell a configured topic from a missing one. The existing completeness flag demands all ten on every pod. It fails any deployment that deliberately blanks a topic it never produces to, and where it can be enabled it still misses a missing variable, because the default fills it in. v1 publishes through its own sinks, so nothing in the outputs layer moves its traffic.
 
 Every step is a small commit, proven by the Step-1 goldens, and reverted by plain revert. Cluster migration by split or dual-write stays under **Deferred work**.
 
@@ -128,7 +128,8 @@ Steps 9–10 move configuration onto named producers and outputs. Steps 11–12 
 
 ### Step 14 · Per-mode output registries
 
-- **Goal.** One registry type per capture mode, with required fields: `AnalyticsFamilyOutputs` (analytics, ai, heatmaps, warnings, error tracking) for Events, Ai, and Import pods, and `SessionReplayOutputs` for Recordings pods. Rows naming the same producer share its one instance.
+- **Goal.** One registry type per capture mode, with required fields: `AnalyticsFamilyOutputs` (analytics, ai, heatmaps, warnings, error tracking) for Events and Import pods, `AiOutputs` for Ai pods, and `SessionReplayOutputs` for Recordings pods. Rows naming the same producer share its one instance.
+- **Each type holds exactly what its mode can reach.** The set comes from the routes the mode mounts: Ai pods serve only the AI batch, AI, OTEL, and v1 AI routes (`router.rs`), so `AiOutputs` does not demand heatmaps, warnings, or error-tracking topics. The exact rows for each mode, Import included, are derived from its routes when this step is scheduled.
 - **Why.** Step 15 demands configuration per mode. Without these types, that demand is a hand-written mode → outputs map. With them, the type is the list.
 - **Out of scope.** Binding handlers to capability traits over a generic `State<T>` (Step 29).
 - **Parity proof.** Goldens and integration suites unmodified; per-mode construction tests.
@@ -148,7 +149,8 @@ Example of what this catches: until [charts#14941](https://github.com/PostHog/ch
 
 - **Goal.** At boot, read cluster metadata for every topic each reachable output can produce to, once per distinct producer, and refuse to start on a missing topic.
 - **Why separate from Step 15.** Step 15 checks config and never connects. Step 16 checks that the topics exist on the cluster, which matters most for a cluster this deployment has never written to.
-- **Off by default**, enabled per deployment: on brokers with topic auto-creation, the metadata request can create the topic it checks.
+- **The check never creates a topic.** A producer's metadata request can make a broker with topic auto-creation create the topic, with broker defaults, and then the check passes. The check uses an admin metadata request with auto-creation disabled, so a missing topic stays missing until someone provisions it.
+- **Enabled per deployment.**
 - **Size.** M.
 
 ### Step 17 · capture-analytics emergency fallback
@@ -156,13 +158,15 @@ Example of what this catches: until [charts#14941](https://github.com/PostHog/ch
 - **Shape.** The capture-analytics output tree holds two Kafka outputs, primary and fallback. Each names its own producer (own brokers, own TLS) and its own topic names. The fallback cluster does not have to copy the primary's topic names. v0 and v1 traffic both publish through this tree.
 - **Arming.** One environment variable, matched exactly against a sentinel value. `"1"`, `"true"`, or `"yes"` does not arm it; any value other than the sentinel refuses to boot. Unset is normal operation.
 - **Static at boot.** A new `select` policy holds both targets and publishes to one, picked by the arming variable. It does not react to health: switching means setting the variable and rolling the pods, because a person decides to move off a degraded MSK. Automatic switching is objective 3. The health-gated `failover` policy is not used here; it serves only S3.
+- **A retryable error stays on the live target.** It returns to the caller like any other publish error and never sends the batch to the other target.
 - **The idle fallback is checked on every boot.** capture-analytics enables Step 16, and the tree always holds the fallback, so a broken fallback config shows up on an ordinary deploy, not in the emergency.
-- **What an idle-fallback failure does is configuration.** It covers a failed Step-16 check on the fallback cluster and a fallback producer that cannot connect:
+- **What an idle-fallback failure does is configuration.** It covers a failed Step-16 check on the fallback cluster and a fallback producer that cannot connect. Producer creation returns the result of its broker probe instead of only logging it, so the configured mode can act on it:
   - `warn` (default): capture keeps serving on the primary. The fallback producer is advisory, a per-producer health gauge reports it as down, and capture logs an error. The gauge needs an alert, since nothing else fails.
   - `strict`: capture refuses to boot, and a dead fallback producer fails pod liveness.
 - **Gauge** for the live target, emitted in both states, so a dashboard can tell "on primary" from "not reporting".
 - **Scope.** capture-analytics only. Other modes have no fallback output and are not asked to configure one.
-- **Known gaps, for the runbook.** Consumers have no matching switch. capture-import writes the same topics and must be stopped before any drain-to-zero check. The AI lane's bridges read MSK topic names.
+- **Not in this plan: the consumer switch.** Arming moves where capture writes. It does not move the consumers, which keep reading the primary cluster until they are repointed. This plan does not implement that switch; the runbook repoints consumers in the same operation. Until then, events wait in the fallback topics.
+- **Known gaps, for the runbook.** capture-import writes the same topics and must be stopped before any drain-to-zero check. The AI lane's bridges read MSK topic names.
 - **Size.** M/L.
 
 ### Step 18 · Delete the S3 fallback
@@ -211,7 +215,7 @@ A separate circuit-breaker service decides; how it decides is out of scope. Capt
 
 ### Step 23 · Target selection at runtime
 
-The `select` policy's live target becomes swappable state with no lock on the request path. Step 17's arming sets its boot value. A signal switches the target. No signal, or an unreachable control plane, keeps the current target: missing information must never move traffic. The Step-17 gauge reports the live target. With no service configured, behavior matches Step 17 exactly.
+The `select` policy's live target becomes swappable state with no lock on the request path. Each batch reads the live target once, and its acks and retries stay on that target, so a switch never splits a batch or sends it twice. Step 17's arming sets its boot value. A signal switches the target. No signal, or an unreachable control plane, keeps the current target: missing information must never move traffic. The Step-17 gauge reports the live target. With no service configured, behavior matches Step 17 exactly.
 
 ### Step 24 · Producer health out
 
@@ -232,6 +236,8 @@ Handlers bind on sealed traits (`PublishesAnalyticsFamily`, `PublishesSessionRep
 ### Steps 34–35 · Outputs as an open trait
 
 `Outputs` becomes an open trait replacing the closed policy enum: `KafkaOutputs`, `PrintOutputs`/`NoopOutputs`, and `SelectOutputs`/`SplitOutputs` over `Arc<dyn Outputs>`. A test-only prototype (`outputs::dynamic`, Step 35) has `DynamicKafkaOutputs` take config pushes from an in-process `KafkaManagerService` and switch topics and brokers partition by partition.
+
+Split and dual-write policies are also unscheduled. Before either is scheduled, it must define how per-target results become one result per event, which failures it retries, and how it handles an event delivered to both targets.
 
 Steps 30 and 33 are listed in the tracker only. Steps 26, 28, 31, and 32 are superseded; the tracker says by what.
 
