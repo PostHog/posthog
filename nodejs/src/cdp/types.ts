@@ -327,6 +327,12 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     finished: boolean
     /** The invocation deliberately finished without running because its trigger did not match. */
     skipped?: boolean
+    /**
+     * Whether a send reached a recipient. Distinct from `skipped` above, which is set only for a
+     * trigger or recipient-preference skip: a push that found no device token sets neither that
+     * flag nor an error, so nothing else on the result tells the two apart.
+     */
+    deliveredToRecipient?: boolean
     // The run was canceled rather than succeeding or failing. Only meaningful with
     // finished=true and no error: the job row and the lifecycle row both flip to
     // 'canceled'.
