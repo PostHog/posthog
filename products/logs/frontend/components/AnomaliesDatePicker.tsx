@@ -126,7 +126,7 @@ export function AnomaliesDatePicker({ dateRange, setDateRange, stepDateRange }: 
                 type="secondary"
                 icon={<IconChevronRight />}
                 tooltip="Next window"
-                disabledReason={resolved?.rolling ? 'This window already ends now' : undefined}
+                disabledReason={stepAnomaliesWindow(dateRange, 1, now) ? undefined : 'This window already ends now'}
                 onClick={() => stepDateRange(1)}
                 data-attr="logs-anomalies-date-next"
             />

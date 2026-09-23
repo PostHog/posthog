@@ -43,14 +43,20 @@ describe('anomaliesDateWindow', () => {
             expected: { date_from: '2026-09-13T00:00:00.000Z', date_to: '2026-09-20T00:00:00.000Z' },
         },
         {
-            name: 'a step back to exactly 35 days ago is allowed',
-            dateRange: { date_from: '2026-08-26T11:00:00.000Z', date_to: '2026-09-02T11:00:00.000Z' },
-            direction: -1 as const,
-            expected: { date_from: '2026-08-19T11:00:00.000Z', date_to: '2026-08-26T11:00:00.000Z' },
+            name: 'a week that already ends now cannot step forward',
+            dateRange: { date_from: '2026-09-20T00:00:00.000Z', date_to: '2026-09-27T00:00:00.000Z' },
+            direction: 1 as const,
+            expected: null,
         },
         {
-            name: 'a step back past 35 days is refused',
-            dateRange: { date_from: '2026-08-26T10:00:00.000Z', date_to: '2026-09-02T10:00:00.000Z' },
+            name: 'a step back to one hour inside the 35 day limit is allowed',
+            dateRange: { date_from: '2026-08-26T12:00:00.000Z', date_to: '2026-09-02T12:00:00.000Z' },
+            direction: -1 as const,
+            expected: { date_from: '2026-08-19T12:00:00.000Z', date_to: '2026-08-26T12:00:00.000Z' },
+        },
+        {
+            name: 'a step back to exactly 35 days ago is refused, because the backend floors the start',
+            dateRange: { date_from: '2026-08-26T11:00:00.000Z', date_to: '2026-09-02T11:00:00.000Z' },
             direction: -1 as const,
             expected: null,
         },
@@ -58,11 +64,11 @@ describe('anomaliesDateWindow', () => {
         expect(stepAnomaliesWindow(dateRange, direction, NOW)).toEqual(expected)
     })
 
-    it('a picked day spans seven days from its midnight', () => {
+    it('a picked day spans 168 hours from its midnight', () => {
         const day = dayjs('2026-09-08T15:30:00')
         expect(weekStartingOn(day)).toEqual({
             date_from: day.startOf('day').toISOString(),
-            date_to: day.startOf('day').add(7, 'day').toISOString(),
+            date_to: day.startOf('day').add(168, 'hour').toISOString(),
         })
     })
 })

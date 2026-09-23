@@ -4,7 +4,10 @@ import type { DateRange } from '~/queries/schema/schema-general'
 
 // Mirrors MAX_WINDOW_START_AGE_DAYS in products/logs/backend/series_bands.py, which rejects older starts.
 export const MAX_WINDOW_START_AGE_DAYS = 35
+// The backend floors the start by up to one hour bucket and reads its own later clock.
+const START_AGE_MARGIN_HOURS = 1
 export const WEEK_DAYS = 7
+const WEEK_HOURS = WEEK_DAYS * 24
 
 export interface AnomaliesRollingOption {
     label: string
@@ -45,12 +48,14 @@ export function resolveAnomaliesWindow(dateRange: DateRange, now: dayjs.Dayjs): 
 }
 
 export function isWindowStartAllowed(start: dayjs.Dayjs, now: dayjs.Dayjs): boolean {
-    return !start.isBefore(now.subtract(MAX_WINDOW_START_AGE_DAYS, 'day')) && !start.isAfter(now)
+    const oldest = now.subtract(MAX_WINDOW_START_AGE_DAYS, 'day').add(START_AGE_MARGIN_HOURS, 'hour')
+    return !start.isBefore(oldest) && !start.isAfter(now)
 }
 
 export function weekStartingOn(day: dayjs.Dayjs): DateRange {
     const start = day.startOf('day')
-    return { date_from: start.toISOString(), date_to: start.add(WEEK_DAYS, 'day').toISOString() }
+    // Hours, not calendar days: a week across a daylight saving change is 169 hours, and the backend refuses it.
+    return { date_from: start.toISOString(), date_to: start.add(WEEK_HOURS, 'hour').toISOString() }
 }
 
 // A step that reaches the present returns to the rolling option, because a fixed window ending at the click goes stale.
@@ -59,7 +64,7 @@ export function stepAnomaliesWindow(dateRange: DateRange, direction: -1 | 1, now
     if (!window) {
         return null
     }
-    if (direction === 1 && window.rolling) {
+    if (direction === 1 && !window.end.isBefore(now)) {
         return null
     }
     const spanMs = dateRange.date_to ? dayjs(dateRange.date_to).diff(window.start) : window.end.diff(window.start)
