@@ -2444,9 +2444,12 @@ export class AgentServer {
     this.posthogAPI
       .updateTaskRun(payload.task_id, payload.run_id, {
         status: "in_progress",
-        ...(isBenjaminEnabled() && {
-          state: { benjamin_version: BENJAMIN_UPSTREAM_COMMIT },
-        }),
+        state: {
+          agent_version: this.config.version ?? packageJson.version,
+          ...(isBenjaminEnabled() && {
+            benjamin_version: BENJAMIN_UPSTREAM_COMMIT,
+          }),
+        },
       })
       .catch((err) =>
         this.logger.debug("Failed to set task run to in_progress", err),
