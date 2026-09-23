@@ -87,6 +87,9 @@ class TestStableChunks(SimpleTestCase):
         cookie = response.cookies.get(STABLE_CHUNKS_COOKIE)
         assert (cookie.value if cookie else None) == expected_value
         assert (cookie["max-age"] if cookie else None) == expected_max_age
+        if expected_value == "1":
+            # Only the server reads the choice, so scripts on the page never need it.
+            assert cookie["httponly"] is True
 
 
 class TestStableChunksChoiceSurvivesTheRequest(APIBaseTest):

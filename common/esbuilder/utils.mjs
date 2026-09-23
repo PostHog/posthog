@@ -87,7 +87,7 @@ export function copyIndexHtml(
     // Docker image, but serve the js and it's dependencies from e.g. CloudFront
     const buildId = new Date().valueOf()
 
-    const bootScript = (chunks, entrypoints) => {
+    const bootScript = (chunks, entrypoints, { isStable = false } = {}) => {
         const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(absWorkingDir, 'dist'), e))
         const jsFile =
             relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.js')) : `${entry}.js?t=${buildId}`
@@ -95,6 +95,17 @@ export function copyIndexHtml(
             relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
 
         const jsFileFallback = `${entry}.js?t=${buildId}`
+        // The stable entry may already have run some stable chunks when it fails, and the default
+        // entry would then run a second copy of those modules. So the stable variant reloads the page
+        // on the default build instead. The server always serves the default build for
+        // ?stable_chunks=0 and clears the opt-in cookie, so the reload cannot loop.
+        const entryFallback = isStable
+            ? `
+                        var url = new URL(window.location.href)
+                        url.searchParams.set('stable_chunks', '0')
+                        window.location.replace(url.toString())`
+            : `
+                        await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})`
         const scriptCode = `
             window.ESBUILD_LOAD_SCRIPT = async function (file) {
                 try {
@@ -102,8 +113,7 @@ export function copyIndexHtml(
                 } catch (error) {
                     console.error('Error loading chunk: "' + file + '"')
                     console.error(error)
-                    if (file === ${JSON.stringify(jsFile)} && file !== ${JSON.stringify(jsFileFallback)}) {
-                        await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})
+                    if (file === ${JSON.stringify(jsFile)} && file !== ${JSON.stringify(jsFileFallback)}) {${entryFallback}
                     }
                 }
             }
@@ -146,7 +156,7 @@ export function copyIndexHtml(
     // With stable chunk names built, the backend picks the boot variant per request. See
     // stableChunkNames.mjs and the stable_chunks context in posthog/utils.py.
     const scripts = stable
-        ? `{% if stable_chunks %}${bootScript(stable.chunks, stable.entrypoints)}{% else %}${bootScript(chunks, entrypoints)}{% endif %}`
+        ? `{% if stable_chunks %}${bootScript(stable.chunks, stable.entrypoints, { isStable: true })}{% else %}${bootScript(chunks, entrypoints)}{% endif %}`
         : bootScript(chunks, entrypoints)
 
     fse.writeFileSync(
