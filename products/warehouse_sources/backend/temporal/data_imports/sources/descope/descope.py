@@ -1,8 +1,9 @@
 import time
 import hashlib
-import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -32,9 +33,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.descope.se
 DESCOPE_BASE_URL = "https://api.descope.com"
 USERS_PAGE_SIZE = 100
 DAY_MS = 24 * 60 * 60 * 1000
+# The fan-out endpoints issue one request per parent, so a single stalled request would hang a
+# whole sync with no progress. Bound each one instead.
+REQUEST_TIMEOUT_SECONDS = 60
 
 
-@dataclasses.dataclass
+@frozen
 class DescopeResumeConfig:
     # The `POST /v2/mgmt/user/search` page to pick back up at. `Users` and `UserHistory` both walk
     # that list, and each schema syncs under its own job id, so the two never read each other's
@@ -249,6 +253,7 @@ def _client(project_id: str, management_key: str) -> RESTClient:
     return RESTClient(
         base_url=DESCOPE_BASE_URL,
         auth=BearerTokenAuth(token=bearer_token(project_id, management_key)),
+        request_timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
 

@@ -76,8 +76,10 @@ PARTITION_KEYS: dict[str, str] = {
     "UserHistory": "loginTime",
 }
 
-# `POST /v1/mgmt/analytics/search` rejects a `from` further back than 12 months. Every sync pulls
-# the whole window, since the response carries no cursor a later sync could resume from.
-ANALYTICS_LOOKBACK_DAYS = 365
+# `POST /v1/mgmt/analytics/search` rejects a `from` further back than 12 months. Ask for a day
+# less: the window is computed when the resource is built and the request goes out later, so
+# asking for the full 365 days would put a retry outside the limit. Every sync pulls the whole
+# window, since the response carries no cursor a later sync could resume from.
+ANALYTICS_LOOKBACK_DAYS = 364
 # How the aggregate buckets its dates: "h" hour, "d" day, "w" week, "m" month, "q" quarter.
 ANALYTICS_BUCKET = "d"
