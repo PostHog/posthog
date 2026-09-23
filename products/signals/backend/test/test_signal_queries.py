@@ -384,8 +384,7 @@ class TestFetchReportIdsForSearchTerms(_SignalEmbeddingsTestBase):
     def test_terms_may_sit_in_different_signals_of_one_report(self) -> None:
         # A report promotes only after several signals merge into it, so the word a caller
         # remembers and the identifier it pairs with routinely land in two of them. Testing the
-        # terms per signal instead of per report loses exactly the deduplication match this
-        # filter exists to make, and the caller reads the miss as "no such report".
+        # terms per signal loses exactly the deduplication match this filter exists to make.
         self._emit_version(
             document_id="sig1",
             report_id="rSplit",

@@ -833,9 +833,8 @@ def fetch_report_ids_by_search_term(team: Team, terms: list[str]) -> dict[str, s
     ]
     # Each row here is one signal, so the term test belongs after the grouping: a report promotes
     # only once several signals merge into it, and the word a caller remembers routinely sits in a
-    # different signal from the identifier it pairs with. The WHERE keeps the rows matching at
-    # least one term, which leaves every countIf unchanged and keeps the grouping off the signals
-    # no term touches.
+    # different signal from the identifier it pairs with. The WHERE only drops signals no term
+    # touches, which leaves every countIf unchanged.
     any_term = " OR ".join(term_matches)
     matched_flags = ",\n            ".join(
         f"countIf({match}) > 0 AS matched_{index}" for index, match in enumerate(term_matches)
