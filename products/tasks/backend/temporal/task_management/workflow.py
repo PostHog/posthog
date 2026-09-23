@@ -1256,6 +1256,12 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 "task_management_ci_skipped_pr_closed", extra={"run_id": self._run_id, "pr_url": pr_context.pr_url}
             )
             return CIFollowUpDecision.SKIP
+        if pr_context.merge_queue_push_would_eject:
+            workflow.logger.info(
+                "task_management_ci_skipped_pr_in_merge_queue",
+                extra={"run_id": self._run_id, "pr_url": pr_context.pr_url},
+            )
+            return CIFollowUpDecision.SKIP
         fingerprint_changed = self._pr_fingerprint != pr_context.fingerprint
         if not ci_follow_up_actionable_gate():
             # Legacy replay path: any fingerprint change fires; feedback is not consulted.

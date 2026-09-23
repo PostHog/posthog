@@ -292,6 +292,10 @@ class TestBabysitFollowUpDecision:
             (_babysit_snapshot(pr_state="closed"), CIFollowUpDecision.TERMINAL),
             (_babysit_snapshot(), CIFollowUpDecision.SKIP),
             (_babysit_snapshot(failing_checks=[BABYSIT_CHECK]), CIFollowUpDecision.FIRE),
+            (
+                _babysit_snapshot(failing_checks=[BABYSIT_CHECK], merge_queue_push_would_eject=True),
+                CIFollowUpDecision.SKIP,
+            ),
         ],
     )
     async def test_snapshot_drives_the_decision(self, monkeypatch, snapshot, expected_decision):
