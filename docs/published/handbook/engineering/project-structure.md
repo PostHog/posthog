@@ -70,6 +70,14 @@ Browsing `/posthog/files` loads and caches each folder's immediate children; `/p
 Loading another folder leaves cached folders untouched, and API type directories can be opened directly even if they are not listed yet.
 Notebook format detection waits until notebooks are browsed, and object contents load only when opened.
 `ph refresh` reloads the directories already visited, rebuilds the cached tree once, and reloads the connected tool catalog.
+Running `node`, `nodejs`, or `pi` installs the tool on first use; `pi` also installs Node.js.
+Optional tools come from commit-pinned archives in [PostHog/terminal-assets](https://github.com/PostHog/terminal-assets), separate from the boot assets.
+The browser verifies each archive's SHA-256 and size before making it available to the VM, and caches verified downloads when browser storage is available.
+Failed installations can be retried by running the command again.
+The VM uses 512 MiB of memory and a separate 256 MiB temporary filesystem for installed tools.
+Stopping the terminal discards the installed tools and local files; verified downloads can be reused from the browser cache.
+The VM has no network bridge, so pi can run locally but cannot call models, log in, or download packages.
+Add future tools to `terminal-packages.json` with pinned archive metadata, dependencies, and command entrypoints, and publish their reproducible build recipes in the assets repository.
 
 ### `posthog`
 
