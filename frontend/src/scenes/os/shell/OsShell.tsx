@@ -2,6 +2,7 @@ import './OsShell.scss'
 
 import { useValues } from 'kea'
 
+import { OsSpotlight } from '../spotlight/OsSpotlight'
 import { OsWindowLayer } from '../windows/OsWindowLayer'
 import { OsDesktop } from './OsDesktop'
 import { OsMenuBar } from './OsMenuBar'
@@ -26,6 +27,7 @@ export function OsShell(): JSX.Element {
                 </div>
             </div>
             <OsDesktop />
+            <OsSpotlight />
         </div>
     )
 }

@@ -9,6 +9,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
+import { OsFrameBridge } from 'scenes/os/bridge/OsFrameBridge'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene, SceneConfig } from 'scenes/sceneTypes'
 
@@ -126,6 +127,7 @@ export function Navigation({
                 }
             >
                 {showMinimalNavigation && <MinimalNavigation />}
+                {mode === 'framed' && <OsFrameBridge />}
                 <main
                     {...(mode === 'framed' ? { ref: mainRef, id: 'main-content', role: 'main' } : {})}
                     className={cn({

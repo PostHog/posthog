@@ -26,7 +26,7 @@ const ICON_COLUMN_CLASS = 'list-none m-0 p-0 flex flex-col content-start h-[calc
 export function OsDesktop(): JSX.Element {
     const { wallpaper, desktopColumns } = useValues(osShellLogic)
     const { setWallpaper, openApp } = useActions(osShellLogic)
-    const onOpen = ({ href, label }: { href: string; label: string }, from?: Element): void => {
+    const onOpen = ({ href, label }: { href: string; label: string }, from?: Element, newWindow?: boolean): void => {
         // Windows zoom open from the icon, in the window layer's coordinates.
         const layer = document.querySelector('[data-attr="os-window-layer"]')?.getBoundingClientRect()
         const icon = from?.getBoundingClientRect()
@@ -34,7 +34,7 @@ export function OsDesktop(): JSX.Element {
             layer && icon
                 ? { x: icon.left + icon.width / 2 - layer.left, y: icon.top + icon.height / 2 - layer.top }
                 : undefined
-        openApp(href, label, origin)
+        openApp(href, label, origin, newWindow)
     }
 
     return (

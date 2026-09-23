@@ -65,7 +65,8 @@ export default function AuthenticatedShell({ children }: { children: React.React
                         </Suspense>
                     </ErrorBoundary>
                 )}
-                <Command />
+                {/* The OS page shows its own spotlight, and a window hands Cmd+K to it. */}
+                {mode !== 'os' && mode !== 'framed' && <Command />}
                 <ImpersonationNotice />
                 <WizardSyncFab />
                 {/* Separate from the FAB: the FAB stands down while an inline panel shows the run,

@@ -34,7 +34,7 @@ function isEditable(target: EventTarget | null): boolean {
 /**
  * Window shortcuts need Alt+Shift (Option+Shift on macOS) and nothing else, so they never take a bare
  * key, text selection (Shift+arrow), browser back (Alt+arrow) or the app's own Cmd+Option shortcuts.
- * They only reach this page while the desktop has focus: key presses inside a window stay in its frame.
+ * The desktop handles them directly, and `osFrameBridgeLogic` forwards them from a focused window.
  */
 export function osWindowCommandFor(event: OsWindowShortcutEvent): OsWindowCommand | null {
     if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey || event.repeat || event.isComposing) {

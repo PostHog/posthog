@@ -1,4 +1,5 @@
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { openInOsWindow } from 'scenes/os/bridge/osFrameConnection'
 
 export const NEW_INTERNAL_TAB = 'NEW_INTERNAL_TAB'
 
@@ -15,6 +16,10 @@ export function newInternalTab(path?: string, _source: 'internal_link' | 'unknow
     }
     const isExternal = /^(https?:|mailto:)/.test(path)
     const href = isExternal ? path : addProjectIdIfMissing(path)
+    // Inside an OS window, a new tab of the app is a new window.
+    if (!isExternal && openInOsWindow(href)) {
+        return
+    }
 
     const anchor = document.createElement('a')
     anchor.href = href

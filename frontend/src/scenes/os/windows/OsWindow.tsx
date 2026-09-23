@@ -12,7 +12,6 @@ import { osFrameName, osFrameSrc } from '../bridge/osFrame'
 import { OsBounds, OsPoint, OsResizeEdge, OsSnapZone, resizeBounds, snapZoneAt } from './osWindowGeometry'
 import { OS_WINDOW_SHORTCUT_KEYS, OsWindowCommand } from './osWindowShortcuts'
 import { OsWindowState, osWindowsLogic } from './osWindowsLogic'
-import { watchOsWindowFrame } from './watchOsWindowFrame'
 
 const DRAG_THRESHOLD = 4
 
@@ -63,25 +62,14 @@ export function OsWindow({
     onSnapPreview,
 }: OsWindowProps): JSX.Element {
     const { desktop, zoomOrigins } = useValues(osWindowsLogic)
-    const {
-        focusWindow,
-        closeWindow,
-        minimizeWindow,
-        maximizeWindow,
-        unmaximizeWindow,
-        snapWindow,
-        setWindowBounds,
-        windowNavigated,
-    } = useActions(osWindowsLogic)
+    const { focusWindow, closeWindow, minimizeWindow, maximizeWindow, unmaximizeWindow, snapWindow, setWindowBounds } =
+        useActions(osWindowsLogic)
     const reduceMotion = useReducedMotion()
     const [liveBounds, setLiveBounds] = useState<OsBounds | null>(null)
     const gesture = useRef<Gesture | null>(null)
-    const stopWatchingFrame = useRef<(() => void) | null>(null)
     // The frame loads its first path once. Later paths come from the frame itself, and changing `src` would reload it.
     const [src] = useState(() => osFrameSrc({ pathname: win.path, search: '', hash: '' }, window.location.origin))
     const [zoomOrigin] = useState(() => zoomOrigins[win.id] ?? null)
-
-    useEffect(() => () => stopWatchingFrame.current?.(), [])
 
     // A shortcut can maximize, minimize or close a window mid-gesture, and its handles then never see the
     // pointer come up. Without this, every frame would keep ignoring the pointer.
@@ -192,35 +180,6 @@ export function OsWindow({
         onLostPointerCapture: endGesture,
     }
 
-    const onFrameLoad = (frame: HTMLIFrameElement): void => {
-        stopWatchingFrame.current?.()
-        const stopWatching = watchOsWindowFrame(frame, ({ path, title, traversed }) => {
-            windowNavigated(win.id, path, title)
-            // Back and forward can step a window that is behind others, so that window comes to the front.
-            if (traversed) {
-                focusWindow(win.id)
-            }
-        })
-        // A click into a frame never reaches this page, so the frame reports it. Frame `focus` events are
-        // not used, because an app that focuses an input on load would steal focus from the window on top.
-        const focusThisWindow = (): void => focusWindow(win.id)
-        let frameWindow: Window | null = null
-        try {
-            frameWindow = frame.contentWindow
-            frameWindow?.addEventListener('pointerdown', focusThisWindow, true)
-        } catch {
-            frameWindow = null
-        }
-        stopWatchingFrame.current = () => {
-            stopWatching()
-            try {
-                frameWindow?.removeEventListener('pointerdown', focusThisWindow, true)
-            } catch {
-                // The frame left this origin, and its listeners went away with its document.
-            }
-        }
-    }
-
     const transition = { duration: reduceMotion ? 0 : 0.2, ease: [0.2, 0.2, 0.8, 1] as const }
     const zoomFrom = win.minimized
         ? { x: desktop.width / 2 - bounds.x, y: desktop.height - bounds.y }
@@ -320,7 +279,6 @@ export function OsWindow({
                         'flex-1 w-full min-h-0 border-0 bg-surface-primary',
                         interacting && 'pointer-events-none'
                     )}
-                    onLoad={(event) => onFrameLoad(event.currentTarget)}
                 />
             )}
             {!win.maximized &&

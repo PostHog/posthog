@@ -5,7 +5,6 @@ import { IconNotification, IconSearch, IconSparkles } from '@posthog/icons'
 import { Logo } from 'lib/brand'
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { ProjectMenu } from 'lib/components/Account/ProjectMenu'
-import { commandLogic } from 'lib/components/Command/commandLogic'
 import { NotificationsPanel } from 'lib/components/NotificationsMenu/NotificationsPanel'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
@@ -17,6 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 
+import { osSpotlightLogic } from '../spotlight/osSpotlightLogic'
 import { osShellLogic } from './osShellLogic'
 
 function openInNewTab(href: string): void {
@@ -27,7 +27,7 @@ function openInNewTab(href: string): void {
 export function OsMenuBar(): JSX.Element {
     const { desktopColumns } = useValues(osShellLogic)
     const { openApp } = useActions(osShellLogic)
-    const { toggleCommand } = useActions(commandLogic)
+    const { openSpotlight } = useActions(osSpotlightLogic)
     const { user } = useValues(userLogic)
     const { inAppUnreadCount } = useValues(sidePanelNotificationsLogic)
 
@@ -106,7 +106,7 @@ export function OsMenuBar(): JSX.Element {
                         type="button"
                         className="OsShell__menu-trigger"
                         aria-label="Search"
-                        onClick={() => toggleCommand('nav-search-button')}
+                        onClick={() => openSpotlight()}
                         data-attr="os-menu-search"
                     >
                         <IconSearch className="size-5" />
