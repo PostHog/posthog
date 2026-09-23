@@ -284,7 +284,7 @@ Measured checkout-step durations, from the GitHub API on real runs:
 
 ## Never splice a caller's input into a command an inner shell re-parses
 
-A composite action that builds `sh -c "... $INPUT"` hands the container's shell a **script**, not a flag list. That inner shell re-parses it, and `exec` replaces the shell on the first command — so every token that ends a command there silently truncates the rest: `#`, a newline, `;`, `&`, `|`. The job still exits 0.
+A composite action that builds `sh -c "... $INPUT"` hands the container's shell a **script**, not a flag list. That inner shell re-parses it, and `exec` replaces the shell on the first command — so a token that ends a command there truncates every flag after it. With `#`, a newline or `;` the truncation is silent: `exec` never returns, nothing else runs, and the job exits 0. `&` and `|` truncate the command too, but the leftover flag then runs as a command of its own and the step fails with 127.
 
 The input reaches it looking innocent. Inside a YAML block scalar (`args: >-`) a `#` is **data**, not a YAML comment, and a more-indented line is not folded, so it keeps its newlines. Neither needs unusual input — a note or an indented flag is enough.
 
