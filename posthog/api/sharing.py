@@ -1141,7 +1141,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 return get_content_response(resource, request.query_params.get("download") == "true")
             exported_data["type"] = "image"
 
-        add_og_tags = resource.insight or (resource.dashboard and not resource.password_required)
+        add_safe_og_tags = resource.insight or resource.dashboard
+        add_og_tags = add_safe_og_tags and not resource.password_required
         asset_description = ""
 
         # Check both query params (legacy) and settings for configuration options
@@ -1533,6 +1534,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
             "asset_title": asset_title,
             "asset_description": asset_description,
+            "add_safe_og_tags": add_safe_og_tags,
             "add_og_tags": add_og_tags,
             "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
         }

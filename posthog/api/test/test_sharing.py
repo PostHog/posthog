@@ -201,6 +201,7 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/shared_dashboard/{sharing_configuration.access_token}")
 
         assert response.status_code == status.HTTP_200_OK
+        assert mock_render_template.call_args.kwargs["context"]["add_safe_og_tags"] == self.dashboard
         assert mock_render_template.call_args.kwargs["context"]["add_og_tags"] is False
 
     @time_machine.travel("2022-01-01", tick=False)
