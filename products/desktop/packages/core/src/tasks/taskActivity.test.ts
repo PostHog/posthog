@@ -28,7 +28,7 @@ describe("taskActivityTimestamp", () => {
     );
   });
 
-  it("ignores the run's write time in updated mode", () => {
+  it("falls back to creation time when the backend sent no activity stamp", () => {
     const task = makeTask({
       updated_at: "2026-01-02T00:00:00Z",
       latest_run: {
@@ -48,7 +48,7 @@ describe("taskActivityTimestamp", () => {
     });
 
     expect(taskActivityTimestamp(task, "updated")).toBe(
-      new Date("2026-01-02T00:00:00Z").getTime(),
+      new Date("2026-01-01T00:00:00Z").getTime(),
     );
   });
 
@@ -146,11 +146,13 @@ describe("filterAndSortTasks", () => {
       id: "older-created",
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-04T00:00:00Z",
+      last_activity_at: "2026-01-04T00:00:00Z",
     });
     const newerCreated = makeTask({
       id: "newer-created",
       created_at: "2026-01-02T00:00:00Z",
       updated_at: "2026-01-03T00:00:00Z",
+      last_activity_at: "2026-01-03T00:00:00Z",
     });
     const tasks = [olderCreated, newerCreated];
 
