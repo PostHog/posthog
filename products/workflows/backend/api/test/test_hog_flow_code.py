@@ -56,22 +56,28 @@ class TestHogFlowCode(APIBaseTest):
 
         response = self._code(flow_id)
 
+        no_key = (
+            "This workflow has no key, so the copied file invents one from its name. The first push creates "
+            "a new draft workflow. Turn the original workflow off or delete it after that push."
+        )
         assert response.status_code == 200, response.json()
         assert response.json() == {
             "language": "typescript",
             "code": (
+                "// @posthog/workflows cannot express everything in this workflow. Review these before you push:\n"
+                f"// - {no_key}\n"
+                "\n"
                 "import { delay, onEvent, path, workflow } from '@posthog/workflows'\n"
                 "\n"
                 "export const welcomeSeries = workflow({\n"
                 "    key: 'welcome-series',\n"
                 "    name: 'Welcome series',\n"
-                "    status: 'draft',\n"
                 "    on: onEvent({ event: '$pageview' }),\n"
                 "    steps: path(delay('1d', { name: 'Wait a day' })),\n"
                 "    exit: { reason: 'Done' },\n"
                 "})\n"
             ),
-            "warnings": [],
+            "warnings": [{"action_id": None, "message": no_key}],
         }
 
     def test_prefers_the_staged_draft_over_the_live_definition(self) -> None:
