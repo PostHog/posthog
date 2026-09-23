@@ -29,6 +29,7 @@ from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.feature_flags.backend.blast_radius_flag_deps import FlagDependencyEstimator
 from products.feature_flags.backend.person_sampling import count_matching_persons
 
 
@@ -231,18 +232,45 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
         context=HogQLContext(team_id=team.pk, database=database),
     )
 
-    total_count = response.results[0][0] if response.results else 0
+    # A condition with a flag dependency sums per-person match probabilities, so the count is a float.
+    total_count = int(round(response.results[0][0] or 0)) if response.results else 0
     total_users = team.count_persons_seen_so_far(database=database)
     blast_radius = min(total_count, total_users)
 
     return BlastRadiusResult(affected=blast_radius, total=total_users)
 
 
+def _flag_dependency_weight(team: Team, flag_properties: list[Property]) -> ast.Expr:
+    """Probability that every flag dependency in the condition evaluates to its requested value."""
+    estimator = FlagDependencyEstimator(team, clean_condition=replace_proxy_properties)
+    weight: ast.Expr = estimator.probability_expr(flag_properties[0])
+    for prop in flag_properties[1:]:
+        weight = ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Mult, left=weight, right=estimator.probability_expr(prop)
+        )
+    return weight
+
+
 def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
     """Build HogQL AST query to count or select distinct persons matching filters."""
 
+    # property_to_expr neutralizes flag dependencies, so the count path weights each person by the
+    # probability the dependency matches instead. The persons path still lists everyone the plain
+    # filters match.
+    flag_properties = [prop for prop in filter.property_groups.flat if prop.type == "flag"]
+    weighted_count = return_count and bool(flag_properties)
+
     # Build the main SELECT with either count(DISTINCT persons.id) or DISTINCT persons.id
-    if return_count:
+    if weighted_count:
+        select_query = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["persons", "id"]),
+                ast.Alias(alias="weight", expr=_flag_dependency_weight(team, flag_properties)),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+            distinct=True,
+        )
+    elif return_count:
         select_query = ast.SelectQuery(
             select=[ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])],
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
@@ -285,6 +313,12 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
     if not return_count:
         select_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["persons", "id"]), order="ASC")]
         select_query.limit = ast.Constant(value=500)
+
+    if weighted_count:
+        return ast.SelectQuery(
+            select=[ast.Call(name="sum", args=[ast.Field(chain=["weight"])])],
+            select_from=ast.JoinExpr(table=select_query),
+        )
 
     return select_query
 

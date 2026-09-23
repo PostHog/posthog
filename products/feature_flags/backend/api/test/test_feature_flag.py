@@ -9901,7 +9901,84 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["type"], "validation_error")
 
-    def test_user_blast_radius_with_flag_dependency(self):
+    @parameterized.expand(
+        [
+            ("false_when_the_flag_is_on_for_everyone", [{"properties": [], "rollout_percentage": 100}], None, False, 0),
+            ("true_when_the_flag_is_on_for_everyone", [{"properties": [], "rollout_percentage": 100}], None, True, 10),
+            ("string_true_reads_as_boolean", [{"properties": [], "rollout_percentage": 100}], None, "true", 10),
+            ("true_scales_by_rollout", [{"properties": [], "rollout_percentage": 10}], None, True, 1),
+            (
+                "true_follows_targeting",
+                [
+                    {
+                        "properties": [
+                            {"key": "group", "type": "person", "value": ["0", "1", "2", "3"], "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ],
+                None,
+                True,
+                4,
+            ),
+            (
+                "false_is_the_complement_of_targeting",
+                [
+                    {
+                        "properties": [
+                            {"key": "group", "type": "person", "value": ["0", "1", "2", "3"], "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ],
+                None,
+                False,
+                6,
+            ),
+            (
+                "shared_rollout_hash_takes_the_widest_admitting_set",
+                [
+                    {
+                        "properties": [{"key": "group", "type": "person", "value": ["0", "1"], "operator": "exact"}],
+                        "rollout_percentage": 10,
+                    },
+                    {"properties": [], "rollout_percentage": 100},
+                ],
+                None,
+                True,
+                10,
+            ),
+            (
+                "variant_splits_by_variant_rollout",
+                [{"properties": [], "rollout_percentage": 100}],
+                {"variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]},
+                "control",
+                5,
+            ),
+            (
+                "pinned_variant_wins_for_its_set",
+                [
+                    {
+                        "properties": [{"key": "group", "type": "person", "value": ["0", "1"], "operator": "exact"}],
+                        "rollout_percentage": 100,
+                        "variant": "control",
+                    },
+                    {"properties": [], "rollout_percentage": 100},
+                ],
+                {"variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]},
+                "control",
+                6,
+            ),
+            (
+                "unknown_variant_is_never_served",
+                [{"properties": [], "rollout_percentage": 100}],
+                {"variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]},
+                "missing-variant",
+                0,
+            ),
+        ]
+    )
+    def test_user_blast_radius_with_flag_dependency(self, _name, groups, multivariate, value, expected_affected):
         for i in range(10):
             _create_person(
                 team_id=self.team.pk,
@@ -9913,10 +9990,9 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             key="dependency-flag",
             created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            filters={"groups": groups, "multivariate": multivariate},
         )
 
-        # Flag dependencies can't be evaluated in HogQL, so they are neutral for the estimate
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {
@@ -9925,7 +10001,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                         {
                             "key": str(dependency_flag.pk),
                             "type": "flag",
-                            "value": False,
+                            "value": value,
                             "operator": "flag_evaluates_to",
                         }
                     ],
@@ -9935,7 +10011,132 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertLessEqual({"affected": 10, "total": 10}.items(), response.json().items())
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    @parameterized.expand(
+        [
+            ("inactive_flag", "inactive", True, 0),
+            ("inactive_flag_negated", "inactive", False, 10),
+            ("missing_flag", "missing", True, 0),
+            ("missing_flag_negated", "missing", False, 10),
+        ]
+    )
+    def test_user_blast_radius_with_unevaluable_flag_dependency(self, _name, flag_state, value, expected_affected):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        if flag_state == "inactive":
+            key = str(
+                FeatureFlag.objects.create(
+                    team=self.team,
+                    key="dependency-flag",
+                    created_by=self.user,
+                    active=False,
+                    filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+                ).pk
+            )
+        else:
+            key = "999999999"
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": key, "type": "flag", "value": value, "operator": "flag_evaluates_to"}],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    def test_user_blast_radius_with_cohort_targeted_flag_dependency(self):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {"properties": [{"key": "group", "type": "person", "value": ["0", "1", "2"], "operator": "exact"}]}
+            ],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}], "rollout_percentage": 100}
+                ]
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {"key": str(dependency_flag.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 3, "total": 10}.items(), response.json().items())
+
+    def test_user_blast_radius_with_nested_flag_dependency(self):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        root_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="root-flag",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "group", "type": "person", "value": ["0", "1", "2", "3"], "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        middle_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="middle-flag",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(root_flag.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 50,
+                    }
+                ]
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {"key": str(middle_flag.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 2, "total": 10}.items(), response.json().items())
 
     def test_user_blast_radius_with_flag_dependency_and_person_property(self):
         for i in range(10):
@@ -9952,7 +10153,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
-        # The flag dependency is ignored, but the person property filter still applies
+        # The dependency is on for everyone, so only the person property filter narrows the estimate
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {
