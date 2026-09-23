@@ -373,8 +373,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # An LLM detector that couldn't reach a verdict must not resolve to "not firing":
             # re-raise so the retry policy gets another attempt. Once the attempts run out the
             # retry-exhausted path records an errored check, the same outcome as any other
-            # evaluation that never produced a value. That path also counts the outcome, so one
-            # scheduled check stays one increment however many attempts it took.
+            # evaluation that never produced a value.
             raise
         except LLMDetectorMisconfiguredError as err:
             # Same fail-loud outcome as a bad query shape below, counted apart because a
@@ -609,12 +608,15 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
                 # machine keeps that from sending a duplicate notification.
                 if alert.next_check_at is not None and alert.next_check_at > datetime.now(UTC):
                     return RecordFailedEvaluationResult()
-                alert_check, should_notify = _write_errored_alert_check(alert, _failed_evaluation_error(inputs))
+                error = _failed_evaluation_error(inputs)
+                alert_check, should_notify = _write_errored_alert_check(alert, error)
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert gone before its failure could be recorded", alert_id=inputs.alert_id)
             return RecordFailedEvaluationResult()
 
-        if inputs.error_type == LLMDetectorUnavailableError.__name__:
+        # Counted here and not on the failing attempt, so one scheduled check stays one increment
+        # however many times Temporal retried it.
+        if error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
             record_ai_detector_check_outcome("unavailable")
 
         logger.warning(
@@ -690,8 +692,7 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
         title = f"{alert_name[:75]} could not be evaluated"
         if error_code == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
             # A check the AI detector could not complete is not something the owner can fix,
-            # so this case drops the advice to review the alert settings. It also makes no
-            # claim about those settings, because this path never reads them.
+            # so this case drops the advice to review the alert settings.
             body = (
                 f"PostHog could not evaluate this alert: {error_message}. "
                 f"{next_check_message} If it fails again, contact support."
