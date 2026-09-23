@@ -100,8 +100,8 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     // broadcasts UI and hidden from the ordinary workflows list.
     // Product surface that owns this workflow (e.g. `loops` for Desktop loops). Null when built directly in the workflows UI.
     origin_product?: HogFlowOriginProductEnumApi | null
-    // What owns this workflow's content. `code` means a repository owns it, so the editor is read-only
-    // and the API refuses content writes from here. Null reads as `gui`.
+    // What owns this workflow's content. `code` means a repository owns it, so the editor keeps edits
+    // local and the API refuses content writes from here. Null reads as `gui`.
     managed_by?: HogFlowManagedByEnumApi | null
     // How this workflow first appeared. Stamped by the server, never written from here.
     created_via?: HogFlowCreatedViaEnumApi | null

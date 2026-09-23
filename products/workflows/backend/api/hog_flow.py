@@ -3076,7 +3076,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "What owns this workflow's content. `code` means a repository owns it: the editor is read-only "
+            "What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, "
             "and every content write is refused unless it comes from the client that pushes the file. "
             "`gui` (the default, and what null means) means this API owns it. To hand a code-managed "
             "workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it "

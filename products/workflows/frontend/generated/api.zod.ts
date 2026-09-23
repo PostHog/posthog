@@ -460,7 +460,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .union([zod.enum(['gui', 'code']).describe('\* `gui` - GUI\n\* `code` - Code'), zod.null()])
             .optional()
             .describe(
-                "What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
+                "What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
             ),
         source_repository: zod
             .string()
@@ -891,7 +891,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
             .union([zod.enum(['gui', 'code']).describe('\* `gui` - GUI\n\* `code` - Code'), zod.null()])
             .optional()
             .describe(
-                "What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
+                "What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
             ),
         source_repository: zod
             .string()
@@ -1327,7 +1327,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
             .union([zod.enum(['gui', 'code']).describe('\* `gui` - GUI\n\* `code` - Code'), zod.null()])
             .optional()
             .describe(
-                "What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
+                "What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
             ),
         source_repository: zod
             .string()
@@ -1982,7 +1982,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .union([zod.enum(['gui', 'code']).describe('\* `gui` - GUI\n\* `code` - Code'), zod.null()])
                 .optional()
                 .describe(
-                    "What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
+                    "What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
                 ),
             created_via: zod
                 .union([
@@ -2817,7 +2817,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .union([zod.enum(['gui', 'code']).describe('\* `gui` - GUI\n\* `code` - Code'), zod.null()])
             .optional()
             .describe(
-                "What owns this workflow's content. `code` means a repository owns it: the editor is read-only and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
+                "What owns this workflow's content. `code` means a repository owns it: the editor keeps edits local, and every content write is refused unless it comes from the client that pushes the file. `gui` (the default, and what null means) means this API owns it. To hand a code-managed workflow back to the UI, PATCH `managed_by: gui` on its own; a payload that carries it alongside any other field is refused.\n\n\* `gui` - GUI\n\* `code` - Code"
             ),
         source_repository: zod
             .string()

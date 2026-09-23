@@ -184,7 +184,7 @@ class HogFlow(UUIDTModel):
     )
 
     # What owns this workflow's content. `code` means a repository owns it, so the API refuses every
-    # content write that does not come from the client that pushes it, and the editor is read-only.
+    # content write that does not come from the client that pushes it, and the editor keeps edits local.
     # NULL reads as `gui`, which is why the column needs no backfill.
     managed_by = models.CharField(max_length=400, choices=ManagedBy, null=True, blank=True)
     # How this workflow first appeared. Stamped from the request, never taken from the payload, and
