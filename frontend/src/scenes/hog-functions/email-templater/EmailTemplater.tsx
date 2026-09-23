@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
 import posthog from 'posthog-js'
-import { ReactNode, useEffect, useRef, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
@@ -43,6 +43,7 @@ import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary
 import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { previewLinkTargetCustomJs } from './custom-tools/previewLinkTarget'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
+import { EmailPreviewPerson, EmailPreviewResult } from './emailPreview'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
@@ -819,34 +820,40 @@ function PreviewFrame({ authoredHtml }: { authoredHtml: string }): JSX.Element {
  * absent and the preview stays as authored.
  */
 function ResolvedPreviewFields(): JSX.Element | null {
-    const { logicProps, previewPerson, emailPreview } = useValues(emailTemplaterLogic)
-    const unresolvedKey = emailPreview.unresolvedVariables.join('|')
-    const reportedKey = useRef<string | null>(null)
-
-    useEffect(() => {
-        if (!previewPerson || unresolvedKey === reportedKey.current) {
-            return
-        }
-        reportedKey.current = unresolvedKey
-        // pinned: analytics event name - renaming breaks dashboards
-        posthog.capture('email_preview_rendered', {
-            email_templater_type: logicProps.type,
-            unresolved_variable_count: emailPreview.unresolvedVariables.length,
-        })
-        // The unresolved set is what makes a preview worth reporting again, so a keystroke that
-        // leaves it alone reports nothing.
-        // oxlint-disable-next-line exhaustive-deps
-    }, [unresolvedKey, !!previewPerson, logicProps.type])
+    const { previewPerson, emailPreview } = useValues(emailTemplaterLogic)
 
     if (!previewPerson) {
         return null
     }
 
-    const personLabel = previewPerson.properties?.name || previewPerson.properties?.email || previewPerson.id
+    return <ResolvedPreviewStrip person={previewPerson} preview={emailPreview} />
+}
+
+function ResolvedPreviewStrip({
+    person,
+    preview,
+}: {
+    person: EmailPreviewPerson
+    preview: EmailPreviewResult
+}): JSX.Element {
+    const { logicProps } = useValues(emailTemplaterLogic)
+    const unresolvedKey = preview.unresolvedVariables.join('|')
+
+    useEffect(() => {
+        // pinned: analytics event name - renaming breaks dashboards
+        posthog.capture('email_preview_rendered', {
+            email_templater_type: logicProps.type,
+            unresolved_variable_count: unresolvedKey ? unresolvedKey.split('|').length : 0,
+        })
+        // The unresolved set is what makes a preview worth reporting again, so a keystroke that
+        // leaves it alone reports nothing.
+    }, [unresolvedKey, logicProps.type])
+
+    const personLabel = person.properties?.name || person.properties?.email || person.id
     const rows = [
-        { label: 'To', value: emailPreview.fields.to },
-        { label: 'Subject', value: emailPreview.fields.subject },
-        { label: 'Preheader', value: emailPreview.fields.preheader },
+        { label: 'To', value: preview.fields.to },
+        { label: 'Subject', value: preview.fields.subject },
+        { label: 'Preheader', value: preview.fields.preheader },
     ].filter((row) => !!row.value)
 
     return (
@@ -865,11 +872,11 @@ function ResolvedPreviewFields(): JSX.Element | null {
                     </span>
                 ))}
             </div>
-            {emailPreview.unresolvedVariables.length > 0 && (
+            {preview.unresolvedVariables.length > 0 && (
                 <span className="text-warning">
-                    {emailPreview.unresolvedVariables.length === 1
+                    {preview.unresolvedVariables.length === 1
                         ? '1 variable has no value for this person and sends as blank text.'
-                        : `${emailPreview.unresolvedVariables.length} variables have no value for this person and send as blank text.`}
+                        : `${preview.unresolvedVariables.length} variables have no value for this person and send as blank text.`}
                 </span>
             )}
         </div>

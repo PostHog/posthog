@@ -49,38 +49,30 @@ export interface EmailPreviewResult {
 
 /** The authored email, in either of the two shapes the templater stores a recipient in. */
 export interface EmailPreviewTemplate {
-    html?: string
     subject?: string
     preheader?: string
     to?: string | { email?: string }
 }
 
-// Reads the rendered output rather than the template, because only the render knows which tags
-// resolved.
-function unresolvedVariablesIn(rendered: string): string[] {
-    return Array.from(rendered.matchAll(/\{\{([\s\S]*?)\}\}/g), (match) => match[1].trim())
-}
-
-/** Render the whole email against a person, the way the send will. */
-export function renderEmailTemplatePreview(
+/** Render the meta fields against a person. The body renders on its own, because it is the slow one. */
+export function renderEmailPreviewFields(
     template: EmailPreviewTemplate | null | undefined,
     person: EmailPreviewPerson | null
-): EmailPreviewResult {
+): EmailPreviewFields {
     // Native email holds the recipient as { email, name }, the legacy email input as a bare
     // template string.
     const to = typeof template?.to === 'string' ? template.to : (template?.to?.email ?? '')
-    const html = renderEmailPreview(template?.html ?? '', person)
-    const fields: EmailPreviewFields = {
+    return {
         to: renderEmailPreview(to, person),
         subject: renderEmailPreview(template?.subject ?? '', person),
         preheader: renderEmailPreview(template?.preheader ?? '', person),
     }
+}
 
-    return {
-        html,
-        fields,
-        unresolvedVariables: [
-            ...new Set([html, fields.to, fields.subject, fields.preheader].flatMap(unresolvedVariablesIn)),
-        ],
-    }
+/**
+ * The expressions a render left on screen, one per variable the person has no value for. Reads
+ * the rendered output rather than the template, because only the render knows which tags resolved.
+ */
+export function unresolvedVariables(rendered: string): string[] {
+    return Array.from(rendered.matchAll(/\{\{([\s\S]*?)\}\}/g), (match) => match[1].trim())
 }

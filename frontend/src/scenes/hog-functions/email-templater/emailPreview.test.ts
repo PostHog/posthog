@@ -1,4 +1,4 @@
-import { renderEmailPreview, renderEmailTemplatePreview } from './emailPreview'
+import { renderEmailPreview, renderEmailPreviewFields, unresolvedVariables } from './emailPreview'
 
 describe('emailPreview', () => {
     describe('renderEmailPreview', () => {
@@ -64,7 +64,7 @@ describe('emailPreview', () => {
         })
     })
 
-    describe('renderEmailTemplatePreview', () => {
+    describe('renderEmailPreviewFields', () => {
         const person = {
             id: 'person-1',
             properties: { email: 'sam@example.com', first_name: 'Sam' },
@@ -74,29 +74,26 @@ describe('emailPreview', () => {
             ['a native email, which holds the recipient as an object', { email: '{{ person.properties.email }}' }],
             ['a legacy email input, which holds it as a string', '{{ person.properties.email }}'],
         ])('resolves the recipient of %s', (_name, to) => {
-            expect(renderEmailTemplatePreview({ to }, person).fields.to).toBe('sam@example.com')
+            expect(renderEmailPreviewFields({ to }, person).to).toBe('sam@example.com')
         })
 
-        it('reports every variable the person has no value for, once each', () => {
-            const preview = renderEmailTemplatePreview(
-                {
-                    html: '<p>Hi {{ person.properties.nickname }}, your plan is {{ person.properties.plan }}.</p>',
-                    subject: 'Hi {{ person.properties.nickname }}',
-                    preheader: 'Hi {{ person.properties.first_name }}',
-                    to: { email: '{{ person.properties.email }}' },
-                },
-                person
-            )
-
-            expect(preview.unresolvedVariables).toEqual(['person.properties.nickname', 'person.properties.plan'])
-            expect(preview.fields.preheader).toBe('Hi Sam')
+        it('resolves the subject and preheader against the same person', () => {
+            expect(
+                renderEmailPreviewFields(
+                    { subject: 'Hi {{ person.properties.first_name }}', preheader: '{{ person.properties.plan }}' },
+                    person
+                )
+            ).toMatchObject({ subject: 'Hi Sam', preheader: '{{ person.properties.plan }}' })
         })
+    })
 
-        it('reports nothing for an email with no variables left over', () => {
-            const preview = renderEmailTemplatePreview({ html: '<p>Hi {{ person.properties.first_name }}</p>' }, person)
-
-            expect(preview.html).toBe('<p>Hi Sam</p>')
-            expect(preview.unresolvedVariables).toEqual([])
+    describe('unresolvedVariables', () => {
+        it.each([
+            ['lists every tag a render left behind', 'Hi {{ a }}, your {{ b }} renews', ['a', 'b']],
+            ['lists nothing for a fully resolved render', 'Hi Sam, your pro plan renews', []],
+            ['reads a tag that spans lines', 'Hi {{\n a \n}}', ['a']],
+        ])('%s', (_name, rendered, expected) => {
+            expect(unresolvedVariables(rendered)).toEqual(expected)
         })
     })
 })

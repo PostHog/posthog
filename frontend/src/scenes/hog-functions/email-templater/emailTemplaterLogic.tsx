@@ -29,7 +29,14 @@ import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } fr
 
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
-import { EmailPreviewPerson, EmailPreviewResult, renderEmailTemplatePreview } from './emailPreview'
+import {
+    EmailPreviewFields,
+    EmailPreviewPerson,
+    EmailPreviewResult,
+    renderEmailPreview,
+    renderEmailPreviewFields,
+    unresolvedVariables,
+} from './emailPreview'
 import type { EmailFieldErrors, EmailTemplate } from './types'
 
 export type { EmailTemplate }
@@ -227,7 +234,10 @@ export interface emailTemplaterLogicValues {
     mergeTags: UnlayerMergeTags
     personPropertyDefinitions: PropertyDefinition[]
     personPropertyDefinitionsLoading: boolean
+    emailBodyHtml: string
     emailPreview: EmailPreviewResult
+    previewFields: EmailPreviewFields
+    previewHtml: string
     previewPerson: EmailPreviewPerson | null
     revealedAdvancedFields: EmailMetaFieldKey[]
     showEmailTemplateErrors: boolean
@@ -603,10 +613,32 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 previewPerson: EmailPreviewPerson | null | undefined
             ): EmailPreviewPerson | null => (templatingEngine === 'liquid' ? (previewPerson ?? null) : null),
         ],
-        emailPreview: [
+        // Keyed on the body alone, so a keystroke in the subject does not re-render the body's
+        // liquid, which is by far the largest of the four.
+        emailBodyHtml: [(s) => [s.emailTemplate], (emailTemplate: EmailTemplate): string => emailTemplate?.html ?? ''],
+        previewHtml: [
+            (s) => [s.emailBodyHtml, s.previewPerson],
+            (emailBodyHtml: string, previewPerson: EmailPreviewPerson | null): string =>
+                renderEmailPreview(emailBodyHtml, previewPerson),
+        ],
+        previewFields: [
             (s) => [s.emailTemplate, s.previewPerson],
-            (emailTemplate: EmailTemplate, previewPerson: EmailPreviewPerson | null): EmailPreviewResult =>
-                renderEmailTemplatePreview(emailTemplate, previewPerson),
+            (emailTemplate: EmailTemplate, previewPerson: EmailPreviewPerson | null): EmailPreviewFields =>
+                renderEmailPreviewFields(emailTemplate, previewPerson),
+        ],
+        emailPreview: [
+            (s) => [s.previewHtml, s.previewFields],
+            (previewHtml: string, previewFields: EmailPreviewFields): EmailPreviewResult => ({
+                html: previewHtml,
+                fields: previewFields,
+                unresolvedVariables: [
+                    ...new Set(
+                        [previewHtml, previewFields.to, previewFields.subject, previewFields.preheader].flatMap(
+                            unresolvedVariables
+                        )
+                    ),
+                ],
+            }),
         ],
     }),
 
