@@ -530,6 +530,12 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
     return text
 
 
+def _has_state_content(state: Any) -> bool:
+    """The formatter writes a state header for any truthy state, so whitespace renders as a heading
+    above nothing. Strings carry content only once stripped."""
+    return bool(state.strip()) if isinstance(state, str) else bool(state)
+
+
 def _has_judge_transcript(trace: LLMTrace) -> bool:
     """Whether the trace formats into something the LLM judge can read.
 
@@ -538,7 +544,7 @@ def _has_judge_transcript(trace: LLMTrace) -> bool:
     A Hog eval has no such requirement: it reads trace-level cost and latency straight off the root
     event, so this gate belongs to the judge rather than to the fetch.
     """
-    return bool(trace.events or trace.inputState or trace.outputState)
+    return bool(trace.events) or _has_state_content(trace.inputState) or _has_state_content(trace.outputState)
 
 
 def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[Any] | None = None) -> dict[str, Any]:

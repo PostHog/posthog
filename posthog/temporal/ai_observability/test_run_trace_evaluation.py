@@ -554,10 +554,11 @@ class TestExecuteTraceLLMJudgeActivity:
         assert result["reasoning"] == "Resolved both questions"
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize("trace_state", [{}, {"inputState": ""}])
+    @pytest.mark.parametrize("trace_state", [{}, {"inputState": ""}, {"inputState": "   ", "outputState": "\n"}])
     def test_skips_without_llm_call_when_the_trace_has_no_transcript(self, setup_data, trace_state):
         # With no events and no trace-level state the formatter emits the trace name alone, and the
-        # judge would confidently report that there is nothing to grade.
+        # judge would confidently report that there is nothing to grade. Whitespace state renders as
+        # a heading above nothing, which reads the same way.
         root_only_trace = create_trace([], **trace_state)
 
         with patch(
