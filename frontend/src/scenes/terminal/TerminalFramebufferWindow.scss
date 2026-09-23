@@ -1,0 +1,27 @@
+.TerminalFramebufferWindow {
+    width: min(672px, calc(100vw - 32px));
+    height: min(580px, calc(100vh - 32px));
+
+    &:fullscreen {
+        width: 100vw;
+        height: 100vh;
+    }
+
+    &__screen {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+
+        > div {
+            display: contents;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: contain;
+            image-rendering: pixelated;
+        }
+    }
+}

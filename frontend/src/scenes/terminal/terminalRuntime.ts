@@ -1,7 +1,6 @@
 import type { V86 } from 'v86'
 import wasmUrl from 'v86/build/v86.wasm?url'
 
-import kernelUrl from './assets/buildroot-bzimage.bin?url'
 import assetHashes from './assets/hashes.json'
 import jqUrl from './assets/jq-linux-i386.bin?url'
 import biosUrl from './assets/seabios.bin?url'
@@ -9,6 +8,7 @@ import toolsUrl from './assets/tools-linux-i386.tar.gz.bin?url'
 import vgaBiosUrl from './assets/vgabios.bin?url'
 import { NinePServer } from './ninepServer'
 import packageManifest from './terminal-packages.json'
+import { DISPLAY_SCRIPT, TerminalDisplayInput } from './terminalDisplay'
 import { TerminalPackages } from './terminalPackages'
 
 function browserClock(): { timestamp: number; timezone: string } {
@@ -59,7 +59,39 @@ export class TerminalRuntime {
     private hasPrompt = false
     private pendingDirectory?: string
 
-    constructor(private onOutput: (bytes: Uint8Array) => void) {}
+    readonly screen = document.createElement('div')
+    readonly displayInput = new TerminalDisplayInput(
+        (codes) => this.emulator?.keyboard_send_scancodes(codes),
+        (buttons) => this.sendMouse('mouse-click', buttons)
+    )
+
+    constructor(
+        private onOutput: (bytes: Uint8Array) => void,
+        private onDisplay: (active: boolean) => void = () => {}
+    ) {
+        this.screen.append(document.createElement('div'), document.createElement('canvas'))
+    }
+
+    // v86 exposes PS/2 mouse input on its bus but has no public send-mouse method.
+    private sendMouse(event: 'mouse-click' | 'mouse-delta', value: boolean[] | number[]): void {
+        const emulator = this.emulator as
+            | (V86 & { bus: { send: (event: string, value: boolean[] | number[]) => void } })
+            | undefined
+        emulator?.bus.send(event, value)
+    }
+
+    moveMouse(x: number, y: number): void {
+        this.sendMouse('mouse-delta', [x, -y])
+    }
+
+    attachDisplay(container: HTMLElement): void {
+        container.append(this.screen)
+    }
+
+    detachDisplay(): void {
+        this.displayInput.release()
+        this.screen.remove()
+    }
 
     async start(
         server: NinePServer,
@@ -76,8 +108,8 @@ export class TerminalRuntime {
             verifiedImage(vgaBiosUrl, 'a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880', signal),
             verifiedImage(
                 // This image's uncached 9P reads work before API file sizes are known; Linux 6.8 clamps them to zero.
-                kernelUrl,
-                '7befbaea31e249d9a518c4b95fa42b2a193d0e3de46250d617cbdeb866ee28b0',
+                `${packageManifest.baseUrl}/${packageManifest.kernel.file}`,
+                packageManifest.kernel.sha256,
                 signal
             ),
             verifiedImage(jqUrl, 'ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd', signal),
@@ -95,6 +127,7 @@ export class TerminalRuntime {
         }
         new TerminalPackages(server.filesystem, signal).mount()
         const bin = server.filesystem.directory('bin', server.filesystem.root)
+        server.filesystem.text('display', bin, DISPLAY_SCRIPT)
         server.filesystem.file('jq', bin, async () => ({ bytes: new Uint8Array(jq) })).size = jq.byteLength
         server.filesystem.file('tools.tar', bin, async () => ({ bytes: new Uint8Array(toolsArchive) })).size =
             toolsArchive.byteLength
@@ -105,7 +138,9 @@ export class TerminalRuntime {
             bzimage: { buffer: kernel },
             memory_size: 512 * 1024 * 1024,
             filesystem: { handle9p: server.handle },
-            cmdline: 'tsc=reliable mitigations=off random.trust_cpu=on',
+            cmdline: 'tsc=reliable mitigations=off random.trust_cpu=on video=640x480',
+            vga_memory_size: 8 * 1024 * 1024,
+            screen: { container: this.screen, use_graphical_text: true },
             disable_keyboard: true,
             disable_mouse: true,
             disable_speaker: true,
@@ -125,6 +160,9 @@ export class TerminalRuntime {
         emulator.add_listener('serial1-output-byte', (byte: number) => {
             if (this.disposed) {
                 return
+            }
+            if (this.ready && (byte === 17 || byte === 18)) {
+                this.onDisplay(byte === 17)
             }
             if (configured && !this.ready && byte === 30) {
                 this.ready = true
@@ -183,6 +221,7 @@ export class TerminalRuntime {
                         'mkdir -p /usr/local/bin && cp /posthog/bin/rm /usr/local/bin/rm && chmod +x /usr/local/bin/rm || exit',
                         'export PATH=/usr/local/bin:$PATH',
                         'cp /posthog/bin/open /usr/bin/open && chmod +x /usr/bin/open || exit',
+                        'cp /posthog/bin/display /usr/bin/display && chmod +x /usr/bin/display || exit',
                         ...Object.values(packageManifest.packages).flatMap((pkg) =>
                             Object.keys(pkg.commands).map(
                                 (command) =>
@@ -266,6 +305,7 @@ export class TerminalRuntime {
     }
 
     dispose(): void {
+        this.detachDisplay()
         this.disposed = true
         this.ready = false
         // V86 cannot destroy its CPU until asynchronous WASM initialization has finished.

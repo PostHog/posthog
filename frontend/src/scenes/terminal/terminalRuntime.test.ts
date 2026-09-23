@@ -27,7 +27,7 @@ describe('terminal VM lifecycle', () => {
         const hashes = [
             '73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98',
             'a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880',
-            '7befbaea31e249d9a518c4b95fa42b2a193d0e3de46250d617cbdeb866ee28b0',
+            '33ca60bd4832f0cf202845fa7ac1a60776c0215e8a20d21a3f07d3722f99e415',
             'ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd',
             assetHashes.toolsSha256,
         ]
@@ -102,13 +102,15 @@ describe('terminal VM lifecycle', () => {
             const listeners = new Map<string, (value?: number) => void>()
             const emulator = {
                 add_listener: jest.fn((event, callback) => listeners.set(event, callback)),
+                bus: { send: jest.fn() },
                 run: jest.fn(),
                 destroy: jest.fn(async () => {}),
             }
             jest.mocked(V86).mockImplementation(() => emulator as unknown as V86)
             const output = jest.fn()
             const ready = jest.fn()
-            const runtime = new TerminalRuntime(output)
+            const display = jest.fn()
+            const runtime = new TerminalRuntime(output, display)
             await runtime.start(
                 new NinePServer(new TerminalFilesystem(), jest.fn()),
                 new AbortController().signal,
@@ -127,6 +129,8 @@ describe('terminal VM lifecycle', () => {
             }
             listeners.get('serial0-output-byte')!(65)
             listeners.get('serial1-output-byte')!(30)
+            listeners.get('serial1-output-byte')!(17)
+            expect(display).not.toHaveBeenCalled()
             expect(emulator.destroy).toHaveBeenCalledTimes(1)
             expect(runtime.read()).toBe('')
             expect(output).not.toHaveBeenCalled()
