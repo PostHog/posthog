@@ -887,6 +887,7 @@ class TaskWriteSerializer(serializers.Serializer):
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
         reserved_origins = {
+            tasks_facade.TaskOriginProduct.SPACE_SETUP,
             tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
             tasks_facade.TaskOriginProduct.EXPERIMENTS,
             tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,

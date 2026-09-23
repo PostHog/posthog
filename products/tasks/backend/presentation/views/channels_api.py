@@ -23,6 +23,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import compute_quota_limit_response
 from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
+from products.tasks.backend.facade.contracts import SPACE_SETUP_SCOPES, SpaceSetupInProgressError
 from products.tasks.backend.facade.onboarding import (
     onboarding_test_tools_enabled,
     start_onboarding_session,
@@ -457,6 +458,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=ChannelSetupWriteSerializer,
         responses={
             201: OpenApiResponse(response=ChannelSetupResponseSerializer, description="The setup task that started"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Space setup is already running"),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="A setup dependency is unavailable"
             ),
@@ -468,7 +470,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "generation task."
         ),
     )
-    @action(methods=["POST"], detail=True, url_path="setup")
+    @action(methods=["POST"], detail=True, url_path="setup", required_scopes=[*SPACE_SETUP_SCOPES])
     def start_setup(self, request, pk=None, **kwargs):
         serializer = ChannelSetupWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -483,6 +485,8 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 request=serializer.to_request(),
                 client_provenance=get_task_client_provenance(request),
             )
+        except SpaceSetupInProgressError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
         except tasks_facade.SpaceSetupUnavailableError as error:
             return Response({"detail": str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except ComputeBillingLimitExceeded as error:

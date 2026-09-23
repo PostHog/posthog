@@ -2169,7 +2169,14 @@ class TestCanvasActions(CanvasAPIBaseTest):
 
     def test_workflow_verbs_flip_status_and_refuse_other_projects(self):
         canvas_id = self._actions_canvas(verbs=("workflows.pause", "workflows.resume"))
-        loop = HogFlow.objects.create(team=self.team, name="Plan", status="active", trigger={}, actions=[], edges=[])
+        loop = HogFlow.objects.create(
+            team=self.team,
+            name="Plan",
+            status="active",
+            trigger={"type": "schedule"},
+            actions=[{"id": "trigger", "type": "trigger", "name": "Scheduled", "config": {"type": "schedule"}}],
+            edges=[],
+        )
         other_team = self.organization.teams.create(name="other")
         foreign = HogFlow.objects.create(
             team=other_team, name="Elsewhere", status="active", trigger={}, actions=[], edges=[]
@@ -2186,10 +2193,42 @@ class TestCanvasActions(CanvasAPIBaseTest):
         loop.refresh_from_db()
         assert loop.status == "active"
 
-        refused = self._invoke(canvas_id, "workflows.pause", {"workflow_ids": [str(foreign.id)]})
+        refused = self._invoke(canvas_id, "workflows.pause", {"workflow_ids": [str(loop.id), str(foreign.id)]})
         assert refused.status_code == status.HTTP_404_NOT_FOUND, refused.json()
         foreign.refresh_from_db()
         assert foreign.status == "active"
+        loop.refresh_from_db()
+        assert loop.status == "active"
+
+    @parameterized.expand(
+        [
+            ([],),
+            (
+                [
+                    {
+                        "id": "trigger",
+                        "type": "trigger",
+                        "name": "Slack",
+                        "config": {
+                            "type": "internal-event",
+                            "filters": {"events": [{"id": "$slack_message_received", "type": "events"}]},
+                        },
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_resume_rejects_an_invalid_draft(self, actions):
+        canvas_id = self._actions_canvas(verbs=("workflows.resume",))
+        loop = HogFlow.objects.create(
+            team=self.team, name="Invalid", status="draft", trigger={}, actions=actions, edges=[]
+        )
+
+        response = self._invoke(canvas_id, "workflows.resume", {"workflow_ids": [str(loop.id)]})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        loop.refresh_from_db()
+        assert loop.status == "draft"
 
     def test_registry_lists_every_verb_with_authoring_docs(self):
         # Agents build against this endpoint instead of a skill file, so a verb

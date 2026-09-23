@@ -51,6 +51,7 @@ from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
 from posthog.utils import absolute_uri
 
 from products.canvas.backend.models import Canvas
@@ -9658,6 +9659,22 @@ def start_space_setup(
         channel = _locked_visible_channel(channel_id, team.id, user_id)
         if channel is None:
             return None
+        active_setup = (
+            Task.objects.filter(team_id=team.id, channel_id=channel.id, origin_product=Task.OriginProduct.SPACE_SETUP)
+            .annotate(
+                setup_run_status=Subquery(
+                    TaskRun.objects.filter(team_id=team.id, task_id=OuterRef("pk"))
+                    .order_by("-created_at", "-id")
+                    .values("status")[:1]
+                )
+            )
+            .filter(
+                setup_run_status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS]
+            )
+            .exists()
+        )
+        if active_setup:
+            raise contracts.SpaceSetupInProgressError("Space setup is already running. Open its task to see progress.")
         repository = request.repository or (channel.repositories[0] if channel.repositories else None)
         request = replace(request, repository=repository)
         task = Task.create_and_run(
@@ -9670,7 +9687,7 @@ def start_space_setup(
             user_id=user_id,
             channel=channel,
             create_pr=False,
-            posthog_mcp_scopes="full",
+            posthog_mcp_scopes=[*contracts.SPACE_SETUP_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
             runtime_adapter=SPACE_SETUP_RUNTIME_ADAPTER,
             model=SPACE_SETUP_MODEL,
             reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
@@ -9689,14 +9706,15 @@ def _emit_space_setup_started(
 ) -> None:
     subject = request.goal.statement if request.goal is not None else request.feature.name if request.feature else ""
     try:
-        ChannelFeedMessage.objects.create(
-            team_id=channel.team_id,
-            channel_id=channel.id,
-            author_id=user_id,
-            author_kind=ChannelFeedMessage.AuthorKind.SYSTEM,
-            event=SPACE_SETUP_FEED_EVENT,
-            payload={"kind": request.kind, "subject": subject, "task_id": str(task_id)},
-        )
+        with transaction.atomic():
+            ChannelFeedMessage.objects.create(
+                team_id=channel.team_id,
+                channel_id=channel.id,
+                author_id=user_id,
+                author_kind=ChannelFeedMessage.AuthorKind.SYSTEM,
+                event=SPACE_SETUP_FEED_EVENT,
+                payload={"kind": request.kind, "subject": subject, "task_id": str(task_id)},
+            )
     except Exception:
         logger.exception("Failed to emit space_setup_started feed message", extra={"channel_id": str(channel.id)})
 

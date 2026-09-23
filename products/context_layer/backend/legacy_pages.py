@@ -19,7 +19,9 @@ def migrate_legacy_channel_pages(root: Path, team_ids_by_channel: dict[str, int]
         if source.is_symlink() or not source.is_file() or source.suffix != ".md":
             raise LintFailedError([f"{source.relative_to(root)}: cannot migrate this entry automatically"])
         fields = repo_lint._frontmatter(source)
-        channel_id = fields.get("channel_id", "").strip("\"'")
+        if "channel_id" not in fields:
+            raise LintFailedError([f"{source.relative_to(root)}: channel_id is required"])
+        channel_id = fields["channel_id"].strip("\"'")
         team_id = team_ids_by_channel.get(channel_id)
         if team_id is None:
             raise LintFailedError([f"{source.relative_to(root)}: no public Space matches this channel_id"])

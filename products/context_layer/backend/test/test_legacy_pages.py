@@ -38,6 +38,14 @@ class TestLegacyChannelPages(TestCase):
             migrate_legacy_channel_pages(self.root, {})
         assert (self.root / "channels/releases.md").read_text() == self.content
 
+    def test_missing_channel_id_is_reported_before_moving_pages(self) -> None:
+        source = self.root / "channels/releases.md"
+        content = self.content.replace(f"channel_id: {self.channel_id}\n", "")
+        source.write_text(content)
+        with self.assertRaisesRegex(LintFailedError, "channel_id is required"):
+            migrate_legacy_channel_pages(self.root, {self.channel_id: 123})
+        assert source.read_text() == content
+
     def test_existing_destination_is_not_overwritten(self) -> None:
         destination = self.root / "projects/123/spaces/releases.md"
         destination.parent.mkdir(parents=True)

@@ -660,6 +660,30 @@ class TaskRunSandboxConnectionDTO:
     sandbox_token_param: str = "_modal_connect_token"
 
 
+SPACE_SETUP_SCOPES = (
+    "task:write",
+    "canvas:write",
+    "hog_flow:write",
+    "query:read",
+    "data_catalog:read",
+    "insight:read",
+    "dashboard:read",
+    "feature_flag:read",
+    "experiment:read",
+    "error_tracking:read",
+    "session_recording:read",
+    "event_definition:read",
+    "property_definition:read",
+    "project:read",
+    "organization:read",
+    "survey:read",
+)
+
+
+class SpaceSetupInProgressError(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class SpaceGoalRequest:
     """The metric a goal space is set up to move."""

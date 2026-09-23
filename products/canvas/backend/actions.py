@@ -15,6 +15,8 @@ the source-validation import path (the builder imports it for verb names).
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from django.db import transaction
+
 import structlog
 import posthoganalytics
 from rest_framework import serializers
@@ -106,30 +108,34 @@ def _set_workflows_enabled(team_id: int, user_id: int, payload: dict[str, Any], 
 
     from products.workflows.backend.facade import api as workflows_facade  # noqa: PLC0415 — load on execute
 
-    changed = []
-    for workflow_id in payload["workflow_ids"]:
-        try:
-            new_status = workflows_facade.set_workflow_enabled(
-                team_id=team_id, user_id=user_id, workflow_id=workflow_id, enabled=enabled
-            )
-        except workflows_facade.WorkflowNotFound:
-            raise CanvasActionDenied(
-                Response(
-                    {"detail": f"Workflow {workflow_id} is not in this project."}, status=http_status.HTTP_404_NOT_FOUND
+    with transaction.atomic():
+        changed = []
+        for workflow_id in payload["workflow_ids"]:
+            try:
+                new_status = workflows_facade.set_workflow_enabled(
+                    team_id=team_id, user_id=user_id, workflow_id=workflow_id, enabled=enabled
                 )
-            )
-        except workflows_facade.WorkflowAccessDenied:
-            raise CanvasActionDenied(
-                Response({"detail": f"You cannot edit workflow {workflow_id}."}, status=http_status.HTTP_403_FORBIDDEN)
-            )
-        except workflows_facade.WorkflowArchived:
-            raise CanvasActionDenied(
-                Response(
-                    {"detail": f"Workflow {workflow_id} is archived and cannot be changed."},
-                    status=http_status.HTTP_409_CONFLICT,
+            except workflows_facade.WorkflowNotFound:
+                raise CanvasActionDenied(
+                    Response(
+                        {"detail": f"Workflow {workflow_id} is not in this project."},
+                        status=http_status.HTTP_404_NOT_FOUND,
+                    )
                 )
-            )
-        changed.append({"id": str(workflow_id), "status": new_status})
+            except workflows_facade.WorkflowAccessDenied:
+                raise CanvasActionDenied(
+                    Response(
+                        {"detail": f"You cannot edit workflow {workflow_id}."}, status=http_status.HTTP_403_FORBIDDEN
+                    )
+                )
+            except workflows_facade.WorkflowArchived:
+                raise CanvasActionDenied(
+                    Response(
+                        {"detail": f"Workflow {workflow_id} is archived and cannot be changed."},
+                        status=http_status.HTTP_409_CONFLICT,
+                    )
+                )
+            changed.append({"id": str(workflow_id), "status": new_status})
     return {"workflows": changed}
 
 
