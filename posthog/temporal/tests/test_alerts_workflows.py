@@ -572,7 +572,7 @@ async def test_check_alert_workflow_records_errored_check_when_evaluation_keeps_
         assert check is not None
         assert check.state == AlertState.ERRORED
         if expected_error_code is None:
-            assert "code" not in check.error
+            assert check.error is not None and "code" not in check.error
         else:
             # A provider the judge cannot reach is not the owner's configuration, so the check
             # carries its own code and never the raw transport error.
