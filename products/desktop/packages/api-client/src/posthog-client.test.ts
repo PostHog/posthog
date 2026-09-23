@@ -52,6 +52,33 @@ describe("PostHogAPIClient", () => {
     },
   );
 
+  it("shows the setup dependency error returned by the server", async () => {
+    const detail =
+      "The workflow action is unavailable. Sync templates and retry setup.";
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ detail }), { status: 503 }),
+      );
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await expect(
+      client.setupTaskChannel("channel-1", {
+        kind: "goal",
+        goal: {
+          statement: "Improve activation",
+          direction: "at_least",
+          period: "week",
+        },
+      }),
+    ).rejects.toThrow(new Error(detail));
+  });
   describe("Desktop beta terms", () => {
     it.each([
       [

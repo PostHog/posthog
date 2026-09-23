@@ -3864,18 +3864,24 @@ export class PostHogAPIClient {
   ): Promise<SpaceSetupStarted> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/setup/`;
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url: new URL(`${this.api.baseUrl}${urlPath}`),
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to set up space: ${response.statusText}`);
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SpaceSetupStarted;
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(
+          error,
+          "Could not start space setup. Try again.",
+        ),
+      );
     }
-    return (await response.json()) as SpaceSetupStarted;
   }
 
   // Post a system announcement into a channel's feed. The row is authored by the
