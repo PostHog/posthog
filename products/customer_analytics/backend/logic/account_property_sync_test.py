@@ -1,4 +1,5 @@
-from collections.abc import AbstractContextManager, AsyncIterator
+from collections.abc import AsyncIterator
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from typing import Any, Generic, TypeVar
 from uuid import uuid4
