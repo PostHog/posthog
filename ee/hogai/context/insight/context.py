@@ -69,10 +69,12 @@ class InsightContext:
         filters_override: dict | None = None,
         variables_override: dict | None = None,
         event_source: EventSource = EventSource.POSTHOG_AI,
+        use_db_pool: bool = False,
     ):
         self.team = team
         self.user = user
         self.event_source = event_source
+        self._use_db_pool = use_db_pool
         self.query = query
         self.name = name
         self.description = description
@@ -178,11 +180,7 @@ class InsightContext:
                     self.dashboard_filters,
                     self.filters_override,
                 )
-                sync_adapter = (
-                    database_sync_to_async_pool
-                    if self.event_source == EventSource.SUBSCRIPTION
-                    else database_sync_to_async
-                )
+                sync_adapter = database_sync_to_async_pool if self._use_db_pool else database_sync_to_async
                 query_dict = await sync_adapter(apply_dashboard_filters_to_dict)(
                     effective.query, effective.filters, self.team
                 )

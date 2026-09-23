@@ -79,6 +79,7 @@ class TestInsightSchema(SimpleTestCase):
             user=User(id=1),
             dashboard_filters={"date_from": "-7d"},
             event_source=EventSource.SUBSCRIPTION,
+            use_db_pool=True,
         )
         apply_filters = AsyncMock(return_value=query.model_dump(mode="json"))
 
