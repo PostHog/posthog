@@ -1,9 +1,10 @@
-import dataclasses
 from collections.abc import Iterable, Iterator
 from functools import partial
 from typing import Any, Optional, cast
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -40,7 +41,7 @@ REQUEST_TIMEOUT_SECONDS = 30
 _UNCAPTURED_ENDPOINTS = frozenset({"time_offs", TIME_OFF_EVENTS_ENDPOINT})
 
 
-@dataclasses.dataclass
+@frozen
 class DeelResumeConfig:
     # Offset-paginated endpoints persist the offset; the keyset endpoints persist Deel's opaque
     # next-page cursor instead.
