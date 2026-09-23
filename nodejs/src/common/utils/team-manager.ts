@@ -110,7 +110,11 @@ export class TeamManager {
         }
     }
 
-    private async fetchTeamRows(column: 't.id' | 't.api_token', keys: number[] | string[], tag: string): Promise<RawTeam[]> {
+    private async fetchTeamRows(
+        column: 't.id' | 't.api_token',
+        keys: number[] | string[],
+        tag: string
+    ): Promise<RawTeam[]> {
         const result = await this.postgres.query<RawTeam>(
             PostgresUse.COMMON_READ,
             `SELECT
