@@ -1264,6 +1264,19 @@ class FeatureFlagUsageDashboardErrorSerializer(FeatureFlagUsageDashboardSuccessS
     error = serializers.CharField(help_text="Why the usage dashboard operation failed.")
 
 
+_NO_STORED_VALUE = object()
+
+
+def _comparable_value(field: str, value: Any) -> Any:
+    """A request value in the form the stored value is compared against.
+
+    Tags carry no order and no duplicates, so a reordered list is not a change.
+    """
+    if field == "tags" and isinstance(value, list):
+        return normalize_tag_names(tag for tag in value if isinstance(tag, str))
+    return value
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -2662,23 +2675,34 @@ class FeatureFlagSerializer(
         if original_flag is None or original_flag == {}:
             return []
 
-        # Get the fields that the user is trying to change
-        user_changes = [
-            field
-            for field, new_value in validated_data.items()
-            if field in original_flag and new_value != original_flag[field]
-        ]
+        conflicts = []
+        for field, new_value in validated_data.items():
+            if field not in original_flag:
+                continue
+            current_value = self._stored_value(current_instance, field)
+            if current_value is _NO_STORED_VALUE:
+                continue
+            original_value = _comparable_value(field, original_flag[field])
+            requested_value = _comparable_value(field, new_value)
+            # The user changes the field, another writer changed it too, and the two disagree.
+            if (
+                requested_value != original_value
+                and original_value != current_value
+                and requested_value != current_value
+            ):
+                conflicts.append(field)
 
-        # Return the fields that have conflicts
-        # Only include fields where the user's intended change is different from the current value
-        # AND the original value is different from the current value (indicating someone else changed it)
-        return [
-            field
-            for field in user_changes
-            if field in original_flag
-            and original_flag[field] != getattr(current_instance, field)
-            and validated_data[field] != getattr(current_instance, field)
-        ]
+        return conflicts
+
+    def _stored_value(self, current_instance: FeatureFlag, field: str) -> Any:
+        """The flag's current value of a request field, in the form ``_comparable_value`` returns.
+
+        A serializer-only field such as ``tags`` has no model attribute, so a plain ``getattr``
+        would raise instead of reporting the conflict this method serves.
+        """
+        if field == "tags":
+            return normalize_tag_names(current_tag_names(current_instance))
+        return getattr(current_instance, field, _NO_STORED_VALUE)
 
     def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all disabled flags that the given flag depends on."""
