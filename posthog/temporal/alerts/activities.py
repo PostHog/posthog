@@ -373,8 +373,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # An LLM detector that couldn't reach a verdict must not resolve to "not firing":
             # re-raise so the retry policy gets another attempt. Once the attempts run out the
             # retry-exhausted path records an errored check, the same outcome as any other
-            # evaluation that never produced a value.
-            record_ai_detector_check_outcome("unavailable")
+            # evaluation that never produced a value. That path also counts the outcome, so one
+            # scheduled check stays one increment however many attempts it took.
             raise
         except LLMDetectorMisconfiguredError as err:
             # Same fail-loud outcome as a bad query shape below, counted apart because a
@@ -487,7 +487,15 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # Route and evaluate the same snapshot. A second read after choosing the executor
         # could pick up an AI detector and run its model call on the shared pool.
         alert = await _load_alert_for_evaluation(inputs)
-        executor = _LLM_EVALUATE_EXECUTOR if is_llm_detector_config(alert.detector_config) else None
+        uses_llm_detector = is_llm_detector_config(alert.detector_config)
+        if uses_llm_detector != inputs.uses_llm_detector:
+            # The prepare phase picked the task queue from the detector type it read, and only
+            # the AI worker holds the model credentials. An edit since then means this worker may
+            # not be able to run the alert as it now stands, so leave it to the next scheduler
+            # tick, which prepares and routes it again.
+            logger.info("alerts.skip_detector_type_changed", alert_id=inputs.alert_id)
+            return EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState(alert.state))
+        executor = _LLM_EVALUATE_EXECUTOR if uses_llm_detector else None
         return await database_sync_to_async(_evaluate, thread_sensitive=False, executor=executor)(alert)
 
 
@@ -606,6 +614,9 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
             logger.warning("Alert gone before its failure could be recorded", alert_id=inputs.alert_id)
             return RecordFailedEvaluationResult()
 
+        if inputs.error_type == LLMDetectorUnavailableError.__name__:
+            record_ai_detector_check_outcome("unavailable")
+
         logger.warning(
             "alerts.recorded_failed_evaluation",
             alert_id=inputs.alert_id,
@@ -678,11 +689,11 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
         )
         title = f"{alert_name[:75]} could not be evaluated"
         if error_code == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
-            # A provider PostHog could not reach is not something the alert's owner can fix,
-            # so this case drops the advice to review the alert settings.
+            # A check the AI detector could not complete is not something the owner can fix,
+            # so this case drops the advice to review the alert settings. It also makes no
+            # claim about those settings, because this path never reads them.
             body = (
                 f"PostHog could not evaluate this alert: {error_message}. "
-                "The alert and insight settings are correct, so there is nothing to change. "
                 f"{next_check_message} If it fails again, contact support."
             )
         else:
