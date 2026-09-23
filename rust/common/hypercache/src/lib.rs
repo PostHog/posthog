@@ -60,8 +60,7 @@ const HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME: &str = "posthog_hypercache_redi
 
 /// Metric name for tracking read-repair writes back into Redis after an S3 hit.
 /// Labels: `namespace`, `value`, `key` (payload | etag), `result` (success | skipped | error),
-/// where `skipped` means the payload key already existed and the repair deferred to it. The
-/// etag write overwrites, so it never reports `skipped`.
+/// where `skipped` means the key already existed and the repair deferred to it.
 const HYPERCACHE_READ_REPAIR_COUNTER_NAME: &str = "posthog_hypercache_read_repair";
 
 /// Per-tier latency histogram for the Redis read inside `get_typed_with_source`.
@@ -90,23 +89,6 @@ pub(crate) const ETAG_KEY_SUFFIX: &str = ":etag";
 /// repair all derive it here, so no caller can drift off the layout Django expects.
 pub(crate) fn etag_key(redis_cache_key: &str) -> String {
     format!("{redis_cache_key}{ETAG_KEY_SUFFIX}")
-}
-
-/// How read repair writes one of its two keys.
-///
-/// The payload is written `IfAbsent`, because a repair must never overwrite an entry that
-/// already exists: the writer, or a concurrent repair, may have landed a fresher one after
-/// our S3 read. The etag is written `Overwrite`, because it is only written for a payload
-/// this repair installed and it has to describe those exact bytes. An orphan etag, left
-/// behind when a payload was evicted before its companion, would otherwise survive next to
-/// the repaired payload and answer 304 for a version the payload no longer holds.
-///
-/// The pair is therefore two writes rather than the one pipeline `set_with_etag` uses: the
-/// etag write has to see whether the payload write won.
-#[derive(Debug, Clone, Copy)]
-enum RepairWrite {
-    IfAbsent,
-    Overwrite,
 }
 
 /// Cache key type matching Django's KeyType = Team | str | int
@@ -1013,17 +995,13 @@ impl HyperCacheReader {
             let etag_repair =
                 enable_etag.then(|| (etag_key(&redis_cache_key), writer::compute_etag(&json_data)));
 
-            let installed = repair
-                .write("payload", redis_cache_key, json_data, RepairWrite::IfAbsent)
-                .await;
+            let installed = repair.write("payload", redis_cache_key, json_data).await;
 
             // The etag describes the exact bytes this repair installed, so it is only
             // written for a payload the repair installed itself. A skipped payload write
             // means Redis holds someone else's bytes, which this etag would misdescribe.
             if let Some((etag_key, etag)) = etag_repair.filter(|_| installed) {
-                repair
-                    .write("etag", etag_key, etag, RepairWrite::Overwrite)
-                    .await;
+                repair.write("etag", etag_key, etag).await;
             }
         });
     }
@@ -1039,25 +1017,25 @@ struct ReadRepair {
 
 impl ReadRepair {
     /// Write one repaired key and count the outcome. Returns whether this call installed it.
-    async fn write(
-        &self,
-        key_label: &str,
-        redis_key: String,
-        value: String,
-        mode: RepairWrite,
-    ) -> bool {
-        let result = match mode {
-            RepairWrite::IfAbsent => {
-                self.redis_client
-                    .set_nx_ex_with_format(redis_key, value, self.ttl_seconds, writer::REDIS_FORMAT)
-                    .await
-            }
-            RepairWrite::Overwrite => self
-                .redis_client
-                .setex_with_format(redis_key, value, self.ttl_seconds, writer::REDIS_FORMAT)
-                .await
-                .map(|()| true),
-        };
+    ///
+    /// Both keys are written with `SET NX`, so a repair can never overwrite a value that is
+    /// already there. The payload needs that because the writer, or a concurrent repair, may
+    /// have landed fresher bytes after our S3 read. The etag needs it for the same reason and
+    /// through the same gap: the payload write, the `await` on it, and the etag write are
+    /// three separate steps, so a writer that lands a new payload and a new etag between the
+    /// first and the third would have its etag replaced by one computed from the older S3
+    /// bytes. A client that then revalidates against that etag gets a 304 for content the
+    /// payload no longer holds, for up to the repair TTL, and no metric records it.
+    ///
+    /// A `SET NX` etag write leaves one state alone instead: an etag that outlived its
+    /// payload. That etag was written by the same writer generation that put the object in
+    /// S3, so it describes the bytes this repair just installed, and a 304 against it is
+    /// correct. A writer generation newer than the S3 object replaces both keys itself.
+    async fn write(&self, key_label: &str, redis_key: String, value: String) -> bool {
+        let result = self
+            .redis_client
+            .set_nx_ex_with_format(redis_key, value, self.ttl_seconds, writer::REDIS_FORMAT)
+            .await;
 
         let outcome = match result {
             Ok(true) => "success",
@@ -1588,11 +1566,13 @@ mod tests {
         let calls = redis_calls_after_s3_hit(&fixture).await;
 
         let etag_key = etag_key(&fixture.cache_key);
-        // Written unconditionally: an orphan etag from an evicted payload must not survive
-        // next to the repaired payload and answer 304 for the version it no longer holds.
+        // `SET NX`, not an overwrite: a writer that lands a new pair between the payload
+        // write and the etag write must keep its own etag, or a client revalidating against
+        // the etag this repair computed from older S3 bytes gets a 304 for content the
+        // payload no longer holds.
         let repair = calls
             .iter()
-            .find(|c| c.op == "setex_with_format" && c.key == etag_key)
+            .find(|c| c.op == "set_nx_ex_with_format" && c.key == etag_key)
             .expect("expected the S3 hit to repair the companion etag");
         match &repair.value {
             common_redis::MockRedisValue::StringWithTTLAndFormat(value, ttl, format) => {
