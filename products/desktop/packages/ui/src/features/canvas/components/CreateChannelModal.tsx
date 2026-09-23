@@ -159,7 +159,6 @@ export function CreateChannelModal({
     input: SpaceSetupInput;
     error: string;
   } | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const authClient = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client: authClient });
   const { members: orgMembers } = useOrgMembers();
@@ -215,11 +214,7 @@ export function CreateChannelModal({
   const nameError = isDescribeMode ? null : validateChannelName(trimmedName);
 
   const busy =
-    isSubmitting ||
-    isCreating ||
-    isStarting ||
-    isSettingUp ||
-    linkRepositories.isPending;
+    isCreating || isStarting || isSettingUp || linkRepositories.isPending;
   const canAdvance = !busy && !!trimmedName && !nameError;
   const canDescribe = !busy && !!trimmedDescription;
   const setupMissingField = spaceSetupDraftMissingField(setupDraft);
@@ -231,12 +226,10 @@ export function CreateChannelModal({
   const submitOnce = async (submit: () => Promise<void>) => {
     if (submittingRef.current) return;
     submittingRef.current = true;
-    setIsSubmitting(true);
     try {
       await submit();
     } finally {
       submittingRef.current = false;
-      setIsSubmitting(false);
     }
   };
 

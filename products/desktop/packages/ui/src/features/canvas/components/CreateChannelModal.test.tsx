@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,7 +14,7 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
 }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
-  useOptionalAuthenticatedClient: () => null,
+  useOptionalAuthenticatedClient: () => ({ setupTaskChannel: mocks.setup }),
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({ data: null }),
@@ -35,9 +36,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useGenerateContext", () => ({
   useGenerateContext: () => ({ generate: vi.fn(), isStarting: false }),
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useSetupSpace", () => ({
-  useSetupSpace: () => ({ setup: mocks.setup, isStarting: false }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
   useUpdateTaskChannelRepositories: () => ({
@@ -80,7 +78,11 @@ describe("CreateChannelModal setup steps", () => {
     mocks.setup.mockRejectedValueOnce(
       new Error("Setup is unavailable. Try again."),
     );
-    render(<CreateChannelModal open onOpenChange={onOpenChange} />);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <CreateChannelModal open onOpenChange={onOpenChange} />
+      </QueryClientProvider>,
+    );
 
     await user.type(screen.getByLabelText("Name"), "search");
     await user.click(current("Next"));
@@ -98,11 +100,14 @@ describe("CreateChannelModal setup steps", () => {
       expect.anything(),
       expect.objectContaining({ action_type: "setup_started" }),
     );
-    const firstInput = mocks.setup.mock.calls[0][0];
-    expect(firstInput).toMatchObject({
-      channelId: "space-1",
-      setup: { kind: "feature", feature: { name: "Search filters" } },
-    });
+    const firstInput = mocks.setup.mock.calls[0];
+    expect(firstInput).toEqual([
+      "space-1",
+      expect.objectContaining({
+        kind: "feature",
+        feature: expect.objectContaining({ name: "Search filters" }),
+      }),
+    ]);
 
     let finish: () => void = () => {};
     mocks.setup.mockImplementationOnce(
@@ -117,7 +122,7 @@ describe("CreateChannelModal setup steps", () => {
       "aria-disabled",
       "true",
     );
-    expect(mocks.setup).toHaveBeenLastCalledWith(firstInput);
+    expect(mocks.setup).toHaveBeenLastCalledWith(...firstInput);
     finish();
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(mocks.createChannel).toHaveBeenCalledOnce();
@@ -135,7 +140,11 @@ describe("CreateChannelModal setup steps", () => {
   });
   it("walks from the name through the setup step to repositories and back", async () => {
     const user = userEvent.setup();
-    render(<CreateChannelModal open onOpenChange={vi.fn()} />);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <CreateChannelModal open onOpenChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
 
     await user.type(screen.getByLabelText("Name"), "growth");
     await user.click(current("Next"));
