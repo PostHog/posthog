@@ -160,9 +160,10 @@ export function CustomBotRules(): JSX.Element {
                 <Link to="https://posthog.com/docs/web-analytics/bot-detection">Read more about bot detection</Link>
             </p>
             <p className="mb-0">
-                An event with no user agent also counts as a bot, whether or not you add a rule for it. Server-side and
-                mobile SDKs usually send no user agent, so filtering on <code>Is bot</code> drops those events as well.
-                Add a filter on <code>Raw user agent</code> is set when you only want web traffic.
+                An event with no user agent also counts as a bot, whether or not you add a rule for it. Events that did
+                not come from a web browser, such as server-side SDK captures, usually carry no user agent, so filtering
+                on <code>Is bot</code> drops those events as well. Add a filter on <code>Raw user agent</code> is set
+                when you only want web traffic.
             </p>
 
             {rules.length === 0 ? (

@@ -73,8 +73,8 @@ carries it, so every row reads as an empty user agent and classifies as a bot.
 `isLikelyBot` matches the empty string, so **every event without a `$raw_user_agent` is a bot**,
 and `$virt_traffic_type` reports it as `Automation`. That is right for web traffic, where a
 request with no user agent is almost always a script, but it also sweeps in every event that was
-never a web request: server-side SDK captures, mobile SDK captures, and any other source that
-does not set a user agent. `$virt_is_bot` is the same expression, so it gives the same answer.
+never a web request: server-side SDK captures, and any other source that does not set a user
+agent. `$virt_is_bot` is the same expression, so it gives the same answer.
 
 On a project that mixes web and non-web capture this is a large share of all events, so a plain
 `$virt_is_bot = false` filter can move pageview and visitor counts a long way without the user
@@ -133,8 +133,8 @@ Add a property filter `$virt_is_bot` `exact` `false`:
 Drop it into any TrendsQuery / FunnelsQuery / etc. `properties`. This changes the counts
 only, not the stored data.
 
-This also drops every event with no user agent, which on most projects means all server-side
-and mobile capture. Pair it with `$raw_user_agent` `is_set` when the user wants human web
+This also drops every event with no user agent, which on most projects means all non-web
+capture. Pair it with `$raw_user_agent` `is_set` when the user wants human web
 traffic, and see **Events with no user agent count as bots** above.
 
 To exclude a narrower slice (e.g. keep AI agents but drop monitoring + automation), filter
