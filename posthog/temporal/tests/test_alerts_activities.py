@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import time_machine
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.core.exceptions import ValidationError
 from django.db import OperationalError, connection, transaction
@@ -102,7 +102,7 @@ def _reserve_as_the_scheduler(alert_id: str) -> None:
 
 def _hold_as_a_later_attempt(alert_id: str) -> None:
     with time_machine.travel(datetime.now(UTC) + timedelta(minutes=1), tick=False):
-        hold_evaluation_slot(alert_id)
+        hold_evaluation_slot(alert_id, limit=1)
 
 
 def _valid_trends_query() -> dict:
@@ -726,14 +726,71 @@ class TestEvaluateAlert:
         assert result.new_state == AlertState.NOT_FIRING
         assert inflight_alert_ids() == set()
 
-    async def test_cancelled_evaluate_kills_its_query_and_frees_the_slot(self, alert) -> None:
-        query_running = threading.Event()
+    @pytest.mark.parametrize("kills_before_the_query_starts", [0, 1])
+    async def test_cancelled_evaluate_kills_its_query_and_frees_the_slot_once_the_thread_exits(
+        self, alert, kills_before_the_query_starts: int
+    ) -> None:
+        attempt_running = threading.Event()
+        query_started = threading.Event()
         query_killed = threading.Event()
         query_thread_done = threading.Event()
         evaluation_ids: list[str] = []
+        slot_held_at_kill: list[bool] = []
 
         def _query_until_killed(evaluated_alert, *, evaluation_id):
             evaluation_ids.append(evaluation_id)
+            attempt_running.set()
+            try:
+                # The thread is still waiting for a connection when the first kill lands.
+                if kills_before_the_query_starts:
+                    query_started.wait(timeout=5)
+                query_killed.wait(timeout=5)
+                raise CHQueryErrorQueryWasCancelled("killed", code=394)
+            finally:
+                query_thread_done.set()
+
+        def _kill(team_id, client_query_id):
+            slot_held_at_kill.append(str(alert.id) in inflight_alert_ids())
+            if len(slot_held_at_kill) <= kills_before_the_query_starts:
+                query_started.set()  # this kill found no query; the thread reaches ClickHouse only now
+            else:
+                query_killed.set()
+
+        env = ActivityEnvironment()
+        with (
+            patch("posthog.temporal.alerts.activities._SLOT_POLL_SECONDS", 0.05),
+            patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_query_until_killed),
+            patch("posthog.temporal.alerts.activities.cancel_query_on_cluster", side_effect=_kill) as kill,
+        ):
+            attempt = asyncio.ensure_future(
+                env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id), team_id=alert.team_id))
+            )
+            await asyncio.to_thread(attempt_running.wait, 5)
+            assert str(alert.id) in inflight_alert_ids()
+            env.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await attempt
+            await asyncio.to_thread(query_thread_done.wait, 5)
+
+        assert len(slot_held_at_kill) > kills_before_the_query_starts
+        assert all(slot_held_at_kill)
+        assert all(kill_call == call(alert.team_id, evaluation_ids[0]) for kill_call in kill.call_args_list)
+        assert inflight_alert_ids() == set()
+        assert await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).exists)() is False
+
+    @pytest.mark.parametrize("how_the_slot_is_lost", ["taken_over", "redis_unreachable"])
+    async def test_evaluate_stops_its_query_once_it_can_no_longer_hold_its_slot(
+        self, alert, how_the_slot_is_lost: str
+    ) -> None:
+        short_lease = dataclasses.replace(
+            alert_timeouts(None),
+            evaluation_slot_lease=SlotLease(lease=timedelta(seconds=1), refresh=timedelta(seconds=0.1)),
+        )
+        query_running = threading.Event()
+        query_killed = threading.Event()
+        query_thread_done = threading.Event()
+
+        def _query_until_killed(evaluated_alert, *, evaluation_id):
             query_running.set()
             try:
                 query_killed.wait(timeout=5)
@@ -741,48 +798,75 @@ class TestEvaluateAlert:
             finally:
                 query_thread_done.set()
 
-        def _kill(team_id, client_query_id):
-            query_killed.set()
-
-        env = ActivityEnvironment()
+        redis_unreachable = (
+            patch("posthog.temporal.alerts.activities.refresh_evaluation_slot", side_effect=ConnectionError("down"))
+            if how_the_slot_is_lost == "redis_unreachable"
+            else contextlib.nullcontext()
+        )
         with (
+            patch("posthog.temporal.alerts.activities.alert_timeouts", return_value=short_lease),
+            patch("posthog.temporal.alerts.activities._SLOT_POLL_SECONDS", 0.05),
             patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_query_until_killed),
-            patch("posthog.temporal.alerts.activities.cancel_query_on_cluster", side_effect=_kill) as kill,
+            patch(
+                "posthog.temporal.alerts.activities.cancel_query_on_cluster",
+                side_effect=lambda team_id, client_query_id: query_killed.set(),
+            ) as kill,
+            redis_unreachable,
         ):
             attempt = asyncio.ensure_future(
-                env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id), team_id=alert.team_id))
+                ActivityEnvironment().run(
+                    evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id), team_id=alert.team_id)
+                )
             )
             await asyncio.to_thread(query_running.wait, 5)
-            assert str(alert.id) in inflight_alert_ids()
-            env.cancel()
-            with pytest.raises(asyncio.CancelledError):
+            if how_the_slot_is_lost == "taken_over":
+                _hold_as_a_later_attempt(str(alert.id))
+            with pytest.raises(ApplicationError) as raised:
                 await attempt
             await asyncio.to_thread(query_thread_done.wait, 5)
 
-        kill.assert_called_once_with(alert.team_id, evaluation_ids[0])
-        assert inflight_alert_ids() == set()
+        assert raised.value.type == "EvaluationSlotLost"
+        assert raised.value.non_retryable is False
+        kill.assert_called()
         assert await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).exists)() is False
+        # The later attempt keeps the slot it took; a slot that could not be kept is given back.
+        assert (str(alert.id) in inflight_alert_ids()) is (how_the_slot_is_lost == "taken_over")
 
-    async def test_evaluate_runs_without_a_lease_when_redis_is_unavailable(self, alert) -> None:
+    @pytest.mark.parametrize(
+        "first_hold",
+        [pytest.param(ConnectionError("redis down"), id="redis_unreachable"), pytest.param(None, id="no_room")],
+    )
+    async def test_evaluate_waits_for_a_slot_before_it_runs(self, alert, first_hold) -> None:
+        holds: list[float | None] = []
+
+        def _hold_after_one_refusal(*args, **kwargs):
+            if holds:
+                holds.append(hold_evaluation_slot(*args, **kwargs))
+                return holds[-1]
+            holds.append(None)
+            if isinstance(first_hold, Exception):
+                raise first_hold
+            return None
+
+        def _check_while_holding_the_slot(evaluated_alert, *, evaluation_id):
+            assert str(evaluated_alert.id) in inflight_alert_ids()
+            return AlertEvaluationResult(value=5.0, breaches=None)
+
         with (
-            patch("posthog.temporal.alerts.activities.hold_evaluation_slot", side_effect=ConnectionError("redis down")),
+            patch("posthog.temporal.alerts.activities._SLOT_POLL_SECONDS", 0.01),
+            patch("posthog.temporal.alerts.activities.hold_evaluation_slot", side_effect=_hold_after_one_refusal),
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",
-                return_value=AlertEvaluationResult(value=5.0, breaches=None),
+                side_effect=_check_while_holding_the_slot,
             ),
         ):
             result = await ActivityEnvironment().run(
                 evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
             )
 
+        assert len(holds) == 2
         assert result.new_state == AlertState.NOT_FIRING
-        assert result.should_notify is False
-        assert result.alert_check_id  # stringified UUID, truthy
-
-        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
-        assert check.state == AlertState.NOT_FIRING
-        assert check.calculated_value == 5.0
-        assert check.targets_notified == {}  # empty sentinel — notify_alert fills on success
+        assert inflight_alert_ids() == set()
 
     async def test_evaluate_firing_with_breaches(self, alert) -> None:
         with patch(

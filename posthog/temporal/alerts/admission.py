@@ -76,6 +76,23 @@ end
 return 0
 """
 
+# A check normally holds by rewriting the expiry the scheduler or an earlier attempt wrote, which
+# changes nothing about the count. An id that has lapsed from the set (a Redis outage outlasted its
+# lease, or a failover lost the set) is no longer admitted, so it only gets a slot back while there
+# is room, or the checks that took the room would run over the limit alongside it.
+_HOLD_SCRIPT = """
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local limit = tonumber(ARGV[2])
+local alert_id = ARGV[4]
+redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
+if redis.call('ZSCORE', key, alert_id) or redis.call('ZCARD', key) < limit then
+    redis.call('ZADD', key, ARGV[3], alert_id)
+    return 1
+end
+return 0
+"""
+
 
 def max_inflight_evaluations() -> int:
     return settings.ALERTS_MAX_INFLIGHT_EVALUATIONS
@@ -91,13 +108,16 @@ def admit_evaluation_slots(alert_ids: list[str], *, limit: int, expires_at: floa
     return [_decode(member) for member in admitted]
 
 
-def hold_evaluation_slot(alert_id: str, *, lease_seconds: float = SLOT_LEASE_SECONDS) -> float:
-    """Take the slot for an evaluation that is about to run and return the expiry that identifies this holder."""
+def hold_evaluation_slot(alert_id: str, *, limit: int, lease_seconds: float = SLOT_LEASE_SECONDS) -> float | None:
+    """Take the slot for a check that is about to run and return the expiry that identifies this holder.
+
+    Returns None when the check no longer holds a slot and the set is full.
+    """
     expires_at = time.time() + lease_seconds
     for attempt in range(_BOOKKEEPING_ATTEMPTS):
         try:
-            redis.get_client().zadd(INFLIGHT_KEY, {alert_id: expires_at})
-            return expires_at
+            held = redis.get_client().eval(_HOLD_SCRIPT, 1, INFLIGHT_KEY, time.time(), limit, expires_at, alert_id)
+            return expires_at if held else None
         except Exception:
             if attempt == _BOOKKEEPING_ATTEMPTS - 1:
                 raise
