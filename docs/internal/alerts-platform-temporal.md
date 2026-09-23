@@ -2,23 +2,23 @@
 
 The Alerts product registers three queues through `products/alerts/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
 
-| Setting in `posthog/settings/temporal.py`        | Queue                                            | Workflow                     |
-| ------------------------------------------------ | ------------------------------------------------ | ---------------------------- |
-| `ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE` | `alerts-product-shared-orchestration-task-queue` | `alerts-product-orchestrate` |
-| `ALERTS_PRODUCT_EVALUATION_TASK_QUEUE`           | `alerts-product-evaluation-task-queue`           | `alerts-product-evaluate`    |
-| `ALERTS_PRODUCT_DELIVERY_TASK_QUEUE`             | `alerts-product-delivery-task-queue`             | `alerts-product-deliver`     |
+| Setting in `posthog/settings/temporal.py`         | Queue                                             | Workflow                      |
+| ------------------------------------------------- | ------------------------------------------------- | ----------------------------- |
+| `ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE` | `alerts-platform-shared-orchestration-task-queue` | `alerts-platform-orchestrate` |
+| `ALERTS_PLATFORM_EVALUATION_TASK_QUEUE`           | `alerts-platform-evaluation-task-queue`           | `alerts-platform-evaluate`    |
+| `ALERTS_PLATFORM_DELIVERY_TASK_QUEUE`             | `alerts-platform-delivery-task-queue`             | `alerts-platform-deliver`     |
 
 These queue names are hardcoded and stay separate even with `DEBUG=True`.
 Shared orchestration registers the orchestration workflow, the source dispatcher and a synthetic demand-discovery activity.
-The evaluation queue registers the evaluation workflow (`alerts-product-evaluate`), each bound source evaluation, and the probe activity.
+The evaluation queue registers the evaluation workflow (`alerts-platform-evaluate`), each bound source evaluation, and the probe activity.
 Each schedule tick starts orchestration, which discovers demand once and then pages source dispatchers until the demand is exhausted or its dispatch budget is spent.
 Each dispatcher starts one evaluation child for its source. Evaluation runs the probe and starts its independent delivery child on the delivery queue.
 Start one worker for each queue:
 
 ```bash
-python manage.py start_temporal_worker --task-queue alerts-product-shared-orchestration-task-queue --metrics-port 8104
-python manage.py start_temporal_worker --task-queue alerts-product-evaluation-task-queue --metrics-port 8102
-python manage.py start_temporal_worker --task-queue alerts-product-delivery-task-queue --metrics-port 8103
+python manage.py start_temporal_worker --task-queue alerts-platform-shared-orchestration-task-queue --metrics-port 8104
+python manage.py start_temporal_worker --task-queue alerts-platform-evaluation-task-queue --metrics-port 8102
+python manage.py start_temporal_worker --task-queue alerts-platform-delivery-task-queue --metrics-port 8103
 ```
 
 Give every worker its own `--metrics-port`.
@@ -28,12 +28,12 @@ See [Temporal development guidance](../../posthog/temporal/README.md) for worker
 
 ## Dev schedule
 
-`python manage.py schedule_temporal_workflows` creates or updates `alerts-product-check-due-schedule`
+`python manage.py schedule_temporal_workflows` creates or updates `alerts-platform-check-due-schedule`
 only when `CLOUD_DEPLOYMENT=DEV`. The normal deployment migration step runs this command.
 Registration does nothing in production, local development, or other environments, even with `DEBUG=True`.
 It does not delete schedules created manually in those environments.
 
-The schedule starts `alerts-product-orchestrate` with `{}` on the orchestration queue every minute (UTC).
+The schedule starts `alerts-platform-orchestrate` with `{}` on the orchestration queue every minute (UTC).
 There is no routing flag: the flow is tick → orchestration → evaluation → delivery.
 It uses SKIP overlap, a one-minute catchup window, a 50-second workflow execution timeout,
 and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
@@ -48,22 +48,44 @@ Enable production only in a separate rollout after dev verification.
 
 ### Shared orchestration rollout and rollback
 
-The deployment identity is `temporal-worker-alerts-product-shared-orchestration`.
+The deployment identity is `temporal-worker-alerts-platform-shared-orchestration`.
 It uses the shared `posthog-cloud` image built by `container-images-cd.yml`, not a separate image build or repository.
 Worker deployment configuration lives outside this repository. Deploying this code must be coordinated with starting the orchestration worker.
-Schedule reconciliation now routes directly to orchestration; merging the code alone does not start a worker process.
-If the dev schedule does not exist yet, start all three workers before the first reconciliation: new schedules start unpaused.
+The three deployments in `PostHog/charts` must pass the matching `alerts-platform-*` queue names.
+The worker command rejects an unregistered queue with `ValueError` at startup.
+An old image with a new queue, or a new image with an old queue, cannot start.
+Treat each worker's image and queue configuration as one deployment change; merging two PRs close together does not make their deployments atomic.
+Schedule reconciliation routes directly to orchestration; merging the code alone does not start a worker process.
 
-1. Pause the existing dev schedule before deployment so migration-time reconciliation cannot send ticks to a worker that is not ready.
-2. Deploy the code and start the orchestration worker with the command above.
-   Verify it polls `alerts-product-shared-orchestration-task-queue`, and that evaluation and delivery workers remain available.
-3. Run `python manage.py schedule_temporal_workflows` and verify the action starts `alerts-product-orchestrate` on the orchestration queue.
-   Existing pause state is preserved. Resume only after all three workers are ready, then verify the complete workflow chain.
+1. Hold automatic promotions and syncs for all three worker deployments before either the code or chart queue changes deploys.
+   Record the current image, queue configuration, and schedule action for rollback.
+2. Pause `alerts-product-check-due-schedule` if it exists, and stop manual starts and delivery-preview requests during the cutover.
+   Before migration-time reconciliation runs with the new code, create `alerts-platform-check-due-schedule` in Temporal with its state explicitly paused.
+   Use the action and policy from [Dev schedule](#dev-schedule). If the new schedule already exists, pause it instead.
+   Pause state is preserved only for the same schedule ID; pausing the old ID does not pause a newly created schedule.
+3. Keep the old images polling all three `alerts-product-*` queues until queued and running orchestration, source-dispatch, evaluation, and delivery work drains.
+   Verify this in Temporal rather than waiting a fixed interval. Delivery can outlive its parent, and manual runs can have different timeouts.
+4. Build the image containing the renamed worker registrations. Render each worker deployment with that image and its matching `alerts-platform-*` queue before allowing its promotion or sync.
+   Do not restart a worker with only half of this change. Keep both schedules paused while the three deployments roll out.
+   Verify all three workers start successfully and poll their configured queues, including `alerts-platform-shared-orchestration-task-queue`.
+5. Run `python manage.py schedule_temporal_workflows` with the new code and verify the new schedule remains paused.
+   Its action must start `alerts-platform-orchestrate` on the orchestration queue.
+   Resume the new schedule only after all three workers are ready. Verify the Postgres probe result and delivery completion separately.
+6. After the complete workflow chain succeeds, delete the paused `alerts-product-check-due-schedule` by hand and release the deployment holds.
+   Reconciliation never deletes the old ID. Allow manual starts and delivery-preview requests again only with callers running the matching code.
 
-To stop future starts, pause the schedule. Keep all three workers running until orchestration, evaluation, and delivery work drains.
-For rollback, restore the previous schedule action (the evaluation workflow started directly on the evaluation queue, named `alerts-product-check-due` before the rename below) after draining, then roll back the code.
-Do not reconcile with the new code after restoring the old action: reconciliation would route back to orchestration.
-Pausing or changing the schedule does not move or stop queued or running workflows.
+For rollback:
+
+1. Pause the new schedule and stop manual starts and delivery-preview requests. Keep the current workers running until all queued and running work drains.
+2. Hold worker promotions and syncs. Restore each previous image together with its `alerts-product-*` queue configuration, then verify all three workers are ready.
+3. Restore the recorded schedule configuration using the previous code. Immediately before this rename, its action starts `alerts-product-orchestrate` on `alerts-product-shared-orchestration-task-queue`.
+   Do not restore the older `alerts-product-check-due` action unless the selected rollback image actually registers it.
+   If the old schedule was deleted, reconcile it only after the old workers are ready, because creation starts it unpaused.
+4. Resume the old schedule if it is paused, verify the probe and delivery complete, then delete the paused new schedule and release the deployment holds.
+   Restore manual starts and delivery-preview requests with callers running the previous code.
+
+Do not reconcile with the new code after rollback: it would recreate the new schedule unpaused.
+Pausing or changing a schedule does not move or stop queued or running workflows.
 
 ### Manual local runs
 
@@ -73,9 +95,9 @@ The `execute_temporal_workflow` and `start_temporal_workflow` commands do not kn
 ```bash
 docker exec posthog-temporal-admin-tools-1 \
     temporal workflow start --address temporal:7233 --namespace default \
-    --task-queue alerts-product-shared-orchestration-task-queue \
-    --type alerts-product-orchestrate \
-    --workflow-id "alerts-product-orchestrate-manual-$(date +%Y%m%d%H%M%S)" \
+    --task-queue alerts-platform-shared-orchestration-task-queue \
+    --type alerts-platform-orchestrate \
+    --workflow-id "alerts-platform-orchestrate-manual-$(date +%Y%m%d%H%M%S)" \
     --execution-timeout 50s \
     --input '{}'
 ```
@@ -83,7 +105,7 @@ docker exec posthog-temporal-admin-tools-1 \
 The empty `--input '{}'` becomes an `OrchestrateInputs` with every field defaulted.
 Watch orchestration, its source dispatcher children, their evaluation children, and the delivery great-grandchildren in the Temporal UI at <http://localhost:8081>.
 
-Evaluation and delivery accept an empty `AlertsProductInputs` dataclass; orchestration accepts `OrchestrateInputs` with all fields defaulted.
+Evaluation and delivery accept an empty `AlertsPlatformInputs` dataclass; orchestration accepts `OrchestrateInputs` with all fields defaulted.
 Orchestration pages source dispatchers, which start evaluation children with a 75-second execution timeout and one workflow attempt.
 Evaluation child IDs carry the tick ID, source and page, so each tick starts distinct evaluations.
 Evaluation runs a Postgres connectivity probe; delivery runs an empty activity with no I/O.
@@ -97,16 +119,17 @@ Real notification delivery guarantees remain undecided.
 
 ## Names
 
-The evaluation workflow is `alerts-product-evaluate` (class `AlertsProductEvaluateWorkflow`), the probe activity is `alerts_product_probe_postgres_activity`, and the schedule is registered by `create_alerts_product_tick_schedule`.
+The evaluation workflow is `alerts-platform-evaluate` (class `AlertsPlatformEvaluateWorkflow`), the probe activity is `alerts_platform_probe_postgres_activity`, and the schedule is registered by `create_alerts_platform_tick_schedule`.
 These replace `alerts-product-check-due`, `alerts_product_check_due_activity` and `create_alerts_product_check_due_schedule`: discovery finds what is due and dispatchers hand it out, so this workflow only evaluates.
 A workflow type rename breaks runs of the old type that are in flight at deploy time: no worker knows the old name, so they fail. Dev evaluations live under their execution timeout, and production is off.
-The schedule ID stays `alerts-product-check-due-schedule`. Registration does not delete schedules, so a new ID would leave two schedules until someone deleted the old one by hand.
+The schedule ID is `alerts-platform-check-due-schedule`, renamed from `alerts-product-check-due-schedule`.
+Registration never deletes a schedule, so the rollout above deletes the old ID by hand.
 
 ## Tick loop and source dispatchers
 
-One tick is one `alerts-product-orchestrate` execution. It takes an `OrchestrateInputs`; the schedule passes `{}` and every field defaults.
+One tick is one `alerts-platform-orchestrate` execution. It takes an `OrchestrateInputs`; the schedule passes `{}` and every field defaults.
 The first run records the tick cutoff (the scheduled start time, or the workflow start time for manual runs) and a deadline 45 seconds after the run started.
-Discovery runs once per tick. The loop then starts one `alerts-product-source-dispatch` child per source with demand, ID `{tick_id}-{source}-p{page}`, on the orchestration queue.
+Discovery runs once per tick. The loop then starts one `alerts-platform-source-dispatch` child per source with demand, ID `{tick_id}-{source}-p{page}`, on the orchestration queue.
 Dispatchers are part of the tick: the orchestrator awaits each dispatcher's report and keeps the default `TERMINATE` close policy on that edge.
 They run on the tick's own fleet because the tick awaits them. On the evaluation queue, an evaluation fleet with no free slots
 leaves the dispatcher unpicked, and the tick waits on a report that cannot arrive. A dispatcher starts no activities,
@@ -118,7 +141,7 @@ The hard stop is the run's own execution timeout when it has one, and the budget
 The orchestrator passes a dispatcher every remaining ID for its source. The dispatcher decides how much to take and returns the rest.
 Today it takes everything: no adapter has said yet how many alerts one evaluation can hold, so nothing remains and a tick is one page.
 The limit that will matter is the evaluation workflow's own history, which depends on the adapter's query shape; it arrives with the first real adapter.
-It starts one `alerts-product-evaluate` child, ID `{dispatcher_id}-eval`, with `ParentClosePolicy.ABANDON`, a 75-second execution timeout (`SOURCE_EVALUATION_TIMEOUT`) and one attempt.
+It starts one `alerts-platform-evaluate` child, ID `{dispatcher_id}-eval`, with `ParentClosePolicy.ABANDON`, a 75-second execution timeout (`SOURCE_EVALUATION_TIMEOUT`) and one attempt.
 The timeout has to hold every attempt a source's activities allow, because an attempt cut off here is a batch that decided something and recorded nothing.
 Evaluations are abandoned rather than awaited, so it does not have to fit inside the tick.
 It waits for the child to start, never for it to finish, then returns the dispatched count and the remaining IDs.
@@ -142,7 +165,7 @@ The previous `workflow.patched` gate around discovery is gone: the loop cannot r
 
 ## Synthetic demand discovery
 
-The first orchestration activity, `alerts_product_discover_demand_activity`, accepts a timezone-aware ISO-8601 cutoff.
+The first orchestration activity, `alerts_platform_discover_demand_activity`, accepts a timezone-aware ISO-8601 cutoff.
 Scheduled runs use `TemporalScheduledStartTime`; manual runs use the workflow start time.
 Activity retries retain the same cutoff rather than reading the activity's clock.
 The activity returns an `AlertDemand` containing configuration IDs grouped by the shared `SourceKind` enum (`logs` and `insight`).
@@ -182,7 +205,7 @@ than within one.
 
 `products/alerts/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
 A source in that map gets its own workflow started by name, carrying one batch key and the tick cutoff.
-A source absent from it keeps the noop `alerts-product-evaluate` path, which receives no key.
+A source absent from it keeps the noop `alerts-platform-evaluate` path, which receives no key.
 The alerts product imports nothing from a source: the binding holds a name, and `test_every_source_evaluation_binding_names_a_registered_workflow` fails if that name is not registered on the evaluation queue.
 
 `logs` is bound to `logs-alert-evaluate`, which is the first real source evaluation.
@@ -196,7 +219,7 @@ It writes its own state and never the logs product's rows.
 The production `logs-alerting-task-queue` fleet evaluates these same alerts every minute against `LogsAlertConfiguration`,
 so a write to those rows, a `LogsAlertEvent` row or a Kafka message here would transition an alert twice and notify a person twice for one breach.
 State transitions land on `PlatformAlert` and schedule advancement on `PlatformAlertConfiguration`, which the logs fleet never reads.
-Delivery stops at `alerts-product-deliver-preview`, which records what would have been sent and contacts no destination.
+Delivery stops at `alerts-platform-deliver-preview`, which records what would have been sent and contacts no destination.
 
 The lifecycle decision comes from `products/alerts/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
 which is the shared machine the logs product's own state machine is a thin adapter over.
@@ -213,7 +236,7 @@ can have been disabled, snoozed or broken since.
 It is a sync `def`, so Temporal runs it on the worker's own activity executor and the thread it blocks is a slot Temporal is accounting for.
 An async activity handing the work to its own thread pool releases its slot the moment the activity times out, while the thread stays on a query Temporal can no longer see.
 Being sync also means Django's connection recycling is the activity's own job, which `@close_db_connections` does for it.
-The workflow then calls `alerts_product_record_outcomes`, the platform's own activity, which persists the batch.
+The workflow then calls `alerts_platform_record_outcomes`, the platform's own activity, which persists the batch.
 Order matters more than the split does: Temporal holds the deliveries the batch decided on before any write
 can advance a schedule past them, so an attempt lost between the two costs its queries and nothing else.
 A source starts the write by name rather than importing it, so the products stay apart.
@@ -296,7 +319,7 @@ The transaction commits on success and rolls back on failure, so the timeout doe
 Connection acquisition, SQL, and force-close cleanup run in the same executor thread, outside the default thread-sensitive executor.
 `close_db_connections` closes initialized connections without a cleanup health-check query after failure.
 
-Django `OperationalError` and `InterfaceError` become a sanitized `AlertsProductPostgresProbeFailure` activity failure.
+Django `OperationalError` and `InterfaceError` become a sanitized `AlertsPlatformPostgresProbeFailure` activity failure.
 Evaluation starts delivery after that failure or an activity start-to-close/schedule-to-close timeout.
 Cancellation and unrelated errors propagate without starting delivery.
 This handoff requires the parent and its worker to remain available; termination before child startup is not covered.
@@ -321,7 +344,7 @@ Worker registration does not deploy workers. The dev schedule sets the orchestra
 
 ## Activity logs
 
-The evaluation and delivery queues use an activity-only interceptor that emits `alerts_product_activity_started` and `alerts_product_activity_finished` through the shared write-only logger.
+The evaluation and delivery queues use an activity-only interceptor that emits `alerts_platform_activity_started` and `alerts_platform_activity_finished` through the shared write-only logger.
 Discovery has SDK metrics and traces but does not use this logging interceptor.
 The shared logger's async methods keep log processing and writes off the activity event loop.
 Each retry emits its own start and finish events.
@@ -345,7 +368,7 @@ The shared worker exposes these SDK histograms with `task_queue` labels:
 
 Both histograms use milliseconds and the SDK's default buckets.
 Prometheus exposes their `_bucket`, `_sum`, and `_count` series.
-Native metrics retain the `temporal_` prefix. The `alerts_product_` convention applies only to custom metrics if those are added later.
+Native metrics retain the `temporal_` prefix. The `alerts_platform_` prefix is the convention for the platform's own custom metrics.
 Do not add workflow or run IDs as metric labels.
 
 A worker killed before completion cannot emit a finish log or execution sample.
@@ -366,4 +389,4 @@ Retries have separate activity attempt spans.
 Tests verify local logging, queue-labelled SDK metrics, and trace relationships without an application database or an external collector.
 Charts rollout must separately configure all three deployments and verify Prometheus scraping and delivery to the tracing collector.
 This change does not configure deployments, dashboards, alert rules, or SLO emission.
-The `alerts-product` SLO area remains reserved without changes to shared SLO handling or workflow inputs.
+The `alerts-platform` SLO area remains reserved without changes to shared SLO handling or workflow inputs.
