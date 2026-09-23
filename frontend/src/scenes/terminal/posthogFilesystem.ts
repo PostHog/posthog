@@ -151,7 +151,7 @@ tree lists folders and files. ncdu -r browses disk usage without allowing deleti
 node (or nodejs) installs Node.js on first use. pi installs the pi coding harness
 and Node.js on first use. Try node --version or pi --help.
 The browser downloads verified packages from GitHub and caches them when storage
-is available. Closing the terminal discards the installed files and local sessions.
+is available. Stopping the terminal discards the installed files and local sessions.
 pi runs offline: model calls, login, and package downloads need a network bridge.
 Use /tmp for local scripts and pi sessions; mounted PostHog files keep their API rules.
 Project file sizes stay zero until opened; ncdu does not download their contents.

@@ -4,9 +4,9 @@
             "name": "Node.js",
             "version": "22.23.2",
             "file": "archives/node-22.23.2-linux-i386.tar.gz",
-            "sha256": "4bc89c8e43774f06fb4b1f59003f1a09d70c05e8f2e4ec5addb7f9337f00e0ee",
-            "size": 28381394,
-            "archiveSize": 73236480,
+            "sha256": "558d910595883054c928aba5c8e46beeb888a37175f007ef5ce3e7508dbd87ca",
+            "size": 28385805,
+            "archiveSize": 73256960,
             "dependencies": [],
             "commands": {
                 "node": "/opt/posthog-packages/node-22.23.2/bin/node",
@@ -17,14 +17,14 @@
             "name": "pi",
             "version": "0.87.1",
             "file": "archives/pi-0.87.1.tar.gz",
-            "sha256": "3459a6653077e996dedb4edf0ab75ea8e8e4eefb05725e9a1cf422db71156eed",
-            "size": 17945701,
-            "archiveSize": 70656000,
+            "sha256": "95ffd3dac5996b471b7d5d3495128c403d3240202913156efb255f2045b4fb8e",
+            "size": 20421625,
+            "archiveSize": 76257280,
             "dependencies": ["node"],
             "commands": {
-                "pi": "env PI_OFFLINE=1 node /opt/posthog-packages/pi-0.87.1/dist/bundle/cli.js"
+                "pi": "/opt/posthog-packages/pi-0.87.1/bin/pi"
             }
         }
     },
-    "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/ed8a920525843ed897d0d5e6bf7db8ecba2ede81"
+    "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/852063f5a2ebf979ac834680dcfb1bb3ee985d08"
 }

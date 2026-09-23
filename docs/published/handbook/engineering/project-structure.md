@@ -73,7 +73,7 @@ Optional tools come from commit-pinned archives in [PostHog/terminal-assets](htt
 The browser verifies each archive's SHA-256 and size before making it available to the VM, and caches verified downloads when browser storage is available.
 Failed installations can be retried by running the command again.
 The VM uses 512 MiB of memory and a separate 256 MiB temporary filesystem for installed tools.
-Closing the terminal discards the installed tools and local files; verified downloads can be reused from the browser cache.
+Stopping the terminal discards the installed tools and local files; verified downloads can be reused from the browser cache.
 The VM has no network bridge, so pi can run locally but cannot call models, log in, or download packages.
 Add future tools to `terminal-packages.json` with pinned archive metadata, dependencies, and command entrypoints, and publish their reproducible build recipes in the assets repository.
 
