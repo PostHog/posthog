@@ -13,14 +13,18 @@ from __future__ import annotations
 import collections
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 import structlog
+import pyarrow.compute
 import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
@@ -28,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_operator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     AnsiIdentifierQuoter,
     ValidatedRowFilter,
@@ -54,8 +59,40 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 __all__ = [
     "SnowflakeImplementation",
+    "SnowflakeResumeState",
     "filter_snowflake_incremental_fields",
 ]
+
+
+@frozen
+class SnowflakeResumeState:
+    """Keyset checkpoint for a mid-job retry: the scan's ORDER BY column and the largest value of
+    that column in the last batch the pipeline persisted. A retry restarts the scan past it instead
+    of re-reading the whole table from row zero."""
+
+    order_column: str
+    last_value: Any
+
+
+def _batch_checkpoint(batch: Any, order_column: str) -> SnowflakeResumeState | None:
+    """The resume checkpoint a persisted batch earns: the largest ``order_column`` value it carries,
+    coerced to a JSON-safe scalar (the state crosses Redis as JSON, and Snowflake casts the string
+    form back in the resume comparison). None when the column is absent from the batch, empty, or of
+    a type a JSON round-trip cannot carry — the source then just doesn't checkpoint, which degrades
+    to today's restart-from-zero rather than resuming from a corrupt value."""
+    index = batch.schema.get_field_index(order_column)
+    if index < 0:
+        return None
+    value = pyarrow.compute.max(batch.column(index)).as_py()
+    if value is None:
+        return None
+    if isinstance(value, datetime | date):
+        value = value.isoformat()
+    elif isinstance(value, Decimal):
+        value = str(value)
+    elif not isinstance(value, str | int | float):
+        return None
+    return SnowflakeResumeState(order_column=order_column, last_value=value)
 
 
 def filter_snowflake_incremental_fields(
@@ -138,21 +175,35 @@ def _build_query(
     enabled_columns: list[str] | None = None,
     primary_keys: list[str] | None = None,
     row_filters: list[ValidatedRowFilter] | None = None,
+    order_by_key: str | None = None,
+    resume_value: Any | None = None,
 ) -> tuple[str, tuple[Any, ...]]:
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     select_clause = format_projected_select_clause(projected, _SNOWFLAKE_IDENTIFIER_QUOTER)
     table_ref = f"{database}.{schema}.{table_name}"
 
-    # Positional param order: IDENTIFIER(%s), then any incremental value, then row-filter values.
+    # Positional param order: IDENTIFIER(%s), then the keyset/incremental bound, then row-filter values.
     filter_conditions, filter_values = render_positional_conditions(row_filters or [], _SNOWFLAKE_IDENTIFIER_QUOTER)
 
     if not should_use_incremental_field:
-        if filter_conditions:
+        conditions = list(filter_conditions)
+        values: tuple[Any, ...] = (table_ref, *filter_values)
+        order_clause = ""
+        if order_by_key is not None:
+            # Ordering by the (unique) key is what makes a per-batch checkpoint meaningful: every
+            # row at or below it is persisted, so a resume with a strict `>` is exact — no
+            # duplicates and no skipped rows.
+            quoted_key = _SNOWFLAKE_IDENTIFIER_QUOTER.quote(order_by_key)
+            order_clause = f" ORDER BY {quoted_key} ASC"
+            if resume_value is not None:
+                conditions.insert(0, f"{quoted_key} > %s")
+                values = (table_ref, resume_value, *filter_values)
+        if conditions:
             return (
-                f"SELECT {select_clause} FROM IDENTIFIER(%s) WHERE {' AND '.join(filter_conditions)}",
-                (table_ref, *filter_values),
+                f"SELECT {select_clause} FROM IDENTIFIER(%s) WHERE {' AND '.join(conditions)}{order_clause}",
+                values,
             )
-        return f"SELECT {select_clause} FROM IDENTIFIER(%s)", (table_ref,)
+        return f"SELECT {select_clause} FROM IDENTIFIER(%s){order_clause}", values
 
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
@@ -162,6 +213,12 @@ def _build_query(
 
     operator = incremental_type_to_operator(incremental_field_type)
     quoted_field = _SNOWFLAKE_IDENTIFIER_QUOTER.quote(incremental_field)
+    if resume_value is not None:
+        # A checkpoint is the max of a persisted batch, and rows sharing that value can sit in the
+        # next, unpersisted batch — so the resume bound is inclusive and the primary-key merge
+        # dedups the re-read overlap (resume is only enabled when the table merges on a key).
+        db_incremental_field_last_value = resume_value
+        operator = ">="
     conditions = [f"{quoted_field} {operator} %s", *filter_conditions]
     return (
         f"SELECT {select_clause} FROM IDENTIFIER(%s) WHERE {' AND '.join(conditions)} ORDER BY {quoted_field} ASC",
@@ -587,7 +644,12 @@ class SnowflakeImplementation(
     # Pipeline build — the dlt `SourceResponse` for a single table
     # ------------------------------------------------------------------
 
-    def build_pipeline(self, config: SnowflakeSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def build_pipeline(
+        self,
+        config: SnowflakeSourceConfig,
+        inputs: SourceInputs,
+        resumable_source_manager: ResumableSourceManager[SnowflakeResumeState] | None = None,
+    ) -> SourceResponse:
         # Per-row routing: a multi-schema row pins its own namespace via `schema_metadata`,
         # a legacy single-schema row falls back to `config.schema`. The database is fixed
         # per connection. `response_name` preserves the legacy Delta subdir (`dwh_storage_key`).
@@ -613,6 +675,36 @@ class SnowflakeImplementation(
                 if cursor is None:
                     raise Exception("Can't create cursor to Snowflake")
                 primary_keys = self.get_primary_keys_for_table(cursor, database, schema, table_name)
+
+                # The keyset column checkpoints and resumes a mid-job retry. Both shapes need the
+                # merge-on-primary-key dedup downstream, so neither activates without a key: an
+                # incremental scan checkpoints its (already ordered) incremental field, a full
+                # refresh orders by a single-column primary key. Snowflake declares but does not
+                # enforce primary keys, and the full refresh resumes with a strict `>` — duplicate
+                # boundary values spanning batches would be skipped — so the full-refresh shape
+                # additionally requires the key a full probe proved unique. The incremental resume
+                # is inclusive and needs only the merge, so the declared key is enough there. A
+                # multi-column, unverified, or missing key keeps today's restart-from-zero behavior.
+                order_column: str | None = None
+                if resumable_source_manager is not None and primary_keys:
+                    if should_use_incremental_field:
+                        order_column = incremental_field
+                    elif len(primary_keys) == 1 and inputs.verified_primary_keys == primary_keys:
+                        order_column = primary_keys[0]
+                order_by_key = order_column if not should_use_incremental_field else None
+
+                resume_value: Any | None = None
+                if (
+                    order_column is not None
+                    and resumable_source_manager is not None
+                    and resumable_source_manager.can_resume()
+                ):
+                    resume_state = resumable_source_manager.load_state()
+                    # A checkpoint written against a different column (the schema's key or
+                    # incremental config changed between attempts) must not bound this scan.
+                    if resume_state is not None and resume_state.order_column == order_column:
+                        resume_value = resume_state.last_value
+
                 inner_query, inner_query_params = _build_query(
                     database,
                     schema,
@@ -624,8 +716,19 @@ class SnowflakeImplementation(
                     enabled_columns=enabled_columns,
                     primary_keys=primary_keys,
                     row_filters=row_filters,
+                    order_by_key=order_by_key,
+                    resume_value=resume_value,
                 )
-                rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_params, logger)
+                if resume_value is not None:
+                    # The count is a progress estimate; re-counting the full table is the other
+                    # half of the "every retry re-issues the same queries" cost, so a resumed
+                    # attempt skips it.
+                    # The checkpoint value is customer data (it can be an email or an id), so only
+                    # the column and the resume decision are logged.
+                    logger.debug(f"Resuming Snowflake scan from a checkpoint on {order_column}, skipping COUNT(*)")
+                    rows_to_sync = None
+                else:
+                    rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_params, logger)
 
         def get_rows() -> Iterator[Any]:
             with self.connect(config) as streaming_connection:
@@ -643,6 +746,8 @@ class SnowflakeImplementation(
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
+                        order_by_key=order_by_key,
+                        resume_value=resume_value,
                     )
                     logger.debug(f"Snowflake query: {query.format(params)}")
                     streaming_cursor.execute(query, params, timeout=_SNOWFLAKE_QUERY_TIMEOUT_SECONDS)
@@ -656,7 +761,18 @@ class SnowflakeImplementation(
                     # (e.g. a `0001-01-01`/`9999-12-31` sentinel) — and the mixed units make
                     # pyarrow fail to assemble the batches ("Schema at index N was different").
                     # The pipeline normalizes timestamps to `us` downstream regardless.
-                    yield from streaming_cursor.fetch_arrow_batches(force_microsecond_precision=True)
+                    pending_checkpoint: SnowflakeResumeState | None = None
+                    for batch in streaming_cursor.fetch_arrow_batches(force_microsecond_precision=True):
+                        if resumable_source_manager is not None and order_column is not None:
+                            # Control re-entering the loop means the previously yielded batch was
+                            # persisted (the pipeline's batcher guarantees yield => persisted), so
+                            # its checkpoint is now safe to save. The final batch's checkpoint is
+                            # deliberately never saved: a retry after full extraction re-reads only
+                            # that batch, and the merge dedups it.
+                            if pending_checkpoint is not None:
+                                resumable_source_manager.save_state(pending_checkpoint)
+                            pending_checkpoint = _batch_checkpoint(batch, order_column) or pending_checkpoint
+                        yield batch
 
         return SourceResponse(
             name=location.response_name, items=get_rows, primary_keys=primary_keys, rows_to_sync=rows_to_sync
