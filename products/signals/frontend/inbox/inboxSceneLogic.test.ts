@@ -238,6 +238,13 @@ describe('inboxSceneLogic routing', () => {
     // The scout page's tabs live in the URL, so a link to a scout's runs has to survive a reload.
     // Selecting a scout resets the tab, so the URL's tab had to be applied after that reset.
     describe('the scout page tab in the URL', () => {
+        it('does not open a scout detail when navigating to comparisons', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScoutTrials())
+            expect(logic.values.selectedScoutSkillName).toBeNull()
+            expect(router.values.location.pathname.endsWith('/inbox/scouts/comparisons')).toBe(true)
+        })
+
         it('opens the tab a reloaded URL names', () => {
             mountWithRedesign(true)
             router.actions.push(urls.inboxScout('signals-scout-web-vitals'), { tab: 'runs' })

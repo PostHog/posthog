@@ -24,8 +24,14 @@ export const manifest: ProductManifest = {
         inboxFindings: (): string => '/inbox/scouts/findings',
         // Project-wide list of scout and signal-pipeline runs, reached from the roster footer.
         inboxRuns: (): string => '/inbox/scouts/runs',
+        inboxScoutTrials: (): string => '/inbox/scouts/comparisons',
     },
     scenes: {
+        ScoutTrials: {
+            name: 'Scout comparisons',
+            import: () => import('./frontend/inbox/ScoutTrialsScene'),
+            projectBased: true,
+        },
         Inbox: {
             name: 'Self-driving inbox',
             import: () => import('./frontend/inbox/InboxScene'),
@@ -41,6 +47,7 @@ export const manifest: ProductManifest = {
         '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
         '/inbox/scouts/findings': ['Inbox', 'inbox'],
         '/inbox/scouts/runs': ['Inbox', 'inbox'],
+        '/inbox/scouts/comparisons': ['ScoutTrials', 'scoutTrials'],
         '/inbox/reports/triage': ['Inbox', 'inbox'],
         // Registered before the generic report route: both are two-segment `/inbox/x/y` shapes.
         '/inbox/scouts/:skillName': ['Inbox', 'inbox'],

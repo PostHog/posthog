@@ -8,6 +8,11 @@ from unittest.mock import PropertyMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
+from posthog.models import Team
+from posthog.models.scoping import team_scope
+
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.models import SignalScoutConfig, SignalScratchpad
 from products.signals.backend.scout_harness.model_selection import ScoutModel
@@ -34,7 +39,7 @@ class TestScoutTrialAPI(APIBaseTest):
         self.trial_runs_url = f"/api/projects/{self.team.id}/signals/scout/runs/"
         snapshot = memory_snapshot([ScratchpadEntry(key="finding:shared", content="Starting value")])
         context = SimpleNamespace(memory=snapshot, notes=[], recent_runs=[], skill_name=self.trial_run.skill_name)
-        for module in ("trial_launch", "trial_access"):
+        for module in ("trial_inspection", "trial_launch", "trial_access"):
             context_patch = patch(
                 f"products.signals.backend.scout_harness.{module}.load_trial_context", return_value=context
             )
@@ -142,6 +147,135 @@ class TestScoutTrialLaunch(APIBaseTest):
     def _write(self, key: str, content: str, **kwargs: object) -> None:
         assert key not in self.documents
         self.documents[key] = content
+
+    def _internal_scout_base(self) -> str:
+        if self.team.id != 2:
+            self.team = Team.objects.create(id=2, organization=self.organization, name="Internal example")
+            self.skill.team = self.team
+            self.skill.save(update_fields=["team"])
+            self.config.team = self.team
+            self.config.save(update_fields=["team"])
+        self.enterContext(team_scope(self.team.id, canonical=True))
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        for module in ("trial_inspection", "trial_views"):
+            for function in (
+                ("check_fleet_gates", "check_spend_gates")
+                if module == "trial_inspection"
+                else ("withheld_skills_for_team",)
+            ):
+                gate_patch = patch(
+                    f"products.signals.backend.scout_harness.{module}.{function}",
+                    return_value=set() if function == "withheld_skills_for_team" else None,
+                )
+                gate_patch.start()
+                self.addCleanup(gate_patch.stop)
+        return f"/api/projects/{self.team.id}/signals/scout/configs/{self.config.id}/"
+
+    @parameterized.expand([("trial-setup",), ("trial-history",)])
+    def test_internal_inspection_requires_staff_and_exact_project(self, action: str) -> None:
+        base = self._internal_scout_base()
+        self.user.is_staff = False
+        self.user.save(update_fields=["is_staff"])
+        assert self.client.get(f"{base}{action}/").status_code == 404
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        other_team = Team.objects.create(organization=self.organization, name="Another example")
+        assert (
+            self.client.get(base.replace("/projects/2/", f"/projects/{other_team.id}/") + f"{action}/").status_code
+            == 404
+        )
+        with patch(
+            "products.signals.backend.scout_harness.trial_inspection.UserAccessControl.check_access_level_for_object",
+            return_value=False,
+        ):
+            assert self.client.get(f"{base}{action}/").status_code == 403
+
+    @override_settings(SCOUT_LIVE_TRIALS_ENABLED=False)
+    def test_setup_remains_readable_when_disabled_and_excludes_inaccessible_models(self) -> None:
+        base = self._internal_scout_base()
+        self.config.write_scopes = ["dashboard:write"]
+        self.config.save(update_fields=["write_scopes"])
+        with patch(
+            "products.signals.backend.scout_harness.trial_inspection.get_model_access_error",
+            side_effect=lambda model, **kwargs: None if model == "gpt-5.5" else "Unavailable",
+        ):
+            response = self.client.get(f"{base}trial-setup/")
+        assert response.status_code == 200, response.data
+        setup = response.json()
+        assert setup["ready"] is False
+        assert "not enabled" in setup["blocked_reason"]
+        assert "writes or external tools" in setup["blocked_reason"]
+        assert setup["skill_body"] == self.skill.body
+        assert setup["model"] == "gpt-5.5"
+        assert setup["reasoning_effort"] == "medium"
+        assert [choice["model"] for choice in setup["models"]] == ["gpt-5.5"]
+        assert "medium" in setup["models"][0]["reasoning_efforts"]
+        assert not self.documents
+
+    def test_setup_reads_saved_source_and_rejects_another_operators_context(self) -> None:
+        base = self._internal_scout_base()
+        launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
+        self.skill.is_latest = False
+        self.skill.save(update_fields=["is_latest"])
+        LLMSkill.objects.create(
+            team=self.team,
+            name=self.skill.name,
+            version=2,
+            body="Investigate the revised source.",
+            allowed_tools=["emit_report"],
+        )
+        saved = self.client.get(f"{base}trial-setup/", {"context_id": str(launch.context_id)})
+        assert saved.status_code == 200, saved.data
+        assert saved.json()["skill_body"] == self.skill.body
+        assert saved.json()["skill_version"] == 1
+        current = self.client.get(f"{base}trial-setup/")
+        assert current.status_code == 200, current.data
+        assert current.json()["skill_body"] == "Investigate the revised source."
+        other_user = self._create_user("other-operator@example.com")
+        context = load_trial_context(self.team.id, launch.context_id).model_copy(update={"user_id": other_user.id})
+        context_key = next(key for key in self.documents if "/contexts/" in key)
+        self.documents[context_key] = context.model_dump_json()
+        assert self.client.get(f"{base}trial-setup/", {"context_id": str(launch.context_id)}).status_code == 404
+
+    def test_history_only_lists_own_valid_private_runs_and_keeps_requested_settings(self) -> None:
+        base = self._internal_scout_base()
+        launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4(), variant="Baseline")
+        marker = {
+            "version": 1,
+            "launch_id": str(launch.id),
+            "context_id": str(launch.context_id),
+            "variant": "Baseline",
+        }
+        valid = _make_run(
+            self.team,
+            scout_config=self.config,
+            skill_name=self.skill.name,
+            metadata={"scout_trial": marker},
+        )
+        valid.task_run.task.created_by = self.user
+        valid.task_run.task.origin_key = f"scout-trial:{launch.id}"
+        valid.task_run.task.save(update_fields=["created_by", "origin_key"])
+        valid.task_run.state = {"scout_trial": marker, "model": "Changed during execution"}
+        valid.task_run.save(update_fields=["state"])
+        other_operator = _make_run(self.team, scout_config=self.config, metadata={"scout_trial": marker})
+        other_operator.task_run.task.created_by = self._create_user("another-operator@example.com")
+        other_operator.task_run.task.save(update_fields=["created_by"])
+        invalid = _make_run(self.team, scout_config=self.config, metadata={"scout_trial": marker})
+        invalid.task_run.task.created_by = self.user
+        invalid.task_run.task.save(update_fields=["created_by"])
+        _make_run(self.team, scout_config=self.config)
+        response = self.client.get(f"{base}trial-history/")
+        assert response.status_code == 200, response.data
+        history = response.json()
+        assert len(history["results"]) == 1
+        assert history["results"][0]["launch_id"] == str(launch.id)
+        assert history["results"][0]["context_id"] == str(launch.context_id)
+        assert history["results"][0]["model"] == launch.model
+        assert history["results"][0]["reasoning_effort"] == launch.reasoning_effort
+        assert history["results"][0]["task_run_id"] == str(valid.task_run_id)
+        assert history["has_more"] is False
+        assert "skill_body" not in history["results"][0]
 
     def test_candidate_first_preserves_baseline_and_retry_identity(self) -> None:
         launch_id = uuid4()
