@@ -6,12 +6,9 @@ from posthog.schema import ProductKey
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.clickhouse.workload import Workload
-from posthog.models.team.team import Team
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
-
-from .base import Recommendation
 from .fingerprints import FINGERPRINT_STATE_QUERY, fingerprint_expr
+from .issue_list import IssueListRecommendation
 
 ISSUE_LIMIT = 5
 
@@ -36,7 +33,7 @@ BATCH_QUERY = """
 """
 
 
-class LongRunningIssuesRecommendation(Recommendation):
+class LongRunningIssuesRecommendation(IssueListRecommendation):
     type = "long_running_issues"
     refresh_interval = timedelta(hours=6)
 
@@ -53,13 +50,7 @@ class LongRunningIssuesRecommendation(Recommendation):
             workload=Workload.OFFLINE,
         )
 
-        issues_by_id = {
-            issue.id: issue
-            # nosemgrep: idor-lookup-without-team (team_id__in scopes the lookup; background sweep, not user input)
-            for issue in ErrorTrackingIssue.objects.filter(
-                team_id__in=team_ids, id__in=[issue_id for _, issue_id, _, _ in rows]
-            ).only("id", "name", "description", "status")
-        }
+        issues_by_id = self.issues_by_id(team_ids, [issue_id for _, issue_id, _, _ in rows])
 
         metas: dict[int, dict[str, Any]] = {team_id: {"issues": []} for team_id in team_ids}
         for team_id, issue_id, first_seen, occurrences in rows:
@@ -78,22 +69,3 @@ class LongRunningIssuesRecommendation(Recommendation):
                 }
             )
         return metas
-
-    def is_completed(self, meta: dict[str, Any]) -> bool:
-        return not meta.get("issues")
-
-    def enrich(self, team: Team, meta: dict[str, Any]) -> dict[str, Any]:
-        issues = meta.get("issues") or []
-        if not issues:
-            return meta
-
-        statuses = {
-            str(row_id): row_status
-            for row_id, row_status in ErrorTrackingIssue.objects.filter(
-                team=team, id__in=[i["id"] for i in issues]
-            ).values_list("id", "status")
-        }
-        return {
-            **meta,
-            "issues": [{**issue, "status": statuses.get(issue["id"], issue.get("status"))} for issue in issues],
-        }

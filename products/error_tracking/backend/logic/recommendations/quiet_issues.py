@@ -6,60 +6,55 @@ from posthog.schema import ProductKey
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.clickhouse.workload import Workload
-from posthog.models.team.team import Team
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
-
-from .base import Recommendation
 from .fingerprints import FINGERPRINT_STATE_QUERY, fingerprint_expr
+from .issue_list import IssueListRecommendation
 
 ISSUE_LIMIT = 5
 QUIET_DAYS = 30
 
 # The inverse of long_running_issues: active issues that stopped firing. An issue is quiet
-# when it was first seen before the window and no exception landed on it inside the window,
-# which the anti join expresses. Counting the whole quiet set, not only the sample, lets the
-# card show how much of the active list has gone dead.
+# when it was first seen before the window and none of its fingerprints appear in the window.
+# The aggregate over the left join answers that per issue, because a merged issue holds several
+# fingerprints and one recent fingerprint keeps the whole issue alive. Counting the whole quiet
+# set, not only the sample, lets the card show how much of the active list has gone dead.
 BATCH_QUERY = """
-    WITH
-    fingerprint_state AS ({fingerprint_state}),
-    seen_in_window AS (
+    WITH seen_in_window AS (
         SELECT DISTINCT
             events.team_id AS team_id,
-            fingerprint_state.issue_id AS issue_id
+            cityHash64({fingerprint_expr}) AS fp_hash,
+            1 AS matched
         FROM events
-        INNER JOIN fingerprint_state
-            ON events.team_id = fingerprint_state.team_id
-            AND cityHash64({fingerprint_expr}) = fingerprint_state.fp_hash
         WHERE events.team_id IN %(team_ids)s
             AND events.event = '$exception'
             AND events.timestamp >= now() - INTERVAL {quiet_days} DAY
-    ),
-    active_issues AS (
-        SELECT
-            team_id,
-            issue_id,
-            min(first_seen) AS first_seen
-        FROM fingerprint_state
-        WHERE issue_status = 'active'
-        GROUP BY team_id, issue_id
-        HAVING first_seen < now() - INTERVAL {quiet_days} DAY
     )
     SELECT
-        active_issues.team_id AS team_id,
-        active_issues.issue_id AS issue_id,
-        active_issues.first_seen AS first_seen,
-        count() OVER (PARTITION BY active_issues.team_id) AS quiet_total
-    FROM active_issues
-    LEFT ANTI JOIN seen_in_window
-        ON active_issues.team_id = seen_in_window.team_id
-        AND active_issues.issue_id = seen_in_window.issue_id
+        team_id,
+        issue_id,
+        first_seen,
+        count() OVER (PARTITION BY team_id) AS quiet_total
+    FROM (
+        SELECT
+            issue_state.team_id AS team_id,
+            issue_state.issue_id AS issue_id,
+            min(issue_state.first_seen) AS first_seen,
+            ifNull(max(recent.matched), 0) AS seen_recently
+        FROM ({fingerprint_state}) AS issue_state
+        LEFT JOIN seen_in_window AS recent
+            ON issue_state.team_id = recent.team_id
+            AND issue_state.fp_hash = recent.fp_hash
+        WHERE issue_state.issue_status = 'active'
+        GROUP BY team_id, issue_id
+        HAVING seen_recently = 0
+            AND first_seen < now() - INTERVAL {quiet_days} DAY
+    )
     ORDER BY team_id ASC, first_seen ASC
     LIMIT %(issue_limit)s BY team_id
 """
 
 
-class QuietIssuesRecommendation(Recommendation):
+class QuietIssuesRecommendation(IssueListRecommendation):
     type = "quiet_issues"
     # Quiet issues move slowly, so a daily sweep is enough. The window scan is wider than
     # the other recommendations', and this keeps that cost off the six-hourly cycle.
@@ -82,13 +77,7 @@ class QuietIssuesRecommendation(Recommendation):
             workload=Workload.OFFLINE,
         )
 
-        issues_by_id = {
-            issue.id: issue
-            # nosemgrep: idor-lookup-without-team (team_id__in scopes the lookup; background sweep, not user input)
-            for issue in ErrorTrackingIssue.objects.filter(
-                team_id__in=team_ids, id__in=[issue_id for _, issue_id, _, _ in rows]
-            ).only("id", "name", "description", "status")
-        }
+        issues_by_id = self.issues_by_id(team_ids, [issue_id for _, issue_id, _, _ in rows])
 
         metas: dict[int, dict[str, Any]] = {
             team_id: {"quiet_days": QUIET_DAYS, "total": 0, "issues": []} for team_id in team_ids
@@ -109,22 +98,3 @@ class QuietIssuesRecommendation(Recommendation):
                 }
             )
         return metas
-
-    def is_completed(self, meta: dict[str, Any]) -> bool:
-        return not meta.get("issues")
-
-    def enrich(self, team: Team, meta: dict[str, Any]) -> dict[str, Any]:
-        issues = meta.get("issues") or []
-        if not issues:
-            return meta
-
-        statuses = {
-            str(row_id): row_status
-            for row_id, row_status in ErrorTrackingIssue.objects.filter(
-                team=team, id__in=[i["id"] for i in issues]
-            ).values_list("id", "status")
-        }
-        return {
-            **meta,
-            "issues": [{**issue, "status": statuses.get(issue["id"], issue.get("status"))} for issue in issues],
-        }

@@ -206,15 +206,18 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                 issue_id: issueId,
                 source: 'recommendations',
             })
-            // Both issue-listing cards can hold the same issue, so re-pull each of them.
-            // force=false: just re-pulls enriched meta, no recompute. So we don't mark computing.
-            const listing = values.recommendations.filter(
-                (r) => isLongRunningIssuesRecommendation(r) || isQuietIssuesRecommendation(r)
+            // Any card listing issues can hold this one, so re-pull them all rather than
+            // enumerating the types. force=false re-pulls enriched meta without a recompute,
+            // so there is nothing to mark as computing.
+            await Promise.all(
+                values.recommendations
+                    .filter((r) => Array.isArray(r.meta.issues))
+                    .map(async (r) =>
+                        actions.upsertRecommendation(
+                            await api.errorTracking.refreshRecommendation(r.id, { force: false })
+                        )
+                    )
             )
-            for (const recommendation of listing) {
-                const updated = await api.errorTracking.refreshRecommendation(recommendation.id, { force: false })
-                actions.upsertRecommendation(updated)
-            }
         }
 
         return {

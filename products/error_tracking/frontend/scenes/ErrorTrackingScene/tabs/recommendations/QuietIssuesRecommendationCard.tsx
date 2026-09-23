@@ -1,14 +1,14 @@
 import { useActions } from 'kea'
 
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
-
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
 
+import { IssueRecommendationRow } from './IssueRecommendationRow'
 import { RecommendationCard } from './RecommendationCard'
 import { recommendationsTabLogic } from './recommendationsTabLogic'
 import type { QuietIssuesRecommendation } from './types'
+
+const TITLE = 'Issues that stopped happening'
 
 export function QuietIssuesRecommendationCard({
     recommendation,
@@ -29,7 +29,7 @@ export function QuietIssuesRecommendationCard({
         return (
             <RecommendationCard
                 recommendationId={recommendation.id}
-                title="Issues that stopped happening"
+                title={TITLE}
                 description={description}
                 dismissed={dismissed}
             />
@@ -38,12 +38,8 @@ export function QuietIssuesRecommendationCard({
 
     if (issues.length === 0) {
         return (
-            <RecommendationCard
-                recommendationId={recommendation.id}
-                title="Issues that stopped happening"
-                dismissed={dismissed}
-            >
-                <div className="text-sm text-secondary">Every active issue is still firing — nothing to clear out.</div>
+            <RecommendationCard recommendationId={recommendation.id} title={TITLE} dismissed={dismissed}>
+                <div className="text-sm text-secondary">Every active issue is still firing. Nothing to clear out.</div>
             </RecommendationCard>
         )
     }
@@ -51,71 +47,23 @@ export function QuietIssuesRecommendationCard({
     return (
         <RecommendationCard
             recommendationId={recommendation.id}
-            title="Issues that stopped happening"
+            title={TITLE}
             description={description}
             dismissed={dismissed}
         >
             <div className="flex flex-col gap-0">
-                {issues.map((issue) => {
-                    const isActive = issue.status === 'active'
-                    return (
-                        <div key={issue.id} className="border-b last:border-b-0">
-                            <Link
-                                subtle
-                                to={urls.errorTrackingIssue(issue.id)}
-                                className={`group flex items-center gap-3 py-2 no-underline ${
-                                    isActive ? '' : 'opacity-60'
-                                }`}
-                            >
-                                <div
-                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                        isActive ? 'bg-muted' : 'bg-success'
-                                    }`}
-                                />
-                                <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-medium truncate flex items-center gap-2">
-                                        <span className="truncate">{issue.name}</span>
-                                        {!isActive && (
-                                            <LemonTag size="small" type="muted">
-                                                {issue.status}
-                                            </LemonTag>
-                                        )}
-                                    </div>
-                                    <div className="text-xs text-secondary">
-                                        {dayjs(issue.first_seen).fromNow(true)} old · quiet for over {quietDays} days
-                                    </div>
-                                </div>
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                    {isActive ? (
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={(e) => {
-                                                e.preventDefault()
-                                                e.stopPropagation()
-                                                resolveIssue(issue.id)
-                                            }}
-                                        >
-                                            Resolve
-                                        </LemonButton>
-                                    ) : (
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={(e) => {
-                                                e.preventDefault()
-                                                e.stopPropagation()
-                                                activateIssue(issue.id)
-                                            }}
-                                        >
-                                            Undo
-                                        </LemonButton>
-                                    )}
-                                </div>
-                            </Link>
-                        </div>
-                    )
-                })}
+                {issues.map((issue) => (
+                    <IssueRecommendationRow
+                        key={issue.id}
+                        id={issue.id}
+                        name={issue.name}
+                        status={issue.status}
+                        subtitle={`${dayjs(issue.first_seen).fromNow(true)} old · quiet for over ${quietDays} days`}
+                        actionLabel="Resolve"
+                        onAction={() => resolveIssue(issue.id)}
+                        onUndo={() => activateIssue(issue.id)}
+                    />
+                ))}
             </div>
             {total > issues.length && (
                 <div className="text-xs text-secondary mt-2">
