@@ -140,6 +140,12 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     if accounting_enabled and run_id is not None and run_team_id is not None:
         refresh_task_run_spend(run_id=run_id, team_id=run_team_id)
 
+    if input.run_id and stream_completion_safe:
+        try:
+            TaskRun.clear_sandbox_connection_state_atomic(input.run_id, input.sandbox_id)
+        except TaskRun.DoesNotExist:
+            pass
+
     if input.complete_stream_on_cleanup and input.run_id and stream_completion_safe:
         try:
             publish_run_stream_completion(input.run_id)

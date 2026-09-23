@@ -7,7 +7,7 @@ morning's digest follows it.
 The order is proximity, not alphabet. For an audience's merges that came from repository R:
 
 1. A ``repo:`` audience takes the channel R declared under ``digest:`` in ``.stamphog/policy.yml``.
-2. A team slug takes R's own root ``owners.yaml`` registry, read through ``posthog_owners``. A
+2. A team slug takes R's own root ``owners.yaml`` registry, read through ``owners_yaml``. A
    repository that carries a registry answers for its own pull requests completely, including by
    omission: a registry lists the teams whose derived name is wrong, so a slug missing from it
    means "the derived name is right" rather than "no opinion".
@@ -32,8 +32,8 @@ from django.db import router
 from django.db.models import Q
 
 import structlog
-from posthog_owners.resolver import Purpose, TeamChannel, team_channel, teams_registry
-from posthog_owners.schema import Producer, TeamEntry
+from owners_yaml.resolver import Purpose, TeamChannel, team_channel, teams_registry
+from owners_yaml.schema import Producer, TeamEntry
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
@@ -47,7 +47,7 @@ from .github_client import StamphogGitHubClient
 
 logger = structlog.get_logger(__name__)
 
-# The distributed-ownership registry lives only in the repo-root file (posthog_owners.schema).
+# The distributed-ownership registry lives only in the repo-root file (owners_yaml.schema).
 _OWNERS_FILE_PATH = "owners.yaml"
 
 # The digest is automation, so it asks the registry where automation posts rather than where the
@@ -209,6 +209,10 @@ def _registry_answer(context: RoutingContext, slug: str, repository: str) -> Tea
     return team_channel(slug, registry, _CHANNEL_PURPOSE, _PRODUCER)
 
 
+def _silenced(answer: TeamChannel) -> bool:
+    return answer.declared and answer.channel is None
+
+
 def resolve_destination(context: RoutingContext, audience_key: str, repository: str) -> Destination | None:
     """Where this audience's merges from ``repository`` go, or None when they go nowhere.
 
@@ -225,16 +229,29 @@ def resolve_destination(context: RoutingContext, audience_key: str, repository: 
         return _match(context, channel_name, ChannelResolutionSource.STAMPHOG_CONFIG, allow_shared=True)
 
     answer = _registry_answer(context, audience_key, repository)
-    if answer.declared:
-        if answer.channel is None:
-            logger.info("stamphog_routing_silenced_by_config", audience_key=audience_key, repository=repository)
-            return None
+    if _silenced(answer):
+        logger.info("stamphog_routing_silenced_by_config", audience_key=audience_key, repository=repository)
+        return None
+    if answer.declared and answer.channel is not None:
         # A registry entry can name a channel for a team the declaring repo does not own, so the
         # shared-channel guard stays on: an externally shared match here leaves the workspace.
         return _match(context, answer.channel, ChannelResolutionSource.OWNERS_CONTACT, allow_shared=False)
 
     # The derived #<slug>, which is the name a registry entry exists to override.
     return _match(context, audience_key, ChannelResolutionSource.SLACK_NAME_MATCH, allow_shared=False)
+
+
+def opted_out(context: RoutingContext, audience_key: str) -> bool:
+    """True when the registry of every repository in ``context`` silences this audience.
+
+    ``resolve_destination`` returns None for an opt-out and for a routing gap alike. Only a gap needs
+    somebody to act, so the caller reports the two differently.
+    """
+    if audience_key.startswith(REPO_AUDIENCE_PREFIX) or not context.registry_by_repo:
+        return False
+    return all(
+        _silenced(_registry_answer(context, audience_key, repository)) for repository in context.registry_by_repo
+    )
 
 
 def _match(

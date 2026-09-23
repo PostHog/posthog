@@ -18,7 +18,7 @@ import type {
     SignalScoutConfigApi,
     SignalScoutCreateResponseApi,
 } from 'products/signals/frontend/generated/api.schemas'
-import { SKILL_DESCRIPTION_MAX_LENGTH, SKILL_NAME_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
+import { SKILL_DESCRIPTION_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
 
 import {
     ScoutCreateInitialValues,
@@ -29,6 +29,7 @@ import {
 import {
     getScoutScheduleMode,
     getScoutScheduleOptions,
+    MAX_SCOUT_DISPLAY_NAME_LENGTH,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
     SCOUT_WEEKDAY_OPTIONS,
@@ -36,6 +37,7 @@ import {
 } from '../../../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAGS, normalizeScoutTags } from '../../../utils/scoutTags'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
+import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutWriteScopesPicker } from './ScoutWriteScopesPicker'
 
@@ -102,8 +104,11 @@ export function ScoutCreateModal({
     // form has errors, so a name typo would otherwise surface only as the button's tooltip. Show the
     // name error in the help slot as soon as the field has been left, until the form shows it itself.
     const touchedNameError =
-        scoutCreateFormTouches.name && !showScoutCreateFormErrors ? scoutCreateFormValidationErrors.name : undefined
+        scoutCreateFormTouches.display_name && !showScoutCreateFormErrors
+            ? scoutCreateFormValidationErrors.display_name
+            : undefined
     const firstError = [
+        scoutCreateFormValidationErrors.display_name,
         scoutCreateFormValidationErrors.name,
         scoutCreateFormValidationErrors.description,
         scoutCreateFormValidationErrors.body,
@@ -150,21 +155,21 @@ export function ScoutCreateModal({
             >
                 <div className="flex flex-col gap-4">
                     <LemonField
-                        name="name"
+                        name="display_name"
                         label="Name"
                         help={
                             touchedNameError ? (
                                 <span className="text-danger">{touchedNameError}</span>
                             ) : (
-                                'Lowercase letters, numbers, and hyphens.'
+                                'What this scout is called. You can change it later.'
                             )
                         }
                     >
                         <LemonInput
                             autoFocus={!turningOn}
                             disabledReason={turningOn ? 'This scout already has its name' : undefined}
-                            maxLength={SKILL_NAME_MAX_LENGTH}
-                            placeholder="checkout-failures"
+                            maxLength={MAX_SCOUT_DISPLAY_NAME_LENGTH}
+                            placeholder="Checkout failures"
                             data-attr="scout-create-name"
                         />
                     </LemonField>
@@ -231,6 +236,16 @@ export function ScoutCreateModal({
                         {({ value, onChange }) => (
                             <ScoutMcpServersPicker
                                 selectedServerIds={value ?? []}
+                                onChange={onChange}
+                                disabledReason={busyReason}
+                            />
+                        )}
+                    </LemonField>
+
+                    <LemonField name="config.repositories">
+                        {({ value, onChange }) => (
+                            <ScoutRepositoriesPicker
+                                selectedRepositories={value ?? []}
                                 onChange={onChange}
                                 disabledReason={busyReason}
                             />

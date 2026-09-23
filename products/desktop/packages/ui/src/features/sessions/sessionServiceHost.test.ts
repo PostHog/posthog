@@ -2149,7 +2149,11 @@ describe("SessionService", () => {
       expect(mockConvertStoredEntriesToEvents).toHaveBeenCalledWith(
         windowEntries,
         undefined,
-        { taskRunId: "run-123", startEntryIndex: 4998 },
+        {
+          taskRunId: "run-123",
+          startEntryIndex: 4998,
+          firstPositionedEntryIndex: 0,
+        },
       );
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
         "run-123",
@@ -6544,7 +6548,7 @@ describe("SessionService", () => {
             { value: "low", name: "Low" },
             { value: "medium", name: "Medium" },
             { value: "high", name: "High" },
-            { value: "xhigh", name: "Extra High" },
+            { value: "xhigh", name: "Extra high" },
           ],
         },
       ]);
@@ -7080,15 +7084,111 @@ describe("SessionService", () => {
       );
     });
 
-    it("throws when session is connecting", async () => {
+    it("queues message when session is connecting", async () => {
+      vi.useFakeTimers();
       const service = getSessionService();
-      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
-        createMockSession({ status: "connecting" }),
-      );
+      try {
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+          createMockSession({ status: "connecting" }),
+        );
+        const prompt: ContentBlock[] = [{ type: "text", text: "Hello" }];
 
-      await expect(service.sendPrompt("task-123", "Hello")).rejects.toThrow(
-        "Session is still connecting",
-      );
+        const result = await service.sendPrompt("task-123", prompt);
+
+        expect(result.stopReason).toBe("queued");
+        expect(mockSessionStoreSetters.enqueueMessage).toHaveBeenCalledWith(
+          "task-123",
+          "text",
+          prompt,
+        );
+      } finally {
+        service.reset();
+        vi.useRealTimers();
+      }
+    });
+
+    it("shows one connecting notice after 20 seconds for each session", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
+        const service = getSessionService();
+        const session = createMockSession({
+          status: "connecting",
+          startedAt: Date.now(),
+        });
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+
+        await expect(service.sendPrompt("task-123", "Hello")).resolves.toEqual({
+          stopReason: "queued",
+        });
+        await expect(service.sendPrompt("task-123", "Hello")).resolves.toEqual({
+          stopReason: "queued",
+        });
+
+        expect(mockToast.error).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(mockToast.error).toHaveBeenCalledOnce();
+
+        session.startedAt = Date.now();
+        await expect(service.sendPrompt("task-123", "Hello")).resolves.toEqual({
+          stopReason: "queued",
+        });
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(mockToast.error).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps a queued prompt without showing a notice when the session connects", async () => {
+      vi.useFakeTimers();
+      const service = getSessionService();
+      try {
+        vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
+        const session = createMockSession({
+          status: "connecting",
+          startedAt: Date.now(),
+        });
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+
+        await expect(service.sendPrompt("task-123", "Hello")).resolves.toEqual({
+          stopReason: "queued",
+        });
+        session.status = "connected";
+
+        await vi.advanceTimersByTimeAsync(20_000);
+
+        expect(mockToast.error).not.toHaveBeenCalled();
+        expect(mockSessionStoreSetters.enqueueMessage).toHaveBeenCalledWith(
+          "task-123",
+          "Hello",
+          "Hello",
+        );
+      } finally {
+        service.reset();
+        vi.useRealTimers();
+      }
+    });
+
+    it("cancels a pending connecting notice when the service resets", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
+        const service = getSessionService();
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+          createMockSession({ status: "connecting", startedAt: Date.now() }),
+        );
+
+        await expect(service.sendPrompt("task-123", "Hello")).resolves.toEqual({
+          stopReason: "queued",
+        });
+        service.reset();
+        await vi.advanceTimersByTimeAsync(20_000);
+
+        expect(mockToast.error).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("queues message when prompt is already pending", async () => {
@@ -7789,104 +7889,107 @@ describe("SessionService", () => {
       },
     );
 
-    it("preserves codex runtime selection when resuming a terminal cloud run", async () => {
-      const service = getSessionService();
-      mockSettingsState.spokenNotifications = true;
-      mockFeatureFlags.isEnabled.mockReturnValue(true);
-      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
-        createMockSession({
-          isCloud: true,
-          cloudStatus: "completed",
-          cloudBranch: "feature/codex-run",
-          adapter: "codex",
-          configOptions: [
-            {
-              id: "model",
-              name: "Model",
-              type: "select",
-              category: "model",
-              currentValue: "gpt-5.4",
-              options: [],
+    it.each(["claude", "codex"] as const)(
+      "resumes a completed %s run with the selected Codex model",
+      async (previousAdapter) => {
+        const service = getSessionService();
+        mockSettingsState.spokenNotifications = true;
+        mockFeatureFlags.isEnabled.mockReturnValue(true);
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+          createMockSession({
+            isCloud: true,
+            cloudStatus: "completed",
+            cloudBranch: "feature/codex-run",
+            adapter: previousAdapter,
+            configOptions: [
+              {
+                id: "model",
+                name: "Model",
+                type: "select",
+                category: "model",
+                currentValue: "gpt-5.4",
+                options: [{ value: "gpt-5.4", name: "GPT-5.4" }],
+              },
+              {
+                id: "effort",
+                name: "Effort",
+                type: "select",
+                category: "thought_level",
+                currentValue: "high",
+                options: [],
+              },
+            ],
+          }),
+        );
+        mockGetConfigOptionByCategory.mockImplementation(
+          (
+            configOptions: Array<{ category?: string }> | undefined,
+            category?: string,
+          ) => configOptions?.find((opt) => opt.category === category),
+        );
+        mockAuthenticatedClient.getTaskRun.mockResolvedValue({
+          id: "run-123",
+          task: "task-123",
+          team: 123,
+          branch: "feature/codex-run",
+          runtime_adapter: previousAdapter,
+          model: previousAdapter === "claude" ? "claude-sonnet-4-6" : "gpt-5.4",
+          reasoning_effort: "high",
+          environment: "cloud",
+          status: "completed",
+          log_url: "https://example.com/logs/run-123",
+          error_message: null,
+          output: {},
+          state: {},
+          created_at: "2026-04-14T00:00:00Z",
+          updated_at: "2026-04-14T00:00:00Z",
+          completed_at: "2026-04-14T00:05:00Z",
+        });
+        mockAuthenticatedClient.getTask.mockResolvedValue(createMockTask());
+        mockAuthenticatedClient.runTaskInCloud.mockResolvedValue(
+          createMockTask({
+            latest_run: {
+              id: "run-456",
+              task: "task-123",
+              team: 123,
+              branch: "feature/codex-run",
+              runtime_adapter: "codex",
+              model: "gpt-5.4",
+              reasoning_effort: "high",
+              environment: "cloud",
+              status: "queued",
+              log_url: "https://example.com/logs/run-456",
+              error_message: null,
+              output: {},
+              state: {},
+              created_at: "2026-04-14T00:06:00Z",
+              updated_at: "2026-04-14T00:06:00Z",
+              completed_at: null,
             },
-            {
-              id: "effort",
-              name: "Effort",
-              type: "select",
-              category: "thought_level",
-              currentValue: "high",
-              options: [],
-            },
-          ],
-        }),
-      );
-      mockGetConfigOptionByCategory.mockImplementation(
-        (
-          configOptions: Array<{ category?: string }> | undefined,
-          category?: string,
-        ) => configOptions?.find((opt) => opt.category === category),
-      );
-      mockAuthenticatedClient.getTaskRun.mockResolvedValue({
-        id: "run-123",
-        task: "task-123",
-        team: 123,
-        branch: "feature/codex-run",
-        runtime_adapter: "codex",
-        model: "gpt-5.4",
-        reasoning_effort: "high",
-        environment: "cloud",
-        status: "completed",
-        log_url: "https://example.com/logs/run-123",
-        error_message: null,
-        output: {},
-        state: {},
-        created_at: "2026-04-14T00:00:00Z",
-        updated_at: "2026-04-14T00:00:00Z",
-        completed_at: "2026-04-14T00:05:00Z",
-      });
-      mockAuthenticatedClient.getTask.mockResolvedValue(createMockTask());
-      mockAuthenticatedClient.runTaskInCloud.mockResolvedValue(
-        createMockTask({
-          latest_run: {
-            id: "run-456",
-            task: "task-123",
-            team: 123,
-            branch: "feature/codex-run",
-            runtime_adapter: "codex",
+          }),
+        );
+
+        const result = await service.sendPrompt(
+          "task-123",
+          "Continue with Codex",
+        );
+
+        expect(result.stopReason).toBe("queued");
+        expect(mockSessionStoreSetters.setTaskStarting).toHaveBeenCalledWith(
+          "task-123",
+        );
+        expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledWith(
+          "task-123",
+          "feature/codex-run",
+          expect.objectContaining({
+            adapter: "codex",
             model: "gpt-5.4",
-            reasoning_effort: "high",
-            environment: "cloud",
-            status: "queued",
-            log_url: "https://example.com/logs/run-456",
-            error_message: null,
-            output: {},
-            state: {},
-            created_at: "2026-04-14T00:06:00Z",
-            updated_at: "2026-04-14T00:06:00Z",
-            completed_at: null,
-          },
-        }),
-      );
-
-      const result = await service.sendPrompt(
-        "task-123",
-        "Continue with Codex",
-      );
-
-      expect(result.stopReason).toBe("queued");
-      expect(mockSessionStoreSetters.setTaskStarting).toHaveBeenCalledWith(
-        "task-123",
-      );
-      expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledWith(
-        "task-123",
-        "feature/codex-run",
-        expect.objectContaining({
-          adapter: "codex",
-          model: "gpt-5.4",
-          reasoningLevel: "high",
-          resumeFromRunId: "run-123",
-        }),
-      );
-    });
+            reasoningLevel: "high",
+            resumeFromRunId: "run-123",
+          }),
+        );
+      },
+    );
 
     it.each([false, true])(
       "checks the token before uploading resume attachments (missing: %s)",
@@ -8047,6 +8150,161 @@ describe("SessionService", () => {
       await expect(service.sendPrompt("task-123", "retry?")).rejects.toThrow(
         "Sandbox could not be provisioned",
       );
+      expect(mockAuthenticatedClient.runTaskInCloud).not.toHaveBeenCalled();
+    });
+
+    it("restarts a GitHub-blocked run after the connection is available", async () => {
+      const service = getSessionService();
+      mockPreBootFailedSession({
+        cloudErrorMessage: "GitHub is not connected for this project",
+        cloudBranch: "main",
+      });
+      mockAuthenticatedClient.getTaskRun.mockResolvedValue({
+        id: "run-123",
+        task: "task-123",
+        team: 123,
+        branch: "main",
+        environment: "cloud",
+        status: "failed",
+        log_url: null,
+        error_message: "GitHub is not connected for this project",
+        output: {},
+        state: {},
+        created_at: "2026-04-14T00:00:00Z",
+        updated_at: "2026-04-14T00:00:00Z",
+        completed_at: "2026-04-14T00:05:00Z",
+      });
+      mockAuthenticatedClient.runTaskInCloud.mockResolvedValue(
+        createMockTask({
+          latest_run: {
+            id: "run-456",
+            task: "task-123",
+            team: 123,
+            branch: "main",
+            environment: "cloud",
+            status: "queued",
+            log_url: "https://example.com/logs/run-456",
+            error_message: null,
+            output: {},
+            state: {},
+            created_at: "2026-04-14T00:06:00Z",
+            updated_at: "2026-04-14T00:06:00Z",
+            completed_at: null,
+          },
+        }),
+      );
+
+      await service.retryGithubRequiredCloudRun(
+        "task-123",
+        "Investigate the report",
+      );
+
+      expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledWith(
+        "task-123",
+        "main",
+        expect.objectContaining({
+          resumeFromRunId: "run-123",
+          pendingUserMessage: "Investigate the report",
+        }),
+      );
+    });
+
+    it("restarts a GitHub-blocked run reopened without a cached error", async () => {
+      const service = getSessionService();
+      mockPreBootFailedSession({
+        cloudErrorMessage: undefined,
+        cloudBranch: "main",
+      });
+      mockAuthenticatedClient.getTaskRun.mockResolvedValue({
+        id: "run-123",
+        task: "task-123",
+        team: 123,
+        branch: "main",
+        environment: "cloud",
+        status: "failed",
+        log_url: null,
+        error_message: "GitHub is not connected for this project",
+        output: {},
+        state: {},
+        created_at: "2026-04-14T00:00:00Z",
+        updated_at: "2026-04-14T00:00:00Z",
+        completed_at: "2026-04-14T00:05:00Z",
+      });
+      const stored: Record<string, AgentSession> = {};
+      mockSessionStoreSetters.updateSession.mockImplementation(
+        (id: string, patch: Partial<AgentSession>) => {
+          stored[id] = { ...(stored[id] ?? createMockSession()), ...patch };
+        },
+      );
+      mockSessionStoreSetters.getSessions.mockImplementation(() => stored);
+      mockAuthenticatedClient.runTaskInCloud.mockResolvedValue(
+        createMockTask({
+          latest_run: {
+            id: "run-456",
+            task: "task-123",
+            team: 123,
+            branch: "main",
+            environment: "cloud",
+            status: "queued",
+            log_url: "https://example.com/logs/run-456",
+            error_message: null,
+            output: {},
+            state: {},
+            created_at: "2026-04-14T00:06:00Z",
+            updated_at: "2026-04-14T00:06:00Z",
+            completed_at: null,
+          },
+        }),
+      );
+
+      await service.retryGithubRequiredCloudRun(
+        "task-123",
+        "Investigate the report",
+      );
+
+      expect(mockAuthenticatedClient.getTaskRun).toHaveBeenCalledWith(
+        "task-123",
+        "run-123",
+      );
+      expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledWith(
+        "task-123",
+        "main",
+        expect.objectContaining({
+          resumeFromRunId: "run-123",
+          pendingUserMessage: "Investigate the report",
+        }),
+      );
+    });
+
+    it("refuses to restart a failed run blocked by something else", async () => {
+      const service = getSessionService();
+      mockPreBootFailedSession({ cloudErrorMessage: undefined });
+      mockAuthenticatedClient.getTaskRun.mockResolvedValue({
+        id: "run-123",
+        task: "task-123",
+        team: 123,
+        branch: null,
+        environment: "cloud",
+        status: "failed",
+        log_url: null,
+        error_message: "The sandbox ran out of memory",
+        output: {},
+        state: {},
+        created_at: "2026-04-14T00:00:00Z",
+        updated_at: "2026-04-14T00:00:00Z",
+        completed_at: "2026-04-14T00:05:00Z",
+      });
+      const stored: Record<string, AgentSession> = {};
+      mockSessionStoreSetters.updateSession.mockImplementation(
+        (id: string, patch: Partial<AgentSession>) => {
+          stored[id] = { ...(stored[id] ?? createMockSession()), ...patch };
+        },
+      );
+      mockSessionStoreSetters.getSessions.mockImplementation(() => stored);
+
+      await expect(
+        service.retryGithubRequiredCloudRun("task-123", "Investigate"),
+      ).rejects.toThrow("This task is not waiting for a GitHub connection");
       expect(mockAuthenticatedClient.runTaskInCloud).not.toHaveBeenCalled();
     });
 
@@ -9613,6 +9871,161 @@ describe("SessionService", () => {
   });
 
   describe("setSessionConfigOption", () => {
+    it.each(["completed", "failed", "cancelled"] as const)(
+      "saves the next model without contacting a %s sandbox",
+      async (cloudStatus) => {
+        const service = getSessionService();
+        let session = createMockSession({
+          isCloud: true,
+          cloudStatus,
+          adapter: "claude",
+          configOptions: [
+            {
+              id: "model",
+              name: "Model",
+              type: "select",
+              category: "model",
+              currentValue: "claude-sonnet-4-6",
+              options: [{ value: "gpt-5.6-sol", name: "GPT-5.6 Sol" }],
+            },
+            {
+              id: "effort",
+              name: "Effort",
+              type: "select",
+              category: "thought_level",
+              currentValue: "high",
+              options: [{ value: "high", name: "High" }],
+            },
+          ],
+        });
+        mockSessionStoreSetters.getSessionByTaskId.mockImplementation(
+          () => session,
+        );
+        mockSessionStoreSetters.updateSession.mockImplementation(
+          (_runId, updates) => {
+            session = { ...session, ...updates };
+          },
+        );
+        expect(
+          await service.setSessionConfigOption(
+            "task-123",
+            "model",
+            "gpt-5.6-sol",
+          ),
+        ).toBe(true);
+        expect(session.configOptions).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              category: "model",
+              currentValue: "gpt-5.6-sol",
+            }),
+            expect.objectContaining({
+              id: "reasoning_effort",
+              currentValue: "high",
+            }),
+          ]),
+        );
+        expect(
+          mockSessionConfigStore.setPersistedConfigOptions,
+        ).toHaveBeenLastCalledWith("run-123", session.configOptions);
+        expect(mockTrpcCloudTask.sendCommand.mutate).not.toHaveBeenCalled();
+        expect(mockTrpcAgent.setConfigOption.mutate).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      { isPromptPending: true },
+      { claudeModelAccess: "own-subscription" as const },
+    ])(
+      "rejects a model change while resuming or using Anthropic billing (%j)",
+      async (overrides) => {
+        const service = getSessionService();
+        mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+          createMockSession({
+            isCloud: true,
+            cloudStatus: "completed",
+            adapter: "claude",
+            ...overrides,
+            configOptions: [
+              {
+                id: "model",
+                name: "Model",
+                type: "select",
+                category: "model",
+                currentValue: "claude-sonnet-4-6",
+                options: [{ value: "gpt-5.6-sol", name: "GPT-5.6 Sol" }],
+              },
+            ],
+          }),
+        );
+        expect(
+          await service.setSessionConfigOption(
+            "task-123",
+            "model",
+            "gpt-5.6-sol",
+          ),
+        ).toBe(false);
+        expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalled();
+      },
+    );
+
+    it("loads models from all runtimes for a completed cloud session", async () => {
+      const service = getSessionService();
+      let session = createMockSession({
+        isCloud: true,
+        cloudStatus: "completed",
+        adapter: "claude",
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockImplementation(
+        () => session,
+      );
+      mockSessionStoreSetters.getSessions.mockImplementation(() => ({
+        "run-123": session,
+      }));
+      mockSessionStoreSetters.updateSession.mockImplementation(
+        (_runId, updates) => {
+          session = { ...session, ...updates };
+        },
+      );
+      mockTrpcAgent.getPreviewConfigOptions.query.mockResolvedValue([
+        {
+          id: "model",
+          name: "Model",
+          type: "select",
+          category: "model",
+          currentValue: "claude-sonnet-4-6",
+          options: [
+            {
+              group: "anthropic",
+              name: "Anthropic",
+              options: [
+                { value: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
+              ],
+            },
+            {
+              group: "openai",
+              name: "OpenAI",
+              options: [{ value: "gpt-5.6-sol", name: "GPT-5.6 Sol" }],
+            },
+          ],
+        },
+      ]);
+      await service.prepareCloudResume("task-123");
+      expect(mockTrpcAgent.getPreviewConfigOptions.query).toHaveBeenCalledWith(
+        expect.objectContaining({ adapter: "claude", allHarnessModels: true }),
+      );
+      expect(session.configOptions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            category: "model",
+            options: expect.arrayContaining([
+              expect.objectContaining({ group: "openai" }),
+            ]),
+          }),
+        ]),
+      );
+    });
+
     it("does nothing if no session exists", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
@@ -10204,6 +10617,95 @@ describe("SessionService", () => {
       const stored = mockSessionStoreSetters.setSession.mock.calls.at(-1)?.[0];
       expect(stored.messageQueue).toBe(queued);
       expect(stored.editingQueuedId).toBe("q-1");
+    });
+
+    it("keeps a connecting notice timer when reconnect replaces the session", async () => {
+      vi.useFakeTimers();
+      const service = getSessionService();
+      try {
+        vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
+        const startedAt = Date.now();
+        const originalSession = createMockSession({
+          status: "connecting",
+          logUrl: "https://logs.example.com/run-123",
+          startedAt,
+        });
+        let currentSession = originalSession;
+        mockSessionStoreSetters.getSessionByTaskId.mockImplementation(
+          () => currentSession,
+        );
+        mockSessionStoreSetters.getSessions.mockImplementation(() => ({
+          "run-123": currentSession,
+        }));
+        mockSessionStoreSetters.setSession.mockImplementation(
+          (session: AgentSession) => {
+            currentSession = session;
+          },
+        );
+        mockSessionStoreSetters.updateSession.mockImplementation(
+          (_taskRunId, updates) => {
+            currentSession = { ...currentSession, ...updates };
+          },
+        );
+        const queuedMessage = {
+          id: "q-1",
+          content: "Hello",
+          rawPrompt: "Hello",
+          queuedAt: 1,
+        };
+        mockSessionStoreSetters.enqueueMessage.mockImplementation(() => {
+          originalSession.messageQueue.push(queuedMessage);
+        });
+        mockSessionStoreSetters.dequeueMessages.mockReturnValue([
+          queuedMessage,
+        ]);
+        mockTrpcWorkspace.verify.query.mockResolvedValue({ exists: true });
+        mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
+        mockTrpcAgent.prompt.mutate.mockResolvedValue({
+          stopReason: "end_turn",
+        });
+
+        await expect(service.sendPrompt("task-123", "Hello")).resolves.toEqual({
+          stopReason: "queued",
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        let resolveReconnect: (value: {
+          sessionId: string;
+          channel: string;
+          configOptions: never[];
+        }) => void = () => {};
+        const reconnectResult = new Promise<{
+          sessionId: string;
+          channel: string;
+          configOptions: never[];
+        }>((resolve) => {
+          resolveReconnect = resolve;
+        });
+        mockTrpcAgent.reconnect.mutate.mockReturnValue(reconnectResult);
+
+        const reconnectPromise = service.clearSessionError("task-123", "/repo");
+        await vi.advanceTimersByTimeAsync(19_000);
+
+        expect(mockToast.error).toHaveBeenCalledOnce();
+        expect(currentSession.startedAt).toBe(startedAt);
+
+        resolveReconnect({
+          sessionId: "run-123",
+          channel: "agent-event:run-123",
+          configOptions: [],
+        });
+        await reconnectPromise;
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect(mockTrpcAgent.prompt.mutate).toHaveBeenCalledWith({
+          sessionId: "run-123",
+          prompt: [{ type: "text", text: "Hello" }],
+        });
+      } finally {
+        service.reset();
+        vi.useRealTimers();
+      }
     });
 
     it("creates fresh session when initialPrompt is set (prompt never delivered)", async () => {

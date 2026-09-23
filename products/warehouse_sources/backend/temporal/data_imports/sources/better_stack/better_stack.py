@@ -224,9 +224,9 @@ def _top_level_source(
                     "params": _build_initial_params(
                         config, should_use_incremental_field, db_incremental_field_last_value
                     ),
-                    # A missing `data` key is treated as an empty page (matching the API's
-                    # envelope, which always carries `data`), so no data_selector_required here.
-                    "data_selector": "data",
+                    # A missing envelope key is treated as an empty page (matching the API,
+                    # which always carries it), so no data_selector_required here.
+                    "data_selector": config.data_selector,
                 },
                 # Better Stack is JSON:API — hoist each item's `attributes` into the row root.
                 "data_map": _flatten_item,
@@ -310,8 +310,8 @@ def _fanout_source(
             # None of the child endpoints take a page-size param; the parent's rides in
             # `parent_params` above.
             page_size_param=None,
-            parent_endpoint_extra={"paginator": BetterStackPaginator(), "data_selector": "data"},
-            child_endpoint_extra={"paginator": BetterStackPaginator(), "data_selector": "data"},
+            parent_endpoint_extra={"paginator": BetterStackPaginator(), "data_selector": parent_config.data_selector},
+            child_endpoint_extra={"paginator": BetterStackPaginator(), "data_selector": config.data_selector},
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_paginator_state,
         ),

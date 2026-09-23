@@ -58,6 +58,8 @@ export interface HogFunctionFilters {
     properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
     bytecode?: HogBytecode
+    /** Set by Django when compilation failed. The bytecode is null beside it, unless the save kept the last working one. */
+    bytecode_error?: string
 }
 
 export type GroupType = {
@@ -384,6 +386,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
     actionStepCount?: number
+    customerTaskIdempotencyVersion?: 1
 }
 
 export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
@@ -431,6 +434,8 @@ export type HogFlowInvocationContext = {
     // rather than to a wrong one.
     flowVersion?: number
     actionStepCount: number
+    // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
+    customerTaskIdempotencyVersion?: 1
     currentAction?: {
         id: string
         startedAtTimestamp: number
@@ -482,7 +487,13 @@ export type HogFlowInvocationContext = {
         // ever catches a wake the subscription streams missed, gating its eventual removal.
         pollReparked?: boolean
         // A step parked on an external run: cleared when the matcher writes a matching `resumeResult`.
-        awaitingResume?: { key: string; deadlineAt: string; dispatch: Record<string, unknown>; label?: string }
+        awaitingResume?: {
+            key: string
+            deadlineAt: string
+            dispatch: Record<string, unknown>
+            label?: string
+            parkedAt?: string
+        }
         resumeResult?: { key: string; status: WorkflowStepResumeStatus; result?: Record<string, unknown> }
     }
     // Set by the subscription matcher consumer when an incoming event matched the
@@ -650,7 +661,7 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns'
+    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns' | 'posthog'
     config: Record<string, any>
     sensitive_config: Record<string, any>
 }

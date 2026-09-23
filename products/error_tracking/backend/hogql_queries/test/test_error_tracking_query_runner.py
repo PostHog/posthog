@@ -749,7 +749,35 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         ErrorTrackingIssue.objects.create(
             team=self.team, status=ErrorTrackingIssue.Status.RESOLVED, state_updated_at=now()
         )
-        self.assertEqual(load_recent_issue_states(self.team.pk), [])
+        with self.assertNumQueries(1):
+            self.assertEqual(load_recent_issue_states(self.team.pk), [])
+
+    @parameterized.expand(
+        [
+            ("within_window", 0, 1, 1),
+            ("outside_window", 61, 0, 0),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_watermark_decides_whether_the_overlay_reads(
+        self, _name, state_age_seconds, expected_queries, expected_states
+    ):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
+            state_updated_at=now() - timedelta(seconds=state_age_seconds)
+        )
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="all"),
+                orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+                volumeResolution=1,
+            ),
+        )
+        runner.get_cache_payload()
+
+        with self.assertNumQueries(expected_queries):
+            self.assertEqual(len(runner.recent_issue_states()), expected_states)
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_recent_issue_state_applies_to_more_than_fifty_fingerprints(self):
@@ -1051,6 +1079,57 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             if included
         }
         self.assertEqual(result_ids, expected_ids)
+
+    @parameterized.expand(
+        [
+            ("optimized_shape", False),
+            ("legacy_shape", True),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_distinct_aggregations_are_capped_at_occurrences(self, _name: str, legacy_shape: bool):
+        # `uniq` is approximate, so on a high-cardinality issue it can report
+        # more users or sessions than there are occurrences. Both query shapes
+        # must cap the estimate at the exact occurrence count.
+        filter_group = None
+        if legacy_shape:
+            filter_group = PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.OR_,
+                        values=[
+                            EventPropertyFilter(key="$browser", value=["Firefox"], operator=PropertyOperator.EXACT),
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                            ),
+                        ],
+                    )
+                ],
+            )
+
+        builder = ErrorTrackingQueryBuilder(
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="-7d"),
+                filterGroup=filter_group,
+                orderBy="last_seen",
+                volumeResolution=1,
+                withAggregations=True,
+            ),
+            team=self.team,
+            date_from=datetime(2022, 1, 3, tzinfo=UTC),
+            date_to=datetime(2022, 1, 10, tzinfo=UTC),
+        )
+        self.assertEqual(builder._needs_legacy_shape(), legacy_shape)
+
+        selected = {expr.alias: expr.expr for expr in builder.build_query().select if isinstance(expr, ast.Alias)}
+        occurrences = selected["occurrences"].to_hogql()
+        for alias in ("users", "sessions"):
+            capped = selected[alias]
+            assert isinstance(capped, ast.Call)
+            self.assertEqual(capped.name, "least")
+            self.assertEqual(capped.args[1].to_hogql(), occurrences)
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_nested_filter_group_routes_issue_filters_to_issue_fields(self):

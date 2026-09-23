@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.utils import timezone
 
-from posthog_owners.schema import TeamEntry
+from owners_yaml.schema import TeamEntry
 
 from posthog.models.team.team import Team
 from posthog.team_notifications.slack import (
@@ -22,12 +22,13 @@ from posthog.team_notifications.slack import (
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 from products.visual_review.backend.facade.contracts import (
     FLAKINESS_EXPIRY_SOON_DAYS,
+    TOLERATION_PILEUP_WINDOW_DAYS,
     CreateRunInput,
     SnapshotManifestItem,
 )
 from products.visual_review.backend.facade.enums import RunType
 from products.visual_review.backend.logic import artifact_store, debt_digest, quarantine, repos, runs, story_index
-from products.visual_review.backend.models import ToleratedHash
+from products.visual_review.backend.models import Run, ToleratedHash
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 _PRODUCT_PATH = "products/visual_review/"
@@ -38,7 +39,6 @@ _OTHER_PATH = "frontend/src/scenes/Card.stories.tsx"
 _OTHER_STORY_ID = "scenes-app-card--primary"
 _OTHER_IDENTIFIER = f"{_OTHER_STORY_ID}--light"
 _ABSENT_IDENTIFIER = "scenes-app-gone--primary--light"
-_GITHUB_RUN_ID = "98765"
 _INDEX = story_index.StoryIndex(path_by_story_id={_STORY_ID: _SOURCE_PATH})
 
 # The renderers take the moment they render for, so a fixed Monday never ages against a real clock.
@@ -48,7 +48,7 @@ _PLACED = debt_digest.Attribution(kind=debt_digest.AttributionKind.PLACED, sourc
 _STORY_ABSENT = debt_digest.Attribution(kind=debt_digest.AttributionKind.STORY_ABSENT)
 _UNAVAILABLE = debt_digest.Attribution(
     kind=debt_digest.AttributionKind.UNAVAILABLE,
-    detail=f"the Storybook build artifact for run {_GITHUB_RUN_ID} was not read",
+    detail="the story index 0123456789ab could not be read",
 )
 
 
@@ -64,7 +64,7 @@ def _item(
     attribution: debt_digest.Attribution,
     identifier: str = _IDENTIFIER,
     line: str = "a line",
-    facts: str = "*3* accepted variants of the current baseline",
+    facts: str = "Tolerated *3* times in the last 30 days",
 ) -> debt_digest.DebtItem:
     return debt_digest.DebtItem(
         identifier=identifier, run_type="storybook", attribution=attribution, line=line, facts=facts
@@ -83,8 +83,8 @@ def _maintainers_digest(*groups: debt_digest.TriageGroup) -> debt_digest.Maintai
     return debt_digest.MaintainersDigest(team_slug="team-devex", groups=list(groups))
 
 
-def _with_index(index: story_index.StoryIndex | None):
-    return patch("products.visual_review.backend.logic.story_index.fetch_story_index", return_value=index)
+def _with_index(index: story_index.StoryIndex | str):
+    return patch("products.visual_review.backend.logic.story_index.latest_story_index", return_value=index)
 
 
 def _section_texts(message: debt_digest.SlackMessage) -> list[str]:
@@ -103,28 +103,33 @@ def _all_buttons(messages: list[debt_digest.SlackMessage]) -> list[dict]:
 
 class TestLead:
     @pytest.mark.parametrize(
-        "expiring,pileups,fields",
+        "expiring,pileups,fields,mentions_lapse",
         [
-            (1, 0, ["*1 quarantine* expires soon", "*0 snapshots* with piled-up variants"]),
-            (0, 2, ["*0 quarantines* expire soon", "*2 snapshots* with piled-up variants"]),
-            (3, 1, ["*3 quarantines* expire soon", "*1 snapshot* with piled-up variants"]),
+            (1, 0, ["*1 quarantine* expires soon"], True),
+            (0, 2, ["*2 snapshots* keep getting tolerated"], False),
+            (3, 1, ["*3 quarantines* expire soon", "*1 snapshot* keeps getting tolerated"], True),
         ],
     )
-    def test_the_lead_names_the_team_and_counts_both_conditions(
-        self, expiring: int, pileups: int, fields: list[str]
+    def test_the_lead_names_the_team_and_counts_only_the_conditions_it_has(
+        self, expiring: int, pileups: int, fields: list[str], mentions_lapse: bool
     ) -> None:
         message = debt_digest.lead_message(_repo(), _team_digest(expiring, pileups), _MONDAY)
 
         assert message.blocks[0]["type"] == "header"
         assert message.blocks[0]["text"]["text"] == "Visual review debt for team-devex"
         assert [field["text"] for field in message.blocks[2]["fields"]] == fields
+        assert ("Quarantines that lapse" in message.blocks[3]["text"]["text"]) is mentions_lapse
         assert "week of Sep 14" in message.blocks[1]["elements"][0]["text"]
 
     def test_the_lead_links_to_the_two_pages_the_counts_come_from(self) -> None:
         message = debt_digest.lead_message(_repo(), _team_digest(pileups=1), _MONDAY)
 
         assert [(button["text"]["text"], button["url"]) for button in _buttons(message)] == [
-            ("Open flakiness overview", f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness"),
+            # The page opens on the team's own rows, so a shared repo does not bury them.
+            (
+                "Open flakiness overview",
+                f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#teams=team-devex",
+            ),
             ("Open snapshots", f"{settings.SITE_URL}/project/7/visual_review/repos/abc/snapshots"),
         ]
 
@@ -133,7 +138,7 @@ class TestLead:
 
         assert message.text == (
             "Visual review debt for team-devex in PostHog/posthog: 1 quarantine expires soon, "
-            "2 snapshots with piled-up variants."
+            "2 snapshots keep getting tolerated."
         )
 
 
@@ -142,8 +147,8 @@ class TestThreadReplies:
         "expiring,pileups,headings",
         [
             (1, 0, ["*Quarantines expiring soon*"]),
-            (0, 1, ["*Snapshots with piled-up variants*"]),
-            (2, 2, ["*Quarantines expiring soon*", "*Snapshots with piled-up variants*"]),
+            (0, 1, ["*Snapshots that keep getting tolerated*"]),
+            (2, 2, ["*Quarantines expiring soon*", "*Snapshots that keep getting tolerated*"]),
         ],
     )
     def test_one_reply_per_condition_that_has_items(self, expiring: int, pileups: int, headings: list[str]) -> None:
@@ -155,7 +160,7 @@ class TestThreadReplies:
         messages = debt_digest.thread_messages(_repo(), _team_digest(expiring=1, pileups=1), _MONDAY)
 
         buttons = _all_buttons(messages)
-        assert [button["text"]["text"] for button in buttons] == ["Extend or fix", "Reset baseline"]
+        assert [button["text"]["text"] for button in buttons] == ["Extend or fix", "Fix or quarantine"]
         assert all(
             button["url"] == f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_IDENTIFIER}"
             for button in buttons
@@ -176,8 +181,56 @@ class TestThreadReplies:
 
         assert messages[0].blocks[-1]["type"] == "section"
         assert messages[-1].blocks[-2]["type"] == "divider"
-        assert messages[-1].blocks[-1]["elements"][0]["text"].startswith("Next digest Monday, Sep 21.")
-        assert "notifications: {visual_review: false}" in messages[-1].text
+        assert messages[-1].blocks[-1]["elements"][0]["text"] == "Next digest Monday, Sep 21."
+
+    @pytest.mark.parametrize(
+        "browser_suffix,dark_facts,titles,urls",
+        [
+            (
+                "",
+                "Expires *Wednesday*",
+                [f"*{_STORY_ID}* storybook · light and dark"],
+                [f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
+            ),
+            # A webkit identifier puts the theme before the browser suffix, so the search has to
+            # drop both to match the two variants.
+            (
+                "--webkit",
+                "Expires *Wednesday*",
+                [f"*{_STORY_ID}--webkit* storybook · light and dark"],
+                [f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
+            ),
+            (
+                "",
+                "Expires *Thursday*",
+                [f"*{_STORY_ID}--light* storybook", f"*{_STORY_ID}--dark* storybook"],
+                [
+                    f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_STORY_ID}--light",
+                    f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_STORY_ID}--dark",
+                ],
+            ),
+        ],
+    )
+    def test_theme_variants_of_a_story_expiring_together_list_once(
+        self, browser_suffix: str, dark_facts: str, titles: list[str], urls: list[str]
+    ) -> None:
+        light = _item(_PLACED, identifier=f"{_STORY_ID}--light{browser_suffix}", facts="Expires *Wednesday*")
+        dark = _item(_PLACED, identifier=f"{_STORY_ID}--dark{browser_suffix}", facts=dark_facts)
+        digest = debt_digest.TeamDigest(
+            team_slug="team-devex",
+            expiring_quarantines=[light, dark],
+            variant_pileups=[
+                _item(_PLACED, identifier=f"{_STORY_ID}--light{browser_suffix}"),
+                _item(_PLACED, identifier=f"{_STORY_ID}--dark{browser_suffix}"),
+            ],
+        )
+
+        quarantines, pileups = debt_digest.thread_messages(_repo(), digest, _MONDAY)
+
+        assert [text.split("\n")[0] for text in _section_texts(quarantines)[1:]] == titles
+        assert [button["url"] for button in _buttons(quarantines)] == urls
+        # A baseline resets one snapshot at a time, so pile-up variants keep a button each.
+        assert len(_buttons(pileups)) == 2
 
     def test_a_group_over_the_block_limit_splits_and_repeats_its_heading(self) -> None:
         items = [_item(_PLACED)] * (debt_digest._ITEMS_PER_MESSAGE + 1)
@@ -205,7 +258,14 @@ class TestThreadReplies:
 class TestMaintainersMessage:
     def test_it_lists_each_unowned_reason_with_the_action_it_asks_for(self) -> None:
         digest = _maintainers_digest(
-            debt_digest.TriageGroup(kind=debt_digest.AttributionKind.PLACED, items=[_item(_PLACED)]),
+            debt_digest.TriageGroup(
+                kind=debt_digest.AttributionKind.PLACED,
+                # Both themes of one story share the file, so they list once with one file button.
+                items=[
+                    _item(_PLACED, identifier=f"{_STORY_ID}--light"),
+                    _item(_PLACED, identifier=f"{_STORY_ID}--dark"),
+                ],
+            ),
             debt_digest.TriageGroup(
                 kind=debt_digest.AttributionKind.STORY_ABSENT,
                 items=[_item(_STORY_ABSENT, identifier=_ABSENT_IDENTIFIER)],
@@ -225,6 +285,7 @@ class TestMaintainersMessage:
         ]
         # The path stays readable in the message, because it is what somebody types into owners.yaml.
         assert f"`{_SOURCE_PATH}`" in _section_texts(messages[0])[1]
+        assert _section_texts(messages[0])[1].split("\n")[0] == f"*{_STORY_ID}* storybook · light and dark"
 
     @pytest.mark.parametrize("kinds", [(), (debt_digest.AttributionKind.UNAVAILABLE,)])
     def test_nothing_is_sent_when_no_item_asks_anybody_to_act(self, kinds: tuple) -> None:
@@ -306,7 +367,7 @@ class TestRendering:
     def test_links_to_the_snapshot_page_with_encoded_segments(self) -> None:
         line = debt_digest._pileup_line(_repo(), "storybook", "scenes/Button--dark", 4)
 
-        assert line.startswith("4 accepted variants of the current baseline · scenes/Button--dark (storybook)")
+        assert line.startswith("Tolerated 4 times in 30 days · scenes/Button--dark (storybook)")
         assert line.endswith("/project/7/visual_review/repos/abc/storybook/snapshots/scenes%2FButton--dark")
 
     @pytest.mark.parametrize(
@@ -437,7 +498,6 @@ class TestCollectAndSend:
                 commit_sha="abc",
                 branch="main",
                 pr_number=None,
-                metadata={"github_run_id": _GITHUB_RUN_ID},
                 snapshots=[
                     SnapshotManifestItem(identifier=identifier, content_hash="new_hash") for identifier in identifiers
                 ],
@@ -454,16 +514,58 @@ class TestCollectAndSend:
         runs.finish_processing(run.id)
         return run
 
-    def _pile_up(self, repo, identifier=_IDENTIFIER, count=3):
-        for index in range(count):
+    def _pile_up(
+        self,
+        repo,
+        identifier=_IDENTIFIER,
+        baseline_hashes=("old_hash",) * 3,
+        reason="human",
+        age=None,
+        source_run_type=None,
+    ):
+        source_run = (
+            Run.objects.create(
+                repo=repo, team_id=repo.team_id, run_type=source_run_type, commit_sha="def", branch="feature"
+            )
+            if source_run_type
+            else None
+        )
+        for index, baseline_hash in enumerate(baseline_hashes):
             ToleratedHash.objects.create(
                 repo=repo,
                 team_id=repo.team_id,
                 identifier=identifier,
-                baseline_hash="old_hash",
+                baseline_hash=baseline_hash,
                 alternate_hash=f"variant_{index}",
-                reason="human",
+                reason=reason,
+                source_run=source_run,
             )
+        if age is not None:
+            # created_at is auto_now_add, so backdating takes a second write.
+            ToleratedHash.objects.filter(repo=repo, identifier=identifier).update(created_at=timezone.now() - age)
+
+    @pytest.mark.parametrize(
+        "baseline_hashes,reason,age,source_run_type,expected",
+        [
+            (("older_hash", "old_hash", "old_hash"), "human", timedelta(days=1), None, [_IDENTIFIER]),
+            (("old_hash",) * 3, "agent", timedelta(days=1), None, [_IDENTIFIER]),
+            (("old_hash",) * 3, "human", timedelta(days=TOLERATION_PILEUP_WINDOW_DAYS + 1), None, []),
+            (("old_hash",) * 3, "auto_threshold", timedelta(days=1), None, []),
+            (("old_hash",) * 2, "human", timedelta(days=1), None, []),
+            (("old_hash",) * 3, "human", timedelta(days=1), RunType.STORYBOOK, [_IDENTIFIER]),
+            (("old_hash",) * 3, "human", timedelta(days=1), RunType.PLAYWRIGHT, []),
+        ],
+    )
+    def test_a_pile_up_counts_recent_intentional_tolerations_across_baselines(
+        self, repo, mocker, baseline_hashes, reason, age, source_run_type, expected
+    ):
+        self._completed_run(repo, mocker)
+        self._pile_up(repo, baseline_hashes=baseline_hashes, reason=reason, age=age, source_run_type=source_run_type)
+
+        with _with_index(_INDEX):
+            debt = debt_digest.collect_debt(repo, timezone.now())
+
+        assert [item.identifier for item in debt.variant_pileups] == expected
 
     def test_collects_both_conditions_and_names_the_story_file(self, repo, team, user, mocker):
         self._completed_run(repo, mocker)
@@ -487,13 +589,13 @@ class TestCollectAndSend:
         assert [(item.identifier, item.attribution) for item in debt.expiring_quarantines] == [
             (_ABSENT_IDENTIFIER, _STORY_ABSENT)
         ]
-        assert "3 accepted variants of the current baseline" in debt.variant_pileups[0].line
+        assert "Tolerated 3 times in 30 days" in debt.variant_pileups[0].line
 
-    def test_an_unreadable_artifact_leaves_the_items_unattributed(self, repo, mocker):
+    def test_an_unreadable_story_index_leaves_the_items_unattributed(self, repo, mocker):
         self._completed_run(repo, mocker)
         self._pile_up(repo)
 
-        with _with_index(None):
+        with _with_index(_UNAVAILABLE.detail):
             debt = debt_digest.collect_debt(repo, timezone.now())
 
         assert [item.attribution for item in debt.variant_pileups] == [_UNAVAILABLE]
@@ -574,8 +676,8 @@ class TestCollectAndSend:
         assert len(rendered) == 1
         # Preview prints the plain text behind every message, so a by-hand run reads without Slack.
         assert rendered[0].startswith("Visual review debt for team-devex in org/test-debt: ")
-        assert "3 accepted variants of the current baseline" in rendered[0]
-        assert rendered[0].rstrip().endswith("under your team in owners.yaml.")
+        assert "Tolerated 3 times in 30 days" in rendered[0]
+        assert rendered[0].rstrip().split("\n")[-1].startswith("Next digest Monday, ")
 
     def test_an_unreadable_owners_file_sends_nothing(self, repo, mocker):
         self._completed_run(repo, mocker)

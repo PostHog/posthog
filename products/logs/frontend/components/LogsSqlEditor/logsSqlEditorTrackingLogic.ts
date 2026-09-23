@@ -25,10 +25,8 @@ export interface logsSqlEditorTrackingLogicActions {
     sqlEditorSaveAsEndpointSubmit: (
         name: string,
         description?: string | undefined,
-        queryOverride?: string | undefined,
-        dagId?: string | undefined
+        queryOverride?: string | undefined
     ) => {
-        dagId: string | undefined
         description: string | undefined
         name: string
         queryOverride: string | undefined

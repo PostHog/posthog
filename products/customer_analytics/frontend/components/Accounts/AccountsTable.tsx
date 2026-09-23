@@ -107,7 +107,8 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
 function TagsCell({ record }: { record: unknown }): JSX.Element {
     const { isTagsSaving, tagOverrides } = useValues(accountsLogic)
     const { updateAccountTags, addTagToFilter } = useActions(accountsLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
+    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
     const getCell = useGetCell()
     const raw = getCell(record, 'tag_names')
     const cellTags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
@@ -120,8 +121,9 @@ function TagsCell({ record }: { record: unknown }): JSX.Element {
         <ObjectTags
             tags={tags}
             onChange={(newTags) => updateAccountTags(accountId, newTags)}
+            onEdit={loadTagsIfNeeded}
             onTagClick={addTagToFilter}
-            saving={isTagsSaving(accountId)}
+            saving={isTagsSaving(accountId) || tagsLoading}
             tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
             data-attr="accounts-tags-cell"
         />
@@ -513,7 +515,7 @@ function renderCustomPropertyEditor(
                 onClose={cancelEdit}
                 buttonProps={{
                     size: 'small',
-                    className: 'w-40',
+                    className: 'w-full',
                     'data-attr': 'accounts-custom-property-value-input',
                 }}
             />
@@ -550,7 +552,7 @@ function renderCustomPropertyEditor(
                     ? 'danger'
                     : 'default'
             }
-            className="w-40"
+            className="w-full"
             data-attr="accounts-custom-property-value-input"
         />
     )
@@ -599,13 +601,15 @@ function CustomPropertyCell({
     if (isEditing && accountId) {
         return (
             <div
-                className={`inline-flex w-fit items-center ${definition.display_type === 'boolean' ? 'gap-2' : 'gap-1'}`}
+                className={`inline-flex w-fit min-w-0 max-w-full flex-wrap items-center ${definition.display_type === 'boolean' ? 'gap-2' : 'gap-1'}`}
             >
-                <div className={definition.display_type === 'boolean' ? undefined : 'w-40'}>
+                <div className={definition.display_type === 'boolean' ? undefined : 'w-40 min-w-0 max-w-full'}>
                     {renderCustomPropertyEditor(draft, definition, setDraft, saveValue, () => setIsEditing(false))}
                 </div>
                 {!isDatePicker && (
-                    <>
+                    <div
+                        className={`ml-auto flex shrink-0 items-center ${definition.display_type === 'boolean' ? 'gap-2' : 'gap-1'}`}
+                    >
                         <LemonButton
                             type="primary"
                             size="xsmall"
@@ -629,7 +633,7 @@ function CustomPropertyCell({
                             onClick={() => setIsEditing(false)}
                             data-attr="accounts-custom-property-value-cancel"
                         />
-                    </>
+                    </div>
                 )}
             </div>
         )

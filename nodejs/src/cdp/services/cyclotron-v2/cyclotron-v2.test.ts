@@ -811,6 +811,64 @@ describe('Cyclotron V2', () => {
             })
         })
 
+        describe('resumeParkedSteps', () => {
+            const parkedState = (jobId: string, actionId = 'task_node'): Buffer =>
+                Buffer.from(
+                    JSON.stringify({
+                        state: {
+                            currentAction: { id: actionId, awaitingResume: { key: `${jobId}:${actionId}:3` } },
+                        },
+                    })
+                )
+            const resumeFor = (jobId: string) => ({
+                origin_key: `${jobId}:task_node:3`,
+                status: 'completed' as const,
+                result: { final_message: 'done' },
+                jobId,
+                actionId: 'task_node',
+            })
+
+            it('wakes a parked step of the team and stamps the result on it', async () => {
+                const jobId = uuidv7()
+                await manager.createJob({
+                    id: jobId,
+                    teamId: 1,
+                    queueName: QUEUE,
+                    functionId: uuidv7(),
+                    scheduled: new Date(Date.now() + 3600 * 1000),
+                    state: parkedState(jobId),
+                })
+
+                const outcomes = await manager.resumeParkedSteps(1, [resumeFor(jobId)])
+
+                expect(outcomes.get(jobId)).toBe('delivered')
+                expect(await jobIsDue(jobId)).toBe(true)
+                const row = await queryJob(jobId)
+                expect(parseJSON(row.state!.toString()).state.currentAction.resumeResult).toEqual({
+                    key: `${jobId}:task_node:3`,
+                    status: 'completed',
+                    result: { final_message: 'done' },
+                })
+            })
+
+            it("reports another team's job as missing rather than waking it", async () => {
+                const jobId = uuidv7()
+                await manager.createJob({
+                    id: jobId,
+                    teamId: 2,
+                    queueName: QUEUE,
+                    functionId: uuidv7(),
+                    scheduled: new Date(Date.now() + 3600 * 1000),
+                    state: parkedState(jobId),
+                })
+
+                const outcomes = await manager.resumeParkedSteps(1, [resumeFor(jobId)])
+
+                expect(outcomes.get(jobId)).toBe('job_missing')
+                expect(await jobIsDue(jobId)).toBe(false)
+            })
+        })
+
         describe('cancelJobs', () => {
             const FAR_FUTURE = () => new Date(Date.now() + 7 * 24 * 3600 * 1000)
 

@@ -67,6 +67,7 @@ from products.alerts.backend.evaluation.validation import (
     THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
     should_default_check_ongoing_interval,
     validate_alert_config,
+    validate_alert_insight_query,
 )
 from products.alerts.backend.facade.api import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
 from products.alerts.backend.facade.contracts import (
@@ -465,7 +466,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     schedule_start_time = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.",
+        help_text="Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.",
     )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
@@ -703,7 +704,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             schedule_start_time_changed = validated_data["schedule_start_time"] != instance.schedule_start_time
 
         instance = super().update(instance, validated_data)
-        if schedule_restriction_changed and not schedule_start_time_changed:
+        if schedule_restriction_changed or schedule_start_time_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
 
@@ -853,7 +854,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 config = {**config, "check_ongoing_interval": True}
                 attrs["config"] = config
 
+        request_user = self.context["request"].user
+        creating_user = request_user if isinstance(request_user, User) else None
         try:
+            validate_alert_insight_query(
+                query,
+                team=self.context["get_team"](),
+                # The alert evaluates as its creator, so an update validates as that user rather
+                # than as whoever is editing it.
+                user=self.instance.created_by if self.instance is not None else creating_user,
+            )
             validate_alert_config(
                 query,
                 condition,

@@ -396,10 +396,10 @@ CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY: bool = get_from_env(
 # Snuffle, the PromQL/LogQL bridge deployed next to the logs cluster, backs the Prometheus- and
 # Loki-compatible query endpoints. Leaving the URL empty turns those endpoints off. Snuffle passes
 # the Basic credential straight through to ClickHouse, so it defaults to the logs cluster user.
-SNUFFLE_URL: str = os.getenv("SNUFFLE_URL", "")
-SNUFFLE_USER: str = os.getenv("SNUFFLE_USER", CLICKHOUSE_LOGS_CLUSTER_USER)
-SNUFFLE_PASSWORD: str = os.getenv("SNUFFLE_PASSWORD", CLICKHOUSE_LOGS_CLUSTER_PASSWORD)
-SNUFFLE_TIMEOUT_SECONDS: int = get_from_env("SNUFFLE_TIMEOUT_SECONDS", 60, type_cast=int)
+SNUFFLE_APM_URL: str = os.getenv("SNUFFLE_APM_URL", "")
+SNUFFLE_APM_USER: str = os.getenv("SNUFFLE_APM_USER", CLICKHOUSE_LOGS_CLUSTER_USER)
+SNUFFLE_APM_PASSWORD: str = os.getenv("SNUFFLE_APM_PASSWORD", CLICKHOUSE_LOGS_CLUSTER_PASSWORD)
+SNUFFLE_APM_TIMEOUT_SECONDS: int = get_from_env("SNUFFLE_APM_TIMEOUT_SECONDS", 60, type_cast=int)
 
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
 CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
@@ -588,6 +588,15 @@ WORKFLOWS_CANCEL_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_CANCEL_JWT_SECRET", "local-dev-workflows-cancel-jwt" if DEBUG or TEST else "")
 )
 
+# Scoped JWT keys for the workflow step resume route (a finished task run waking the workflow
+# step that dispatched it). The Celery and Temporal workers mint, the plugin server verifies.
+# Its own key per the one-key-per-surface rule above. Comma-separated, newest first. Empty
+# outside dev/test, in which case the wake falls back to the `$workflow_step_resume` internal
+# event. The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_STEP_RESUME_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_STEP_RESUME_JWT_SECRET", "local-dev-workflows-step-resume-jwt" if DEBUG or TEST else "")
+)
+
 # Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(
@@ -609,11 +618,11 @@ CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
     get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
 )
 
-# Verifies the scoped JWTs the CDP worker's customer analytics account actions send to the
-# internal account routes (the worker mints, Django verifies;
-# products/customer_analytics/backend/presentation/views/internal.py). Comma-separated,
-# newest first. Empty outside dev/test, so the internal routes reject every request until
-# the secret is provisioned and the worker stays on its legacy auth path (#82564).
+# Account actions and customer task creation share these keys but require distinct JWT audiences.
+# The worker mints, Django verifies. Comma-separated, newest first. Empty outside dev/test,
+# so scoped routes fail closed until provisioned. Account actions retain their legacy auth
+# fallback (#82564). Customer task creation has no fallback.
+# The dev/test value must match the worker's default (nodejs/src/cdp/config.ts).
 CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRETS = get_list(
     get_from_env(
         "CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET", "local-dev-customer-analytics-accounts-jwt" if DEBUG or TEST else ""
@@ -708,6 +717,14 @@ CACHES["cohort_dependencies"] = {
     "LOCATION": REDIS_URL,
 }
 
+# The inbound webhook dedup lease must read what it wrote: the fence in `release()` compares a
+# holder token against the value the primary holds, and a replica that still serves the previous
+# token would let a run delete a mark a newer run owns.
+CACHES["ingress_dedup"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -772,6 +789,7 @@ if TEST:
     CACHES["query_cache"] = CACHES["default"]
     CACHES["organization_access"] = CACHES["default"]
     CACHES["cohort_dependencies"] = CACHES["default"]
+    CACHES["ingress_dedup"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

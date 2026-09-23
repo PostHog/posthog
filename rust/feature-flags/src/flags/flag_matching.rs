@@ -859,8 +859,32 @@ impl FeatureFlagMatcher {
         let mut errors_while_computing_flags = overrides.hash_key_override_error;
         let mut evaluated_flags_map = HashMap::new();
 
+        // Joining `filtered_out_flag_ids` pre-seeds the flag false below, like an inactive
+        // flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
+        let mut unsupported_flag_ids: Vec<FeatureFlagId> = Vec::new();
+        for flag in evaluation_stages.iter().flatten() {
+            if self.filtered_out_flag_ids.contains(&flag.id) {
+                continue;
+            }
+            if let Err(error) = flag.filters.require_v1() {
+                evaluated_flags_map.insert(
+                    flag.key.clone(),
+                    FlagDetails::create_error(flag, &error, None),
+                );
+                unsupported_flag_ids.push(flag.id);
+            }
+        }
+        if !unsupported_flag_ids.is_empty() {
+            errors_while_computing_flags = true;
+            self.filtered_out_flag_ids.extend(unsupported_flag_ids);
+        }
+
         // Collect flags from evaluation stages for preparation steps
-        let flags: Vec<&FeatureFlag> = evaluation_stages.iter().flatten().collect();
+        let flags: Vec<&FeatureFlag> = evaluation_stages
+            .iter()
+            .flatten()
+            .filter(|flag| flag.filters.is_v1())
+            .collect();
 
         // Handle hash key override errors by creating error responses for flags that need experience continuity
         if overrides.hash_key_override_error && overrides.hash_key_overrides.is_none() {
@@ -1394,6 +1418,7 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<FeatureFlagMatch, FlagError> {
+        flag.filters.require_v1()?;
         // Seed with the lowest-priority "could not evaluate" reason so any real evaluation
         // result outranks it via `get_highest_priority_match_evaluation`. NoGroupType is
         // the floor: a pure-group flag whose only condition is skipped for missing context
@@ -1465,11 +1490,20 @@ impl FeatureFlagMatcher {
             if aggregation.is_none() {
                 use crate::flags::flag_models::BucketingIdentifier;
 
-                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId
-                    && self
-                        .device_id
-                        .as_ref()
-                        .is_none_or(|device_id| device_id.is_empty())
+                let buckets_on_device_id =
+                    flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId;
+                let has_device_id = self
+                    .device_id
+                    .as_ref()
+                    .is_some_and(|device_id| !device_id.is_empty());
+
+                // Without a device_id there is nothing to bucket on, so the condition is
+                // withheld rather than bucketed on the wrong identifier. Withholding a
+                // condition whose outcome the hash cannot change would instead disable the
+                // flag for everyone it targets, so the guard asks whether it can.
+                if buckets_on_device_id
+                    && !has_device_id
+                    && flag.condition_needs_bucketing_hash(condition)
                 {
                     inc(
                         FLAG_CONDITION_SKIPPED_COUNTER,
@@ -1497,7 +1531,7 @@ impl FeatureFlagMatcher {
                     highest_index = new_highest_index;
                     continue;
                 }
-                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
+                if buckets_on_device_id && has_device_id {
                     with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
                 }
             }
@@ -1606,32 +1640,14 @@ impl FeatureFlagMatcher {
             highest_index = new_highest_index;
 
             if is_match {
-                // Check for variant override in the condition
-                let variant = if let Some(variant_override) = &condition.variant {
-                    // Check if the override is a valid variant
-                    if flag
-                        .get_variants()
-                        .iter()
-                        .any(|v| &v.key == variant_override)
-                    {
-                        Some(variant_override.clone())
-                    } else {
-                        // If override isn't valid, fall back to computed variant
-                        self.get_matching_variant(
-                            flag,
-                            aggregation,
-                            hash_key_overrides,
-                            request_hash_key_override,
-                        )?
-                    }
-                } else {
-                    // No override, use computed variant
-                    self.get_matching_variant(
+                let variant = match flag.pinned_variant(condition) {
+                    Some(pinned) => Some(pinned.to_string()),
+                    None => self.get_matching_variant(
                         flag,
                         aggregation,
                         hash_key_overrides,
                         request_hash_key_override,
-                    )?
+                    )?,
                 };
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
@@ -2061,10 +2077,9 @@ impl FeatureFlagMatcher {
         if let Some(holdout) = &flag.filters.holdout {
             let percentage = holdout.exclusion_percentage_clamped();
 
-            if percentage < 100.0
-                && self.get_holdout_hash(flag, None, request_hash_key_override)?
-                    > (percentage / 100.0)
-            {
+            if !crate::flags::v1_bucketing::is_in_rollout(percentage, || {
+                self.get_holdout_hash(flag, None, request_hash_key_override)
+            })? {
                 // User's hash is above the exclusion threshold — not in holdout
                 return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
             }
@@ -2209,17 +2224,16 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
-        if rollout_percentage == 100.0 {
-            return Ok((true, FeatureFlagMatchReason::ConditionMatch));
-        }
-        let hash = self.get_hash(
-            feature_flag,
-            "",
-            aggregation_group_type_index,
-            hash_key_overrides,
-            request_hash_key_override,
-        )?;
-        if hash <= (rollout_percentage / 100.0) {
+        let included = crate::flags::v1_bucketing::is_in_rollout(rollout_percentage, || {
+            self.get_hash(
+                feature_flag,
+                "",
+                aggregation_group_type_index,
+                hash_key_overrides,
+                request_hash_key_override,
+            )
+        })?;
+        if included {
             Ok((true, FeatureFlagMatchReason::ConditionMatch))
         } else {
             Ok((false, FeatureFlagMatchReason::OutOfRolloutBound))
@@ -2242,15 +2256,10 @@ impl FeatureFlagMatcher {
             hash_key_overrides,
             request_hash_key_override,
         )?;
-        let mut cumulative_percentage = 0.0;
-
-        for variant in feature_flag.get_variants() {
-            cumulative_percentage += variant.rollout_percentage / 100.0;
-            if hash < cumulative_percentage {
-                return Ok(Some(variant.key.clone()));
-            }
-        }
-        Ok(None)
+        Ok(
+            crate::flags::v1_bucketing::select_variant(hash, feature_flag.get_variants())
+                .map(str::to_owned),
+        )
     }
 
     /// Get matching payload for a feature flag.

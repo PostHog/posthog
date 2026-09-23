@@ -54,6 +54,8 @@ export interface KnowledgeSearchResultApi {
     readonly heading_path: string
     /** The chunk's text content. */
     readonly content: string
+    /** True when this chunk comes from a generated source learned from a past support ticket. */
+    readonly is_generated: boolean
 }
 
 export interface KnowledgeGapSuggestionApi {
@@ -337,6 +339,10 @@ export type BusinessKnowledgeGapSuggestionsListParams = {
 
 export type BusinessKnowledgeSourcesListParams = {
     /**
+     * Filter by who added the source: human (you added it) or learned (from a resolved support ticket).
+     */
+    added_by?: BusinessKnowledgeSourcesListAddedBy
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -344,7 +350,32 @@ export type BusinessKnowledgeSourcesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Case-insensitive substring match against the source name and URL.
+     */
+    search?: string
+    /**
+     * Filter to a single source type (text, url, or file).
+     */
+    source_type?: BusinessKnowledgeSourcesListSourceType
 }
+
+export type BusinessKnowledgeSourcesListAddedBy =
+    (typeof BusinessKnowledgeSourcesListAddedBy)[keyof typeof BusinessKnowledgeSourcesListAddedBy]
+
+export const BusinessKnowledgeSourcesListAddedBy = {
+    Human: 'human',
+    Learned: 'learned',
+} as const
+
+export type BusinessKnowledgeSourcesListSourceType =
+    (typeof BusinessKnowledgeSourcesListSourceType)[keyof typeof BusinessKnowledgeSourcesListSourceType]
+
+export const BusinessKnowledgeSourcesListSourceType = {
+    File: 'file',
+    Text: 'text',
+    Url: 'url',
+} as const
 
 export type BusinessKnowledgeSourcesTextRetrieve200 = {
     text?: string

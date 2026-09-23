@@ -270,6 +270,8 @@ class S3Table(FunctionCallTable):
     # Used to attribute query execution back to the source that was synced, for usage telemetry.
     external_data_source_id: Optional[str] = None
     source_type: Optional[str] = None
+    # Set when this table backs a materialized saved query, so a query that reads the table is attributed to the view.
+    saved_query_id: Optional[str] = None
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)
