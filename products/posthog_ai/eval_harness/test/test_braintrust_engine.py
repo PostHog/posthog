@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
+
+import pytest
 
 from braintrust.framework import EvalResult, EvalResultWithSummary
 from braintrust.logger import ExperimentSummary, MetricSummary, ScoreSummary
 
-from products.posthog_ai.eval_harness.engines.braintrust import BraintrustEngine, _BraintrustCaseHooks
+from products.posthog_ai.eval_harness.engines.braintrust import (
+    BraintrustEngine,
+    PrivateBraintrustEngine,
+    _BraintrustCaseHooks,
+)
+from products.posthog_ai.eval_harness.engines.types import CaseHooks, CaseSpec, ExperimentSpec
 
 
 def _summary(**overrides: Any) -> ExperimentSummary:
@@ -125,3 +133,22 @@ def test_case_hooks_adapter_writes_through_metadata_and_translates_spans() -> No
     assert (name, attrs, start_time) == ("agent", {"type": "llm"}, 10.0)
     assert started_span.logs == [{"output": "hi"}]
     assert started_span.end_time == 12.5
+
+
+@pytest.mark.parametrize("is_public,no_send_logs", [(True, True), (False, False), (True, False)])
+def test_private_engine_rejects_upload_before_running_task(is_public: bool, no_send_logs: bool) -> None:
+    async def task(input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
+        raise AssertionError("The task must not run with public results")
+
+    spec = ExperimentSpec(
+        project_name="private-test",
+        cases=[CaseSpec(input={"name": "private-case"})],
+        task=task,
+        scorers=[],
+        trial_count=1,
+        is_public=is_public,
+        no_send_logs=no_send_logs,
+        metadata={},
+    )
+    with pytest.raises(ValueError, match="local-only"):
+        asyncio.run(PrivateBraintrustEngine().run_experiment(spec))

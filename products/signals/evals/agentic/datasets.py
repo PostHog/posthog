@@ -113,6 +113,9 @@ class ScoutExpectation:
 @dataclass(frozen=True)
 class ScoutCase(EvalCase):
     skill_name: str = ""
+    skill_version: int | None = None
+    repository: str | None = None
+    run_note: str | None = None
     seed: ScoutSeed | None = None
     judging_notes: str = ""
     expected_query_tools: tuple[str, ...] = ()

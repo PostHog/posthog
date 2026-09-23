@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
@@ -41,6 +42,7 @@ class _WorkflowEvalRun(_BaseEvalRun):
         no_send_logs: bool,
         task_fn: WorkflowTaskFn,
         project_name: str | None = None,
+        output_dir: Path | None = None,
     ) -> None:
         super().__init__(
             experiment_name=experiment_name,
@@ -49,6 +51,7 @@ class _WorkflowEvalRun(_BaseEvalRun):
             ctx=ctx,
             is_public=is_public,
             no_send_logs=no_send_logs,
+            output_dir=output_dir,
         )
         if ctx.provider_strategy is None or ctx.demo_data is None or ctx.sandbox_slots is None:
             raise RuntimeError(
@@ -76,6 +79,7 @@ class _WorkflowEvalRun(_BaseEvalRun):
         async with self._sandbox_slots:
             async with self.ctx.team_setup_slots:
                 sandbox_context, seed = await prepare_sandbox_case(self._demo_data, case)
+                hooks.metadata["seed"] = seed
 
             started = time.monotonic()
             try:
@@ -104,13 +108,15 @@ class _WorkflowEvalRun(_BaseEvalRun):
                 output.setdefault("cost_usd", parsed.total_cost_usd)
             if last_message := get_last_assistant_text(parsed):
                 output.setdefault("last_message", last_message)
-        await self._write_local_logs(case, output, time.monotonic() - started)
+        await self._write_local_logs(case, output, time.monotonic() - started, hooks)
         return output
 
-    async def _write_local_logs(self, case: SandboxedEvalCase, output: dict[str, Any], duration: float) -> None:
+    async def _write_local_logs(
+        self, case: SandboxedEvalCase, output: dict[str, Any], duration: float, hooks: CaseHooks
+    ) -> None:
         try:
             write_case_logs(
-                case_dir=self.run_log_dir,
+                case_dir=self._trial_log_dir(case.name, hooks),
                 case_name=case.name,
                 raw_log=(
                     output["raw_log"]
@@ -147,6 +153,7 @@ async def WorkflowEval(
     is_public: bool = False,
     no_send_logs: bool = True,
     project_name: str | None = None,
+    output_dir: Path | None = None,
 ) -> ExperimentResult:
     run = _WorkflowEvalRun(
         experiment_name=experiment_name,
@@ -157,6 +164,7 @@ async def WorkflowEval(
         no_send_logs=no_send_logs,
         task_fn=task,
         project_name=project_name,
+        output_dir=output_dir,
     )
     return await run.run()
 

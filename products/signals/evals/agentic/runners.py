@@ -1,19 +1,34 @@
 from __future__ import annotations
 
+import json
 import asyncio
 import logging
-from dataclasses import replace
-from typing import Any
+from dataclasses import asdict, replace
+from typing import TYPE_CHECKING, Any
+
+from django.core.serializers.json import DjangoJSONEncoder
 
 from pydantic import BaseModel, Field, model_validator
 
+from products.posthog_ai.eval_harness.base import EvalTaskCancelled, EvalTaskError
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.log_parser import LogParser
 from products.posthog_ai.eval_harness.runner import parse_agent_artifacts
 from products.signals.backend.agent_runtime import AgentRuntime
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalScoutConfig,
+    SignalScoutRun,
+    SignalScratchpad,
+)
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.evals.agentic.datasets import ImplementationCase, RepoSelectionCase, ResearchCase, ScoutCase
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
+from products.tasks.backend.models import TaskRun
+
+if TYPE_CHECKING:
+    from products.signals.backend.scout_harness.runner import RunResult
 
 logger = logging.getLogger(__name__)
 
@@ -206,13 +221,39 @@ class ScoutOutput(BaseModel):
     raw_log: str = ""
     run_id: str | None = None
     task_run_id: str | None = None
+    artifacts: dict[str, Any] = Field(default_factory=dict)
 
 
-def _seed_scout(case: ScoutCase, sandbox_context: CustomPromptSandboxContext) -> tuple[str, set[str]]:
-    from products.signals.backend.models import SignalScratchpad
+def _capture_scout_state(team_id: int, skill_name: str) -> dict[str, list[dict[str, Any]]]:
+    state = {
+        "reports": list(SignalReport.objects.filter(team_id=team_id).order_by("id").values()),
+        "report_artefacts": list(
+            SignalReportArtefact.objects.filter(team_id=team_id, report__team_id=team_id).order_by("id").values()
+        ),
+        "scratchpad": list(SignalScratchpad.objects.for_team(team_id).order_by("id").values()),
+        "scout_runs": list(
+            SignalScoutRun.objects.for_team(team_id).filter(skill_name=skill_name).order_by("created_at", "id").values()
+        ),
+        "scout_configs": list(
+            SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).order_by("id").values()
+        ),
+    }
+    return json.loads(json.dumps(state, cls=DjangoJSONEncoder))
 
-    keys = set(SignalScratchpad.objects.for_team(sandbox_context.team_id).values_list("key", flat=True))
-    return case.skill_name, keys
+
+def _scout_state_changes(
+    before: dict[str, list[dict[str, Any]]], after: dict[str, list[dict[str, Any]]]
+) -> dict[str, dict[str, list[str]]]:
+    changes = {}
+    for collection, rows in after.items():
+        initial = {str(row["id"]): row for row in before[collection]}
+        final = {str(row["id"]): row for row in rows}
+        changes[collection] = {
+            "created": sorted(final.keys() - initial.keys()),
+            "updated": sorted(key for key in initial.keys() & final.keys() if initial[key] != final[key]),
+            "deleted": sorted(initial.keys() - final.keys()),
+        }
+    return changes
 
 
 def _read_scout_output(
@@ -220,8 +261,6 @@ def _read_scout_output(
     run_id: str,
     previous_scratchpad_keys: set[str],
 ) -> ScoutOutput:
-    from products.signals.backend.models import SignalScoutRun, SignalScratchpad
-
     run = SignalScoutRun.objects.for_team(team_id).get(id=run_id)
     scratchpad_keys = list(
         SignalScratchpad.objects.for_team(team_id)
@@ -266,48 +305,104 @@ def _remembered_scratchpad_keys(raw_log: str) -> list[str]:
     ]
 
 
+async def _collect_scout_output(
+    case: ScoutCase,
+    sandbox_context: CustomPromptSandboxContext,
+    ctx: EvalContext,
+    before: dict[str, list[dict[str, Any]]],
+    result: RunResult | None = None,
+) -> dict[str, Any]:
+    after = await asyncio.to_thread(_capture_scout_state, sandbox_context.team_id, case.skill_name)
+    artifacts: dict[str, Any] = {
+        "before": before,
+        "after": after,
+        "changes": _scout_state_changes(before, after),
+        "requested": {
+            "skill_name": case.skill_name,
+            "skill_version": case.skill_version,
+            "repository": case.repository,
+            "run_note": case.run_note,
+            "agent_model": ctx.agent_model,
+            "agent_runtime": ctx.agent_runtime,
+            "reasoning_effort": ctx.reasoning_effort,
+        },
+        "result": asdict(result) if result is not None else None,
+    }
+    initial_run_ids = {row["id"] for row in before["scout_runs"]}
+    new_runs = [row for row in after["scout_runs"] if row["id"] not in initial_run_ids]
+    run_id = result.run_id if result is not None else (new_runs[0]["id"] if len(new_runs) == 1 else None)
+    if run_id is None:
+        return ScoutOutput(
+            outcome="no_output", summary=result.skip_reason or "" if result else "", artifacts=artifacts
+        ).model_dump(mode="json")
+
+    previous_keys = {row["key"] for row in before["scratchpad"]}
+    output = await asyncio.to_thread(_read_scout_output, sandbox_context.team_id, run_id, previous_keys)
+    output.artifacts = artifacts
+    output.run_id = run_id
+    run_row = next(row for row in after["scout_runs"] if row["id"] == run_id)
+    task_run_id = run_row.get("task_run_id")
+    output.task_run_id = task_run_id
+    provider = ctx.provider_strategy
+    task_id: str | None = None
+    try:
+        if task_run_id:
+            task_run = await asyncio.to_thread(
+                lambda: (
+                    TaskRun.objects.filter(team_id=sandbox_context.team_id, id=task_run_id)
+                    .values("id", "task_id", "status", "error_message", "created_at", "completed_at")
+                    .get()
+                )
+            )
+            task_id = str(task_run["task_id"])
+            if provider is not None:
+                provider.register_task(task_id)
+            artifacts["task_run"] = json.loads(json.dumps(task_run, cls=DjangoJSONEncoder))
+            try:
+                output.raw_log = await _read_task_logs(sandbox_context.team_id, task_id, task_run_id)
+            except Exception as exc:
+                raise EvalTaskError(
+                    f"Could not retrieve scout transcript: {exc}", output.model_dump(mode="json")
+                ) from exc
+        output.scratchpad_keys = sorted(set(output.scratchpad_keys) | set(_remembered_scratchpad_keys(output.raw_log)))
+        output.outcome = _scout_outcome(
+            output.emitted_report_ids,
+            output.edited_report_ids,
+            output.emitted_finding_ids,
+            output.scratchpad_keys,
+        )
+        return output.model_dump(mode="json")
+    finally:
+        if provider is not None and task_id is not None:
+            try:
+                await asyncio.to_thread(provider.cleanup_case, task_id)
+            except Exception:
+                logger.warning("Provider cleanup failed for scout task %s", task_id, exc_info=True)
+
+
 async def run_scout(
     case: ScoutCase,
     sandbox_context: CustomPromptSandboxContext,
     ctx: EvalContext,
 ) -> dict[str, Any]:
     from products.signals.backend.scout_harness.runner import arun_signals_scout
-    from products.tasks.backend.models import TaskRun
 
-    skill_name, previous_scratchpad_keys = await asyncio.to_thread(_seed_scout, case, sandbox_context)
-    result = await arun_signals_scout(
-        team_id=sandbox_context.team_id,
-        skill_name=skill_name,
-        verbose=True,
-        triggered_by="manual",
-        agent_runtime=_runtime(ctx),
-    )
-    if result.run_id is None or result.task_run_id is None:
-        return ScoutOutput(outcome="no_output", summary=result.skip_reason or "").model_dump(mode="json")
-    run_id = result.run_id
-    task_run_id = result.task_run_id
-    task_id = await asyncio.to_thread(
-        lambda: str(
-            TaskRun.objects.values_list("task_id", flat=True).get(
-                id=task_run_id,
-                team_id=sandbox_context.team_id,
-            )
+    before = await asyncio.to_thread(_capture_scout_state, sandbox_context.team_id, case.skill_name)
+    try:
+        result = await arun_signals_scout(
+            team_id=sandbox_context.team_id,
+            skill_name=case.skill_name,
+            skill_version=case.skill_version,
+            repository=case.repository,
+            run_note=case.run_note,
+            verbose=True,
+            triggered_by="manual",
+            agent_runtime=_runtime(ctx),
         )
-    )
-    output = await asyncio.to_thread(
-        _read_scout_output,
-        sandbox_context.team_id,
-        run_id,
-        previous_scratchpad_keys,
-    )
-    output.raw_log = await _read_task_logs(sandbox_context.team_id, task_id, task_run_id)
-    output.scratchpad_keys = sorted(set(output.scratchpad_keys) | set(_remembered_scratchpad_keys(output.raw_log)))
-    output.outcome = _scout_outcome(
-        output.emitted_report_ids,
-        output.edited_report_ids,
-        output.emitted_finding_ids,
-        output.scratchpad_keys,
-    )
-    output.run_id = run_id
-    output.task_run_id = task_run_id
-    return output.model_dump(mode="json")
+    except asyncio.CancelledError as exc:
+        output = await _collect_scout_output(case, sandbox_context, ctx, before)
+        raise EvalTaskCancelled("Scout execution cancelled", output) from exc
+    except Exception as exc:
+        output = await _collect_scout_output(case, sandbox_context, ctx, before)
+        raise EvalTaskError(str(exc), output) from exc
+    return await _collect_scout_output(case, sandbox_context, ctx, before, result)

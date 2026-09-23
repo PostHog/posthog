@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -48,6 +48,9 @@ class BaseEvalCase(BaseModel):
 
 class SandboxedEvalCase(BaseEvalCase):
     """A single eval case for the sandboxed coding agent."""
+
+    project_data: Literal["hedgebox", "empty"] = "hedgebox"
+    """Use an empty project when setup restores a saved case, so demo data cannot contaminate it."""
 
     repo_fixture: str = ""
     """Name of the repo fixture (informational, for tracking)."""

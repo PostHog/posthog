@@ -1,8 +1,10 @@
 # Reusable scout environments
 
-Research checkpoint: September 22, 2026.
-This is a proposal, with the initial harness review at `ba2de6b231b` and additional dependency checks after merging `e7e0c103433` from master.
-No new scout experiment or snapshot export was performed during this analysis.
+Implementation checkpoint: September 22, 2026.
+The initial harness review used `ba2de6b231b`, with additional dependency checks after merging `e7e0c103433` from master.
+The parameterized command now runs saved code cases through the production scout harness.
+Historical data restoration is verified in two fresh projects; its full agent execution still needs verification.
+The implementation history below records completed checks and failed attempts.
 
 ## Purpose and agreed constraints
 
@@ -43,7 +45,7 @@ The lifecycle is:
 2. Restore its data, memory, reports, and repository into isolated trial state.
 3. Run the selected scout through the existing production entrypoint.
 4. Save full report payloads, memory changes, transcript, effective settings, duration, and cost.
-5. Grade the result and discard the writable trial state.
+5. Grade the result and remove the agent sandbox. The next trial gets a fresh project.
 
 A disposable agent sandbox is only part of the isolation.
 Its MCP credentials must point to the restored project, and external reads must also use retained inputs where they affect the case.
@@ -51,23 +53,23 @@ No trial may silently fetch missing evidence from a changing production project.
 Report creation should behave normally inside the eval project while downstream delivery and implementation remain disabled.
 
 The existing [case seeders](../../../evals/agentic/seeders.py) and [scout cases](../../../evals/agentic/cases/scout.py) provide examples of real product data with report and no-report outcomes.
-The following additions still need implementation:
+The implementation adds these capabilities to the original runner:
 
-- Enforce and verify a repository commit before the first agent turn. `repo_fixture` in the [case config](../../../../posthog_ai/eval_harness/config.py) is currently descriptive. A skill that fetches a moving remote branch must still see the retained repository state.
-- Restore one case-specific data snapshot with schema and relationship checks. A reused demo project is not a versioned dataset.
-- Load the selected skill version and restore its initial memory and report history.
-- Apply one consistent time policy across the agent context, product APIs, and database queries.
-- Capture complete persisted reports and memory changes. The current scout adapter exposes IDs and newly created memory keys, which are insufficient to grade all content and edits.
-- Give every repeated trial a unique artifact path. The current [log writer](../../../../posthog_ai/eval_harness/log_sink.py) names files by case alone within an experiment directory, so repeated trials can overwrite each other's local logs.
+- Verify a retained repository commit before the first agent turn and serve subsequent Git fetches from a frozen local origin.
+- Restore a case-specific snapshot into a fresh project, with schema, relationship, event-count, and timestamp checks.
+- Load the selected skill version and restore initial memory and report history.
+- Shift inventoried timestamps together using one explicit target cutoff, subject to the time-policy limits below.
+- Capture complete persisted reports, memory changes, task status, and transcripts.
+- Give every repeated trial a unique artifact path so local results cannot overwrite each other.
 
 Implement v0 as a parameterized script on the devbox, using one case-specific loader and the existing Docker provider.
-It needs an empty project option: the current team factory always copies demo data, which would mix unrelated evidence into a historical case.
+Its empty project option prevents unrelated demo evidence from entering a historical case.
 Restore event files into ClickHouse and the small related state into the normal product models, preserving relationships when IDs change.
 The scout adapter must forward the selected skill version, repository, and explicit investigation bounds through the production runner's existing inputs.
 Do not build a general export service, another query engine, or a separate runner for prompt changes.
 
-The [suite instructions](../../../evals/agentic/AGENTS.md) currently describe public repositories and synthetic fixtures.
-A historical snapshot requires a private-fixture path and a review of every log and artifact destination.
+The [suite instructions](../../../evals/agentic/AGENTS.md) cover public synthetic cases and explicitly supplied private cases.
+A historical snapshot requires a private fixture path and a review of every log and artifact destination.
 `WorkflowPrivateEval` is an existing starting point; its flags alone do not establish privacy for every downstream service.
 
 ### Where restoration and execution happen
@@ -77,6 +79,8 @@ Its parameters select the case, snapshot location, model, effort, skill or promp
 The PostHog backend, MCP server, Postgres, ClickHouse, and snapshot restoration run on that devbox; the existing Docker provider creates the scout containers there.
 Restoration belongs in the runner's per-trial setup, after its test databases and fresh project exist.
 Each trial gets fresh writable state, and the script retains complete results before cleanup.
+The shared harness keeps its test databases by default, so completed projects remain local until normal test-database recreation.
+They are never selected as the starting project for another trial.
 Develop and verify this flow end to end on the devbox.
 
 Keep case files separate from machine setup, and configure paths and service endpoints rather than tying them to one devbox.
@@ -280,13 +284,135 @@ Reuse the separation of saved data from execution, with Parquet as a possible ev
 
 ## Next decisions and work
 
-1. Verify several findings in one natural Agent feedback window and establish that its starting memory and report contents can be recovered. The final fixture is not selected yet.
-2. Specify its full investigation and comparison data, private artifact location, date-transform inventory, and expected query results. Missing history must not appear as zero activity.
-3. Add the empty-project restore path and full output capture to the existing runner, including unique artifacts per repeat and checks on private trace destinations.
-4. Enforce the API-quality repository state before the first agent turn, including later fetches. Verify both cases' restored queries, state isolation, report containment, and equivalent inputs across two restores before running agents.
-5. Expose the validated flow through the parameterized devbox script and document its setup, invocation, and result location. Modal deployment is outside v0.
-6. Clarify severity and execution budget, then obtain approval for a comparative experiment.
+1. Verify a data scout end to end through the private gateway and review its output against the saved reference.
+2. Retain the completed code comparison and its scope failures. Single runs illustrate the workflow and do not establish an improvement.
+3. Clarify severity and execution budget before the repeated, scored comparison.
+4. Keep the devbox command and its private case inputs reproducible. Modal deployment remains outside v0.
 
 The production improvements listed in the round-1 [final report](FINAL_REPORT.md) remain useful, especially memory isolation, effort recording, and complete report capture.
 The isolated eval path can supply these properties without first implementing every production configuration change.
 The historical round-1 run procedure in [PLAN.md](PLAN.md) remains an execution record, not the recommended setup for reusable data cases.
+
+Before unattended execution, verify credentials and model-provider access with invented input and establish the run budget.
+If committing or pushing is unavailable, continue independent authorized implementation, tests, and review.
+Keep recoverable local source snapshots and attempt history, then commit the sanitized implementation history when publishing is available.
+Private inputs and full transcripts remain outside Git.
+
+## Implementation history
+
+### September 22, 2026: restore and capture support
+
+The shared harness now supports an empty project per trial and private result directories with unique trial IDs.
+Scout output includes the initial and final reports, report artifacts, scratchpad, run metadata, and their changes.
+Failures retain available output without becoming successful results.
+A private engine configuration rejects uploads and does not require reporting credentials.
+
+The retained-repository adapter installs a separate checkout in each Docker sandbox and verifies the saved commit before agent execution.
+Its frozen local origin also handles subsequent Git fetches.
+This adapter is currently Docker-only.
+
+Focused checks cover empty-project isolation, repeated-trial artifacts, private tracing, scout output capture, retained Git history, and upload rejection.
+End-to-end agent execution remains pending at this checkpoint.
+The saved-case loader, restoration, and parameterized command are being connected next.
+
+Keep subsequent entries chronological, including failed attempts and validation limits.
+Private case inputs, historical evidence, and full run transcripts stay outside version control.
+
+### September 22, 2026: saved cases and first setup attempt
+
+The saved-case command validates file hashes, restores a fresh project, invokes the production scout, and retains private output.
+Each attempt records its source commit, local source changes, input versions, target cutoff, model, effort, and outcome.
+Restore checks passed through ClickHouse and HogQL in separate projects, including preserved event identities and historical report references.
+
+The first end-to-end attempt stopped during repository preparation before a scout started.
+It is recorded as an infrastructure failure.
+The command now preserves startup exceptions and rejects runs without a completed task and transcript.
+The fixed-page code cases explicitly retain one commit and its complete tree, which avoids requiring every historical blob from a partial clone.
+The original commit SHA remains unchanged; a verified bundle cache supports retries.
+
+Feedback cases retain profile expiry, so an expired profile refreshes from the restored project.
+Finding discovery and duplicate handling are in scope for the first saved data case.
+Full reviewer routing remains outside its supported context.
+End-to-end execution and repeatability checks remain pending.
+
+### September 22, 2026: first Docker startup check
+
+The next attempt completed service setup and verified the pinned commit inside the Docker container.
+The agent server then failed before producing a response while clone and startup overlapped.
+The retained adapter now uses the existing clone-before-startup path and records that setting.
+Its cache also works when the original source checkout is unavailable.
+
+Saved-data checks passed through the real query engine, including event counts, timestamp bounds, historical identities, and isolated project state.
+Private storage checks reject unignored paths in sibling Git repositories too.
+The command restores progress logging after ASGI initialization and retains source snapshots for failed attempts.
+Both execution attempts remain classified as infrastructure failures; a completed scout run is still required.
+
+### September 22, 2026: completed code execution
+
+The code baseline and its one-rule traced-file variant both completed through the production scout harness, real local MCP, and Docker.
+Each took about three and a half minutes after service initialization was cached.
+Outputs retained full reports, memory changes, transcript, input versions, and repository verification.
+The baseline checkout remained clean at the pinned commit after execution.
+
+Independent review of the baseline found an ordering gap but errors in the report's explanation and proposed fix.
+This is a successful infrastructure check, not a verified quality pass.
+The second code page remains the held-out check for the same prompt edit.
+Private data execution awaits explicit model-provider approval; local restoration checks can proceed independently.
+
+### September 22, 2026: bounded prompt comparison
+
+All four code runs completed: two selected pages, each with the original prompt and the same traced-file rule change.
+The second-page baseline produced a supported finding and fix.
+It created a suppressed report and a replacement for the same issue, which count as one finding.
+
+The first-page variant produced a supported finding but searched outside its permitted scan roots.
+That run fails scope review even though its reported endpoint was selected.
+This example supports keeping correctness, scope, severity, and execution status separate.
+One run per combination does not establish prompt improvement, and severity remains unsettled.
+
+Local output includes the complete history of failed setup attempts and completed runs.
+Repository-wide type checking and full-size data restoration checks are in progress at this checkpoint.
+
+### September 22, 2026: completed comparison review
+
+The second-page variant's finding and proposed fix are supported, but it also searched outside the selected scan roots.
+It missed the stronger message-cursor defect found by the baseline.
+Both candidate runs therefore fail scope review, and the prompt change is not recommended for adoption from this example.
+The comparison remains one run per combination with no claim of statistical superiority.
+
+The complete repository mypy check passes after annotation fixes in the loader and test helpers.
+The retained-repository tests also pass.
+Full-size historical data verification is running independently with external connections blocked and no scout execution.
+
+### September 22, 2026: full-size restoration checks
+
+The full-size restore exposed slow date substitution and small database writes that the small fixtures did not reveal.
+Grouping timestamp alternatives under shared boundary checks preserves replacement precedence and removes repeated matching work.
+Generated differential cases and private-corpus comparisons produce identical transformed text.
+The loader now writes bounded batches of 5,000 events, and the existing saved-case tests pass through the real query engine.
+Interrupted attempts retain their partial counts and remain separate from completed restorations.
+
+The private command's gateway settings need to cover backend report checks as well as sandbox model calls.
+A scoped backend override is being added to use the private gateway without changing the developer's running services.
+Full-size repeatability verification remains in progress at this checkpoint.
+
+### September 22, 2026: repeated historical restoration verified
+
+Two complete restores into fresh projects pass the saved-input and real-query checks.
+Normalized historical state and event aggregates are equal across the projects, while their project, organization, member, and mutable-state identities are separate.
+Skill and profile contents match, governed metrics retain their definitions, and downstream actions remain disabled.
+Neither restored project has been used by a scout.
+A deterministic event sample, including the reference evidence, also preserves full properties, timestamps, and supplied identities in both projects.
+
+The restore uses bounded event batches and avoids repeated copying of the growing SQL parameter dictionary.
+The shared runner now records ordinary cancellation as an error while retaining available output and initial-state metadata.
+Repository-wide type checks and strict preflight pass.
+The private backend route passes focused credential-scope and cleanup tests, including failure and cancellation.
+A live provider check and private data scout execution remain pending at this checkpoint.
+
+### September 23, 2026: private backend provider check
+
+The normal report safety check completed with invented input through the private gateway.
+The provider returned a valid judgment, both capture tokens were absent, and the temporary credential was deleted afterward.
+Gateway settings were restored and the dedicated process stopped without changing the developer's running services.
+The saved feedback case is ready for its first scout execution.

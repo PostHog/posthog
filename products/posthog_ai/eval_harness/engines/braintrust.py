@@ -173,3 +173,16 @@ class BraintrustEngine:
                 for case in result.results
             ],
         )
+
+
+class PrivateBraintrustEngine(BraintrustEngine):
+    supports_public_experiments: ClassVar[bool] = False
+
+    @classmethod
+    def required_env(cls) -> tuple[EnvVarSpec, ...]:
+        return ()
+
+    async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
+        if spec.is_public or not spec.no_send_logs:
+            raise ValueError("The private engine requires local-only experiment results")
+        return await super().run_experiment(spec)

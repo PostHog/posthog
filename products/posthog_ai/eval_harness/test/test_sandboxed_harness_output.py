@@ -203,13 +203,22 @@ def _collect_spans(parsed: ParsedLog) -> list[tuple[str, Any]]:
         def __init__(self, name: str) -> None:
             self.name = name
 
-        def log(self, *, input: Any = None, output: Any = None, metadata: Any = None) -> None:
+        def log(
+            self,
+            *,
+            input: Any = None,
+            output: Any = None,
+            metadata: dict[str, Any] | None = None,
+            metrics: dict[str, int | float] | None = None,
+        ) -> None:
             if input is not None:
                 collected.append((self.name, input))
 
     class _Hooks(NullCaseHooks):
         @contextmanager
-        def start_span(self, name: str, kind: Any) -> Iterator[_Span]:
+        def start_span(
+            self, name: str, kind: Any, start_time: float | None = None, end_time: float | None = None
+        ) -> Iterator[_Span]:
             yield _Span(name)
 
     base._log_conversation_spans(_Hooks(), parsed)
