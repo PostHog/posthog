@@ -305,11 +305,10 @@ database "posthog" {
       topic_list           = "clickhouse_traces"
       group_name           = "clickhouse-traces-avro"
       format               = "Avro"
-      num_consumers        = 4
+      num_consumers        = 8
       skip_broken_messages = 100
-      poll_timeout_ms      = 10000
+      poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000
-      flush_interval_ms    = 10000
       thread_per_consumer  = true
     }
   }

@@ -2,6 +2,7 @@ from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import kafka_engine, kafka_num_consumers
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
+from posthog.run_mode import RunMode, run_mode
 
 from .trace_attributes import (
     TABLE_NAME as TRACE_ATTRIBUTES_TABLE_NAME,
@@ -285,6 +286,13 @@ def TRACE_SPAN_TO_SPAN_ATTRIBUTES2_MV():
     )
 
 
+def _kafka_num_consumers() -> int:
+    # EU runs this consumer group at 2 rather than the 8 US runs, tuned against its own
+    # partition count. Recreating the table re-applies whatever this returns, so a plain
+    # kafka_num_consumers(8) here would quietly raise EU to 8 and leave consumers idle.
+    return 2 if run_mode() is RunMode.CLOUD_EU else kafka_num_consumers(8)
+
+
 def KAFKA_TRACE_SPANS_AVRO_TABLE_SQL():
     return f"""
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_TABLE_NAME}
@@ -316,7 +324,7 @@ ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=KAFKA_GROUP, serialization="Avro
 SETTINGS
     kafka_skip_broken_messages = 100,
     kafka_thread_per_consumer = 1,
-    kafka_num_consumers = {kafka_num_consumers(8)},
+    kafka_num_consumers = {_kafka_num_consumers()},
     kafka_poll_timeout_ms = 3000,
     kafka_poll_max_batch_size = 1000,
     -- capture-logs writes `retention_days` only after its Avro schema ships, so payloads
