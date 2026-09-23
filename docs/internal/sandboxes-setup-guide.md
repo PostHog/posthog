@@ -196,7 +196,7 @@ When a run lands on the Python gateway unexpectedly, check those two variables f
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
 
-ReviewHog Flash uses `gpt-5.6-luna` for review, blind-spot checks, and validation.
+ReviewHog Flash uses `gpt-6-luna` for review, blind-spot checks, and validation.
 The **ReviewHog Flash - Experimental** subsection under **What gets reviewed** on the Code review page groups the automatic Flash review toggle and **Flash strength** setting.
 These settings apply only to Flash reviews.
 **Flash strength** selects **Medium** (`medium`, the default) or **Extra high** (`xhigh`) for all of your Flash reviews, including automatic, UI, and CLI requests.
