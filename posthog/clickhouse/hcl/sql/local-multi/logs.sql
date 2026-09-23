@@ -70,7 +70,7 @@ CREATE TABLE posthog.kafka_trace_spans_avro (
   dropped_links_count Int32,
   status_code Int32,
   retention_days Nullable(Int32)
-) ENGINE = Kafka(warpstream_traces) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-traces-avro', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_traces';
+) ENGINE = Kafka(warpstream_traces) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-traces-avro', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_traces';
 CREATE TABLE posthog.log_attributes (
   team_id Int32 CODEC(DoubleDelta, ZSTD(1)),
   time_bucket DateTime64(0) CODEC(DoubleDelta, ZSTD(1)),

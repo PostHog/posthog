@@ -180,6 +180,9 @@ database "posthog" {
       poll_max_batch_size  = 1000
       thread_per_consumer  = true
     }
+    settings = {
+      input_format_avro_allow_missing_fields = "1"
+    }
   }
 
   materialized_view "kafka_trace_spans_avro_mv" {
