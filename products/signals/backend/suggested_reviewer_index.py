@@ -18,7 +18,10 @@ from pydantic import ValidationError
 
 from products.signals.backend.artefact_schemas import SuggestedReviewers
 from products.signals.backend.models import SignalReportArtefact, SignalReportSuggestedReviewer
-from products.signals.backend.report_generation.resolve_reviewers import reviewer_identities_from_payloads
+from products.signals.backend.report_generation.resolve_reviewers import (
+    ReviewerIdentity,
+    reviewer_identities_from_payloads,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -69,19 +72,18 @@ def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSugge
     except ValidationError:
         logger.warning("signals_suggested_reviewer_index_identity_only_artefact", **log_fields)
     rows: list[SignalReportSuggestedReviewer] = []
-    seen: set[tuple[str | None, str | None]] = set()
+    seen: set[ReviewerIdentity] = set()
     for identity in reviewer_identities_from_payloads(payloads):
         if identity in seen:
             continue
         seen.add(identity)
-        user_uuid, login = identity
         rows.append(
             SignalReportSuggestedReviewer(
                 team_id=artefact.team_id,
                 report_id=artefact.report_id,
                 artefact_id=artefact.id,
-                user_uuid=uuid_module.UUID(user_uuid) if user_uuid else None,
-                github_login=login,
+                user_uuid=uuid_module.UUID(identity.user_uuid) if identity.user_uuid else None,
+                github_login=identity.github_login,
             )
         )
     return rows

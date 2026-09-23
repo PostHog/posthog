@@ -380,18 +380,29 @@ def normalized_user_uuids_from_reviewer_payloads(rows: Iterable[object]) -> froz
     return frozenset(uuids)
 
 
-def reviewer_identities_from_payloads(rows: Iterable[object]) -> list[tuple[str | None, str | None]]:
-    """Each payload's identity as a `(user_uuid, github_login)` pair, normalized the way readers
-    match on, in the order the payloads name them. A payload that identifies nobody is skipped.
+@frozen
+class ReviewerIdentity:
+    """The person one reviewer payload names, in the form readers match on. Both fields are
+    optional and at least one is set: an entry written before `user_uuid` existed carries a login
+    alone, and a teammate with no linked GitHub account carries a uuid alone.
     """
-    identities: list[tuple[str | None, str | None]] = []
+
+    user_uuid: str | None
+    github_login: str | None
+
+
+def reviewer_identities_from_payloads(rows: Iterable[object]) -> list[ReviewerIdentity]:
+    """The identity each payload names, in the order the payloads name them. A payload that
+    identifies nobody is skipped.
+    """
+    identities: list[ReviewerIdentity] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
         user_uuid = _normalized_reviewer_user_uuid(row.get("user_uuid"))
         login = str(row.get("github_login") or "").strip().lower() or None
         if user_uuid or login:
-            identities.append((user_uuid, login))
+            identities.append(ReviewerIdentity(user_uuid=user_uuid, github_login=login))
     return identities
 
 
