@@ -1,21 +1,20 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
 import { StatCard } from '../components/StatCard'
 import { TeamQuarantinedTestsTable } from '../components/TeamQuarantinedTestsTable'
+import { withCurrentScope } from '../lib/scope'
 import { TrunkQuarantineTeamRow, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
-
-function teamLabel(ownerTeam: string): string {
-    return ownerTeam === 'unowned' ? 'Unowned' : ownerTeam
-}
+import { teamLabel } from './teamsLogic'
 
 function TrunkQuarantineDebtBoard(): JSX.Element {
     const {
@@ -24,6 +23,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
         trunkQuarantineStatus,
         trunkQuarantineTestsByTeam,
         expandedTrunkQuarantineTeams,
+        sourceId,
     } = useValues(engineeringAnalyticsLogic)
     const { loadTrunkQuarantine, toggleTrunkQuarantineTeam } = useActions(engineeringAnalyticsLogic)
 
@@ -37,7 +37,15 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
         {
             title: 'Team',
             key: 'ownerTeam',
-            render: (_, row) => <span className="font-semibold">{teamLabel(row.ownerTeam)}</span>,
+            render: (_, row) => (
+                <Link
+                    to={withCurrentScope(urls.engineeringAnalyticsTeam(row.ownerTeam), sourceId)}
+                    className="font-semibold"
+                    data-attr="engineering-analytics-quarantine-team-link"
+                >
+                    {teamLabel(row.ownerTeam)}
+                </Link>
+            ),
         },
         {
             title: 'Quarantined',
@@ -157,7 +165,11 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
                     nouns={['team', 'teams']}
                     onRow={(row) => ({
                         className: 'cursor-pointer',
-                        onClick: () => toggleTrunkQuarantineTeam(row.ownerTeam),
+                        onClick: (event) => {
+                            if (!(event.target as HTMLElement).closest('a, button')) {
+                                toggleTrunkQuarantineTeam(row.ownerTeam)
+                            }
+                        },
                     })}
                     expandable={{
                         noIndent: true,
@@ -176,7 +188,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
     )
 }
 
-export function EngineeringAnalyticsTestHealth(): JSX.Element {
+export function EngineeringAnalyticsTests(): JSX.Element {
     return (
         <div className="flex flex-col gap-8">
             <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />

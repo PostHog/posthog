@@ -1732,28 +1732,6 @@ class TestQueryUsageReportSQL:
     @patch("posthog.tasks.usage_report.events_read_table", return_value="events")
     @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
     @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
-    @patch("posthog.tasks.usage_report.sync_execute", return_value=[])
-    def test_get_teams_with_ai_event_count_excludes_conversations_loaded(
-        self,
-        mock_sync_execute: MagicMock,
-        _mock_use_new_events_schema: MagicMock,
-        _mock_get_property_string_expr: MagicMock,
-        _mock_events_read_table: MagicMock,
-    ) -> None:
-        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
-
-        begin = datetime(2026, 6, 15, tzinfo=tzutc())
-        end = begin + timedelta(days=1)
-
-        get_teams_with_ai_event_count_in_period(begin, end)
-
-        params = mock_sync_execute.call_args.args[1]
-        assert "$conversations_loaded" not in params["ai_events"]
-        assert "$conversations_widget_loaded" not in params["ai_events"]
-
-    @patch("posthog.tasks.usage_report.events_read_table", return_value="events")
-    @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
-    @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
     @patch("posthog.tasks.usage_report.sync_execute")
     def test_get_teams_with_ai_event_count_skips_sponsorship_query_without_verified_relays(
         self,
@@ -6328,6 +6306,19 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # AI count should include original 10 + 5 new = 15
         self.assertEqual(ai_result[0][1], 15)
 
+        # An `$ai_*` name outside the hard-coded enum is still an AI event on both meters.
+        for i in range(2):
+            _create_event(
+                event="$ai_custom_step",
+                team=self.team,
+                distinct_id=f"custom_ai_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 10),
+            )
+        flush_persons_and_events()
+
+        self.assertEqual(get_teams_with_billable_event_count_in_period(self.begin, self.end)[0][1], baseline_count)
+        self.assertEqual(get_teams_with_ai_event_count_in_period(self.begin, self.end)[0][1], 17)
+
         _create_event(
             event="$conversations_loaded",
             team=self.team,
@@ -6340,7 +6331,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         ai_result_with_conversations = get_teams_with_ai_event_count_in_period(self.begin, self.end)
 
         self.assertEqual(billable_result_with_conversations[0][1], baseline_count)
-        self.assertEqual(ai_result_with_conversations[0][1], 15)
+        self.assertEqual(ai_result_with_conversations[0][1], 17)
 
         # Now add a regular event and verify it DOES increase billable count
         _create_event(
