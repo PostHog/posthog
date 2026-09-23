@@ -269,7 +269,7 @@ class ReplyFingerprint:
             version=0,
         )
         if self.idempotency_key is not None:
-            candidates = candidates.filter(**{f"item_context__{WORKFLOW_DISPATCH_KEY}": self.idempotency_key})
+            candidates = candidates.filter(item_context__workflow_dispatch_key=self.idempotency_key)
         else:
             candidates = candidates.filter(content=self.content, created_at__gte=created_after)
         candidates = candidates.order_by("-created_at")[:20]
