@@ -1,6 +1,6 @@
+/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 
-/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import '@testing-library/jest-dom'
 
 import { cleanup, render, within } from '@testing-library/react'
@@ -60,7 +60,7 @@ describe('ProjectPendingDeletion', () => {
 
         expect(within(container).queryByText('Cancel project deletion')).not.toBeInTheDocument()
         expect(
-            within(container).getByText(/Deletion of this project has started, so it can no longer be canceled/)
+            within(container).getByText('Deletion of this project has started, so it can no longer be canceled.')
         ).toBeInTheDocument()
     })
 })

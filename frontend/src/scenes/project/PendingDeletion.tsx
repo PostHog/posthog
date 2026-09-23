@@ -47,10 +47,7 @@ export function ProjectPendingDeletion(): JSX.Element {
                                 . If you've changed your mind, you can cancel project deletion before then.
                             </>
                         ) : (
-                            <>
-                                Deletion of this project has started, so it can no longer be canceled. Contact support
-                                if you need help.
-                            </>
+                            'Deletion of this project has started, so it can no longer be canceled.'
                         )}
                     </p>
                     <div className="flex items-center gap-2">
