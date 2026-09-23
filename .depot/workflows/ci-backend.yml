@@ -785,11 +785,12 @@ jobs:
                   client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
-            - name: Install pnpm dependencies
-              uses: ./.depot/actions/pnpm-install
+            - name: Set up pnpm and Node
+              uses: ./.depot/actions/setup-pnpm
               with:
-                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            - name: Install turbo
+              uses: ./.depot/actions/setup-turbo
             # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
             # --no-project` for the dependent cascade; the script pins tach, so no
             # Python project sync is needed. A missing uv widens the cascade to
