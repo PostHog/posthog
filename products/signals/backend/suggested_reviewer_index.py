@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from products.signals.backend.artefact_schemas import SuggestedReviewers
 from products.signals.backend.models import SignalReportArtefact, SignalReportSuggestedReviewer
-from products.signals.backend.report_generation.resolve_reviewers import _normalized_reviewer_user_uuid
+from products.signals.backend.report_generation.resolve_reviewers import reviewer_identities_from_payloads
 
 logger = structlog.get_logger(__name__)
 
@@ -46,59 +46,31 @@ def _current_reviewer_artefacts(team_id: int, report_id: str) -> list[SignalRepo
     return [artefact for artefact in newest_first if artefact.created_at == latest]
 
 
-def _identities_from_raw_content(content: str) -> list[tuple[str | None, str | None]] | None:
-    """The reviewer identities in a content list, read without the schema, or None when the content
-    is not a JSON list.
-
-    The index answers one question — "which reports name this person?" — so every other field is
-    noise to it. A bound the schema puts on that noise, such as the length of a commit reason, must
-    not decide whether a person sees their own reports.
-    """
-    try:
-        rows = json.loads(content)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(rows, list):
-        return None
-    identities: list[tuple[str | None, str | None]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        user_uuid = _normalized_reviewer_user_uuid(row.get("user_uuid"))
-        login = str(row.get("github_login") or "").strip().lower() or None
-        if user_uuid or login:
-            identities.append((user_uuid, login))
-    return identities
-
-
 def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSuggestedReviewer]:
+    log_fields = {
+        "team_id": artefact.team_id,
+        "report_id": str(artefact.report_id),
+        "artefact_id": str(artefact.id),
+    }
     try:
-        entries = SuggestedReviewers.model_validate_json(artefact.content).root
+        payloads = json.loads(artefact.content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        payloads = None
+    if not isinstance(payloads, list):
+        # Content that is not a list names nobody. The artefact still holds the truth, so a later
+        # edit that parses restores the index.
+        logger.warning("signals_suggested_reviewer_index_unparseable_artefact", **log_fields)
+        return []
+    try:
+        # The result is deliberately discarded: the index needs identities alone, and every other
+        # reviewer reader already ignores the schema. Validating only separates the two cases in
+        # the logs, so a rebuild can count the artefacts the schema cannot read.
+        SuggestedReviewers.model_validate(payloads)
     except ValidationError:
-        identities = _identities_from_raw_content(artefact.content)
-        if identities is None:
-            # Content that is not a list names nobody. The artefact still holds the truth, so a
-            # later edit that parses restores the index.
-            logger.warning(
-                "signals_suggested_reviewer_index_unparseable_artefact",
-                team_id=artefact.team_id,
-                report_id=str(artefact.report_id),
-                artefact_id=str(artefact.id),
-            )
-            return []
-        logger.warning(
-            "signals_suggested_reviewer_index_identity_only_artefact",
-            team_id=artefact.team_id,
-            report_id=str(artefact.report_id),
-            artefact_id=str(artefact.id),
-        )
-    else:
-        identities = [
-            (entry.user_uuid, entry.github_login.lower() if entry.github_login else None) for entry in entries
-        ]
+        logger.warning("signals_suggested_reviewer_index_identity_only_artefact", **log_fields)
     rows: list[SignalReportSuggestedReviewer] = []
     seen: set[tuple[str | None, str | None]] = set()
-    for identity in identities:
+    for identity in reviewer_identities_from_payloads(payloads):
         if identity in seen:
             continue
         seen.add(identity)

@@ -380,6 +380,21 @@ def normalized_user_uuids_from_reviewer_payloads(rows: Iterable[object]) -> froz
     return frozenset(uuids)
 
 
+def reviewer_identities_from_payloads(rows: Iterable[object]) -> list[tuple[str | None, str | None]]:
+    """Each payload's identity as a `(user_uuid, github_login)` pair, normalized the way readers
+    match on, in the order the payloads name them. A payload that identifies nobody is skipped.
+    """
+    identities: list[tuple[str | None, str | None]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        user_uuid = _normalized_reviewer_user_uuid(row.get("user_uuid"))
+        login = str(row.get("github_login") or "").strip().lower() or None
+        if user_uuid or login:
+            identities.append((user_uuid, login))
+    return identities
+
+
 def normalized_user_uuids_from_suggested_reviewer_artefacts(
     artefacts: Iterable[SignalReportArtefact],
 ) -> frozenset[str]:
