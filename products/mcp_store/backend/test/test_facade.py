@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -33,6 +34,7 @@ from products.mcp_store.backend.models import (
     MCPServerTemplate,
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
+    TeamMCPGatewayConfig,
 )
 
 
@@ -1134,6 +1136,18 @@ class TestSlackConnectOffer(BaseTest):
         ):
             assert slack_connect_offer(self.team.id, self.user.id) is None
 
+    @parameterized.expand([("an explicit row disable", True), ("the catalog default posture", False)])
+    def test_no_offer_when_the_team_disabled_the_server(self, _name: str, explicit_row: bool) -> None:
+        template = self._template()
+        if explicit_row:
+            MCPGatewayServer.objects.for_team(self.team.id).create(
+                team=self.team, name="Slack", url=template.url, is_team_enabled=False
+            )
+        else:
+            TeamMCPGatewayConfig.objects.for_team(self.team.id).create(team=self.team, default_servers_enabled=False)
+
+        assert self._offer() is None
+
     def test_no_offer_when_the_member_is_already_connected(self) -> None:
         template = self._template()
         MCPServerInstallation.objects.create(
@@ -1173,7 +1187,7 @@ class TestSlackConnectOffer(BaseTest):
         assert self._offer(user=outsider) is None
 
 
-class TestConnectAuthorizePath(BaseTest):
+class TestConnectAuthorizePath(SimpleTestCase):
     def test_path_carries_the_template_and_the_return_path(self) -> None:
         path = connect_authorize_path(7, "abc-123", return_path="/settings/user-personal-integrations?x=1")
 

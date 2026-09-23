@@ -43,6 +43,7 @@ from products.mcp_store.backend.gateway import (
     agent_grant_proxy_path,
     installation_for_agent_access,
     reachable_agent_grants,
+    server_disabled_reason,
 )
 from products.mcp_store.backend.models import (
     MCPMemberServerRevocation,
@@ -718,9 +719,10 @@ def slack_connect_offer(team_id: int, user_id: int) -> SlackConnectOffer | None:
 
     ``None`` covers every reason the offer must not be made: the team is not on
     the `mcp-gateway` rollout, the catalog entry is suspended in this
-    environment, its OAuth client has no credentials, the member cannot reach
-    the project, or the member is already connected. A caller can therefore
-    treat a result as safe to show without repeating the checks.
+    environment, its OAuth client has no credentials, the team disabled the
+    server, the member cannot reach the project, or the member is already
+    connected. A caller can therefore treat a result as safe to show without
+    repeating the checks.
 
     The rollout gate is read first, so a team that is not on it costs one flag
     check and no queries.
@@ -736,6 +738,10 @@ def slack_connect_offer(team_id: int, user_id: int) -> SlackConnectOffer | None:
     if template is None or not template.oauth_metadata:
         return None
     if not oauth_credentials_source_is_configured(template.oauth_credentials_source):
+        return None
+    # The authorization route refuses a server the team disabled, explicitly or
+    # through the catalog default posture, so the offer has to refuse it too.
+    if server_disabled_reason(team_id, template.url) is not None:
         return None
 
     team = Team.objects.filter(id=team_id).select_related("organization").first()
