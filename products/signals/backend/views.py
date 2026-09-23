@@ -5127,10 +5127,12 @@ class SignalReportArtefactViewSet(
             else:
                 if pr_result.get("success"):
                     return Response(
-                        {
-                            "diff": pr_result["diff"],
-                            "truncated": pr_result.get("truncated", False),
-                        }
+                        CommitDiffResponseSerializer(
+                            {
+                                "diff": pr_result["diff"],
+                                "truncated": pr_result.get("truncated", False),
+                            }
+                        ).data
                     )
         try:
             # Diff the commit's branch against the repo default branch, using each branch's current
@@ -5173,10 +5175,12 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         return Response(
-            {
-                "diff": result["diff"],
-                "truncated": result.get("truncated", False),
-            }
+            CommitDiffResponseSerializer(
+                {
+                    "diff": result["diff"],
+                    "truncated": result.get("truncated", False),
+                }
+            ).data
         )
 
 
