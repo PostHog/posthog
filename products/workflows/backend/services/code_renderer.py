@@ -225,6 +225,10 @@ def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
 def _is_set(value: Any) -> bool:
     """Whether a stored field carries a value the editor's defaults do not: `""`, `[]`, `{}`, None and
     whitespace all count as unset, and so does a container that holds nothing but those."""
@@ -862,11 +866,13 @@ class _Renderer:
         if kind == "schedule":
             return _Call(self.use("onSchedule"), (trigger_options,) if trigger_options else ())
         filters = _dict(config.get("filters"))
-        events = [event for event in filters.get("events") or [] if isinstance(event, dict)]
+        events = [event for event in _list(filters.get("events")) if isinstance(event, dict)]
         if kind == "event" and events and events[0].get("type") == "events" and isinstance(events[0].get("id"), str):
             first = events[0]
+            event_properties = first.get("properties") or []
             if (
-                len(events) > 1
+                not isinstance(event_properties, list)
+                or len(events) > 1
                 or filters.get("actions")
                 or filters.get("properties")
                 or filters.get("filter_test_accounts")
@@ -874,7 +880,7 @@ class _Renderer:
                 return _Call(self.use("trigger"), (config, trigger_options) if trigger_options else (config,))
             options: dict[str, Any] = {"event": first["id"], **trigger_options}
             properties = []
-            for entry in first.get("properties") or []:
+            for entry in event_properties:
                 condition = self.render_condition(self.trigger_id, entry)
                 if condition is None:
                     self.warn(
