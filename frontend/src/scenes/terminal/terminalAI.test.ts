@@ -7,7 +7,6 @@ import { TerminalFile, TerminalFilesystem } from './terminalFilesystem'
 describe('terminal AI bridge', () => {
     const originalFetch = globalThis.fetch
     const originalAny = Object.getOwnPropertyDescriptor(AbortSignal, 'any')
-    const originalTimeout = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout')
     let filesystem: TerminalFilesystem
     let stream: ReadableStreamDefaultController<Uint8Array>
     let session: AbortController
@@ -22,7 +21,6 @@ describe('terminal AI bridge', () => {
 
     beforeEach(() => {
         session = new AbortController()
-        Object.defineProperty(AbortSignal, 'timeout', { configurable: true, value: () => new AbortController().signal })
         Object.defineProperty(AbortSignal, 'any', {
             configurable: true,
             value: (signals: AbortSignal[]) => {
@@ -42,12 +40,8 @@ describe('terminal AI bridge', () => {
     })
 
     afterEach(() => {
+        jest.useRealTimers()
         globalThis.fetch = originalFetch
-        if (originalTimeout) {
-            Object.defineProperty(AbortSignal, 'timeout', originalTimeout)
-        } else {
-            delete (AbortSignal as Partial<typeof AbortSignal>).timeout
-        }
         if (originalAny) {
             Object.defineProperty(AbortSignal, 'any', originalAny)
         } else {
@@ -93,7 +87,34 @@ describe('terminal AI bridge', () => {
             session.abort()
         }
         expect(signal.aborted).toBe(true)
+        if (action === 'cancel') {
+            await expect(request('retry')).rejects.toMatchObject({ errno: 16 })
+        }
         stream.close()
+        await waitFor(async () => expect((await read()).done).toBe(true))
+        if (action === 'cancel') {
+            await request('retry')
+            expect(await read()).toMatchObject({ id: 'retry', done: false })
+            stream.close()
+            await waitFor(async () => expect((await read()).done).toBe(true))
+        }
+    })
+
+    it('keeps active generations alive and aborts after 120 seconds without a chunk', async () => {
+        jest.useFakeTimers()
+        await request('long-running')
+        const signal = (fetch as jest.Mock).mock.calls[0][1].signal as AbortSignal
+        await jest.advanceTimersByTimeAsync(119_000)
+        stream.enqueue(encoder.encode('data: first\n\n'))
+        await jest.advanceTimersByTimeAsync(119_000)
+        expect(signal.aborted).toBe(false)
+        expect(await read()).toMatchObject({ body: 'data: first\n\n', done: false })
+        await jest.advanceTimersByTimeAsync(1000)
+        expect(signal.aborted).toBe(true)
+        stream.close()
+        await jest.advanceTimersByTimeAsync(0)
+        expect((await read()).done).toBe(true)
+        expect(jest.getTimerCount()).toBe(0)
     })
 
     it('reports a failed request and allows a retry', async () => {
@@ -103,5 +124,6 @@ describe('terminal AI bridge', () => {
         await request('retry')
         expect(await read()).toMatchObject({ id: 'retry', status: 200, done: false })
         stream.close()
+        await waitFor(async () => expect((await read()).done).toBe(true))
     })
 })

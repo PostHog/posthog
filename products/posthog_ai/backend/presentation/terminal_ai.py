@@ -92,6 +92,8 @@ class TerminalAIViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     @extend_schema(request=TerminalAIRequest, responses={(200, "text/event-stream"): OpenApiTypes.STR})
     def create(self, request: Request, **kwargs: object) -> HttpResponse | StreamingHttpResponse:
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            raise PermissionDenied("Sign in to use PostHog AI in the terminal.")
         user = cast(User, request.user)
         if not feature_enabled_or_false(
             "posthog-terminal",
@@ -104,12 +106,13 @@ class TerminalAIViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         gateway = resolve_ai_gateway_config()
         if gateway is None:
             raise TerminalAIUnavailable()
-        if len(json.dumps(request.data).encode()) > 1024 * 1024:
+        if len(json.dumps(request.data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 1024 * 1024:
             raise RequestValidationError("The conversation exceeds 1 MiB. Start a new pi session.")
         try:
             body = TerminalAIRequest.model_validate(request.data).model_dump_json(exclude_none=True)
         except ValidationError:
             raise RequestValidationError("Invalid model request. Use pi's PostHog provider.")
+        # Keep the gateway credential server-side; derive attribution and policy headers from the authenticated session.
         headers = (
             ai_gateway_headers(
                 ai_product="posthog_ai",

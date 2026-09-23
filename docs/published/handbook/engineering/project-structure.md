@@ -89,7 +89,9 @@ Stopping the terminal discards the installed tools and local files; verified dow
 Pi defaults to the PostHog provider, which sends model requests through a bounded 9P bridge and the signed-in session to `/api/projects/:id/terminal_ai/`.
 The endpoint uses `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` for the Go AI gateway, checks the terminal flag and AI credit quota, and attributes usage to the current user and project.
 Pi can discover project commands and connected MCP tools with `ph tools`; file and tool permissions still apply.
-Run one pi generation at a time per terminal. Canceling pi or stopping the terminal cancels the browser request.
+Run one pi generation at a time per terminal. Canceling pi or stopping the terminal cancels the browser request; a retry waits for stream cleanup to finish.
+The bridge times out after 120 seconds without a response chunk, so active generations can run longer.
+Conversations are limited to 1 MiB of UTF-8 JSON.
 The VM has no general network access, so external login and package downloads are unavailable.
 Add future tools to `terminal-packages.json` with pinned archive metadata, dependencies, and command entrypoints, and publish their reproducible build recipes in the assets repository.
 

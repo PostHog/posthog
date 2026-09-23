@@ -81,7 +81,6 @@ export class TerminalAI {
                 save: async (bytes) => {
                     if (this.decoder.decode(bytes) === this.generation?.id) {
                         this.generation.controller.abort()
-                        this.generation = undefined
                     }
                 },
             }),
@@ -90,6 +89,8 @@ export class TerminalAI {
     }
 
     private async stream(projectId: string, body: unknown, generation: Generation, signal: AbortSignal): Promise<void> {
+        const idle = new AbortController()
+        let idleTimer = setTimeout(() => idle.abort(), 120_000)
         try {
             const response = await fetch(getTerminalAiCreateUrl(projectId), {
                 method: 'POST',
@@ -100,7 +101,7 @@ export class TerminalAI {
                     'X-CSRFToken': getCookie('posthog_csrftoken') || '',
                 },
                 body: JSON.stringify(body),
-                signal: AbortSignal.any([signal, generation.controller.signal, AbortSignal.timeout(120_000)]),
+                signal: AbortSignal.any([signal, generation.controller.signal, idle.signal]),
             })
             generation.status = response.status
             const reader = response.body?.getReader()
@@ -112,6 +113,8 @@ export class TerminalAI {
             try {
                 while (true) {
                     const chunk = await reader.read()
+                    clearTimeout(idleTimer)
+                    idleTimer = setTimeout(() => idle.abort(), 120_000)
                     if (chunk.done) {
                         generation.body += decoder.decode()
                         break
@@ -123,12 +126,16 @@ export class TerminalAI {
                     generation.body += decoder.decode(chunk.value, { stream: true })
                 }
             } finally {
-                await reader.cancel()
-                reader.releaseLock()
+                try {
+                    await reader.cancel()
+                } finally {
+                    reader.releaseLock()
+                }
             }
         } catch (error) {
             generation.error = error instanceof Error ? error.message : 'PostHog AI failed. Try again.'
         } finally {
+            clearTimeout(idleTimer)
             generation.done = true
         }
     }

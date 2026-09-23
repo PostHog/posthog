@@ -1,7 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.posthog_ai.backend.api import MCPToolsViewSet
-from products.posthog_ai.backend.api.terminal_ai import TerminalAIViewSet
+from products.posthog_ai.backend.presentation.terminal_ai import TerminalAIViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
