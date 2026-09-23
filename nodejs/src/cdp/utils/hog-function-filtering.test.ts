@@ -286,6 +286,24 @@ describe('hog-function-filtering', () => {
             expect(result.errorClass).toBe(errorClass)
             expect(await errorCount(reason)).toBe(before + 1)
         })
+
+        it('still skips the VM for a bytecode-only filter that carries a stamp', async () => {
+            // The bytecode is an unknown opcode, so running it would fail. A stamp alone is not a filter.
+            const result = await filterFunctionInstrumented({
+                caller: 'build_hog_function_invocations',
+                fn: {
+                    id: 'test-function',
+                    team_id: 1,
+                    name: 'Test Function',
+                    type: 'destination',
+                } as unknown as HogFunctionType,
+                filters: { bytecode: ['_H', 1, 999], bytecode_contract: 'older' } as HogFunctionType['filters'],
+                filterGlobals: { event: '$pageview' } as HogFunctionFilterGlobals,
+            })
+
+            expect(result.error).toBeUndefined()
+            expect(result.match).toBe(true)
+        })
     })
 
     describe('Pre-filtering on event name', () => {

@@ -420,7 +420,9 @@ export async function filterFunctionInstrumented(options: {
     try {
         // If there are no filters (only bytecode exists then on the filter object)
         // everything matches no need to execute bytecode (lets save those cpu cycles)
-        if (filters && Object.keys(filters).length === 1 && 'bytecode' in filters) {
+        // The stamp is metadata about the bytecode, not a filter.
+        const filterKeys = Object.keys(filters ?? {}).filter((key) => key !== 'bytecode_contract')
+        if (filters && filterKeys.length === 1 && 'bytecode' in filters) {
             hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__no_filters' })
             result.match = true
             return result
