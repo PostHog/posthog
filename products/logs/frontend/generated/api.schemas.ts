@@ -1870,10 +1870,9 @@ export interface _LogsImpactResponseApi {
  * * `logs` - Logs
  * * `spans` - Spans
  */
-export type LogsMetricRuleRecordSourceEnumApi =
-    (typeof LogsMetricRuleRecordSourceEnumApi)[keyof typeof LogsMetricRuleRecordSourceEnumApi]
+export type LogsMetricRuleSourceEnumApi = (typeof LogsMetricRuleSourceEnumApi)[keyof typeof LogsMetricRuleSourceEnumApi]
 
-export const LogsMetricRuleRecordSourceEnumApi = {
+export const LogsMetricRuleSourceEnumApi = {
     Logs: 'logs',
     Spans: 'spans',
 } as const
@@ -1910,7 +1909,7 @@ export interface LogsMetricRuleApi {
      *
      * * `logs` - Logs
      * * `spans` - Spans */
-    source?: LogsMetricRuleRecordSourceEnumApi
+    source?: LogsMetricRuleSourceEnumApi
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
     readonly created_by: number
@@ -1960,7 +1959,7 @@ export interface PatchedLogsMetricRuleApi {
      *
      * * `logs` - Logs
      * * `spans` - Spans */
-    source?: LogsMetricRuleRecordSourceEnumApi
+    source?: LogsMetricRuleSourceEnumApi
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number
     readonly created_by?: number

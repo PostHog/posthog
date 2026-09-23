@@ -56088,10 +56088,10 @@ export namespace Schemas {
      * * `logs` - Logs
      * * `spans` - Spans
      */
-    export type LogsMetricRuleRecordSourceEnum = typeof LogsMetricRuleRecordSourceEnum[keyof typeof LogsMetricRuleRecordSourceEnum];
+    export type LogsMetricRuleSourceEnum = typeof LogsMetricRuleSourceEnum[keyof typeof LogsMetricRuleSourceEnum];
 
 
-    export const LogsMetricRuleRecordSourceEnum = {
+    export const LogsMetricRuleSourceEnum = {
       Logs: 'logs',
       Spans: 'spans',
     } as const;
@@ -56128,7 +56128,7 @@ export namespace Schemas {
        *
        * * `logs` - Logs
        * * `spans` - Spans */
-      source?: LogsMetricRuleRecordSourceEnum;
+      source?: LogsMetricRuleSourceEnum;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
       readonly created_by: number;
@@ -72977,7 +72977,7 @@ export namespace Schemas {
        *
        * * `logs` - Logs
        * * `spans` - Spans */
-      source?: LogsMetricRuleRecordSourceEnum;
+      source?: LogsMetricRuleSourceEnum;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
       readonly created_by?: number;
