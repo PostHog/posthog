@@ -65,6 +65,15 @@ _MAX_CODE_LANGUAGE_LEN = 32
 _MAX_SLACK_CHUNKS = 20
 
 _TRUNCATION_NOTICE = "_The rest of this reply was too long for Slack. Open the run to read all of it._"
+# The notice itself has to fit the chunk budget, which a caller is free to set below its length.
+_SHORT_TRUNCATION_NOTICE = "\u2026"
+
+
+def _truncation_notice(limit: int) -> str:
+    """The notice that stands in for the chunks the ceiling cut, sized to fit one chunk."""
+    if len(_TRUNCATION_NOTICE) <= limit:
+        return _TRUNCATION_NOTICE
+    return _SHORT_TRUNCATION_NOTICE[:limit]
 
 
 def _code_language(info_string: str) -> str:
@@ -80,12 +89,31 @@ def _code_language(info_string: str) -> str:
 
 
 class _SlackChunkPacker:
-    """Packs markdown into chunks of at most ``limit`` characters."""
+    """Packs markdown into at most ``max_chunks`` chunks of at most ``limit`` characters."""
 
-    def __init__(self, limit: int) -> None:
+    def __init__(self, limit: int, max_chunks: int) -> None:
         self._limit = limit
+        self._max_chunks = max_chunks
         self._chunks: list[str] = []
         self._current = ""
+        self._truncated = False
+
+    @property
+    def truncated(self) -> bool:
+        """Whether the packer reached its ceiling and dropped the rest of the input."""
+        return self._truncated
+
+    def _emit(self, chunk: str) -> bool:
+        """Record a finished chunk, or report that the ceiling leaves no room for it.
+
+        Every chunk goes through here, so the ceiling stops the work as well as the output:
+        the callers below return as soon as it reports no room.
+        """
+        if len(self._chunks) >= self._max_chunks:
+            self._truncated = True
+            return False
+        self._chunks.append(chunk)
+        return True
 
     def _try_append(self, atom: str, joiner: str) -> bool:
         """Add ``atom`` to the open chunk, or report that it does not fit."""
@@ -96,9 +124,9 @@ class _SlackChunkPacker:
 
     def _flush(self) -> None:
         stripped = self._current.rstrip()
-        if stripped:
-            self._chunks.append(stripped)
         self._current = ""
+        if stripped:
+            self._emit(stripped)
 
     def _append_atom(self, atom: str, separator: str) -> None:
         """Append ``atom``, starting a new chunk first if it would overflow the open one."""
@@ -112,7 +140,8 @@ class _SlackChunkPacker:
         remaining = line
         while len(remaining) > self._limit:
             self._flush()
-            self._chunks.append(remaining[: self._limit])
+            if not self._emit(remaining[: self._limit]):
+                return
             remaining = remaining[self._limit :]
         if remaining:
             self._append_atom(remaining, "\n")
@@ -124,6 +153,8 @@ class _SlackChunkPacker:
         # it. The two are not interchangeable, because merging them changes which
         # characters start a chunk.
         for index, atom in enumerate(body.split(separator)):
+            if self._truncated:
+                return
             joiner = separator if index > 0 or self._current else ""
             if self._try_append(atom, joiner):
                 continue
@@ -152,7 +183,8 @@ class _SlackChunkPacker:
                 newline = body.rfind("\n", cursor, end)
                 if newline > cursor:
                     end = newline
-            self._chunks.append(f"{fence_open}{body[cursor:end]}{fence_close}")
+            if not self._emit(f"{fence_open}{body[cursor:end]}{fence_close}"):
+                return
             cursor = end + 1 if end < len(body) and body[end] == "\n" else end
 
     def _add_code_block(self, language: str, body: str) -> None:
@@ -168,11 +200,13 @@ class _SlackChunkPacker:
         """Pack ``text``, keeping every fenced code block apart from the prose around it."""
         pos = 0
         for match in _FENCED_CODE_RE.finditer(text):
+            if self._truncated:
+                return
             if match.start() > pos:
                 self._add_text(text[pos : match.start()])
             self._add_code_block(_code_language(match.group(1)), match.group(2))
             pos = match.end()
-        if pos < len(text):
+        if pos < len(text) and not self._truncated:
             self._add_text(text[pos:])
 
     def finish(self) -> list[str]:
@@ -190,16 +224,18 @@ def _split_markdown_for_slack(text: str, limit: int) -> list[str]:
     markdown document.
 
     The result holds at most ``_MAX_SLACK_CHUNKS`` chunks, with a notice in place of the
-    remainder, so no single answer can flood a thread.
+    remainder, so no single answer can flood a thread. The packer stops at that ceiling, so
+    the text past it costs nothing to skip.
     """
     if len(text) <= limit:
         return [text]
 
-    packer = _SlackChunkPacker(limit)
+    # One chunk of the ceiling is held back for the notice the packer may need.
+    packer = _SlackChunkPacker(limit, max_chunks=_MAX_SLACK_CHUNKS - 1)
     packer.add_markdown(text)
     chunks = packer.finish()
-    if len(chunks) > _MAX_SLACK_CHUNKS:
-        chunks = [*chunks[: _MAX_SLACK_CHUNKS - 1], _TRUNCATION_NOTICE]
+    if packer.truncated:
+        chunks.append(_truncation_notice(limit))
     return chunks
 
 

@@ -717,6 +717,18 @@ class TestSplitTextForSlack(TestCase):
 
         assert len(chunks) == 20
         assert chunks[-1].startswith("_The rest of this reply")
+        for chunk in chunks:
+            assert len(chunk) <= self._LIMIT
+
+    def test_truncation_notice_fits_a_limit_shorter_than_itself(self):
+        limit = 32
+        text = "\n\n".join(["y" * limit] * 50)
+
+        chunks = _split_markdown_for_slack(text, limit)
+
+        assert len(chunks) == 20
+        for chunk in chunks:
+            assert len(chunk) <= limit
 
     def test_mixed_text_and_code_block_preserves_block(self):
         prefix = "intro paragraph\n\n"
