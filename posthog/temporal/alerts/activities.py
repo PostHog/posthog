@@ -196,12 +196,18 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
 @temporalio.activity.defn
 async def admit_alert_evaluations(inputs: AdmitEvaluationsInputs) -> AdmittedEvaluations:
     admitted = await asyncio.to_thread(admit_evaluation_slots, inputs.alert_ids, limit=max_inflight_evaluations())
-    return AdmittedEvaluations(alert_ids=admitted)
+    try:
+        get_metric_meter().create_gauge(
+            "insight_alert_evaluations_inflight", "Alert checks holding an evaluation slot"
+        ).set(admitted.occupied)
+    except Exception:
+        logger.exception("Failed to record alert evaluation slot metrics")
+    return admitted
 
 
 @temporalio.activity.defn
 async def release_alert_evaluation_slots(inputs: ReleaseEvaluationSlotsInputs) -> None:
-    await asyncio.to_thread(release_evaluation_slots, inputs.alert_ids)
+    await asyncio.to_thread(release_evaluation_slots, inputs.alert_ids, held_until=inputs.held_until)
 
 
 def _has_active_destinations(alert: AlertConfiguration) -> bool:

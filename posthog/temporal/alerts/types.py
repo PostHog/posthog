@@ -47,11 +47,27 @@ class AdmitEvaluationsInputs:
 @frozen
 class AdmittedEvaluations:
     alert_ids: list[str]
+    # The expiry this admission wrote; a release carrying it removes only the entries it made.
+    expires_at: float
+    occupied: int
 
 
 @frozen
 class ReleaseEvaluationSlotsInputs:
     alert_ids: list[str]
+    held_until: float
+
+
+@frozen
+class UnstartedChecks:
+    """Alerts a scheduler batch admitted without starting a new check for them."""
+
+    failed_ids: list[str]
+    already_running_ids: list[str]
+
+    @property
+    def alert_ids(self) -> list[str]:
+        return self.failed_ids + self.already_running_ids
 
 
 @dataclasses.dataclass(frozen=True)

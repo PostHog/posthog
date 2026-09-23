@@ -38,6 +38,7 @@ from posthog.temporal.alerts.types import (
     RecordFailedEvaluationActivityInputs,
     ReleaseEvaluationSlotsInputs,
     ScheduleDueAlertChecksWorkflowInputs,
+    UnstartedChecks,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
@@ -76,7 +77,8 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
             inputs = ScheduleDueAlertChecksWorkflowInputs()
 
         if not temporalio.workflow.patched(_PATCH_INFLIGHT_ADMISSION):
-            self._raise_for_failed_starts(await self._start_checks(await self._retrieve_due_alerts(inputs)))
+            unstarted = await self._start_checks(await self._retrieve_due_alerts(inputs))
+            self._raise_for_failed_starts(unstarted.failed_ids)
             return
 
         failed_ids: list[str] = []
@@ -96,7 +98,10 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                     admitted_ids = set(admitted.alert_ids)
                     batch = [alert for alert in pending if alert.alert_id in admitted_ids]
                     pending = [alert for alert in pending if alert.alert_id not in admitted_ids]
-                    failed_ids.extend(await self._start_checks(batch))
+                    unstarted = await self._start_checks(batch)
+                    failed_ids.extend(unstarted.failed_ids)
+                    if unstarted.alert_ids:
+                        await self._release_slots(unstarted.alert_ids, admitted.expires_at)
                 if pending:
                     await temporalio.workflow.sleep(_ADMISSION_POLL_INTERVAL)
             # A short page means nothing else is due; a full page may hide more behind it.
@@ -108,15 +113,20 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                 "check_alert.admission_budget_exhausted",
                 extra={"remaining": len(pending)},
             )
-        if failed_ids:
-            # No child exists to give these slots back, so free them here rather than at lease expiry.
-            await temporalio.workflow.execute_activity(
-                release_alert_evaluation_slots,
-                ReleaseEvaluationSlotsInputs(alert_ids=failed_ids),
-                start_to_close_timeout=dt.timedelta(seconds=30),
-                retry_policy=_ADMISSION_ACTIVITY_RETRY_POLICY,
-            )
         self._raise_for_failed_starts(failed_ids)
+
+    async def _release_slots(self, alert_ids: list[str], expires_at: float) -> None:
+        """Give back reservations no child will use: the start failed, or the check was already running.
+
+        A running check holds its slot under its own expiry, so a release keyed on this admission's
+        expiry cannot take that slot away.
+        """
+        await temporalio.workflow.execute_activity(
+            release_alert_evaluation_slots,
+            ReleaseEvaluationSlotsInputs(alert_ids=alert_ids, held_until=expires_at),
+            start_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=_ADMISSION_ACTIVITY_RETRY_POLICY,
+        )
 
     async def _retrieve_due_alerts(self, inputs: ScheduleDueAlertChecksWorkflowInputs) -> list[AlertInfo]:
         return await temporalio.workflow.execute_activity(
@@ -138,13 +148,14 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                 non_retryable=True,
             )
 
-    async def _start_checks(self, alerts: list[AlertInfo]) -> list[str]:
-        """Start one child workflow per alert and return the ids whose start failed.
+    async def _start_checks(self, alerts: list[AlertInfo]) -> UnstartedChecks:
+        """Start one child workflow per alert and return the ids that did not get a new check.
 
         Deterministic IDs prevent duplicate checks from retries or concurrent manual triggers. Wait
         only for Temporal to accept the start; the children run independently.
         """
         failed_ids: list[str] = []
+        already_running_ids: list[str] = []
         for alert in alerts:
             slo_properties: dict[str, JsonValue] = {
                 "alert_type": "insight",
@@ -175,6 +186,7 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                     execution_timeout=alert_timeouts(alert.calculation_interval).workflow_execution,
                 )
             except WorkflowAlreadyStartedError:
+                already_running_ids.append(alert.alert_id)
                 temporalio.workflow.logger.info(
                     "check_alert.already_running",
                     extra={"alert_id": alert.alert_id},
@@ -185,7 +197,7 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                     "check_alert.start_failed",
                     extra={"alert_id": alert.alert_id, "error": str(error)},
                 )
-        return failed_ids
+        return UnstartedChecks(failed_ids=failed_ids, already_running_ids=already_running_ids)
 
 
 @temporalio.workflow.defn(name="check-alert")

@@ -315,13 +315,20 @@ class TestPrepareAlert:
         assert count_inflight_evaluations() == 0
 
     async def test_skip_leaves_the_slot_a_later_attempt_holds(self, ateam) -> None:
-        a = await _create_alert(ateam, enabled=False)
-        # A retried attempt's evaluation took the slot after this attempt started, so it holds the later expiry.
-        with time_machine.travel("2026-09-22T10:01:00Z", tick=False):
-            hold_evaluation_slot(str(a.id))
-        with time_machine.travel("2026-09-22T10:00:00Z", tick=False):
+        a = await _create_alert(ateam, skip_weekend=True, schedule_start_time="08:30")
+
+        def _hold_as_a_retried_attempt(alert: AlertConfiguration) -> bool:
+            # A retried attempt takes the slot while this attempt is still deciding to skip.
+            with time_machine.travel("2024-12-21T08:00:01Z", tick=False):
+                hold_evaluation_slot(str(alert.id))
+            return True
+
+        with (
+            time_machine.travel("2024-12-21T08:00:00Z", tick=False),  # Saturday
+            patch("posthog.temporal.alerts.activities.skip_because_of_weekend", side_effect=_hold_as_a_retried_attempt),
+        ):
             result = await ActivityEnvironment().run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
-            assert result.action == PrepareAction.SKIP
+            assert result.reason == SkipReason.WEEKEND
             assert str(a.id) in inflight_alert_ids()
 
     @time_machine.travel("2024-06-03T10:00:00Z", tick=False)
