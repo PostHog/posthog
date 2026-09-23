@@ -180,8 +180,22 @@ flag_definitions_hypercache = HyperCache(
 
 It includes full cohort definitions and group type mappings, since all current SDKs support cohort evaluation locally. A legacy `flag_definitions_without_cohorts_hypercache` variant — pre-flattened cohort filters for SDKs too old to evaluate cohorts locally — was removed once nothing served it to real clients anymore.
 
-The builder reads cohort references and flag dependencies through the same `facade/references.py` accessors as the service cache.
-A flag in an unsupported config format is dropped from the payload by the per-flag error handling (logged and counted in `posthog_flag_definitions_processing_error`), the team's other flags are published as before, and the cohort prepass skips that flag so one document cannot fail the whole batch.
+The builder classifies stored filters before reading cohort references, transforming dependencies, or serializing flags.
+Only absent or numeric version 1 configurations enter the legacy feed.
+Classification includes inactive and deleted targets before existing lifecycle filtering omits them.
+Unsupported formats are expected exclusions; malformed flags increment `posthog_flag_definitions_processing_error`.
+A malformed flag or reachable cohort removes the affected flag and its transitive dependents while independent flags remain available.
+Dependencies on excluded targets are omitted even when the condition expects false.
+An inconclusive dependency does not always force an SDK to use server evaluation: a later condition can return a different variant.
+For example, if the first condition selects `blue` when the target is true and the next always selects `green`, omitting only the target can make the SDK return `green` instead of `blue`.
+Removing the dependent prevents that local answer, at the cost of sending the whole flag to server evaluation or the caller's local-only default.
+Supported v1 missing targets, inactive targets, cycles, cohort scoping, mappings, and metadata retain their existing behavior.
+The internal `flags.json` producer keeps its separate rejection and inactive-filter behavior.
+
+Readers serve cached bodies and answer 304s without re-checking them, so the exclusion relies on deployment order.
+Until a stored configuration is unsupported, this builder and older builders publish identical bodies.
+Deploy this builder to every region before storing an unsupported configuration, and never deploy an older builder after one exists.
+Tightening these exclusion rules later requires rebuilding existing cache entries.
 
 ### Cache invalidation
 
