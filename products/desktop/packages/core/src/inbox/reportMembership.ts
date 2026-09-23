@@ -47,13 +47,7 @@ export function isRestorableReport(
   return report.status === "suppressed" && report.refund == null;
 }
 
-export type InboxScope =
-  | "for-you"
-  | "entire-project"
-  | "unclassified"
-  | `team:${string}`
-  | `domain:${string}`
-  | `teammate:${string}`;
+export type InboxScope = "for-you" | "entire-project" | `teammate:${string}`;
 
 export const INBOX_SCOPE_FOR_YOU: InboxScope = "for-you";
 export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = "entire-project";
@@ -78,9 +72,6 @@ export function isTeammateInboxScope(
 export function inboxReviewerScopeValue(scope: InboxScope): InboxReviewerScope {
   if (scope === INBOX_SCOPE_FOR_YOU) return "for-you";
   if (scope === INBOX_SCOPE_ENTIRE_PROJECT) return "entire-project";
-  if (scope.startsWith("team:")) return "team";
-  if (scope.startsWith("domain:")) return "domain";
-  if (scope === "unclassified") return "unclassified";
   return "teammate";
 }
 
@@ -99,7 +90,7 @@ export function matchesInboxScope(
 ): boolean {
   if (isExcludedFromInbox(report)) return false;
   if (scope === INBOX_SCOPE_ENTIRE_PROJECT) return true;
-  if (scope !== INBOX_SCOPE_FOR_YOU) return true;
+  if (isTeammateInboxScope(scope)) return true;
   return report.is_suggested_reviewer === true;
 }
 

@@ -12,13 +12,8 @@ import {
   INBOX_SCOPE_FOR_YOU,
   parseTeammateInboxScope,
 } from "@posthog/core/inbox/reportMembership";
-import {
-  CURRENT_OWNERSHIP_FLAG,
-  ownershipScopeParams,
-} from "@posthog/core/inbox/routing";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { DESKTOP_INBOX_REFETCH_INTERVAL_MS } from "@posthog/ui/features/inbox/hooks/inboxPolling";
 import {
   useInboxReports,
@@ -104,7 +99,6 @@ export function useInboxAllReports(options?: {
   const priorityFilter = useInboxSignalsFilterStore((s) =>
     ignoreFilters ? EMPTY_FILTER_ARRAY : s.priorityFilter,
   );
-  const currentOwnership = useFeatureFlag(CURRENT_OWNERSHIP_FLAG);
   const isForYou = !ignoreScope && scope === INBOX_SCOPE_FOR_YOU;
   const teammateUuid = ignoreScope ? null : parseTeammateInboxScope(scope);
   const client = useOptionalAuthenticatedClient();
@@ -137,13 +131,9 @@ export function useInboxAllReports(options?: {
           ? sourceProductFilter.join(",")
           : undefined,
       priority: buildPriorityFilterParam(priorityFilter),
-      ...(currentOwnership
-        ? ownershipScopeParams(ignoreScope ? "entire-project" : scope)
-        : {
-            suggested_reviewers: reviewerUuid
-              ? buildSuggestedReviewerFilterParam([reviewerUuid])
-              : undefined,
-          }),
+      suggested_reviewers: reviewerUuid
+        ? buildSuggestedReviewerFilterParam([reviewerUuid])
+        : undefined,
     },
     {
       // "For you" must always carry the current user's `suggested_reviewers`
@@ -173,13 +163,9 @@ export function useInboxAllReports(options?: {
           ? sourceProductFilter.join(",")
           : undefined,
       priority: buildPriorityFilterParam(priorityFilter),
-      ...(currentOwnership
-        ? ownershipScopeParams(ignoreScope ? "entire-project" : scope)
-        : {
-            suggested_reviewers: reviewerUuid
-              ? buildSuggestedReviewerFilterParam([reviewerUuid])
-              : undefined,
-          }),
+      suggested_reviewers: reviewerUuid
+        ? buildSuggestedReviewerFilterParam([reviewerUuid])
+        : undefined,
       count_only: true,
     },
     {
@@ -205,13 +191,9 @@ export function useInboxAllReports(options?: {
           ? sourceProductFilter.join(",")
           : undefined,
       priority: buildPriorityFilterParam(priorityFilter),
-      ...(currentOwnership
-        ? ownershipScopeParams(ignoreScope ? "entire-project" : scope)
-        : {
-            suggested_reviewers: reviewerUuid
-              ? buildSuggestedReviewerFilterParam([reviewerUuid])
-              : undefined,
-          }),
+      suggested_reviewers: reviewerUuid
+        ? buildSuggestedReviewerFilterParam([reviewerUuid])
+        : undefined,
       count_only: true,
     },
     {

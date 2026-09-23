@@ -11,7 +11,6 @@ import {
   parseTeammateInboxScope,
   teammateInboxScope,
 } from "@posthog/core/inbox/reportMembership";
-import { CURRENT_OWNERSHIP_FLAG } from "@posthog/core/inbox/routing";
 import {
   Button,
   Combobox,
@@ -22,18 +21,15 @@ import {
   ComboboxList,
   ComboboxTrigger,
 } from "@posthog/quill";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { ReviewerAvatar } from "@posthog/ui/features/inbox/components/ReviewerAvatar";
 import { getSuggestedReviewerDisplayName } from "@posthog/ui/features/inbox/filterOptions";
 import { useInboxScopeOptions } from "@posthog/ui/features/inbox/hooks/useInboxScopeOptions";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useMemo, useRef, useState } from "react";
-import { CurrentOwnershipScopeSelect } from "./routing/CurrentOwnershipScopeSelect";
 
 const PICKER_ENTIRE_PROJECT_VALUE = "__entire-project__";
 
 export function InboxScopeSelect() {
-  const currentOwnership = useFeatureFlag(CURRENT_OWNERSHIP_FLAG);
   const scope = useInboxReviewerScopeStore((s) => s.scope);
   const setScope = useInboxReviewerScopeStore((s) => s.setScope);
   const anchorRef = useRef<HTMLButtonElement>(null);
@@ -79,8 +75,6 @@ export function InboxScopeSelect() {
     }
     setOpen(false);
   };
-
-  if (currentOwnership) return <CurrentOwnershipScopeSelect />;
 
   return (
     <Combobox

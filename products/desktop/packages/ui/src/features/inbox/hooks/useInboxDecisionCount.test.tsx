@@ -6,10 +6,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSignalReports = vi.hoisted(() => vi.fn());
 
-vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => false,
-}));
-
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => ({
     getSignalReports: mockGetSignalReports,

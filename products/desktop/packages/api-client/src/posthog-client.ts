@@ -5357,131 +5357,14 @@ export class PostHogAPIClient {
     }
   }
 
-  async getRoutingDomains(offset = 0) {
-    const project_id = String(await this.getTeamId());
-    return this.api.get("/api/projects/{project_id}/signals/domains/", {
-      path: { project_id },
-      query: { limit: 100, offset },
-    });
-  }
-
-  async getRoutingTeams() {
-    const project_id = String(await this.getTeamId());
-    return this.api.get("/api/projects/{project_id}/signals/domains/teams/", {
-      path: { project_id },
-    });
-  }
-
-  async getRoutingPreferences(offset = 0) {
-    const project_id = String(await this.getTeamId());
-    return this.api.get(
-      "/api/projects/{project_id}/signals/routing_preferences/",
-      { path: { project_id }, query: { limit: 100, offset } },
-    );
-  }
-
-  async getRoutingSuggestions() {
-    const project_id = String(await this.getTeamId());
-    return this.api.get(
-      "/api/projects/{project_id}/signals/routing_preferences/suggestions/",
-      { path: { project_id } },
-    );
-  }
-
-  async getRoutingBatches() {
-    const project_id = String(await this.getTeamId());
-    return this.api.get("/api/projects/{project_id}/signals/routing_batches/", {
-      path: { project_id },
-      query: { limit: 25 },
-    });
-  }
-
-  async previewRoutingDomain(body: Schemas.SignalDomainPreview) {
-    const project_id = String(await this.getTeamId());
+  async snoozeSignalReport(reportId: string, snoozed: boolean) {
+    const teamId = await this.getTeamId();
     return this.api.post(
-      "/api/projects/{project_id}/signals/routing_preferences/preview/",
-      { path: { project_id }, body },
-    );
-  }
-
-  async setRoutingPreference(body: Schemas.SignalDomainPreferenceWrite) {
-    const project_id = String(await this.getTeamId());
-    return this.api.post(
-      "/api/projects/{project_id}/signals/routing_preferences/set/",
-      { path: { project_id }, body },
-    );
-  }
-
-  async getReportRouting(report_id: string) {
-    const project_id = String(await this.getTeamId());
-    return this.api.get(
-      "/api/projects/{project_id}/signals/reports/{report_id}/routing/",
-      { path: { project_id, report_id } },
-    );
-  }
-  async correctReportRouting(
-    report_id: string,
-    body: Schemas.SignalRoutingCorrection,
-  ) {
-    const project_id = String(await this.getTeamId());
-    return this.api.post(
-      "/api/projects/{project_id}/signals/reports/{report_id}/routing/",
-      { path: { project_id, report_id }, body },
-    );
-  }
-
-  async removeRoutingSuggestion(report_id: string) {
-    const project_id = String(await this.getTeamId());
-    return this.api.post(
-      "/api/projects/{project_id}/signals/reports/{report_id}/routing/not_me/",
-      { path: { project_id, report_id } },
-    );
-  }
-
-  async restoreRoutingSuggestion(report_id: string) {
-    const project_id = String(await this.getTeamId());
-    return this.api.post(
-      "/api/projects/{project_id}/signals/reports/{report_id}/routing/restore/",
-      { path: { project_id, report_id } },
-    );
-  }
-
-  async getRoutingBatch(id: string) {
-    const project_id = String(await this.getTeamId());
-    return this.api.get(
-      "/api/projects/{project_id}/signals/routing_batches/{id}/",
-      { path: { project_id, id } },
-    );
-  }
-  async getRoutingBatchReports(id: string, offset = 0) {
-    const project_id = String(await this.getTeamId());
-    return this.api.get(
-      "/api/projects/{project_id}/signals/routing_batches/{id}/reports/",
-      { path: { project_id, id }, query: { limit: 20, offset } },
-    );
-  }
-
-  async applyRoutingBatch(id: string) {
-    const project_id = String(await this.getTeamId());
-    return this.api.post(
-      "/api/projects/{project_id}/signals/routing_batches/{id}/apply/",
-      { path: { project_id, id } },
-    );
-  }
-
-  async undoRoutingBatch(id: string) {
-    const project_id = String(await this.getTeamId());
-    return this.api.post(
-      "/api/projects/{project_id}/signals/routing_batches/{id}/undo/",
-      { path: { project_id, id } },
-    );
-  }
-
-  async retryRoutingBatch(id: string) {
-    const project_id = String(await this.getTeamId());
-    return this.api.post(
-      "/api/projects/{project_id}/signals/routing_batches/{id}/retry/",
-      { path: { project_id, id } },
+      "/api/projects/{project_id}/signals/reports/{id}/snooze/",
+      {
+        path: { project_id: String(teamId), id: reportId },
+        body: { snoozed },
+      },
     );
   }
 
@@ -5493,6 +5376,9 @@ export class PostHogAPIClient {
       `${this.api.baseUrl}/api/projects/${teamId}/signals/reports/`,
     );
 
+    if (params?.view) {
+      url.searchParams.set("view", params.view);
+    }
     if (params?.limit != null) {
       url.searchParams.set("limit", String(params.limit));
     }
@@ -5507,14 +5393,6 @@ export class PostHogAPIClient {
     }
     if (params?.source_product) {
       url.searchParams.set("source_product", params.source_product);
-    }
-    for (const key of [
-      "scope",
-      "owning_role_id",
-      "domain_id",
-      "teammate_uuid",
-    ] as const) {
-      if (params?.[key]) url.searchParams.set(key, params[key]);
     }
     if (params?.suggested_reviewers) {
       url.searchParams.set("suggested_reviewers", params.suggested_reviewers);

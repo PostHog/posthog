@@ -6,7 +6,6 @@ import {
   useOpenAgent,
 } from "@posthog/ui/features/agents/agentsPageStore";
 import { ConfigureAgentsSection } from "@posthog/ui/features/inbox/components/ConfigureAgentsSection";
-import { InboxRoutingPreferences } from "@posthog/ui/features/inbox/components/routing/InboxRoutingPreferences";
 import { FleetOverviewButton } from "@posthog/ui/features/scouts/components/FleetOverviewButton";
 import { NewAgentDialog } from "@posthog/ui/features/scouts/components/NewAgentDialog";
 import { ScoutDetailView } from "@posthog/ui/features/scouts/components/ScoutDetailView";
@@ -93,7 +92,6 @@ function SetupTab() {
     <AgentsTabLayout tab="setup">
       <div className="max-w-[800px]">
         <ConfigureAgentsSection />
-        <InboxRoutingPreferences />
       </div>
     </AgentsTabLayout>
   );

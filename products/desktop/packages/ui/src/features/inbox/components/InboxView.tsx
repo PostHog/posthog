@@ -14,6 +14,7 @@ import { isInboxTriagePath } from "@posthog/ui/features/inbox/triageRoute";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Navigate, Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
+import { RelevancePilot } from "./relevance/RelevancePilot";
 
 /**
  * Inbox shell. Owns the in-page header (title + RFC subtitle + tab bar) and
@@ -68,7 +69,11 @@ export function InboxView() {
     if (isInboxTriagePath(pathname)) return <InboxTriagePane />;
     // The view owns its height so its page header stays pinned while the
     // sections scroll — the same shape ActivityView has.
-    return spacesLayout ? <InboxHomePane /> : <ReportsInboxView />;
+    return (
+      <RelevancePilot>
+        {spacesLayout ? <InboxHomePane /> : <ReportsInboxView />}
+      </RelevancePilot>
+    );
   }
 
   // With channel reports on, spaces replace the inbox as the home for reports.
