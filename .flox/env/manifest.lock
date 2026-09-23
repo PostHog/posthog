@@ -45,7 +45,8 @@
       },
       "depot-cli": {
         "pkg-path": "depot-cli",
-        "pkg-group": "depot"
+        "pkg-group": "depot",
+        "version": "^2.102"
       },
       "emscripten": {
         "pkg-path": "emscripten",
@@ -3514,27 +3515,27 @@
     {
       "attr_path": "depot-cli",
       "broken": false,
-      "derivation": "/nix/store/ig5780lqdnv0vcflhp8ipj7p22jplsys-depot-cli-2.101.73.drv",
+      "derivation": "/nix/store/8hnwcq7wrlzwizkrxjhib7bx82llp5xi-depot-cli-2.102.9.drv",
       "description": "Official CLI for the Depot Docker image builder",
       "install_id": "depot-cli",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
-      "name": "depot-cli-2.101.73",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "name": "depot-cli-2.102.9",
       "pname": "depot-cli",
-      "rev": "20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
-      "rev_count": 1076192,
-      "rev_date": "2026-09-19T02:38:33Z",
-      "scrape_date": "2026-09-20T04:57:58.508391Z",
+      "rev": "6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "rev_count": 1077996,
+      "rev_date": "2026-09-22T03:11:10Z",
+      "scrape_date": "2026-09-23T04:58:05.803991Z",
       "stabilities": [
         "unstable"
       ],
       "unfree": false,
-      "version": "2.101.73",
+      "version": "2.102.9",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/kl2fjsxqs78pdr2ffdzpbsqrkbxyq11j-depot-cli-2.101.73"
+        "out": "/nix/store/1bi1y13kr74rlmj8j4vslq993j1vdm5c-depot-cli-2.102.9"
       },
       "system": "aarch64-darwin",
       "group": "depot",
@@ -3543,27 +3544,27 @@
     {
       "attr_path": "depot-cli",
       "broken": false,
-      "derivation": "/nix/store/9g1n9p6ahsbzxarrsjcfd1fwpm0f2gnz-depot-cli-2.101.73.drv",
+      "derivation": "/nix/store/zkw5dmf93pfr1wm7f2622g7lyw8yz10w-depot-cli-2.102.9.drv",
       "description": "Official CLI for the Depot Docker image builder",
       "install_id": "depot-cli",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
-      "name": "depot-cli-2.101.73",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "name": "depot-cli-2.102.9",
       "pname": "depot-cli",
-      "rev": "20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
-      "rev_count": 1076192,
-      "rev_date": "2026-09-19T02:38:33Z",
-      "scrape_date": "2026-09-20T05:30:52.345034Z",
+      "rev": "6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "rev_count": 1077996,
+      "rev_date": "2026-09-22T03:11:10Z",
+      "scrape_date": "2026-09-23T05:29:39.537297Z",
       "stabilities": [
         "unstable"
       ],
       "unfree": false,
-      "version": "2.101.73",
+      "version": "2.102.9",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/lk9xdmz929wxh9yb7c7d4279m7g7n0vn-depot-cli-2.101.73"
+        "out": "/nix/store/ld8k0nmfl02ysjkkr9l2m5i3hy893sn3-depot-cli-2.102.9"
       },
       "system": "aarch64-linux",
       "group": "depot",
@@ -3572,27 +3573,27 @@
     {
       "attr_path": "depot-cli",
       "broken": false,
-      "derivation": "/nix/store/sgvy0j3rblwyiwmbw4jk5ri9aql32f53-depot-cli-2.101.73.drv",
+      "derivation": "/nix/store/vjh6m3hgsafr06qx6ajfmva818rfwq2f-depot-cli-2.102.9.drv",
       "description": "Official CLI for the Depot Docker image builder",
       "install_id": "depot-cli",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
-      "name": "depot-cli-2.101.73",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "name": "depot-cli-2.102.9",
       "pname": "depot-cli",
-      "rev": "20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
-      "rev_count": 1076192,
-      "rev_date": "2026-09-19T02:38:33Z",
-      "scrape_date": "2026-09-20T06:07:11.316943Z",
+      "rev": "6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "rev_count": 1077996,
+      "rev_date": "2026-09-22T03:11:10Z",
+      "scrape_date": "2026-09-23T06:06:17.967455Z",
       "stabilities": [
         "unstable"
       ],
       "unfree": false,
-      "version": "2.101.73",
+      "version": "2.102.9",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/nrppisqhsscmf7vmifyg2fbrfamgjcq6-depot-cli-2.101.73"
+        "out": "/nix/store/y9pf0adrvbwj3ki0ab9nch76p9y1d05v-depot-cli-2.102.9"
       },
       "system": "x86_64-linux",
       "group": "depot",

@@ -221,26 +221,6 @@ job died before any test ran. It is bounded by Logs retention, so fall back to
 `engineering-analytics-ci-failure-logs` does the same across every run that PR
 has pushed, so an earlier push's failure is still there.
 
-#### Backend tests that ran on Depot CI
-
-A PR can route its backend tests to Depot CI.
-Then the GitHub Actions run holds only the relay: `Django Tests Pass` fails with "Backend tests on Depot CI concluded failure", and the GitHub run logs show nothing more.
-`gh run rerun` reads the same Depot result again.
-The log of the `Relay the Depot verdict` step prints the Depot run URL, the `depot ci` commands that diagnose and retry it, and the retry options that need no Depot access.
-
-Read the failure from Depot with the `depot` CLI, which the flox environment installs:
-
-```bash
-depot ci diagnose --org <org> --workflow <workflow-id>   # both ids are in the Depot run URL
-depot ci logs <job-id> --org <org>
-```
-
-For anything past that, load the `depot-ci` skill.
-Its `references/posthog-check-run-semantics.md` gets Depot ids from a commit's check runs when you have no relay log.
-If a `depot` command fails to authenticate, ask the user to run `! depot login`.
-Do not run it yourself: it waits on a browser sign-in.
-If the user has no access to the Depot org, report the relay log's no-Depot retry options instead.
-
 Extract these before classifying:
 
 - Workflow name or file, e.g. `.github/workflows/ci-backend.yml`.
@@ -265,6 +245,27 @@ instead add an `Authorization: Bearer` header with a `TRUNK_API_TOKEN` org
 token to the server entry in `.mcp.json`. To dig into one test's flakiness
 history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 `fix-flaky-test` tools.
+
+#### Backend tests that ran on Depot CI
+
+A PR can route its backend tests to Depot CI.
+Then the GitHub Actions run holds only the relay: `Django Tests Pass` fails with "Backend tests on Depot CI concluded failure", and the GitHub run logs show nothing more.
+`gh run rerun` reads the same Depot result again.
+The log of the `Relay the Depot verdict` step prints the Depot run URL, the `depot ci` commands that diagnose and retry it, and the retry options that need no Depot access.
+
+Read the failure from Depot with the `depot` CLI, which the flox environment installs:
+
+```bash
+depot ci diagnose --org <org> --workflow <workflow-id>   # both ids are in the Depot run URL
+depot ci logs <job-id> --org <org>
+```
+
+For anything past that, load the `depot-ci` skill.
+Its `references/posthog-check-run-semantics.md` gets Depot ids from a commit's check runs when you have no relay log.
+If a `depot` command fails to authenticate, ask the user to run `! depot login --clear`.
+Do not run it yourself: it waits on a browser sign-in.
+A `DEPOT_TOKEN` in the environment takes precedence over that login.
+If the user has no access to the Depot org, report the relay log's no-Depot retry options instead.
 
 ## Classification
 
@@ -351,8 +352,8 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
   browser through the chrome-devtools MCP. `status.depot.dev` covers the case
   where Depot itself is the outage, and the `depot-github-runners` skill owns
   runner troubleshooting beyond triage.
-- A PR can route its backend tests to Depot CI. Read the failure there, see
-  "Backend tests that ran on Depot CI" above.
+- A PR can route its backend tests to Depot CI.
+  Read the failure there, see "Backend tests that ran on Depot CI" above.
 - If a job fails before `Checkout` completes (no app code ran), classify as
   `infra / runner`. Do not propose code fixes.
 - PostHog CI frequently parallelizes the same test class across N shards
