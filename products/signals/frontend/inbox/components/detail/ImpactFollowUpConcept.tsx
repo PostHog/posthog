@@ -1,282 +1,377 @@
 import { useState } from 'react'
 
-import { IconCheckCircle, IconClock, IconQuestion, IconTarget, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconClock, IconQuestion, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
-
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import type { FollowUpStage, ImpactFollowUpExample } from '../../__mocks__/impactFollowUpConceptMocks'
 import { ImpactTrendChart } from './ImpactTrendChart'
 
-type ImpactMood = 'planned' | 'promising' | 'risk' | 'no_trial' | 'missing_signal' | 'met' | 'failed' | 'unclear'
+type Reading = 'planned' | 'good' | 'bad' | 'unknown' | 'worked' | 'failed' | 'unclear'
 
-const MOOD: Record<ImpactMood, { label: string; panel: string; ink: string; stroke: string }> = {
-    planned: { label: 'GOAL SET', panel: 'border-primary bg-surface-secondary', ink: 'text-primary', stroke: 'var(--brand-blue)' },
-    promising: { label: 'LOOKS GOOD', panel: 'border-success bg-success-highlight', ink: 'text-success', stroke: 'var(--success)' },
-    risk: { label: 'AT RISK', panel: 'border-danger bg-danger-highlight', ink: 'text-danger', stroke: 'var(--danger)' },
-    no_trial: { label: 'NO TEST YET', panel: 'border-primary bg-surface-secondary', ink: 'text-primary', stroke: 'var(--border)' },
-    missing_signal: { label: 'MISSING SIGNAL', panel: 'border-warning bg-warning-highlight', ink: 'text-warning', stroke: 'var(--warning)' },
-    met: { label: 'WORKED', panel: 'border-success bg-success-highlight', ink: 'text-success', stroke: 'var(--success)' },
-    failed: { label: "DIDN'T WORK", panel: 'border-danger bg-danger-highlight', ink: 'text-danger', stroke: 'var(--danger)' },
-    unclear: { label: "CAN'T TELL", panel: 'border-warning bg-warning-highlight', ink: 'text-warning', stroke: 'var(--warning)' },
+const READING: Record<Reading, { label: string; ink: string; surface: string; bar: string }> = {
+    planned: { label: 'Set the check', ink: 'text-primary', surface: 'bg-surface-secondary', bar: 'bg-primary' },
+    good: { label: 'Looks good so far', ink: 'text-success', surface: 'bg-success-highlight', bar: 'bg-success' },
+    bad: { label: 'Still happening', ink: 'text-danger', surface: 'bg-danger-highlight', bar: 'bg-danger' },
+    unknown: { label: 'Not enough proof', ink: 'text-primary', surface: 'bg-surface-secondary', bar: 'bg-primary' },
+    worked: { label: 'Worked', ink: 'text-success', surface: 'bg-success-highlight', bar: 'bg-success' },
+    failed: { label: "Didn't work", ink: 'text-danger', surface: 'bg-danger-highlight', bar: 'bg-danger' },
+    unclear: { label: "Can't tell", ink: 'text-primary', surface: 'bg-surface-secondary', bar: 'bg-primary' },
 }
 
-function reportMood(example: ImpactFollowUpExample, stage: FollowUpStage): ImpactMood {
+function readingFor(example: ImpactFollowUpExample, stage: FollowUpStage): Reading {
     if (stage === 'planned') {
         return 'planned'
     }
-    if (stage === 'watching') {
-        return example.watchingSignal
+    if (stage === 'finished') {
+        return example.verdict === 'met' ? 'worked' : example.verdict === 'failed' ? 'failed' : 'unclear'
     }
-    return example.verdict === 'met' ? 'met' : example.verdict === 'failed' ? 'failed' : 'unclear'
-}
-
-function moodIcon(mood: ImpactMood): JSX.Element {
-    if (mood === 'planned') {
-        return <IconTarget />
-    }
-    if (mood === 'promising') {
-        return <IconClock />
-    }
-    if (mood === 'met') {
-        return <IconCheckCircle />
-    }
-    if (mood === 'risk' || mood === 'failed' || mood === 'missing_signal') {
-        return <IconWarning />
-    }
-    return <IconQuestion />
+    return example.watchingSignal === 'promising' ? 'good' : example.watchingSignal === 'risk' ? 'bad' : 'unknown'
 }
 
 export interface ImpactFollowUpConceptProps {
     example: ImpactFollowUpExample
     stage: FollowUpStage
-    version: 'beacon' | 'scoreboard' | 'inbox' | 'two_signals'
+    version: 'poster' | 'queue' | 'tape'
 }
 
 export function ImpactFollowUpConcept({ example, stage, version }: ImpactFollowUpConceptProps): JSX.Element {
     const [trackingEnabled, setTrackingEnabled] = useState(false)
+    const [editing, setEditing] = useState(false)
+    const [suggestion, setSuggestion] = useState('')
+    const [drafted, setDrafted] = useState(false)
     const [actionTaken, setActionTaken] = useState(false)
-    const mood = reportMood(example, stage)
-    const tone = MOOD[mood]
-    const days = stage === 'planned' ? 0 : stage === 'watching' ? example.elapsedDays : example.windowDays
-    const sample = stage === 'planned' ? 0 : stage === 'watching' ? example.watchingSample : example.finishedSample
-    const timePercent = (days / example.windowDays) * 100
-    const samplePercent = Math.min((sample / example.sampleNeeded) * 100, 100)
-    const currentValue = stage === 'planned' ? '—' : stage === 'watching' ? example.watchingValue : example.finishedValue
-    const oneLine = stage === 'planned' ? `Before release: ${example.baseline}` : stage === 'watching' ? example.watchingNote : example.resultNote
-    const isEarly = stage === 'watching'
-    const stageLabel = stage === 'planned' ? 'Before release' : isEarly ? `Watching impact · ends ${example.decisionDate}` : `Final result · ended ${example.decisionDate}`
+    const reading = readingFor(example, stage)
+    const tone = READING[reading]
+    const elapsed = stage === 'planned' ? 0 : stage === 'watching' ? example.elapsedDays : example.windowDays
+    const observed = stage === 'planned' ? 0 : stage === 'watching' ? example.watchingSample : example.finishedSample
+    const daysLeft = Math.max(0, example.windowDays - elapsed)
+    const casesLeft = Math.max(0, example.sampleNeeded - observed)
+    const timePercent = Math.min(100, (elapsed / example.windowDays) * 100)
+    const casesPercent = Math.min(100, (observed / example.sampleNeeded) * 100)
+    const missingCheck =
+        stage === 'planned' || example.watchingSignal === 'no_trial'
+            ? undefined
+            : example.evidence.find(
+                  (check) => (stage === 'watching' ? check.watchingResult : check.result) === 'missing'
+              )
+    const missingSignal = Boolean(missingCheck)
+    const result =
+        stage === 'planned' ? example.baseline : stage === 'watching' ? example.watchingValue : example.finishedValue
+    const summary =
+        stage === 'planned' ? example.goalShort : stage === 'watching' ? example.watchingNote : example.resultNote
+    const statusIcon =
+        reading === 'worked' ? (
+            <IconCheckCircle />
+        ) : reading === 'bad' || reading === 'failed' ? (
+            <IconWarning />
+        ) : reading === 'unknown' || reading === 'unclear' ? (
+            <IconQuestion />
+        ) : (
+            <IconClock />
+        )
+    const stateLabel =
+        stage === 'planned' ? 'Before release' : stage === 'watching' ? 'Watching impact' : 'Window closed'
+    const readinessText =
+        stage === 'planned'
+            ? `After release: ${example.windowDays} days and ${example.sampleNeeded} ${example.sampleLabel.toLowerCase()}`
+            : stage === 'watching'
+              ? `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left · ${casesLeft} more ${example.sampleLabel.toLowerCase()} needed${missingSignal ? ' · a check has no data' : ''}`
+              : missingSignal
+                ? `Window ended · a check has no data${casesLeft ? ` · ${casesLeft} ${example.sampleLabel.toLowerCase()} missing` : ''}`
+                : casesLeft
+                  ? `Window ended · ${casesLeft} ${example.sampleLabel.toLowerCase()} missing`
+                  : 'Window ended · enough time and cases to judge'
+    const nextProof =
+        stage === 'planned'
+            ? `Check after ${example.windowDays} days`
+            : stage === 'watching'
+              ? `${casesLeft ? `${casesLeft} more ${example.sampleLabel.toLowerCase()}` : 'Enough qualifying cases'}${missingCheck ? ` · missing ${missingCheck.signal.toLowerCase()}` : ''}`
+              : missingCheck
+                ? `Missing ${missingCheck.signal.toLowerCase()}`
+                : casesLeft
+                  ? `${casesLeft} ${example.sampleLabel.toLowerCase()} missing`
+                  : 'Proof complete'
 
-    const progress = (
-        <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex flex-col gap-1 text-xs">
-                <div className="flex justify-between gap-2"><span>Time</span><strong>{days} / {example.windowDays} days</strong></div>
-                <LemonProgress percent={timePercent} smoothing={false} strokeColor={tone.stroke} />
-            </div>
-            <div className="flex flex-col gap-1 text-xs">
-                <div className="flex justify-between gap-2"><span>{example.sampleLabel}</span><strong>{sample} / {example.sampleNeeded}</strong></div>
-                <LemonProgress percent={samplePercent} smoothing={false} strokeColor={tone.stroke} />
-            </div>
+    const measurementActions = (
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+            <LemonButton type="secondary" size="small" onClick={() => setEditing(!editing)}>
+                {editing ? 'Close suggestion' : 'Change how we measure this'}
+            </LemonButton>
+            {stage === 'planned' && (
+                <LemonSwitch
+                    checked={trackingEnabled}
+                    onChange={setTrackingEnabled}
+                    label="Follow up after release"
+                    size="small"
+                />
+            )}
+            {trackingEnabled && stage === 'planned' && <span className="text-secondary">On in this preview only</span>}
+            {stage === 'finished' && example.verdict !== 'met' && (
+                <LemonButton type="secondary" size="small" onClick={() => setActionTaken(true)}>
+                    {example.verdict === 'failed' ? 'Draft a follow-up report' : 'Plan another check'}
+                </LemonButton>
+            )}
+            {actionTaken && <span className="text-secondary">Preview only · no report created</span>}
         </div>
     )
 
-    const checks = example.evidence.map((row) => {
-        const state = stage === 'planned' ? 'waiting' : isEarly ? row.watchingResult : row.result
-        const checkTone = state === 'met'
-            ? 'border-success bg-success-highlight text-success'
-            : state === 'failed'
-              ? 'border-danger bg-danger-highlight text-danger'
-              : state === 'missing'
-                ? 'border-warning bg-warning-highlight text-warning'
-                : 'border-primary bg-surface-secondary text-secondary'
-        const label = state === 'met' ? (isEarly ? 'GOOD SO FAR' : 'PASSED') : state === 'failed' ? (isEarly ? 'STILL HAPPENING' : 'FAILED') : state === 'missing' ? 'NO DATA' : 'WAITING'
-        const value = stage === 'planned' ? row.baseline : isEarly ? row.watching : row.finished
+    const evidence = (
+        <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
+            {example.evidence.map((check) => {
+                const state =
+                    stage === 'planned' ? 'waiting' : stage === 'watching' ? check.watchingResult : check.result
+                return (
+                    <div key={check.signal} className="flex items-center gap-2">
+                        <span
+                            className={
+                                state === 'met' ? 'text-success' : state === 'failed' ? 'text-danger' : 'text-secondary'
+                            }
+                            aria-hidden="true"
+                        >
+                            {state === 'met' ? '●' : state === 'failed' ? '✕' : '○'}
+                        </span>
+                        <span>
+                            {check.signal}:{' '}
+                            <strong>
+                                {stage === 'planned'
+                                    ? check.baseline
+                                    : stage === 'watching'
+                                      ? check.watching
+                                      : check.finished}
+                            </strong>{' '}
+                            / {check.target}
+                        </span>
+                    </div>
+                )
+            })}
+        </div>
+    )
 
-        return (
-            <div key={row.signal} className={`flex min-h-24 flex-col justify-between gap-2 rounded border p-3 ${checkTone}`}>
-                <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-bold tracking-wider">{label}</span>
-                    <span className="text-lg [&_svg]:size-5" aria-hidden="true">
-                        {state === 'met' ? <IconCheckCircle /> : state === 'failed' || state === 'missing' ? <IconWarning /> : <IconClock />}
-                    </span>
-                </div>
-                <div className="text-sm font-semibold text-primary">{row.signal}</div>
-                <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-secondary">
-                    <strong className="text-lg text-primary">{value}</strong><span>Goal {row.target}</span>
-                </div>
-            </div>
-        )
-    })
-
-    const detail = (
-        <div className="flex flex-col gap-3 border-t border-primary px-4 py-3 sm:px-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                {stage === 'planned' ? (
-                    <>
-                        <span className="text-xs text-secondary">Check {example.window}.</span>
-                        <LemonSwitch checked={trackingEnabled} onChange={setTrackingEnabled} label="Follow this impact" size="small" />
-                    </>
-                ) : stage === 'finished' && example.verdict !== 'met' ? (
-                    <>
-                        <span className="text-xs text-secondary">{example.verdict === 'failed' ? 'This result stays with the report.' : 'The window ended without a clear result.'}</span>
-                        <LemonButton type="secondary" size="small" onClick={() => setActionTaken(true)}>
-                            {example.verdict === 'failed' ? 'Start a new report' : 'Plan another check'}
+    const footer = (
+        <div className="flex flex-col gap-3 border-t border-primary px-4 py-3">
+            {measurementActions}
+            {editing && (
+                <div className="flex flex-col gap-2 rounded border border-primary bg-surface-secondary p-3">
+                    <label htmlFor={`suggest-${version}-${stage}-${example.id}`} className="text-sm font-semibold">
+                        What should we check instead?
+                    </label>
+                    <textarea
+                        id={`suggest-${version}-${stage}-${example.id}`}
+                        className="w-full rounded border border-primary bg-surface-primary p-2 text-sm"
+                        rows={2}
+                        placeholder="For example: Count affected users, not page loads, and wait for at least 30 users."
+                        value={suggestion}
+                        onChange={(event) => {
+                            setSuggestion(event.target.value)
+                            setDrafted(false)
+                        }}
+                    />
+                    <div>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            disabled={!suggestion.trim()}
+                            onClick={() => setDrafted(true)}
+                        >
+                            Ask an agent to draft the check
                         </LemonButton>
-                    </>
-                ) : (
-                    stage === 'finished' ? <span className="text-xs text-secondary">Resolved · result saved here</span> : null
-                )}
-            </div>
-            {(trackingEnabled && stage === 'planned') || actionTaken ? (
-                <div className="text-xs text-secondary">{actionTaken ? 'Draft prepared in this preview only.' : 'Following in this preview only.'}</div>
-            ) : null}
+                    </div>
+                    {drafted && (
+                        <div role="status" className="text-xs">
+                            Preview only · an agent would turn “{suggestion}” into a query and ask you to review it. No
+                            request was sent.
+                        </div>
+                    )}
+                </div>
+            )}
             {stage === 'finished' && example.verdict !== 'met' && (
-                <details>
-                    <summary className="cursor-pointer text-xs text-secondary">Why this result?</summary>
-                    <div className="mt-2 text-sm text-secondary">{example.reason} {example.nextStep}</div>
+                <details className="text-xs">
+                    <summary className="cursor-pointer">
+                        Why {reading === 'failed' ? 'did it fail' : 'can’t we tell'}?
+                    </summary>
+                    <p className="mb-0 mt-2">
+                        {example.reason} {example.nextStep}
+                    </p>
                 </details>
             )}
-            <details open={stage === 'planned' && version === 'scoreboard'}>
-                <summary className="cursor-pointer text-xs text-secondary">How we check this · view query</summary>
-                <div className="mt-2 flex flex-col gap-2 text-xs text-secondary">
-                    <span>Starts after: {example.releaseGate}. Needs: {example.minimumEvidence}.</span>
-                    <pre className="m-0 overflow-x-auto rounded border border-primary bg-surface-primary p-3 text-xs leading-relaxed"><code>{example.query}</code></pre>
-                    <span>Invented values and example events. No live data.</span>
-                </div>
+            <details className="text-xs">
+                <summary className="cursor-pointer text-secondary">How we measure this · view query</summary>
+                <p className="my-2">
+                    After: {example.releaseGate}. Need: {example.minimumEvidence}. {example.window}.
+                </p>
+                <pre className="m-0 overflow-x-auto rounded border border-primary bg-surface-primary p-3">
+                    <code>{example.query}</code>
+                </pre>
+                <p className="mb-0 mt-2">Illustrative query and invented data. Not a live check.</p>
             </details>
         </div>
     )
 
-    if (version === 'beacon') {
+    const tracks = (
+        <div className="grid gap-2 text-xs sm:grid-cols-2" aria-label={readinessText}>
+            {[
+                { label: 'Time', value: `${elapsed}/${example.windowDays} days`, percent: timePercent },
+                { label: example.sampleLabel, value: `${observed}/${example.sampleNeeded}`, percent: casesPercent },
+            ].map((track) => (
+                <div key={track.label}>
+                    <div className="mb-1 flex justify-between gap-2">
+                        <span>{track.label}</span>
+                        <strong>{track.value}</strong>
+                    </div>
+                    <div
+                        className="h-2 overflow-hidden rounded-full bg-surface-secondary"
+                        role="progressbar"
+                        aria-label={track.label}
+                        aria-valuenow={Math.round(track.percent)}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                    >
+                        <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${track.percent}%` }} />
+                    </div>
+                </div>
+            ))}
+        </div>
+    )
+
+    if (version === 'queue') {
         return (
-            <article aria-label={`${example.title}: ${tone.label}`}>
-                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
-                    <div className={`flex flex-wrap items-center justify-between gap-4 border-l-[10px] px-6 py-6 ${tone.panel}`}>
-                        <div className="min-w-0">
-                            <div className="text-xs font-medium text-secondary">{example.title} · {stageLabel}</div>
-                            <h2 className={`m-0 mt-2 text-4xl font-black leading-none tracking-tight sm:text-5xl ${tone.ink}`}>{tone.label}</h2>
-                            <p className="mb-0 mt-3 text-base font-semibold text-primary">{example.outcome}</p>
-                        </div>
-                        <div className={`shrink-0 text-[5rem] leading-none [&_svg]:size-20 ${tone.ink}`} aria-hidden="true">{moodIcon(mood)}</div>
+            <article
+                aria-label={`${example.title}: ${tone.label}`}
+                className="overflow-hidden rounded border border-primary bg-surface-primary"
+            >
+                <div className="grid items-center gap-x-4 gap-y-2 p-3 md:grid-cols-[minmax(8rem,1fr)_minmax(9rem,1fr)_minmax(11rem,1fr)_minmax(12rem,1.3fr)]">
+                    <div>
+                        <div className="text-xs text-secondary">{example.title}</div>
+                        <h2 className="m-0 text-sm font-semibold">{example.outcome}</h2>
                     </div>
-                    <div className="grid items-center gap-6 px-6 py-4 md:grid-cols-[minmax(0,1fr)_minmax(13rem,1fr)]">
-                        <div className="flex flex-col gap-2">
-                            <div className="text-2xl font-bold">{stage === 'planned' ? example.goalShort : currentValue}</div>
-                            <div className="text-sm text-secondary">{oneLine}</div>
-                            {progress}
-                        </div>
-                        <ImpactTrendChart example={example} stage={stage} compact />
+                    <div className={`flex items-center gap-2 text-lg font-black ${tone.ink}`}>
+                        <span className="[&_svg]:size-5">{statusIcon}</span>
+                        {tone.label}
                     </div>
-                    {detail}
-                </LemonCard>
+                    <div className="text-sm">
+                        <div className="text-xs text-secondary">Before → now → goal</div>
+                        <strong>
+                            {example.baseline} → {stage === 'planned' ? '—' : result} → {example.goalShort}
+                        </strong>
+                    </div>
+                    <div>
+                        {tracks}
+                        <div className="mt-1 text-xs font-medium">{readinessText}</div>
+                    </div>
+                </div>
+                {footer}
             </article>
         )
     }
 
-    if (version === 'scoreboard') {
+    if (version === 'tape') {
         return (
-            <article aria-label={`${example.title}: ${tone.label}`}>
-                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
-                    <div className={`flex items-center gap-3 border-l-8 px-5 py-4 ${tone.panel}`}>
-                        <div className={`text-4xl [&_svg]:size-10 ${tone.ink}`} aria-hidden="true">{moodIcon(mood)}</div>
-                        <div className="min-w-0">
-                            <div className="text-xs text-secondary">{stageLabel}</div>
-                            <div className={`text-3xl font-black leading-none ${tone.ink}`}>{tone.label}</div>
-                        </div>
-                    </div>
-                    <div className="flex flex-col gap-3 p-4 sm:p-5">
+            <article
+                aria-label={`${example.title}: ${tone.label}`}
+                className="overflow-hidden rounded border border-primary bg-surface-primary"
+            >
+                <div className="grid md:grid-cols-[minmax(0,1fr)_12rem]">
+                    <div className="min-w-0 p-5">
                         <h2 className="m-0 text-base font-semibold">{example.outcome}</h2>
-                        <div className="grid gap-2 sm:grid-cols-2">{checks}</div>
-                        <div className="text-sm">{oneLine}</div>
-                        {progress}
+                        <div className="mt-1 text-sm">
+                            A win means <strong>{example.goalShort}</strong>
+                        </div>
+                        <div className="mt-5 text-xs text-secondary">{example.chartLabel} · each day after release</div>
+                        <div className="mt-2 overflow-x-auto">
+                            <div
+                                className="grid gap-1"
+                                style={{
+                                    gridTemplateColumns: `repeat(${example.windowDays}, minmax(0, 1fr))`,
+                                    minWidth: example.windowDays * 35,
+                                }}
+                            >
+                                {Array.from({ length: example.windowDays }, (_, index) => {
+                                    const value = example.afterTrend[index]
+                                    const observedDay = index < elapsed
+                                    const hasData = observedDay && value !== undefined && !Number.isNaN(value)
+                                    const meetsDailyGoal =
+                                        hasData && example.chartGoal !== null && value === example.chartGoal
+                                    const missesDailyGoal =
+                                        hasData && example.chartGoal !== null && value !== example.chartGoal
+                                    return (
+                                        <div key={index} className="min-w-0 text-center">
+                                            <div
+                                                className={`flex h-12 items-center justify-center rounded border-2 text-sm font-bold ${meetsDailyGoal ? 'border-success text-success' : missesDailyGoal ? 'border-danger text-danger' : 'border-primary text-secondary'} ${observedDay ? 'bg-surface-secondary' : 'border-dashed'}`}
+                                                aria-label={`Day ${index + 1}: ${hasData ? value : observedDay ? 'no data' : 'not yet measured'}`}
+                                            >
+                                                {hasData ? value : observedDay ? '?' : '·'}
+                                            </div>
+                                            <div className="mt-1 text-[10px]">{index + 1}</div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                        <div className="mt-3 text-xs text-secondary">
+                            Numbers show the daily signal, not the final verdict. ? means no data.
+                        </div>
                     </div>
-                    {detail}
-                </LemonCard>
+                    <div
+                        className={`flex flex-col justify-between gap-3 border-t border-primary p-5 md:border-l md:border-t-0 ${tone.surface}`}
+                    >
+                        <div>
+                            <div className="text-xs">{stateLabel}</div>
+                            <strong className={`mt-2 block text-2xl leading-tight ${tone.ink}`}>{tone.label}</strong>
+                        </div>
+                        <div>
+                            <strong className="block text-lg">
+                                {stage === 'planned'
+                                    ? 'Starts at release'
+                                    : stage === 'watching'
+                                      ? `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`
+                                      : 'Window ended'}
+                            </strong>
+                            <span className="text-xs">
+                                {nextProof} · {example.decisionDate}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                {footer}
             </article>
         )
     }
-
-    if (version === 'inbox') {
-        return (
-            <article aria-label={`${example.title}: ${tone.label}`}>
-                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
-                    <div className="flex flex-col sm:flex-row">
-                        <div className={`flex min-w-44 items-center gap-2 border-l-8 px-4 py-3 sm:w-48 ${tone.panel}`}>
-                            <div className={`text-2xl [&_svg]:size-6 ${tone.ink}`} aria-hidden="true">{moodIcon(mood)}</div>
-                            <strong className={`text-base font-black leading-tight ${tone.ink}`}>{tone.label}</strong>
-                        </div>
-                        <div className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3">
-                            <div className="min-w-0">
-                                <div className="text-xs text-secondary">{example.title} · {stageLabel}</div>
-                                <h2 className="m-0 mt-1 text-sm font-semibold">{example.outcome}</h2>
-                                <div className="mt-1 text-xs text-secondary">{oneLine}</div>
-                            </div>
-                            <div className="hidden w-36 shrink-0 md:block"><ImpactTrendChart example={example} stage={stage} compact /></div>
-                            <div className="shrink-0 text-right">
-                                <div className="text-xl font-bold">{stage === 'planned' ? '—' : currentValue.split(' in ')[0]}</div>
-                                <div className="text-xs text-secondary">{stage === 'planned' ? example.goalShort : `Day ${days}/${example.windowDays}`}</div>
-                            </div>
-                        </div>
-                    </div>
-                    {detail}
-                </LemonCard>
-            </article>
-        )
-    }
-
-    const primarySignal = mood === 'planned' ? 'Not started' : mood === 'no_trial' || (mood === 'unclear' && example.evidence[0].result === 'missing') ? 'Nothing to measure' : mood === 'risk' || mood === 'failed' ? 'Problems remain' : 'The main number improved'
-    const proofSignal = mood === 'missing_signal' || (mood === 'unclear' && example.id === 'webhook-errors')
-        ? 'A signal is missing'
-        : mood === 'no_trial' || (mood === 'unclear' && example.id === 'large-selection')
-          ? 'No real trial yet'
-          : mood === 'unclear'
-            ? 'Some days have no data'
-            : stage === 'finished'
-              ? 'Enough to decide'
-              : 'Still gathering proof'
-
-    const primaryState = stage === 'planned' ? 'waiting' : isEarly ? example.evidence[0].watchingResult : example.evidence[0].result
-    const proofState = stage === 'planned' ? 'waiting' : isEarly ? mood === 'missing_signal' ? 'missing' : 'waiting' : example.verdict === 'inconclusive' ? 'missing' : 'met'
-    const primaryColor = primaryState === 'failed' ? 'border-danger bg-danger-highlight text-danger' : primaryState === 'met' ? 'border-success bg-success-highlight text-success' : 'border-primary bg-surface-secondary text-secondary'
-    const proofColor = proofState === 'met' ? 'border-success bg-success-highlight text-success' : proofState === 'missing' ? 'border-warning bg-warning-highlight text-warning' : 'border-primary bg-surface-secondary text-secondary'
 
     return (
-        <article aria-label={`${example.title}: ${tone.label}`}>
-            <LemonCard hoverEffect={false} className="overflow-hidden p-0">
-                <div className="px-5 py-4">
-                    <div className="text-xs text-secondary">{example.title} · {stageLabel}</div>
-                    <h2 className="m-0 mt-1 text-base font-semibold">{example.outcome}</h2>
-                </div>
-                <div className={`flex items-center justify-between gap-3 border-y px-5 py-3 ${tone.panel}`}>
-                    <strong className={`text-3xl font-black ${tone.ink}`}>{tone.label}</strong>
-                    <span className={`text-3xl [&_svg]:size-8 ${tone.ink}`} aria-hidden="true">{moodIcon(mood)}</span>
-                </div>
-                <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
-                    <div className={`flex items-center gap-4 rounded-lg border-2 p-4 ${primaryColor}`}>
-                        <div className="flex size-16 shrink-0 items-center justify-center rounded-full border-4 border-current text-3xl [&_svg]:size-9" aria-hidden="true">
-                            {primaryState === 'met' ? <IconCheckCircle /> : primaryState === 'failed' ? <IconWarning /> : <IconClock />}
-                        </div>
-                        <div className="min-w-0">
-                            <div className="text-xs font-bold uppercase tracking-wider">1 · What changed</div>
-                            <strong className="block text-lg leading-tight text-primary">{primarySignal}</strong>
-                            <span className="text-xs text-secondary">{stage === 'planned' ? example.goalShort : currentValue}</span>
-                        </div>
+        <article
+            aria-label={`${example.title}: ${tone.label}`}
+            className="overflow-hidden rounded border border-primary bg-surface-primary"
+        >
+            <div className="grid md:grid-cols-[minmax(13rem,0.85fr)_minmax(0,1.15fr)]">
+                <div className={`flex flex-col justify-between gap-5 p-6 ${tone.surface}`}>
+                    <div>
+                        <span className="text-xs">
+                            {example.title} · {stateLabel}
+                        </span>
+                        <h2 className={`m-0 mt-3 text-4xl font-black leading-none ${tone.ink}`}>{tone.label}</h2>
+                        <p className="mb-0 mt-2 text-sm">{example.outcome}</p>
                     </div>
-                    <div className={`flex items-center gap-4 rounded-lg border-2 p-4 ${proofColor}`}>
-                        <div className="flex size-16 shrink-0 items-center justify-center rounded-full border-4 border-current text-3xl [&_svg]:size-9" aria-hidden="true">
-                            {proofState === 'met' ? <IconCheckCircle /> : proofState === 'missing' ? <IconQuestion /> : <IconClock />}
-                        </div>
-                        <div className="min-w-0">
-                            <div className="text-xs font-bold uppercase tracking-wider">2 · Can we tell?</div>
-                            <strong className="block text-lg leading-tight text-primary">{proofSignal}</strong>
-                            <span className="text-xs text-secondary">{sample} / {example.sampleNeeded} {example.sampleLabel.toLowerCase()}</span>
-                        </div>
+                    <div>
+                        <div className="text-xs">To call this a win</div>
+                        <strong className="text-lg">{example.goalShort}</strong>
+                        <div className="mt-2 text-xs">{readinessText}</div>
                     </div>
                 </div>
-                <div className="px-5 pb-4 text-sm text-secondary">{oneLine}</div>
-                {detail}
-            </LemonCard>
+                <div className="flex flex-col justify-between gap-3 p-5">
+                    <ImpactTrendChart example={example} stage={stage} />
+                    <div className="flex items-center justify-between gap-3 border-t border-primary pt-2 text-sm">
+                        <span>
+                            Before: <strong>{example.baseline}</strong>
+                        </span>
+                        <span>
+                            After: <strong>{stage === 'planned' ? 'waiting for release' : result}</strong>
+                        </span>
+                    </div>
+                    {evidence}
+                    <span className="text-xs text-secondary">{summary}</span>
+                </div>
+            </div>
+            {footer}
         </article>
     )
 }

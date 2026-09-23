@@ -13,34 +13,22 @@ export default meta
 
 type Story = StoryObj
 
-export const AtAGlance: Story = {
-    render: () => (
-        <div className="min-h-screen bg-primary p-6">
-            <div className="mx-auto flex max-w-5xl flex-col gap-5">
-                <div>
-                    <h1 className="mb-1 text-xl font-semibold">Impact at a glance</h1>
-                    <p className="m-0 text-sm text-secondary">Early signs and final results · five illustrative reports · invented data</p>
-                </div>
-                {impactFollowUpExamples.map((example, index) => (
-                    <ImpactFollowUpConcept key={example.id} example={example} stage={index < 2 ? 'finished' : 'watching'} version="inbox" />
-                ))}
-            </div>
-        </div>
-    ),
-}
-
 function gallery(stage: FollowUpStage, version: ImpactFollowUpConceptProps['version']): JSX.Element {
-    const names = { beacon: 'A · The beacon', scoreboard: 'B · The scoreboard', inbox: 'C · The inbox strip', two_signals: 'D · Change + proof' }
+    const names = { poster: '01 · Decision poster', queue: '02 · Inbox queue', tape: '03 · Daily tape' }
     return (
-        <div className="min-h-screen bg-primary p-6">
-            <div className="mx-auto flex max-w-5xl flex-col gap-8">
-                <div>
+        <div className="min-h-screen bg-primary p-5">
+            <div className={`mx-auto flex flex-col ${version === 'queue' ? 'max-w-7xl gap-2' : 'max-w-5xl gap-5'}`}>
+                <div className="mb-3">
                     <h1 className="mb-1 text-xl font-semibold">
                         {names[version]} ·{' '}
-                        {stage === 'planned' ? 'Before merge' : stage === 'watching' ? 'Watching after merge' : 'After the window'}
+                        {stage === 'planned'
+                            ? 'Before release'
+                            : stage === 'watching'
+                              ? 'Watching'
+                              : 'After the window'}
                     </h1>
                     <p className="m-0 text-sm text-secondary">
-                        Five illustrative reports · invented counts and dates · Storybook-only interactions
+                        Five cases · invented data · controls are a preview only
                     </p>
                 </div>
                 {impactFollowUpExamples.map((example) => (
@@ -51,18 +39,35 @@ function gallery(stage: FollowUpStage, version: ImpactFollowUpConceptProps['vers
     )
 }
 
-export const BeaconBeforeMerge: Story = { render: () => gallery('planned', 'beacon') }
-export const BeaconWatching: Story = { render: () => gallery('watching', 'beacon') }
-export const BeaconAfterWindow: Story = { render: () => gallery('finished', 'beacon') }
+export const AtAGlance: Story = {
+    render: () => (
+        <div className="min-h-screen bg-primary p-5">
+            <div className="mx-auto flex max-w-7xl flex-col gap-2">
+                <div className="mb-3">
+                    <h1 className="mb-1 text-xl font-semibold">Impact at a glance · inbox queue</h1>
+                    <p className="m-0 text-sm text-secondary">Early signs and final results · invented data</p>
+                </div>
+                {impactFollowUpExamples.map((example, index) => (
+                    <ImpactFollowUpConcept
+                        key={example.id}
+                        example={example}
+                        stage={index < 2 ? 'finished' : 'watching'}
+                        version="queue"
+                    />
+                ))}
+            </div>
+        </div>
+    ),
+}
 
-export const ScoreboardBeforeMerge: Story = { render: () => gallery('planned', 'scoreboard') }
-export const ScoreboardWatching: Story = { render: () => gallery('watching', 'scoreboard') }
-export const ScoreboardAfterWindow: Story = { render: () => gallery('finished', 'scoreboard') }
+export const PosterBeforeRelease: Story = { render: () => gallery('planned', 'poster') }
+export const PosterWatching: Story = { render: () => gallery('watching', 'poster') }
+export const PosterAfterWindow: Story = { render: () => gallery('finished', 'poster') }
 
-export const InboxBeforeMerge: Story = { render: () => gallery('planned', 'inbox') }
-export const InboxWatching: Story = { render: () => gallery('watching', 'inbox') }
-export const InboxAfterWindow: Story = { render: () => gallery('finished', 'inbox') }
+export const QueueBeforeRelease: Story = { render: () => gallery('planned', 'queue') }
+export const QueueWatching: Story = { render: () => gallery('watching', 'queue') }
+export const QueueAfterWindow: Story = { render: () => gallery('finished', 'queue') }
 
-export const ChangeAndProofBeforeMerge: Story = { render: () => gallery('planned', 'two_signals') }
-export const ChangeAndProofWatching: Story = { render: () => gallery('watching', 'two_signals') }
-export const ChangeAndProofAfterWindow: Story = { render: () => gallery('finished', 'two_signals') }
+export const TapeBeforeRelease: Story = { render: () => gallery('planned', 'tape') }
+export const TapeWatching: Story = { render: () => gallery('watching', 'tape') }
+export const TapeAfterWindow: Story = { render: () => gallery('finished', 'tape') }
