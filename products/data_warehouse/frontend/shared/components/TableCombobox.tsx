@@ -14,7 +14,7 @@ import {
     ComboboxTrigger,
 } from '@posthog/quill'
 
-import { TableOptionGroup } from './viewLinkLogic'
+import { TableOptionGroup } from '../logics/viewLinkLogic'
 
 export interface TableComboboxProps {
     groups: TableOptionGroup[]

@@ -6,7 +6,7 @@ import { useMocks } from '~/mocks/jest'
 import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { viewLinkLogic } from './viewLinkLogic'
+import { viewLinkLogic } from '../viewLinkLogic'
 
 describe('viewLinkLogic', () => {
     let logic: ReturnType<typeof viewLinkLogic.build>

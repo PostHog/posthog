@@ -3,19 +3,18 @@ import { router, urlToAction } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
 import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
 
-import { BehindScheduleModel, modelsBehindSchedule } from 'products/data_modeling/frontend/freshness'
-import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
-import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
-import { buildAdjacencyMaps, traverseLineage } from 'products/data_modeling/frontend/lineage/lineageSearch'
-import { servingSuspension } from 'products/data_modeling/frontend/suspension'
-
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
+import { BehindScheduleModel, modelsBehindSchedule } from './freshness'
+import { NodeSuspensionApi } from './generated/api.schemas'
+import { lineageDataLogic } from './lineage/lineageDataLogic'
+import { buildAdjacencyMaps, traverseLineage } from './lineage/lineageSearch'
+import { servingSuspension } from './suspension'
 
 const MODEL_NODE_TYPES = new Set<DataModelingNodeType>(['view', 'matview', 'endpoint'])
 
