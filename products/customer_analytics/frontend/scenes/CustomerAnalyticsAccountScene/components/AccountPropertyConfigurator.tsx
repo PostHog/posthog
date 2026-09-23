@@ -91,12 +91,12 @@ export function AccountPropertyConfigurator({
                         them.
                     </p>
                 ) : (
-                    <p className="text-sm text-secondary mb-0" data-attr="account-pinned-properties-no-definitions">
-                        This project has no account properties to pin yet. Add a custom property or a relationship in{' '}
+                    <p className="text-sm text-secondary mb-0">
+                        This project has no account properties yet. Add a custom property or a relationship in{' '}
                         <Link to={urls.customerAnalyticsConfiguration('customer-analytics-accounts')}>
                             account configuration
-                        </Link>
-                        , then come back to pin it here.
+                        </Link>{' '}
+                        to pin it here.
                     </p>
                 )}
                 {selectedOptions.length > 0 ? (
