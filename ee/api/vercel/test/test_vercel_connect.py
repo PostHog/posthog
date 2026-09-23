@@ -875,39 +875,54 @@ class TestBackfillVercelConnectableResources(VercelConnectTestBase):
 
 
 class TestDeleteOrphanedIntegration(VercelConnectTestBase):
-    def test_keeps_resources_belonging_to_another_installation(self):
-        other_team = Team.objects.create(organization=self.organization, name="Other project")
+    @parameterized.expand(
+        [
+            ("distinct_teams", ["own"], ["other"], {"other"}),
+            ("shared_team", ["own"], ["own"], {"own"}),
+            ("unmapped_orphan", None, ["other"], {"other"}),
+            ("unmapped_sibling", ["own"], None, {"own", "other"}),
+        ]
+    )
+    def test_keeps_only_resources_another_installation_claims(
+        self, _name, orphan_teams, sibling_teams, surviving_teams
+    ):
+        teams = {"own": self.team, "other": Team.objects.create(organization=self.organization, name="Other project")}
+
+        def config(team_keys: list[str] | None) -> dict:
+            if team_keys is None:
+                return {"type": "connectable"}
+            return {"type": "connectable", "environment_mapping": {"production": teams[team_keys[0]].pk}}
+
         orphaned = OrganizationIntegration.objects.create(
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_orphaned",
-            config={"type": "connectable", "environment_mapping": {"production": self.team.pk}},
+            config=config(orphan_teams),
         )
         OrganizationIntegration.objects.create(
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id="icfg_live",
-            config={"type": "connectable", "environment_mapping": {"production": other_team.pk}},
+            config=config(sibling_teams),
         )
-        orphaned_resource = Integration.objects.create(
-            team=self.team,
-            kind=Integration.IntegrationKind.VERCEL,
-            integration_id=str(self.team.pk),
-            config={"type": "connectable"},
-        )
-        live_resource = Integration.objects.create(
-            team=other_team,
-            kind=Integration.IntegrationKind.VERCEL,
-            integration_id=str(other_team.pk),
-            config={"type": "connectable"},
-        )
+        for team in teams.values():
+            Integration.objects.create(
+                team=team,
+                kind=Integration.IntegrationKind.VERCEL,
+                integration_id=str(team.pk),
+                config={"type": "connectable"},
+            )
 
         _delete_orphaned_integration(orphaned)
 
         assert not OrganizationIntegration.objects.filter(pk=orphaned.pk).exists()
-        assert not Integration.objects.filter(pk=orphaned_resource.pk).exists()
         assert OrganizationIntegration.objects.filter(integration_id="icfg_live").exists()
-        assert Integration.objects.filter(pk=live_resource.pk).exists()
+        surviving_team_ids = set(
+            Integration.objects.filter(
+                team__organization=self.organization, kind=Integration.IntegrationKind.VERCEL
+            ).values_list("team_id", flat=True)
+        )
+        assert surviving_team_ids == {teams[key].pk for key in surviving_teams}
 
 
 class TestValidateNextUrl(TestCase):

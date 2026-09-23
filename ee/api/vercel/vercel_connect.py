@@ -1,9 +1,10 @@
 from typing import cast
 from urllib.parse import quote, urlencode, urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
-from django.db import transaction
+from django.db import connection, transaction
 from django.http import HttpResponse, HttpResponseRedirect
 
 import structlog
@@ -85,36 +86,45 @@ def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
         return False
 
 
-def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
-    # A resource left behind blocks the next link attempt: `complete` rejects a team that still has one.
-    resources = Integration.objects.filter(
-        team__organization_id=integration.organization_id,
-        kind=Integration.IntegrationKind.VERCEL,
-    )
+def _lock_vercel_links(organization_id: UUID) -> None:
+    # Serializes orphan cleanup with link creation for one organization. The lock is transaction-scoped,
+    # so call it inside `transaction.atomic()` and never around the Vercel network call.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"vercel-connect:{organization_id}"])
 
-    shares_organization = (
-        OrganizationIntegration.objects.filter(
+
+def _mapped_team_ids(integration: OrganizationIntegration) -> set[int] | None:
+    mapping = integration.config.get("environment_mapping")
+    if not mapping:
+        return None
+    return {team_id for team_id in mapping.values() if isinstance(team_id, int)}
+
+
+def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
+    with transaction.atomic():
+        _lock_vercel_links(integration.organization_id)
+        if not OrganizationIntegration.objects.filter(pk=integration.pk).exists():
+            return
+
+        # A resource records its team, not its installation, so a resource is safe to delete only when no
+        # other installation claims its team. A resource left behind blocks the next link attempt, because
+        # `complete` rejects a team that still has one.
+        claimed_team_ids: set[int] = set()
+        for sibling in OrganizationIntegration.objects.filter(
             organization_id=integration.organization_id,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
-        )
-        .exclude(pk=integration.pk)
-        .exists()
-    )
-    if shares_organization:
-        # A resource records its team, not its installation, so only this installation's own teams are safe to delete.
-        mapped_team_ids = {
-            team_id
-            for team_id in integration.config.get("environment_mapping", {}).values()
-            if isinstance(team_id, int)
-        }
-        resources = resources.filter(team_id__in=mapped_team_ids)
+        ).exclude(pk=integration.pk):
+            sibling_team_ids = _mapped_team_ids(sibling)
+            if sibling_team_ids is None:
+                # A sibling without a mapping may own any team, so no resource is safe to delete.
+                integration.delete()
+                return
+            claimed_team_ids |= sibling_team_ids
 
-    # Read the ids now, because a lazy queryset reads the rows again at delete time and would then
-    # include resources that a replacement installation created in between.
-    resource_ids = list(resources.values_list("pk", flat=True))
-
-    with transaction.atomic():
-        resources.filter(pk__in=resource_ids).delete()
+        Integration.objects.filter(
+            team__organization_id=integration.organization_id,
+            kind=Integration.IntegrationKind.VERCEL,
+        ).exclude(team_id__in=claimed_team_ids).delete()
         integration.delete()
 
 
@@ -274,6 +284,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         production_team = teams_by_id[production_team_id]
 
         with transaction.atomic():
+            _lock_vercel_links(organization.id)
             org_integration = OrganizationIntegration.objects.create(
                 organization=organization,
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
