@@ -3529,7 +3529,7 @@ export const TasksConfigCreateBody = /* @__PURE__ */ zod
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -3555,7 +3555,7 @@ export const TasksRepoRoutingRulesCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -3581,7 +3581,7 @@ export const TasksRepoRoutingRulesUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -3696,11 +3696,13 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
                 "Optional custom base image to provision before the task is submitted; takes precedence over the environment's image."
             ),
         origin_product: zod
-            .enum(['user_created', 'posthog_ai'])
-            .describe('\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai')
+            .enum(['user_created', 'posthog_ai', 'signal_report'])
+            .describe(
+                '\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai\n\* `signal_report` - signal_report'
+            )
             .default(tasksWarmCreateBodyOriginProductDefault)
             .describe(
-                'Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.\n\n\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai'
+                'Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.\n\n\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai\n\* `signal_report` - signal_report'
             ),
         initial_permission_mode: zod
             .union([
@@ -3714,6 +3716,12 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+            ),
+        signal_report: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Inbox report the warm discussion is about. Required with origin_product `signal_report`, where the warm Run boots repo-less and the submit that creates the report's discussion task activates it."
             ),
     })
     .describe(

@@ -262,11 +262,13 @@ def _agent_run_disabled_response() -> Response:
 
 
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
+TASKS_PREWARM_INBOX_DISCUSSION_FLAG = "tasks-prewarm-inbox-discussion"
 
-# One rollout per origin product — the Code app and PostHog AI reach different populations, so a shared
-# flag would drag one to 100% while rolling out the other.
+# One rollout per origin product — the Code app, PostHog AI and the Inbox reach different populations,
+# so a shared flag would drag one to 100% while rolling out another.
 WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
     tasks_facade.TaskOriginProduct.USER_CREATED: TASKS_PREWARM_SANDBOX_FLAG,
+    tasks_facade.TaskOriginProduct.SIGNAL_REPORT: TASKS_PREWARM_INBOX_DISCUSSION_FLAG,
 }
 
 # Origins that warm for every user, with no flag left to evaluate.
@@ -423,8 +425,8 @@ class TaskUsageUpstreamUnavailable(APIException):
     default_code = "task_usage_upstream_unavailable"
 
 
-class _SignalReportTaskCreateThrottle(UserRateThrottle):
-    """Rate-limits only signal-report task creation on the shared create endpoint.
+class _SignalReportTaskThrottle(UserRateThrottle):
+    """Rate-limits only signal-report task creation and sandbox warming on the shared endpoints.
 
     Report-started tasks run unbilled inference (the customer pays per PR), so their creation
     rate needs a per-user bound the generic create path doesn't; the per-report cap alone still
@@ -438,14 +440,24 @@ class _SignalReportTaskCreateThrottle(UserRateThrottle):
         return super().allow_request(request, view)
 
 
-class SignalReportTaskCreateBurstThrottle(_SignalReportTaskCreateThrottle):
+class SignalReportTaskCreateBurstThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_burst"
     rate = "10/hour"
 
 
-class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskCreateThrottle):
+class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_create_day"
     rate = "30/day"
+
+
+class SignalReportTaskWarmBurstThrottle(_SignalReportTaskThrottle):
+    scope = "signal_report_task_warm_burst"
+    rate = "30/hour"
+
+
+class SignalReportTaskWarmSustainedThrottle(_SignalReportTaskThrottle):
+    scope = "signal_report_task_warm_day"
+    rate = "120/day"
 
 
 @extend_schema(tags=["tasks"])
@@ -469,8 +481,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def get_throttles(self) -> list[BaseThrottle]:
         throttles = super().get_throttles()
-        if getattr(self, "action", None) == "create":
+        action = getattr(self, "action", None)
+        if action == "create":
             throttles += [SignalReportTaskCreateBurstThrottle(), SignalReportTaskCreateSustainedThrottle()]
+        elif action == "warm":
+            throttles += [SignalReportTaskWarmBurstThrottle(), SignalReportTaskWarmSustainedThrottle()]
         return throttles
 
     def _user_id(self) -> int | None:
@@ -735,8 +750,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # the agent without the client ever calling the run endpoint — so the gates that endpoint puts
         # in front of a cloud run have to be applied here too. Without this, a warm booted while the
         # caller was entitled still runs after Desktop access or the usage limit turns against them.
-        # Scoped to warmable origins, which is what a warm can ever be reused for; the code-access
-        # exempt Inbox shapes are not among them, matching how the warm endpoint gates.
+        # Scoped to warmable origins, which is what a warm can ever be reused for. The repo-less Inbox
+        # discussion is one of them and stays code-access exempt below, matching how the warm endpoint gates.
         # `origin_product` is optional on the wire; `create_task` defaults it the same way.
         can_activate_warm_run = "branch" in validated_data and origin_product in WARMABLE_ORIGIN_PRODUCTS
         if can_activate_warm_run and is_sandbox_origin_request(request):
@@ -1425,7 +1440,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Every warmable origin's submit path gates on Desktop access too — POSTHOG_AI is not in
         # `task_exempt_from_code_access`, only the Inbox shapes are — so warming applies it flat. A
         # caller who can't run the task must not be able to provision a sandbox for it either.
-        if access_response := code_access_required_response(request, self.organization):
+        signal_report = request.validated_data.get("signal_report")
+        code_access_allowed = False
+        if origin_product == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
+            code_access_allowed = code_access_required_response(request, self.organization) is None
+        elif access_response := code_access_required_response(request, self.organization):
             return access_response
 
         user_id = self._user_id()
@@ -1456,6 +1475,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             client_provenance=get_task_client_provenance(request),
             origin_product=request.validated_data["origin_product"],
             initial_permission_mode=request.validated_data.get("initial_permission_mode"),
+            signal_report_id=signal_report.id if signal_report is not None else None,
+            code_access_allowed=code_access_allowed,
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
@@ -1853,6 +1874,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     }
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if tasks_facade.task_run_awaits_report_activation(pk, task_id, self.team_id):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": tasks_facade.REPORT_WARM_RUN_NOT_ACTIVATED}).data,
+                status=status.HTTP_409_CONFLICT,
             )
 
         # Backstop: don't launch the cloud workflow without Desktop access or for an over-limit team.
@@ -3081,6 +3108,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         request_id = request.validated_data.get("id")
         params = request.validated_data.get("params")
+
+        if method in _HUMAN_STEERING_COMMAND_METHODS and tasks_facade.task_run_awaits_report_activation(
+            pk, task_id, self.team_id
+        ):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": tasks_facade.REPORT_WARM_RUN_NOT_ACTIVATED}).data,
+                status=status.HTTP_409_CONFLICT,
+            )
 
         # A side question drives the agent and spends model tokens on the caller's behalf. Unlike
         # user_message below, it has no Inbox surface to exempt, so every caller takes both gates.

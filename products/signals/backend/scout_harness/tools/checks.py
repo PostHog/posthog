@@ -23,7 +23,6 @@ import uuid
 from datetime import datetime
 
 from django.db.models.functions import Coalesce
-from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -31,7 +30,7 @@ from posthog.models import Team
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalScoutRun
 from products.signals.backend.report_check_agent import resolve_check_skill_name
-from products.signals.backend.report_check_authoring import CheckCreationError, create_check
+from products.signals.backend.report_check_authoring import CheckCreationError, cancel_check, create_check
 from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
 from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
@@ -87,7 +86,9 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
 
     config = parse_check_config(check.kind, check.config)
     assert isinstance(config, AgentCheckConfig)
-    if resolve_check_skill_name(config) != run.skill_name:
+    # Resolved with the project, exactly as the dispatch resolved it, so a run correctly sent to
+    # the fallback lane because the named scout was retired can still record what it found.
+    if resolve_check_skill_name(config, canonical_team_id) != run.skill_name:
         raise InvalidCheckResultError(f"check {check_id} runs on another scout")
     return check
 
@@ -115,7 +116,6 @@ def record_check_result(
         raise InvalidCheckResultError(f"outcome must be `passed`, `failed`, or `errored`, not `{outcome}`")
 
     check = _resolve_dispatched_check(team, run, check_id)
-    task_id = _resolve_task_id(run)
     record_check_verdict(
         check,
         CheckVerdict(
@@ -127,7 +127,7 @@ def record_check_result(
         ),
         # Attributed to the run's task, the way every other artefact an agent writes is, so the
         # report's log names what produced the verdict rather than the system that scheduled it.
-        attribution=ArtefactAttribution.from_task(task_id) if task_id else ArtefactAttribution.system(),
+        attribution=_run_attribution(run),
         run_id=str(run.id),
     )
     check.refresh_from_db()
@@ -221,7 +221,6 @@ def create_report_check(
     """
     _assert_run_may_write_checks(team, run)
     report = _resolve_report(team, report_id)
-    task_id = _resolve_task_id(run)
     try:
         check = create_check(
             report=report,
@@ -229,7 +228,7 @@ def create_report_check(
             rationale=rationale,
             kind=kind,
             config=config,
-            attribution=ArtefactAttribution.from_task(task_id) if task_id else ArtefactAttribution.system(),
+            attribution=_run_attribution(run),
             next_run_at=next_run_at,
             expires_at=expires_at,
             run_interval_minutes=run_interval_minutes,
@@ -248,13 +247,14 @@ def list_report_checks(*, team: Team, report_id: str) -> list[ScoutCheckSummary]
     return [_summarize(check) for check in checks[:MAX_CHECKS_LISTED]]
 
 
-def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> ScoutCheckSummary:
-    """Stop a check that is no longer worth running. Its recorded results stay on the report.
+def _run_attribution(run: SignalScoutRun) -> ArtefactAttribution:
+    """Attribute a write to the run's task, the way every other scout write is attributed."""
+    task_id = _resolve_task_id(run)
+    return ArtefactAttribution.from_task(task_id) if task_id else ArtefactAttribution.system()
 
-    One conditional update rather than a read and then a write, as the REST path does: a verdict
-    that lands in between leaves a result artefact, and an unconditional write would overwrite the
-    status that artefact explains.
-    """
+
+def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> ScoutCheckSummary:
+    """Stop a check that is no longer worth running. Its recorded results stay on the report."""
     _assert_run_may_write_checks(team, run)
     try:
         uuid.UUID(str(check_id))
@@ -266,12 +266,6 @@ def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> Sc
     canonical_team_id = team.parent_team_id or team.id
     if (check.team.parent_team_id or check.team_id) != canonical_team_id:
         raise InvalidCheckWriteError(f"check {check_id} not found")
-    cancelled = (
-        SignalReportCheck.objects.for_team(check.team_id)
-        .filter(id=check.id, status__in=SignalReportCheck.OPEN_STATUSES)
-        .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
-    )
-    check.refresh_from_db()
-    if not cancelled:
+    if not cancel_check(check, reason="stopped_by_scout", attribution=_run_attribution(run)):
         raise InvalidCheckWriteError(f"check {check_id} already finished as `{check.status}` and cannot be cancelled")
     return _summarize(check)
