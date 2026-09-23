@@ -11,9 +11,8 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, DataModelingEdge, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
-import { MATERIALIZING_TYPES } from 'products/data_modeling/frontend/freshness'
-
-import type { NodeTypeEnumApi } from '../../../../products/data_modeling/frontend/generated/api.schemas'
+import { MATERIALIZING_TYPES } from '../freshness'
+import type { NodeTypeEnumApi } from '../generated/api.schemas'
 
 export const NODE_DETAIL_SCENE_TABS = ['query', 'lineage', 'materialization', 'tests', 'history'] as const
 export type NodeDetailSceneTab = (typeof NODE_DETAIL_SCENE_TABS)[number]

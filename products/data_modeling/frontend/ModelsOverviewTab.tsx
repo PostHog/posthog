@@ -8,19 +8,16 @@ import { pluralize } from 'lib/utils/strings'
 import { CADENCE_LABELS } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 import { urls } from 'scenes/urls'
 
-import { BehindScheduleModel } from 'products/data_modeling/frontend/freshness'
-import { ModelNameLink } from 'products/data_modeling/frontend/ModelNameLink'
-import {
-    ModelsOverviewChecksStatus,
-    ModelsOverviewEmptyState,
-} from 'products/data_modeling/frontend/ModelsOverviewEmptyState'
-import { ModelsOverviewTable } from 'products/data_modeling/frontend/ModelsOverviewTable'
 import { checkDisplayName } from 'products/data_quality/frontend/checksConstants'
 import { CheckStatusCell } from 'products/data_quality/frontend/CheckStatusCell'
 import { DataQualityOverviewCheckApi } from 'products/data_quality/frontend/generated/api.schemas'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { AttentionModel, modelsSceneLogic } from '../modelsSceneLogic'
+import { BehindScheduleModel } from './freshness'
+import { ModelNameLink } from './ModelNameLink'
+import { ModelsOverviewChecksStatus, ModelsOverviewEmptyState } from './ModelsOverviewEmptyState'
+import { ModelsOverviewTable } from './ModelsOverviewTable'
+import { AttentionModel, modelsSceneLogic } from './modelsSceneLogic'
 
 function Section({
     title,
