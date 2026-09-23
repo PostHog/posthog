@@ -457,6 +457,9 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=ChannelSetupWriteSerializer,
         responses={
             201: OpenApiResponse(response=ChannelSetupResponseSerializer, description="The setup task that started"),
+            503: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="A setup dependency is unavailable"
+            ),
         },
         summary="Set a space up for a goal or a feature",
         description=(
@@ -480,6 +483,8 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 request=serializer.to_request(),
                 client_provenance=get_task_client_provenance(request),
             )
+        except tasks_facade.SpaceSetupUnavailableError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except ComputeBillingLimitExceeded as error:
             return compute_quota_limit_response(error.reason)
         if started is None:

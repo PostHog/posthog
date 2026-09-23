@@ -39,7 +39,7 @@ Base path: `/api/projects/{id}/task_channels/`.
 | `DELETE /{id}/`                                 | Delete an empty public or private channel. Personal and general spaces cannot be deleted.            |
 | `GET /{id}/members/`                            | List private channel members. Return an empty list for public and personal channels.                 |
 | `PUT /{id}/members/ {user_ids}`                 | Replace a private channel's members. Keep the creator.                                               |
-| `POST /{id}/setup/ {kind, goal, feature}`       | Start the task that sets the space up for a goal or a feature. Returns `task_id` with status 201.   |
+| `POST /{id}/setup/ {kind, goal, feature}`       | Start the task that sets the space up for a goal or a feature. Returns `task_id` with status 201.    |
 
 Listing channels does not create them. Call `provision_defaults` to create the default channels.
 Send `limit` and `offset` to get one page with `count`, `next`, `previous`, and `results`.
@@ -65,6 +65,16 @@ Space setup runs as one unattended task in the channel, the same way CONTEXT.md 
 `repository` defaults to the channel's first repository. The task runs on `gpt-5.6-sol` at high reasoning effort with full PostHog MCP scopes and becomes the channel's context generation task.
 A goal setup also creates a tracking canvas and five workflow-backed loops (goal manager, delivery, experiment monitor, daily summary, system review); a feature setup writes the context page only.
 The endpoint posts a `space_setup_started` feed message with `kind`, `subject`, and `task_id`. It returns 404 for an inaccessible channel.
+Goal setup returns 503 without starting a task when `template-posthog-create-task` is missing or the `workflow-ai-task-action` flag is disabled for the project.
+Sync HogFunction templates after the CDP API starts, then retry setup.
+The context prompt includes the server's `team_id` and `channel_id` so a new Space page passes wiki validation.
+When no eligible population exists, setup records the measure as unknown and keeps loops in draft until the baseline can be verified.
+
+Before enabling `code-space-setup`, deploy the setup endpoint and sync the workflow templates.
+Enable `workflow-ai-task-action` for the target project and `loops` plus `loops-hog-flows` for its Desktop users.
+Reconcile enabled context wikis before rollout so legacy `channels/` pages move under `projects/<project-id>/spaces/`.
+Verify a setup in a test project: the Context page saves, all five goal loops appear, and their test runs succeed before scheduling them.
+Keep the setup flag off if any dependency check fails.
 
 Channel updates, deletion, membership changes, private channel handoffs, feed posts, instructions, context generation, and stars lock the channel row.
 Each write checks access after it acquires the lock. A request from a removed member fails even if it started before removal.

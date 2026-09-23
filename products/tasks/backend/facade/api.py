@@ -54,6 +54,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.utils import absolute_uri
 
 from products.canvas.backend.models import Canvas
+from products.cdp.backend.facade import api as cdp_facade
 from products.posthog_ai.backend.task_ownership import (
     detach_conversations_for_task_handoff,
     soft_delete_conversations_for_task,
@@ -108,6 +109,7 @@ from products.tasks.backend.logic.services.space_setup import (
     SPACE_SETUP_MODEL,
     SPACE_SETUP_REASONING_EFFORT,
     SPACE_SETUP_RUNTIME_ADAPTER,
+    SpaceSetupUnavailableError as SpaceSetupUnavailableError,
     build_space_setup_prompt,
     space_setup_task_title,
 )
@@ -9643,6 +9645,15 @@ def start_space_setup(
     takes over the channel's context generation marker the same way a CONTEXT.md
     generation task does. ``None`` when the channel is not visible to the user.
     """
+    if _visible_channel(channel_id, team.id, user_id) is None:
+        return None
+    if request.kind == "goal" and not cdp_facade.is_hog_function_template_available(
+        "template-posthog-create-task", team
+    ):
+        raise SpaceSetupUnavailableError(
+            "Goal setup is not available because the Create AI task workflow action is unavailable. "
+            "Ask an administrator to sync workflow templates and enable the action, then retry setup."
+        )
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team.id, user_id)
         if channel is None:
@@ -9653,7 +9664,7 @@ def start_space_setup(
             team=team,
             title=space_setup_task_title(channel.name, request),
             description=build_space_setup_prompt(
-                channel_id=str(channel.id), channel_name=channel.name, request=request
+                team_id=team.id, channel_id=str(channel.id), channel_name=channel.name, request=request
             ),
             origin_product=Task.OriginProduct.SPACE_SETUP,
             user_id=user_id,

@@ -167,8 +167,9 @@ class TestChannelSetup(ChannelExtrasBaseTest):
         "goal": {"statement": "Increase the weekly activation rate", "target": "20%", "deadline": "2026-12-01"},
     }
 
+    @patch("products.cdp.backend.facade.api.is_hog_function_template_available", return_value=True)
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_goal_setup_starts_a_task_in_the_channel(self, _mock_workflow):
+    def test_goal_setup_starts_a_task_in_the_channel(self, _mock_workflow, _template):
         with team_scope(self.team.id):
             self.channel.repositories = ["posthog/posthog"]
             self.channel.save(update_fields=["repositories"])
@@ -182,6 +183,7 @@ class TestChannelSetup(ChannelExtrasBaseTest):
         assert task.created_by_id == self.user.id
         assert "Increase the weekly activation rate" in task.description
         assert "posthog/posthog" in task.description
+        assert f"team_id: {self.team.id}" in task.description
         run = TaskRun.objects.get(task=task)
         assert run.state["model"] == "gpt-5.6-sol"
         assert run.state["reasoning_effort"] == "high"
@@ -190,6 +192,14 @@ class TestChannelSetup(ChannelExtrasBaseTest):
         feed = ChannelFeedMessage.objects.unscoped().get(channel=self.channel, event="space_setup_started")
         assert feed.payload["kind"] == "goal"
         assert feed.payload["task_id"] == str(task.id)
+
+    @patch("products.cdp.backend.facade.api.is_hog_function_template_available", return_value=False)
+    def test_goal_setup_without_the_task_template_does_not_start(self, _template):
+        response = self.client.post(f"{self.base}/setup/", self.GOAL_BODY, format="json")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert not Task.objects.filter(channel=self.channel).exists()
+        assert not ChannelContextGeneration.objects.unscoped().filter(channel=self.channel).exists()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_setup_of_a_hidden_channel_is_not_found(self, mock_workflow):

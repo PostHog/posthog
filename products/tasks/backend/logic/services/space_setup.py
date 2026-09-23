@@ -26,6 +26,10 @@ SUMMARY_LOOP_REASONING_EFFORT = HIGH
 SPACE_SETUP_FEED_EVENT = "space_setup_started"
 
 
+class SpaceSetupUnavailableError(Exception):
+    pass
+
+
 @frozen
 class LoopBrief:
     name: str
@@ -264,11 +268,11 @@ _UNATTENDED_RULES = """Rules for this unattended run:
 
 _PUBLISH_RULES = """Publish the context page yourself; do not stop to ask for approval:
 1. Call `task-context-wiki-channel-resolve` with channel_id "{channel_id}" and use the returned path exactly.
-2. If the page exists, read it with `task-context-wiki-page-retrieve` (follow next_offset with the same head_sha and limit until complete), keep its frontmatter and anything still true, and pass its `head_sha` as `base_head` to `task-context-wiki-page-update`. If it does not exist, create it at that path with frontmatter `summary`, `status: active`, `channel_id: {channel_id}`, and `sources: space-setup`, and pass no `base_head`.
+2. If the page exists, read it with `task-context-wiki-page-retrieve` (follow next_offset with the same head_sha and limit until complete), keep its frontmatter and anything still true, and pass its `head_sha` as `base_head` to `task-context-wiki-page-update`. If it does not exist, create it at that path with frontmatter `summary`, `status: active`, `team_id: {team_id}`, `channel_id: {channel_id}`, and `sources: space-setup`, and pass no `base_head`.
 3. If the wiki tools are unavailable, call `channel-instructions-update` once with id "{channel_id}", the complete Markdown, and `base_version` set to the current version (0 when none exists).
 Do not call any `loop-*` tool; those are for loop runs."""
 
-_CONTEXT_PAGE_SHAPE = """Structure the context page like this. Start with YAML frontmatter:
+_CONTEXT_PAGE_SHAPE = """Structure the context page like this. Omit target when no target is known. Start with YAML frontmatter:
 ---
 goals:
   - id: primary
@@ -310,22 +314,30 @@ Registered decision rules and verdicts. Empty at setup.
 ## Daily status"""
 
 
-def build_space_setup_prompt(*, channel_id: str, channel_name: str, request: SpaceSetupRequest) -> str:
+def build_space_setup_prompt(*, team_id: int, channel_id: str, channel_name: str, request: SpaceSetupRequest) -> str:
     if request.kind == "feature":
         if request.feature is None:
             raise ValueError("A feature setup needs a feature")
         return _build_feature_prompt(
-            channel_id=channel_id, channel_name=channel_name, feature=request.feature, repository=request.repository
+            team_id=team_id,
+            channel_id=channel_id,
+            channel_name=channel_name,
+            feature=request.feature,
+            repository=request.repository,
         )
     if request.goal is None:
         raise ValueError("A goal setup needs a goal")
     return _build_goal_prompt(
-        channel_id=channel_id, channel_name=channel_name, goal_request=request.goal, repository=request.repository
+        team_id=team_id,
+        channel_id=channel_id,
+        channel_name=channel_name,
+        goal_request=request.goal,
+        repository=request.repository,
     )
 
 
 def _build_goal_prompt(
-    *, channel_id: str, channel_name: str, goal_request: SpaceGoalRequest, repository: str | None
+    *, team_id: int, channel_id: str, channel_name: str, goal_request: SpaceGoalRequest, repository: str | None
 ) -> str:
     goal = describe_goal(goal_request)
     repository = repository or "<none linked; ask for one on the context page>"
@@ -337,7 +349,7 @@ def _build_goal_prompt(
         goal=goal,
         canvas_placeholder=canvas_placeholder,
     )
-    publish_rules = _PUBLISH_RULES.format(channel_id=channel_id)
+    publish_rules = _PUBLISH_RULES.format(team_id=team_id, channel_id=channel_id)
     return f"""Set up the space "{channel_name}" (channel id {channel_id}) to move one metric.
 
 Goal: {goal}
@@ -348,7 +360,7 @@ Repository for code changes: {repository}
 Do these steps in order.
 
 ### Step 1: resolve the measure
-Check the metric catalog with `metric-list` for an approved metric that matches the goal. Otherwise use the existing insight when one is given, otherwise write HogQL after confirming the events with `read-data-schema`. The measure must return one number per {goal_request.period}. Compute the current value and a baseline over the last four complete periods. Record the definition, the population, and the exclusions.
+Check the metric catalog with `metric-list` for an approved metric that matches the goal. Otherwise use the existing insight when one is given, otherwise write HogQL after confirming the events with `read-data-schema`. The measure must return one number per {goal_request.period}. Compute the current value and a baseline over the last four complete periods. Record the definition, the population, and the exclusions. A rate with no eligible users is unknown, not zero. Without an observed baseline, do not invent a target. Record what data is missing and leave the loops as drafts until the measure can be verified.
 
 ### Step 2: find related work
 Search `system.experiments`, `system.feature_flags`, `system.insights`, and `system.dashboards` for objects that touch the goal's events or name. Confirm the columns first. Collect each one as a `watching` entry with its full url.
@@ -357,7 +369,7 @@ Search `system.experiments`, `system.feature_flags`, `system.insights`, and `sys
 Create one freeform canvas in this channel with `canvas-create`, named "{channel_name} tracker". Publish its first version with `canvas-publish-create` following the `building-canvases` skill. It shows: the goal value against target and baseline, the checklist from `todo:*`, experiments from `experiment:*`, pull requests from `pr:*`, the daily `summary`, loop cards from `loop:*`, and a pause switch that writes the shared state key `control.paused`. Read shared state with `ph.state` in the canvas and declare the `shared` scope. Show an empty state for keys that do not exist yet. Set `control.paused` to false with `canvas-state-set`. Note the canvas id; it replaces `{canvas_placeholder}` in every loop prompt below.
 
 ### Step 4: create the loops
-Create five workflows, one per brief below, with the exact graph in "Loop graph". Fill in the space id, the space name, the repository, the canvas id, and the brief text. Before you create one, call `workflows-list` and reuse a workflow with the same name. For each workflow: `workflows-create` as a draft, `workflows-test-run` on the trigger step with globals {{"event": {{"event": "$scheduled", "properties": {{}}}}}} and then on the `create_task` step, `workflows-schedule-create` with the brief's rrule, `starts_at` at the next 08:00 in the project timezone (hourly loops start at the next full hour), and the project timezone, then `workflows-enable`. A loop whose test run fails stays a draft; report it and continue with the others.
+Create five workflows, one per brief below, with the exact graph in "Loop graph". Fill in the space id, the space name, the repository, the canvas id, and the brief text. Before you create one, call `workflows-list` and reuse a workflow with the same name. For each workflow, call `workflows-create` as a draft. If the measure or baseline is not verified, leave it as a draft without running its actions or creating a schedule. Otherwise call `workflows-test-run` on the trigger step with globals {{"event": {{"event": "$scheduled", "properties": {{}}}}}} and then on the `create_task` step, `workflows-schedule-create` with the brief's rrule, `starts_at` at the next 08:00 in the project timezone (hourly loops start at the next full hour), and the project timezone, then `workflows-enable`. A loop whose test run fails stays a draft; report it and continue with the others.
 
 ### Step 5: publish the context page
 {publish_rules}
@@ -379,11 +391,11 @@ Use this graph for every loop. Replace only the values in angle brackets. Keep `
 
 
 def _build_feature_prompt(
-    *, channel_id: str, channel_name: str, feature: SpaceFeatureRequest, repository: str | None
+    *, team_id: int, channel_id: str, channel_name: str, feature: SpaceFeatureRequest, repository: str | None
 ) -> str:
     feature_text = describe_feature(feature)
     repository = repository or "<none linked>"
-    publish_rules = _PUBLISH_RULES.format(channel_id=channel_id)
+    publish_rules = _PUBLISH_RULES.format(team_id=team_id, channel_id=channel_id)
     page_shape = _CONTEXT_PAGE_SHAPE.replace("## Loops", "## Rollout plan").replace(
         "One line per loop: name, schedule, workflow id, owned canvas keys.",
         "Stages, health checks per stage, and the cleanup condition. No loops run in this space yet.",

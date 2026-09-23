@@ -28,7 +28,9 @@ class TestBuildSpaceSetupPrompt(SimpleTestCase):
             repository="posthog/posthog",
         )
 
-        prompt = build_space_setup_prompt(channel_id=CHANNEL_ID, channel_name="desktop-activation", request=request)
+        prompt = build_space_setup_prompt(
+            team_id=123, channel_id=CHANNEL_ID, channel_name="desktop-activation", request=request
+        )
 
         for brief in GOAL_LOOP_BRIEFS:
             assert f"desktop-activation: {brief.name}" in prompt
@@ -40,6 +42,7 @@ class TestBuildSpaceSetupPrompt(SimpleTestCase):
         assert SUMMARY_LOOP_MODEL in prompt
         assert "template-posthog-create-task" in prompt
         assert "decision rule" in prompt
+        assert "team_id: 123" in prompt
 
     def test_feature_prompt_has_no_loops(self):
         request = SpaceSetupRequest(
@@ -47,17 +50,20 @@ class TestBuildSpaceSetupPrompt(SimpleTestCase):
             feature=SpaceFeatureRequest(name="Onboarding checklist", flag_key="onboarding-checklist"),
         )
 
-        prompt = build_space_setup_prompt(channel_id=CHANNEL_ID, channel_name="onboarding", request=request)
+        prompt = build_space_setup_prompt(
+            team_id=123, channel_id=CHANNEL_ID, channel_name="onboarding", request=request
+        )
 
         assert "onboarding-checklist" in prompt
         assert "Loop briefs" not in prompt
         assert "workflows-create" not in prompt
         assert "## Rollout plan" in prompt
+        assert "team_id: 123" in prompt
 
     def test_kind_without_its_payload_is_rejected(self):
         with self.assertRaises(ValueError):
             build_space_setup_prompt(
-                channel_id=CHANNEL_ID, channel_name="x", request=SpaceSetupRequest(kind="goal", goal=None)
+                team_id=123, channel_id=CHANNEL_ID, channel_name="x", request=SpaceSetupRequest(kind="goal", goal=None)
             )
 
 
