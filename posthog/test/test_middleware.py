@@ -2267,18 +2267,25 @@ class TestCSPMiddleware(APIBaseTest):
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
+        response = self.client.get("/")
+        policy = response["Content-Security-Policy-Report-Only"]
+        # A `report-to` directive makes browsers ignore `report-uri` and report through the
+        # Reporting API, which drops violations raised in about:blank and srcdoc frames.
+        assert "report-to" not in policy
+        _, report_endpoint = next(part for part in policy.split("; ") if part.startswith("report-uri ")).split()
+        assert report_endpoint.startswith("https://us.i.posthog.com/report/")
+        assert f"distinct_id={self.user.distinct_id}" in report_endpoint
         # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
         # renaming it silently stops crash ingestion.
-        response = self.client.get("/")
-        header = response["Reporting-Endpoints"]
-        assert 'posthog="https://us.i.posthog.com/report/' in header
-        assert 'default="https://us.i.posthog.com/report/' in header
-        assert f"distinct_id={self.user.distinct_id}" in header
+        assert response["Reporting-Endpoints"] == f'default="{report_endpoint}"'
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_reporting_endpoints_omit_distinct_id_when_logged_out(self):
         self.client.logout()
         response = self.client.get("/login")
+        policy = response["Content-Security-Policy-Report-Only"]
+        assert "report-uri https://us.i.posthog.com/report/" in policy
+        assert "distinct_id" not in policy
         header = response["Reporting-Endpoints"]
         assert 'default="https://us.i.posthog.com/report/' in header
         assert "distinct_id" not in header
@@ -2334,12 +2341,8 @@ class TestCSPMiddleware(APIBaseTest):
 
         policy = response["Content-Security-Policy-Report-Only"]
         assert f"report-uri https://posthog.example.com/report/?sample_rate={expected_rate}" in policy
+        assert f"sample_rate={expected_rate}&distinct_id={self.user.distinct_id}" in policy
         assert f"sample_rate={other_rate}" not in policy
-        # The crash-reporting endpoint is built by a second call that takes the rate separately, so
-        # it can drift from the directive above.
-        header = response["Reporting-Endpoints"]
-        assert f"sample_rate={expected_rate}&distinct_id={self.user.distinct_id}" in header
-        assert f"sample_rate={other_rate}" not in header
 
     @parameterized.expand(
         [
@@ -2357,18 +2360,19 @@ class TestCSPMiddleware(APIBaseTest):
         # Only the admin policy forbids framing outright; the non-HTML fallback is default-src alone.
         assert "frame-ancestors 'none'" in policy
         assert "Content-Security-Policy-Report-Only" not in response
+        assert "report-to" not in policy
 
         if expects_reporting:
             assert "report-uri https://us.i.posthog.com/report/" in policy
-            assert "report-to posthog" in policy
             # Sampling the admin policy too would silently drop violations, so the branches diverge.
             assert "sample_rate" not in policy
             # Without it every admin report arrives under a freshly minted id, so one staff session
             # counts as many users.
-            assert f"distinct_id={self.user.distinct_id}" in response["Reporting-Endpoints"]
+            assert f"distinct_id={self.user.distinct_id}" in policy
+            _, report_endpoint = next(part for part in policy.split("; ") if part.startswith("report-uri ")).split()
+            assert response["Reporting-Endpoints"] == f'default="{report_endpoint}"'
         else:
             assert "report-uri" not in policy
-            assert "report-to" not in policy
             assert "Reporting-Endpoints" not in response
 
     @override_settings(ADMIN_PORTAL_ENABLED=False)
@@ -2558,16 +2562,28 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
 
 
 @pytest.mark.parametrize(
-    "path,query_string,expected_coop",
+    "path,query_string,session_next,expected_coop",
     [
-        ("/connect/vercel/link", "", "unsafe-none"),
-        ("/oauth/callback", "", "unsafe-none"),
-        ("/login", "next=/connect/vercel/link", "unsafe-none"),
-        ("/login", "next=/connect/vercel/link?session=abc", "unsafe-none"),
-        ("/login", "", "same-origin"),
-        ("/login", "next=/dashboard", "same-origin"),
-        ("/login", "next=/connect/vercel/../../admin", "same-origin"),
-        ("/some/other/path", "", "same-origin"),
+        ("/connect/vercel/link", "", None, "unsafe-none"),
+        ("/oauth/callback", "", None, "unsafe-none"),
+        ("/login", "next=/connect/vercel/link", None, "unsafe-none"),
+        ("/login", "next=/connect/vercel/link?session=abc", None, "unsafe-none"),
+        ("/login", "", None, "same-origin"),
+        ("/login", "next=/dashboard", None, "same-origin"),
+        ("/login", "next=/connect/vercel/../../admin", None, "same-origin"),
+        ("/some/other/path", "", None, "same-origin"),
+        ("/login/google-oauth2/", "next=/connect/vercel/link", None, "unsafe-none"),
+        ("/login/github/", "", None, "same-origin"),
+        ("/login/github/", "next=/dashboard", None, "same-origin"),
+        ("/complete/google-oauth2/", "code=x&state=y", "/connect/vercel/link", "unsafe-none"),
+        ("/complete/google-oauth2/", "code=x&state=y", None, "same-origin"),
+        ("/complete/google-oauth2/", "code=x&state=y", "/dashboard", "same-origin"),
+        ("/signup", "next=/connect/vercel/link", None, "unsafe-none"),
+        ("/signup", "", None, "same-origin"),
+        ("/signup", "next=/dashboard", None, "same-origin"),
+        ("/complete/github-link/", "", None, "same-origin"),
+        ("/complete/slack-link/", "", None, "same-origin"),
+        ("/login/not-a-backend/", "", None, "same-origin"),
     ],
     ids=[
         "direct-oauth-vercel",
@@ -2578,9 +2594,22 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         "login-next-non-oauth",
         "login-next-path-traversal",
         "unrelated-path",
+        "social-login-start-with-next",
+        "social-login-start-plain",
+        "social-login-start-non-oauth-next",
+        "social-complete-session-oauth",
+        "social-complete-no-session",
+        "social-complete-session-non-oauth",
+        "signup-next-oauth",
+        "signup-no-next",
+        "signup-next-non-oauth",
+        "linking-complete-github",
+        "linking-complete-slack",
+        "login-unknown-backend",
     ],
 )
-def test_oauth_coop_middleware(path, query_string, expected_coop):
+def test_oauth_coop_middleware(path, query_string, session_next, expected_coop):
+    from django.contrib.sessions.backends.signed_cookies import SessionStore
     from django.http import HttpResponse
     from django.test import RequestFactory
 
@@ -2588,6 +2617,10 @@ def test_oauth_coop_middleware(path, query_string, expected_coop):
 
     factory = RequestFactory()
     request = factory.get(path + ("?" + query_string if query_string else ""))
+    if session_next is not None:
+        session = SessionStore()
+        session["next"] = session_next
+        request.session = session
 
     def get_response(req):
         resp = HttpResponse("ok")

@@ -1,4 +1,5 @@
 import csv
+import time
 import uuid
 import zipfile
 import datetime as dt
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from bingads.v13.reporting import ReportingDownloadParameters
+from bingads.v13.reporting import ReportingDownloadParameters, ReportingException
 from dateutil.relativedelta import relativedelta
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -38,6 +39,12 @@ REPORT_POLL_INTERVAL_MS = 5000
 # hours for a large request. A retry re-queues the report from scratch, so a deadline below that
 # window never converges for an account whose reports are slow to build.
 REPORT_TIMEOUT_MS = 1_800_000
+# Bing can finish building a report in a failed state, which the SDK surfaces as a bare
+# ReportingException carrying no reason beyond that status. Microsoft documents resubmitting the
+# request as the remedy, so resubmit here before the sync gives up. Without this, one flake in Bing's
+# report queue fails the whole run, and the pipeline's own retry refetches the chunk from scratch.
+REPORT_GENERATION_ATTEMPTS = 3
+REPORT_GENERATION_RETRY_DELAY_SECONDS = 30
 
 
 def parse_csv_to_dicts(csv_data: str) -> list[dict[str, Any]]:
@@ -173,6 +180,30 @@ def build_report_request(
     return report_request
 
 
+def download_report_file(
+    reporting_service_manager: Any,
+    download_params: Any,
+    report_type: str,
+) -> str | None:
+    """Build the report on Bing's queue and download it, resubmitting a failed generation.
+
+    Each ``download_file`` call submits a fresh report request, so retrying is a plain re-call.
+    """
+    for attempt in range(1, REPORT_GENERATION_ATTEMPTS):
+        try:
+            return reporting_service_manager.download_file(download_params)
+        except ReportingException as e:
+            logger.warning(
+                "Bing Ads report generation failed, resubmitting the report request",
+                report_type=report_type,
+                attempt=attempt,
+                error=str(e),
+            )
+            time.sleep(REPORT_GENERATION_RETRY_DELAY_SECONDS)
+
+    return reporting_service_manager.download_file(download_params)
+
+
 def download_and_extract_report_csv(
     reporting_service_manager: Any,
     report_request: Any,
@@ -195,7 +226,7 @@ def download_and_extract_report_csv(
             timeout_in_milliseconds=REPORT_TIMEOUT_MS,
         )
 
-        result_file_path = reporting_service_manager.download_file(download_params)
+        result_file_path = download_report_file(reporting_service_manager, download_params, report_type)
 
         # Bing returns no file when the report completes with zero rows for the requested range
         # (e.g. a date window with no campaign activity). Treat that as an empty report instead of

@@ -9,6 +9,7 @@ export default defineConfig({
     "src/deeplink.ts",
     "src/dismissalReasons.ts",
     "src/domain-types.ts",
+    "src/schemas.ts",
     "src/hoggies.ts",
     "src/mcp-sandbox-proxy.ts",
     "src/model-catalog.ts",

@@ -12,8 +12,11 @@
 #   `handed_off`, true only when GitHub Actions handed the tests to this engine. Canonical's
 #   `Django Tests Pass` gate then relays this workflow's gate verdict. Neither the hand-off
 #   job nor the relay has a counterpart here. A GitHub rerun does not restart this workflow,
-#   so the relay's failure log prints the `depot ci` commands that retry it.
+#   so the relay's failure log prints the `depot ci` commands that retry it, and the label
+#   that sends the PR back to GitHub Actions.
 # - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
+# - turbo-discover adds the `origin` remote before its history fetch when it is missing.
+#   Depot CI serves an input-less actions/checkout from a fast clone that has no remote.
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
 #   the canonical composites; any deltas are documented in each mirror's header). Every
@@ -169,6 +172,9 @@ env:
     CLICKHOUSE_TEST_CLUSTER_SECURE: 'False'
     CLICKHOUSE_TEST_CLUSTER_VERIFY: 'False'
     TEST: 1
+    # The root conftest ends a green pytest session with os._exit once every report is written.
+    # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
+    POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
@@ -678,10 +684,18 @@ jobs:
             # The posthog-ci-test-selection event properties, as one JSON object.
             telemetry: ${{ steps.discover.outputs.telemetry }}
         steps:
+            # A deep checkout is slow with or without blob:none: the blobless one fetches every file of
+            # the tree in a second request. Check out at depth 1, then add the history the merge-base
+            # steps read, without file contents.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
+            - name: Fetch history without file contents
+              # --depth, not --deepen: --deepen adds no history once GitHub has replaced the PR's
+              # merge ref, because no ref then points at GITHUB_SHA.
+              run: |
+                  # Depot CI serves an input-less checkout from a fast clone that adds no origin remote.
+                  git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+                  git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"
+                  echo "History depth: $(git rev-list --count HEAD)"
             - name: Verify PR merge for test selection
               id: verify-merge
               if: github.event_name == 'pull_request'
@@ -689,7 +703,7 @@ jobs:
                   PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
                   set -euo pipefail
-                  trap 'echo "::error::Cannot verify the PR merge checkout. Check the checkout ref and fetch depth before retrying." >&2' ERR
+                  trap 'echo "::error::Cannot verify the PR merge checkout. Check the checkout ref and the history fetch before retrying." >&2' ERR
                   test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
                   test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 3
                   test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
@@ -775,11 +789,12 @@ jobs:
                   client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
-            - name: Install pnpm dependencies
-              uses: ./.depot/actions/pnpm-install
+            - name: Set up pnpm and Node
+              uses: ./.depot/actions/setup-pnpm
               with:
-                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            - name: Install turbo
+              uses: ./.depot/actions/setup-turbo
             # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
             # --no-project` for the dependent cascade; the script pins tach, so no
             # Python project sync is needed. A missing uv widens the cascade to

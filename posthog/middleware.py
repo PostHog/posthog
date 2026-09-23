@@ -35,6 +35,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
+from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
@@ -1206,8 +1207,8 @@ class OAuthCoopMiddleware:
     window.opener when a cross-origin popup navigates to our pages — breaking
     popup-based OAuth flows that rely on the opener reference to detect completion.
 
-    We set COOP to "unsafe-none" on all OAuth-related paths so the opener
-    reference is preserved.
+    We set COOP to "unsafe-none" on OAuth paths, and on the social-auth and signup
+    pages that an OAuth flow passes through, so the opener reference is preserved.
     """
 
     OAUTH_PATH_PREFIXES = (
@@ -1229,15 +1230,37 @@ class OAuthCoopMiddleware:
                 return True
         return False
 
+    @staticmethod
+    def _is_social_auth_path(path: str) -> bool:
+        parts = path.strip("/").split("/")
+        if len(parts) != 2 or parts[0] not in ("login", "complete"):
+            return False
+        return parts[1] in load_backends(settings.AUTHENTICATION_BACKENDS)
+
+    def _targets_oauth_flow(self, next_url: str) -> bool:
+        if not next_url:
+            return False
+        normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
+        return self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES)
+
+    def _needs_opener_reference(self, request) -> bool:
+        path = request.path
+        if self._matches_oauth_prefix(path, self.OAUTH_PATH_PREFIXES):
+            return True
+        if self._is_social_auth_path(path):
+            # The provider redirects back to /complete/ without a next parameter, so read the destination
+            # that social-auth stored in the session at /login/.
+            session = getattr(request, "session", None)
+            session_next = session.get("next", "") if session is not None else ""
+            return self._targets_oauth_flow(request.GET.get("next", "")) or self._targets_oauth_flow(session_next)
+        if path in ("/login", "/login/", "/signup", "/signup/"):
+            return self._targets_oauth_flow(request.GET.get("next", ""))
+        return False
+
     def __call__(self, request):
         response = self.get_response(request)
-        if self._matches_oauth_prefix(request.path, self.OAUTH_PATH_PREFIXES):
+        if self._needs_opener_reference(request):
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
-        elif request.path == "/login" or request.path == "/login/":
-            next_url = request.GET.get("next", "")
-            normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
-            if self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES):
-                response["Cross-Origin-Opener-Policy"] = "unsafe-none"
         return response
 
 
@@ -1500,20 +1523,17 @@ class CSPMiddleware:
 
             admin_report_endpoint = csp_report_endpoint()
             if admin_report_endpoint:
-                csp_parts += [f"report-uri {admin_report_endpoint}", "report-to posthog"]
                 # Without a distinct_id the report endpoint mints a new one for every report, so a
-                # single staff session reads as a crowd of users. Only this header carries it, as in
-                # the app policy below.
+                # single staff session reads as a crowd of users.
                 user = getattr(request, "user", None)
                 distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
                 reporting_endpoint = (
                     csp_report_endpoint(distinct_id=distinct_id) if distinct_id else admin_report_endpoint
                 )
-                # Browsers only deliver crash reports to the endpoint named `default`; the CSP
-                # `report-to posthog` directive keeps routing violations to `posthog`.
-                response.headers["Reporting-Endpoints"] = (
-                    f'posthog="{reporting_endpoint}", default="{reporting_endpoint}"'
-                )
+                # The policy has no `report-to` directive. The app policy below gives the reason.
+                csp_parts.append(f"report-uri {reporting_endpoint}")
+                # Browsers only deliver crash reports to the endpoint named `default`.
+                response.headers["Reporting-Endpoints"] = f'default="{reporting_endpoint}"'
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
         elif "Content-Security-Policy" in response.headers:
             # The view picked this policy for this document: a canvas artifact runs untrusted code,
@@ -1615,7 +1635,9 @@ class CSPMiddleware:
                 # SQL editor all render blob URLs, so they lose their images without it.
                 f"img-src 'self' data: blob: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 frame_ancestors,
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
+                # The live debugger's repo browser reads PostHog/posthog from the GitHub API. The path keeps
+                # the rest of the API, and every other repository, out of reach of injected script.
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",
@@ -1683,16 +1705,21 @@ class CSPMiddleware:
                 shadow_uri = csp_report_endpoint(sample_rate=sample_rate, v=NARROWED_APP_POLICY_REPORT_VERSION)
                 shadow_parts = [*narrowed_app_policy(csp_parts, replacements), f"report-uri {shadow_uri}"]
             if report_uri:
-                csp_parts += [f"report-uri {report_uri}", "report-to posthog"]
                 report_endpoint = report_uri
                 if distinct_id:
-                    # Crash reports arrive after the tab already died, so the report body is the
-                    # only chance to attribute them; carrying the distinct_id in the endpoint URL
-                    # ties the event to the person instead of a random per-report id.
+                    # A report body never names the person, and a crash report arrives after the tab
+                    # already died, so only the URL can carry the distinct_id. Without it, the report
+                    # endpoint mints a random id for every report.
                     report_endpoint = csp_report_endpoint(sample_rate=sample_rate, distinct_id=distinct_id)
-                # Browsers only deliver crash reports to the endpoint named `default`; the CSP
-                # `report-to posthog` directive keeps routing violations to `posthog`.
-                response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
+                # The policy has no `report-to` directive, even though CSP3 marks `report-uri` as
+                # deprecated. While a policy names `report-to`, browsers ignore its `report-uri` and
+                # send reports only through the Reporting API. That API drops violations raised in
+                # about:blank and srcdoc frames, because those documents inherit this policy but not
+                # the Reporting-Endpoints header. Without `report-to`, browsers send those violations
+                # to `report-uri`.
+                csp_parts.append(f"report-uri {report_endpoint}")
+                # Browsers only deliver crash reports to the endpoint named `default`.
+                response.headers["Reporting-Endpoints"] = f'default="{report_endpoint}"'
             header_name = app_csp_header_name(request)
             response.headers[header_name] = "; ".join(csp_parts)
             if shadow_parts:

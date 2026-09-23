@@ -5,9 +5,9 @@ from posthog.api.routing import RouterRegistry
 from products.legal_documents.backend.presentation.views import LegalDocumentViewSet
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 
-urlpatterns: list[URLPattern] = [
+api_urlpatterns: list[URLPattern] = [
     path(
-        "api/legal_documents/pandadoc",
+        "pandadoc",
         legal_document_pandadoc_webhook,
         name="legal_document_pandadoc_webhook",
     ),
