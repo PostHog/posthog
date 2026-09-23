@@ -382,3 +382,20 @@ class TestBatchImportSupportAPI(APIBaseTest):
 
         by_search = self.client.get("/api/managed_migrations_support/", {"search": "Invalid JSON"})
         self.assertEqual([r["id"] for r in by_search.json()["results"]], [str(paused.id)])
+
+    @parameterized.expand([("default_descending", None, True), ("explicit_ascending", "created_at", False)])
+    def test_tied_timestamps_page_without_gaps_or_repeats(self, _name, ordering, newest_first):
+        tied_at = datetime(2024, 3, 1, tzinfo=UTC)
+        imports = [self._create_import() for _ in range(6)]
+        BatchImport.objects.filter(id__in=[i.id for i in imports]).update(created_at=tied_at, updated_at=tied_at)
+
+        paged: list[str] = []
+        for offset in (0, 3):
+            params: dict = {"limit": 3, "offset": offset}
+            if ordering is not None:
+                params["ordering"] = ordering
+            response = self.client.get("/api/managed_migrations_support/", params)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            paged.extend(r["id"] for r in response.json()["results"])
+
+        self.assertEqual(paged, sorted((str(i.id) for i in imports), reverse=newest_first))

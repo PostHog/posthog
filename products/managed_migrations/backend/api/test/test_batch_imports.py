@@ -1219,6 +1219,32 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["available"])
 
+    @parameterized.expand([("default_descending", None, True), ("explicit_ascending", "created_at", False)])
+    def test_tied_timestamps_page_without_gaps_or_repeats(self, _name, ordering, newest_first):
+        tied_at = datetime(2024, 3, 1, tzinfo=UTC)
+        imports = [
+            BatchImport.objects.create(
+                team=self.team,
+                created_by_id=self.user.id,
+                import_config={"source": {"type": "s3"}},
+                secrets={"access_key": "test", "secret_key": "secret_test"},
+                status=BatchImport.Status.COMPLETED,
+            )
+            for _ in range(6)
+        ]
+        BatchImport.objects.filter(id__in=[i.id for i in imports]).update(created_at=tied_at, updated_at=tied_at)
+
+        paged: list[str] = []
+        for offset in (0, 3):
+            params: dict = {"limit": 3, "offset": offset}
+            if ordering is not None:
+                params["ordering"] = ordering
+            response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations", params)
+            self.assertEqual(response.status_code, 200)
+            paged.extend(r["id"] for r in response.json()["results"])
+
+        self.assertEqual(paged, sorted((str(i.id) for i in imports), reverse=newest_first))
+
 
 class TestBatchImportTrialAPI(APIBaseTest):
     S3_PAYLOAD = {
