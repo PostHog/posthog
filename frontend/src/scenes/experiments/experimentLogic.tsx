@@ -35,7 +35,6 @@ import {
     featureFlagLogic as sceneFeatureFlagLogic,
 } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -47,7 +46,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { performQuery } from '~/queries/query'
 import {
-    AnyEntityNode,
     Breakdown,
     CachedExperimentQueryResponse,
     CachedNewExperimentQueryResponse,
@@ -80,7 +78,6 @@ import {
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
     NEW_EXPERIMENT,
     NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
-    MetricInsightId,
 } from 'products/experiments/frontend/constants'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
@@ -93,31 +90,15 @@ import {
     exposureHealthEventProperties,
 } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 import {
-    legacyExpectedRunningTime,
-    legacyMinimumSampleSizePerVariant,
-    legacyRecommendedExposureForCountData,
-} from 'products/experiments/frontend/legacy/calculations/legacyExperimentCalculations'
-import {
     experimentsLogic,
     getShippedVariantKey,
     isSingleVariantShipped,
 } from 'products/experiments/frontend/scenes/experimentsLogic'
-import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
-import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
-import type {
-    BillingType,
-    ExperimentHoldoutType,
-    ExperimentIdType,
-    FunnelResultType,
-    FunnelTimeConversionMetrics,
-    GroupType,
-    GroupTypeIndex,
-} from '../../types'
-import type { TrendResult } from '../../types'
+import type { BillingType, ExperimentHoldoutType, ExperimentIdType, GroupType, GroupTypeIndex } from '../../types'
 import type { ExperimentsConfig } from '../settings/environment/experimentsConfigLogic'
 import { experimentMetricsLogic } from './experimentMetricsLogic'
 import { featureFlagVariantProperty, resolvedExposureEvent } from './exposureContract'
@@ -437,24 +418,14 @@ export interface experimentLogicValues {
     experimentsConfig: ExperimentsConfig | null // experimentsConfigLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
-    conversionMetrics: FunnelTimeConversionMetrics // funnelDataLogic
-    funnelResults: FunnelResultType // funnelDataLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     showGroupsOptions: boolean // groupsModel
     holdouts: ExperimentHoldoutType[] // holdoutsLogic
-    funnelMetricInsightLoading: boolean // insightDataLogic
-    trendMetricInsightLoading: boolean // insightDataLogic
     currentProjectId: number | null // projectLogic
     sharedMetrics: SharedMetric[] // sharedMetricsLogic
     currentTeamId: number | null // teamLogic
-    trendResults: TrendResult[] // trendsDataLogic
-    actualRunningTime: number
-    compatibleSharedMetrics: SharedMetric[]
     currentRefresh: CurrentRefreshSnapshot | null
-    editingPrimaryMetricUuid: string | null
-    editingSecondaryMetricUuid: string | null
-    editingSharedMetricId: SharedMetric['id'] | null
     endExperimentLoading: boolean
     excludedVariants: string[]
     experiment: Experiment
@@ -470,7 +441,6 @@ export interface experimentLogicValues {
     exposureCriteria: ExperimentExposureCriteria | undefined
     exposures: any
     exposuresLoading: boolean
-    firstPrimaryMetric: ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery | undefined
     formMode: FormModes
     freezeExposureLoading: boolean
     getInsightType: (
@@ -493,7 +463,6 @@ export interface experimentLogicValues {
     isFlagActive: boolean
     isSingleVariantShipped: boolean
     launchExperimentLoading: boolean
-    minimumDetectableEffect: number
     notifyWhenResultsReady: boolean
     orderedPrimaryMetricsWithResults: {
         displayIndex: number
@@ -514,8 +483,6 @@ export interface experimentLogicValues {
     primaryMetricsResultsErrors: any[]
     primaryMetricsResultsLoading: boolean
     props: any
-    recommendedRunningTime: number
-    recommendedSampleSize: number
     resolvedExposureEvent: string
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: any[]
@@ -637,29 +604,11 @@ export interface experimentLogicActions {
     closePauseExperimentModal: () => {
         value: true
     } // modalsLogic
-    closePrimaryMetricModal: () => {
-        value: true
-    } // modalsLogic
     closeResumeExperimentModal: () => {
         value: true
     } // modalsLogic
-    closeSecondaryMetricModal: () => {
-        value: true
-    } // modalsLogic
-    openPrimaryMetricModal: (uuid: string) => {
-        uuid: string
-    } // modalsLogic
-    openPrimarySharedMetricModal: (sharedMetricId: number | null) => {
-        sharedMetricId: number | null
-    } // modalsLogic
     openReleaseConditionsModal: () => {
         value: true
-    } // modalsLogic
-    openSecondaryMetricModal: (uuid: string) => {
-        uuid: string
-    } // modalsLogic
-    openSecondarySharedMetricModal: (sharedMetricId: number | null) => {
-        sharedMetricId: number | null
     } // modalsLogic
     loadTags: () => {
         value: true
@@ -963,43 +912,6 @@ export interface experimentLogicActions {
     setFreezeExposureLoading: (loading: boolean) => {
         loading: boolean
     }
-    setFunnelsMetric: ({
-        uuid,
-        name,
-        series,
-        filterTestAccounts,
-        breakdownAttributionType,
-        breakdownAttributionValue,
-        funnelWindowInterval,
-        funnelWindowIntervalUnit,
-        aggregation_group_type_index,
-        funnelAggregateByHogQL,
-        isSecondary,
-    }: {
-        aggregation_group_type_index?: number
-        breakdownAttributionType?: BreakdownAttributionType
-        breakdownAttributionValue?: number
-        filterTestAccounts?: boolean
-        funnelAggregateByHogQL?: string
-        funnelWindowInterval?: number
-        funnelWindowIntervalUnit?: string
-        isSecondary?: boolean
-        name?: string
-        series?: AnyEntityNode[]
-        uuid: string
-    }) => {
-        aggregation_group_type_index: number | undefined
-        breakdownAttributionType: BreakdownAttributionType | undefined
-        breakdownAttributionValue: number | undefined
-        filterTestAccounts: boolean | undefined
-        funnelAggregateByHogQL: string | undefined
-        funnelWindowInterval: number | undefined
-        funnelWindowIntervalUnit: string | undefined
-        isSecondary: boolean | undefined
-        name: string | undefined
-        series: AnyEntityNode[] | undefined
-        uuid: string
-    }
     setHogfettiTrigger: (trigger: (() => void) | null) => {
         trigger: (() => void) | null
     }
@@ -1048,44 +960,6 @@ export interface experimentLogicActions {
     }
     setShowNotificationOffer: (show: boolean) => {
         show: boolean
-    }
-    setTrendsExposureMetric: ({
-        uuid,
-        name,
-        series,
-        filterTestAccounts,
-        isSecondary,
-    }: {
-        filterTestAccounts?: boolean
-        isSecondary?: boolean
-        name?: string
-        series?: AnyEntityNode[]
-        uuid: string
-    }) => {
-        filterTestAccounts: boolean | undefined
-        isSecondary: boolean
-        name: string | undefined
-        series: AnyEntityNode[] | undefined
-        uuid: string
-    }
-    setTrendsMetric: ({
-        uuid,
-        name,
-        series,
-        filterTestAccounts,
-        isSecondary,
-    }: {
-        filterTestAccounts?: boolean
-        isSecondary?: boolean
-        name?: string
-        series?: AnyEntityNode[]
-        uuid: string
-    }) => {
-        filterTestAccounts: boolean | undefined
-        isSecondary: boolean
-        name: string | undefined
-        series: AnyEntityNode[] | undefined
-        uuid: string
     }
     setUnfreezeExposureLoading: (loading: boolean) => {
         loading: boolean
@@ -1189,25 +1063,6 @@ export interface experimentLogicMeta {
         isExperimentStopped: (experiment: Experiment) => boolean
         variants: (experiment: Experiment) => MultivariateFlagVariant[]
         excludedVariants: (experiment: Experiment) => string[]
-        minimumDetectableEffect: (experiment: Experiment, defaultMinimumDetectableEffect: number) => number
-        recommendedSampleSize: (
-            conversionMetrics: FunnelTimeConversionMetrics,
-            variants: MultivariateFlagVariant[],
-            minimumDetectableEffect: number
-        ) => number
-        recommendedRunningTime: (
-            experiment: Experiment,
-            variants: MultivariateFlagVariant[],
-            getInsightType: (
-                metric: ExperimentFunnelsQuery | ExperimentMetricUnion | ExperimentTrendsQuery | undefined
-            ) => InsightType,
-            firstPrimaryMetric: ExperimentFunnelsQuery | ExperimentMetricUnion | ExperimentTrendsQuery | undefined,
-            funnelResults: FunnelResultType,
-            conversionMetrics: FunnelTimeConversionMetrics,
-            trendResults: TrendResult[],
-            minimumDetectableEffect: number
-        ) => number
-        actualRunningTime: (experiment: Experiment) => number
         isSingleVariantShipped: (experiment: Experiment) => boolean
         shippedVariantKey: (experiment: Experiment) => string | null
         experimentWarning: (
@@ -1218,11 +1073,7 @@ export interface experimentLogicMeta {
             isSingleVariantShipped: boolean,
             shippedVariantKey: string | null
         ) => ExperimentWarning | null
-        firstPrimaryMetric: (
-            experiment: Experiment
-        ) => ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery | undefined
         primaryMetricsLengthWithSharedMetrics: (experiment: Experiment) => number
-        compatibleSharedMetrics: (sharedMetrics: SharedMetric[], usesNewQueryRunner: boolean) => SharedMetric[]
         usesNewQueryRunner: (experiment: Experiment) => boolean
         hasMinimumExposureForResults: (exposures: any, usesNewQueryRunner: boolean) => boolean
         exposureCriteria: (experiment: Experiment) => ExperimentExposureCriteria | undefined
@@ -1298,16 +1149,6 @@ export const experimentLogic = kea<experimentLogicType>([
             ['holdouts'],
             billingLogic,
             ['billing'],
-            // Hook the insight state to get the results for the sample size estimation
-            funnelDataLogic({ dashboardItemId: MetricInsightId.Funnels }),
-            ['results as funnelResults', 'conversionMetrics'],
-            trendsDataLogic({ dashboardItemId: MetricInsightId.Trends }),
-            ['results as trendResults'],
-            // Hook into the loading state of the metric insight
-            insightDataLogic({ dashboardItemId: MetricInsightId.Trends }),
-            ['insightDataLoading as trendMetricInsightLoading'],
-            insightDataLogic({ dashboardItemId: MetricInsightId.Funnels }),
-            ['insightDataLoading as funnelMetricInsightLoading'],
             sharedMetricsLogic,
             ['sharedMetrics'],
             experimentsConfigLogic,
@@ -1342,12 +1183,6 @@ export const experimentLogic = kea<experimentLogicType>([
             ['updateFlagFromPartial'],
             modalsLogic,
             [
-                'openPrimaryMetricModal',
-                'closePrimaryMetricModal',
-                'openSecondaryMetricModal',
-                'closeSecondaryMetricModal',
-                'openPrimarySharedMetricModal',
-                'openSecondarySharedMetricModal',
                 'closePauseExperimentModal',
                 'closeResumeExperimentModal',
                 'closeFinishExperimentModal',
@@ -1475,69 +1310,6 @@ export const experimentLogic = kea<experimentLogicType>([
             metric: ExperimentMetric
             isSecondary?: boolean
         }) => ({ uuid, name, metric, isSecondary: isSecondary ?? false }),
-        setTrendsMetric: ({
-            uuid,
-            name,
-            series,
-            filterTestAccounts,
-            isSecondary,
-        }: {
-            uuid: string
-            name?: string
-            series?: AnyEntityNode[]
-            filterTestAccounts?: boolean
-            isSecondary?: boolean
-        }) => ({ uuid, name, series, filterTestAccounts, isSecondary: isSecondary ?? false }),
-        setTrendsExposureMetric: ({
-            uuid,
-            name,
-            series,
-            filterTestAccounts,
-            isSecondary,
-        }: {
-            uuid: string
-            name?: string
-            series?: AnyEntityNode[]
-            filterTestAccounts?: boolean
-            isSecondary?: boolean
-        }) => ({ uuid, name, series, filterTestAccounts, isSecondary: isSecondary ?? false }),
-        setFunnelsMetric: ({
-            uuid,
-            name,
-            series,
-            filterTestAccounts,
-            breakdownAttributionType,
-            breakdownAttributionValue,
-            funnelWindowInterval,
-            funnelWindowIntervalUnit,
-            aggregation_group_type_index,
-            funnelAggregateByHogQL,
-            isSecondary,
-        }: {
-            uuid: string
-            name?: string
-            series?: AnyEntityNode[]
-            filterTestAccounts?: boolean
-            breakdownAttributionType?: BreakdownAttributionType
-            breakdownAttributionValue?: number
-            funnelWindowInterval?: number
-            funnelWindowIntervalUnit?: string
-            aggregation_group_type_index?: number
-            funnelAggregateByHogQL?: string
-            isSecondary?: boolean
-        }) => ({
-            uuid,
-            name,
-            series,
-            filterTestAccounts,
-            breakdownAttributionType,
-            breakdownAttributionValue,
-            funnelWindowInterval,
-            funnelWindowIntervalUnit,
-            aggregation_group_type_index,
-            funnelAggregateByHogQL,
-            isSecondary,
-        }),
         addSharedMetricsToExperiment: (
             sharedMetricIds: SharedMetric['id'][],
             metadata: { type: 'primary' | 'secondary' }
@@ -1665,108 +1437,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (targetIndex !== -1) {
                         metrics[targetIndex] = metric
                     }
-
-                    return {
-                        ...state,
-                        [metricsKey]: metrics,
-                    }
-                },
-                setTrendsMetric: (state, { uuid, name, series, filterTestAccounts, isSecondary }) => {
-                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
-                    const metrics = [...(state?.[metricsKey] || [])]
-                    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
-
-                    if (targetIndex === -1) {
-                        return state
-                    }
-
-                    const metric = metrics[targetIndex]
-
-                    metrics[targetIndex] = {
-                        ...metric,
-                        ...(name !== undefined && { name }),
-                        count_query: {
-                            ...(metric as ExperimentTrendsQuery).count_query,
-                            ...(series && { series }),
-                            ...(filterTestAccounts !== undefined && { filterTestAccounts }),
-                        },
-                    } as ExperimentTrendsQuery
-
-                    return {
-                        ...state,
-                        [metricsKey]: metrics,
-                    }
-                },
-                setTrendsExposureMetric: (state, { uuid, name, series, filterTestAccounts, isSecondary }) => {
-                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
-                    const metrics = [...(state?.[metricsKey] || [])]
-                    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
-
-                    if (targetIndex === -1) {
-                        return state
-                    }
-
-                    const metric = metrics[targetIndex]
-
-                    metrics[targetIndex] = {
-                        ...metric,
-                        ...(name !== undefined && { name }),
-                        exposure_query: {
-                            ...(metric as ExperimentTrendsQuery).exposure_query,
-                            ...(series && { series }),
-                            ...(filterTestAccounts !== undefined && { filterTestAccounts }),
-                        },
-                    } as ExperimentTrendsQuery
-
-                    return {
-                        ...state,
-                        [metricsKey]: metrics,
-                    }
-                },
-                setFunnelsMetric: (
-                    state,
-                    {
-                        uuid,
-                        name,
-                        series,
-                        filterTestAccounts,
-                        breakdownAttributionType,
-                        breakdownAttributionValue,
-                        funnelWindowInterval,
-                        funnelWindowIntervalUnit,
-                        aggregation_group_type_index,
-                        funnelAggregateByHogQL,
-                        isSecondary,
-                    }
-                ) => {
-                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
-                    const metrics = [...(state?.[metricsKey] || [])]
-                    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
-
-                    if (targetIndex === -1) {
-                        return state
-                    }
-
-                    const metric = metrics[targetIndex]
-
-                    metrics[targetIndex] = {
-                        ...metric,
-                        ...(name !== undefined && { name }),
-                        funnels_query: {
-                            ...(metric as ExperimentFunnelsQuery).funnels_query,
-                            ...(series && { series }),
-                            ...(filterTestAccounts !== undefined && { filterTestAccounts }),
-                            ...(aggregation_group_type_index != null && { aggregation_group_type_index }),
-                            funnelsFilter: {
-                                ...(metric as ExperimentFunnelsQuery).funnels_query.funnelsFilter,
-                                ...(breakdownAttributionType && { breakdownAttributionType }),
-                                ...(breakdownAttributionValue !== undefined && { breakdownAttributionValue }),
-                                ...(funnelWindowInterval !== undefined && { funnelWindowInterval }),
-                                ...(funnelWindowIntervalUnit && { funnelWindowIntervalUnit }),
-                                ...(funnelAggregateByHogQL !== undefined && { funnelAggregateByHogQL }),
-                            },
-                        },
-                    } as ExperimentFunnelsQuery
 
                     return {
                         ...state,
@@ -2156,31 +1826,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 clearMetricsResults: () => [],
             },
         ],
-        editingPrimaryMetricUuid: [
-            null as string | null,
-            {
-                openPrimaryMetricModal: (_, { uuid }) => uuid,
-                closePrimaryMetricModal: () => null,
-                updateExperimentMetrics: () => null,
-                setEditingPrimaryMetricUuid: (_, { uuid }) => uuid,
-            },
-        ],
-        editingSecondaryMetricUuid: [
-            null as string | null,
-            {
-                openSecondaryMetricModal: (_, { uuid }) => uuid,
-                closeSecondaryMetricModal: () => null,
-                updateExperimentMetrics: () => null,
-            },
-        ],
-        editingSharedMetricId: [
-            null as SharedMetric['id'] | null,
-            {
-                openPrimarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
-                openSecondarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
-                updateExperimentMetrics: () => null,
-            },
-        ],
         isCreatingExperimentDashboard: [
             false,
             {
@@ -2484,6 +2129,11 @@ export const experimentLogic = kea<experimentLogicType>([
             // experiment. Defer the refresh until flags arrive; setFeatureFlags replays it once.
             if (!values.receivedFeatureFlags) {
                 cache.deferredRefresh = { forceRefresh, triggeredBy, refreshIfStale }
+                return
+            }
+
+            // Legacy metrics have no query runner, so every query for them fails.
+            if (isLegacyExperiment(values.experiment)) {
                 return
             }
 
@@ -3829,96 +3479,6 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment],
             (experiment: Experiment): string[] => experiment?.excluded_variants ?? [],
         ],
-        minimumDetectableEffect: [
-            (s) => [s.experiment, s.defaultMinimumDetectableEffect],
-            (newExperiment: Experiment, defaultMinimumDetectableEffect: number): number => {
-                return (
-                    newExperiment?.running_time_calculation?.minimum_detectable_effect ?? defaultMinimumDetectableEffect
-                )
-            },
-        ],
-        recommendedSampleSize: [
-            (s) => [s.conversionMetrics, s.variants, s.minimumDetectableEffect],
-            (
-                conversionMetrics: import('~/types').FunnelTimeConversionMetrics,
-                variants: MultivariateFlagVariant[],
-                minimumDetectableEffect: number
-            ): number => {
-                const conversionRate = conversionMetrics.totalRate * 100
-                const sampleSizePerVariant = legacyMinimumSampleSizePerVariant(minimumDetectableEffect, conversionRate)
-                const sampleSize = sampleSizePerVariant * variants.length
-                return sampleSize
-            },
-        ],
-        recommendedRunningTime: [
-            (s) => [
-                s.experiment,
-                s.variants,
-                s.getInsightType,
-                s.firstPrimaryMetric,
-                s.funnelResults,
-                s.conversionMetrics,
-                s.trendResults,
-                s.minimumDetectableEffect,
-            ],
-            (
-                experiment: Experiment,
-                variants: MultivariateFlagVariant[],
-                getInsightType: (
-                    metric:
-                        | ExperimentFunnelsQuery
-                        | ExperimentTrendsQuery
-                        | import('~/queries/schema/schema-general').ExperimentMetricUnion
-                        | undefined
-                ) => InsightType,
-                firstPrimaryMetric: ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery | undefined,
-                funnelResults: import('~/types').FunnelResultType,
-                conversionMetrics: import('~/types').FunnelTimeConversionMetrics,
-                trendResults: import('~/types').TrendResult[],
-                minimumDetectableEffect: number
-            ): number => {
-                if (getInsightType(firstPrimaryMetric) === InsightType.FUNNELS) {
-                    const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
-                    let funnelEntrants: number | undefined
-                    if (Array.isArray(funnelResults) && funnelResults[0]) {
-                        const firstFunnelEntry = funnelResults[0]
-
-                        funnelEntrants = Array.isArray(firstFunnelEntry)
-                            ? firstFunnelEntry[0].count
-                            : firstFunnelEntry.count
-                    }
-
-                    const conversionRate = conversionMetrics.totalRate * 100
-                    const sampleSizePerVariant = legacyMinimumSampleSizePerVariant(
-                        minimumDetectableEffect,
-                        conversionRate
-                    )
-                    const funnelSampleSize = sampleSizePerVariant * variants.length
-                    if (experiment?.start_date) {
-                        return legacyExpectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0, currentDuration)
-                    }
-                    return legacyExpectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0)
-                }
-
-                const trendCount = trendResults[0]?.count
-                const runningTime = legacyRecommendedExposureForCountData(minimumDetectableEffect, trendCount)
-                return runningTime
-            },
-        ],
-        actualRunningTime: [
-            (s) => [s.experiment],
-            (experiment: Experiment): number => {
-                if (!experiment.start_date) {
-                    return 0
-                }
-
-                if (experiment.end_date) {
-                    return dayjs(experiment.end_date).diff(experiment.start_date, 'day')
-                }
-
-                return dayjs().diff(experiment.start_date, 'day')
-            },
-        ],
         isSingleVariantShipped: [
             (s) => [s.experiment],
             (experiment: Experiment): boolean => isSingleVariantShipped(experiment),
@@ -3978,18 +3538,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return null
             },
         ],
-        firstPrimaryMetric: [
-            (s) => [s.experiment],
-            (experiment: Experiment): ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined => {
-                if (experiment.metrics.length) {
-                    return experiment.metrics[0]
-                }
-                const primaryMetric = experiment.saved_metrics.find((metric) => metric.metadata.type === 'primary')
-                if (primaryMetric) {
-                    return primaryMetric.query
-                }
-            },
-        ],
         primaryMetricsLengthWithSharedMetrics: [
             (s) => [s.experiment],
             (experiment: Experiment): number => {
@@ -3997,18 +3545,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     experiment.metrics.length +
                     experiment.saved_metrics.filter((savedMetric) => savedMetric.metadata.type === 'primary').length
                 )
-            },
-        ],
-        compatibleSharedMetrics: [
-            (s) => [s.sharedMetrics, s.usesNewQueryRunner],
-            (sharedMetrics: SharedMetric[], usesNewQueryRunner: boolean): SharedMetric[] => {
-                if (!sharedMetrics) {
-                    return []
-                }
-                if (usesNewQueryRunner) {
-                    return sharedMetrics.filter((metric) => metric.query.kind === NodeKind.ExperimentMetric)
-                }
-                return sharedMetrics.filter((metric) => metric.query.kind !== NodeKind.ExperimentMetric)
             },
         ],
         usesNewQueryRunner: [

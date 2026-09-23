@@ -182,8 +182,7 @@ export function NotebookExperimentComponent({ id, expanded }: NotebookExperiment
                                         <strong>Legacy experiment</strong>
                                     </div>
                                     <div>
-                                        This experiment uses legacy metrics. Results are only available in the full
-                                        experiment view.
+                                        This experiment uses legacy metrics, so its results are no longer available.
                                     </div>
                                 </LemonBanner>
                             </div>

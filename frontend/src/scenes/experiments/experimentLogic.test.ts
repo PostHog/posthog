@@ -9,7 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import experimentMetricResultsErrorJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_error.json'
 import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
 import { useMocks } from '~/mocks/jest'
@@ -290,6 +290,30 @@ describe('experimentLogic', () => {
             expect(logic.values.secondaryMetricsResultsLoading).toBe(false)
         })
 
+        it('sends no queries for a legacy experiment', async () => {
+            const queryHandler = jest.fn(() => [200, {}])
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': queryHandler,
+                    '/api/environments/:team/query/:kind': queryHandler,
+                },
+            })
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [
+                    {
+                        kind: NodeKind.ExperimentTrendsQuery,
+                        uuid: 'legacy-metric',
+                        count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                    },
+                ],
+            } as Experiment)
+
+            await logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+            expect(queryHandler).not.toHaveBeenCalled()
+        })
+
         it('defers the refresh until feature flags arrive, then replays it once', async () => {
             // Reinitialize kea so flags start unresolved (receivedFeatureFlags false). The outer beforeEach
             // marks flags received; here a refresh must not choose a branch yet, since reading the flag as
@@ -352,6 +376,8 @@ describe('experimentLogic', () => {
                     action.payload.forceRefresh === true &&
                     action.payload.triggeredBy === 'manual',
                 'markRefreshStarted',
+                // Wait for the replayed refresh, so its completion event does not land in a later test.
+                'markRefreshFinished',
             ])
 
             // A repeated update with the same value must not re-run the refresh.
@@ -401,7 +427,6 @@ describe('experimentLogic', () => {
             'reports the exposure state with the completed refresh: $desc',
             async ({ exposures, handling, expected }) => {
                 const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
-                // The fixture holds legacy metrics, so the refresh keeps the exposures that are set here.
                 logic.actions.setExperiment({
                     ...experiment,
                     exposure_criteria: { ...experiment.exposure_criteria, multiple_variant_handling: handling },
@@ -411,10 +436,17 @@ describe('experimentLogic', () => {
                 }
                 useMocks({
                     post: {
-                        '/api/environments/:team/query': () => [
-                            200,
-                            { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
-                        ],
+                        // The exposure query fails, so the refresh keeps the exposures that are set here.
+                        '/api/environments/:team/query/:kind': ({ params }) =>
+                            params.kind === NodeKind.ExperimentExposureQuery
+                                ? [500, { detail: 'Exposures are unavailable' }]
+                                : [
+                                      200,
+                                      {
+                                          cache_key: 'cache_key',
+                                          query_status: experimentMetricResultsSuccessJson.query_status,
+                                      },
+                                  ],
                     },
                     get: {
                         '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
