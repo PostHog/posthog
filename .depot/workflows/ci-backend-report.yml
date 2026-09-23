@@ -64,7 +64,8 @@ jobs:
                   }
 
                   handoff_url=$(check_url "$GITHUB_ACTIONS_APP_ID" "$HANDOFF_CHECK")
-                  handoff=absent
+                  # A failed API read sets `unread`, so it never passes for a confirmed `absent`.
+                  handoff=unread
                   # Matches the hand-off wait in ci-backend.yml: after it, Depot runs nothing to report.
                   for _ in $(seq 1 30); do
                       if read_check "$handoff_url" /tmp/handoff-checks.json; then
@@ -73,16 +74,18 @@ jobs:
                               | max_by(.id)
                               | if . == null then "absent" elif .status == "completed" then .conclusion else .status end
                           ' /tmp/handoff-checks.json)
+                      else
+                          handoff=unread
                       fi
                       case "$handoff" in
-                          absent|queued|in_progress|pending|waiting|requested) sleep 20 ;;
+                          unread|absent|queued|in_progress|pending|waiting|requested) sleep 20 ;;
                           *) break ;;
                       esac
                   done
                   case "$handoff" in
                       success) ;;
-                      queued|in_progress|pending|waiting|requested)
-                          echo "::error::Backend routing did not resolve within 10 minutes"
+                      unread|queued|in_progress|pending|waiting|requested)
+                          echo "::error::Backend routing did not resolve within 10 minutes (hand-off check: $handoff)"
                           exit 1
                           ;;
                       *)
