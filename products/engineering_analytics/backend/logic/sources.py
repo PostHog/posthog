@@ -66,6 +66,11 @@ REVIEWS_SCHEMA = "reviews"
 # pull request in the repo requested a team, and a read of it fails before that.
 REQUESTED_TEAM_COLUMN = "requested_team"
 
+# GitHub puts the membership role (``maintainer`` / ``member``) on a team member row, but it is not in
+# the endpoint's documented user object, so a snapshot can land without it. Probed per table like
+# REQUESTED_TEAM_COLUMN, and a read without it reports every member as a plain member.
+MEMBER_ROLE_COLUMN = "role"
+
 # The curated endpoints we resolve per repo. A source's other synced endpoints (issues, commits,
 # teams, …) are irrelevant to the CI/PR read layer and dropped during grouping.
 _CURATED_ENDPOINTS = frozenset(
@@ -225,6 +230,39 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
                     )
                 )
     return resolved
+
+
+@dataclass(frozen=True)
+class TeamMembershipTable:
+    """The synced org team-membership snapshot: its warehouse table and whether it carries roles."""
+
+    table: str
+    has_role: bool
+
+
+def resolve_team_membership_table(
+    *, team: Team, user_access_control: "UserAccessControl | None" = None
+) -> TeamMembershipTable | None:
+    """The team's synced ``team_members`` table, or None when no connected source syncs it.
+
+    Deliberately narrower than ``resolve_github_tables``: turning a team slug into logins needs
+    neither ``pull_requests`` nor ``workflow_runs``, so requiring them would make routing fail on a
+    source that syncs the roster alone, or while the PR endpoints are still backfilling. Membership is
+    org-scoped, so every repo of every source answers with the same roster and the first match wins.
+    The endpoint is off by default (it needs the org Members grant), so None is the normal state and
+    callers degrade to "membership isn't synced" rather than "that team has nobody on it".
+    """
+    for source in _github_sources(team, user_access_control):
+        legacy_repo = _source_repository(source) or None
+        for schema in _synced_schemas(team=team, source=source):
+            _, endpoint = github_schema_repo_endpoint(schema.schema_metadata, schema.name, legacy_repo)
+            if endpoint != TEAM_MEMBERS_SCHEMA:
+                continue
+            table = schema.table
+            if table is None or table.deleted or not _IDENTIFIER.match(table.name):
+                continue
+            return TeamMembershipTable(table=table.name, has_role=MEMBER_ROLE_COLUMN in (table.columns or {}))
+    return None
 
 
 TRUNK_MERGE_QUEUE_SCHEMA = "MergeQueuePullRequests"
