@@ -1,8 +1,9 @@
 import { randomUUID } from 'crypto'
 import { Counter } from 'prom-client'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
-import { internalFetch } from '~/common/utils/request'
+import { FetchResponse, internalFetch } from '~/common/utils/request'
 
 /** Submits the person update through the same capture path Django uses.
  *
@@ -46,13 +47,13 @@ export type PushCaptureEvent = {
 export class PushCaptureService {
     constructor(
         private baseUrl: string,
-        private timeoutMs: number = 2000
+        private timeoutMs: number = 2000,
+        private sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
     ) {}
 
     /** Resolves only when capture accepted the event. The caller answers the SDK on that basis, and
      * an SDK that is told the registration was stored never sends it again. */
     public async capture(event: PushCaptureEvent): Promise<void> {
-        const url = `${this.baseUrl}${CAPTURE_V1_INTERNAL_ENDPOINT}`
         const now = new Date().toISOString()
         const { options, properties } = splitOptions(event.properties)
 
@@ -66,34 +67,97 @@ export class PushCaptureService {
         if (Object.keys(options).length > 0) {
             entry.options = options
         }
-
-        const response = await internalFetch(url, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${event.token}`,
-                'Content-Type': 'application/json',
-                'User-Agent': SDK_INFO,
-                'PostHog-Sdk-Info': SDK_INFO,
-                'PostHog-Attempt': '1',
-                'PostHog-Request-Id': randomUUID(),
-                'PostHog-Request-Timestamp': now,
-            },
-            body: JSON.stringify({
-                created_at: now,
-                capture_internal: true,
-                historical_migration: false,
-                batch: [entry],
-            }),
-            timeoutMs: this.timeoutMs,
+        const body = JSON.stringify({
+            created_at: now,
+            capture_internal: true,
+            historical_migration: false,
+            batch: [entry],
         })
 
-        if (response.status < 200 || response.status >= 300) {
-            captureCounter.inc({ outcome: 'rejected' })
-            logger.warn('push_subscription_capture_rejected', { status: response.status })
-            throw new Error(`capture returned ${response.status}`)
+        for (let attempt = 1; ; attempt++) {
+            const response = await this.post(event.token, body, attempt)
+
+            if (response.status < 200 || response.status >= 300) {
+                captureCounter.inc({ outcome: 'rejected' })
+                logger.warn('push_subscription_capture_rejected', { status: response.status })
+                throw new Error(`capture returned ${response.status}`)
+            }
+
+            if (resultFor(await response.text(), entry.uuid) !== 'retry') {
+                captureCounter.inc({ outcome: 'ok' })
+                return
+            }
+            if (attempt >= MAX_ATTEMPTS) {
+                captureCounter.inc({ outcome: 'rejected' })
+                logger.warn('push_subscription_capture_rejected', { status: response.status, result: 'retry' })
+                throw new Error('capture asked to retry the event on every attempt')
+            }
+            await this.sleep(retryAfterMs(response.headers['retry-after']))
         }
-        captureCounter.inc({ outcome: 'ok' })
     }
+
+    /** One application attempt, with the transport retries Django's session makes under it. A timeout
+     * is not retried: each attempt already holds the SDK's request for the full timeout, and retrying
+     * one is what stretches Django's answer to many seconds while capture is slow. */
+    private async post(token: string, body: string, attempt: number): Promise<FetchResponse> {
+        for (let retry = 0; ; retry++) {
+            try {
+                const response = await internalFetch(`${this.baseUrl}${CAPTURE_V1_INTERNAL_ENDPOINT}`, {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        'User-Agent': SDK_INFO,
+                        'PostHog-Sdk-Info': SDK_INFO,
+                        'PostHog-Attempt': String(attempt),
+                        'PostHog-Request-Id': randomUUID(),
+                        'PostHog-Request-Timestamp': new Date().toISOString(),
+                    },
+                    body,
+                    timeoutMs: this.timeoutMs,
+                })
+                if (!TRANSPORT_RETRY_STATUSES.has(response.status) || retry >= TRANSPORT_BACKOFF_MS.length) {
+                    return response
+                }
+                await response.text()
+            } catch (error) {
+                if ((error as Error).name === 'TimeoutError' || retry >= TRANSPORT_BACKOFF_MS.length) {
+                    throw error
+                }
+            }
+            await this.sleep(TRANSPORT_BACKOFF_MS[retry])
+        }
+    }
+}
+
+/** Django's session retries these statuses and connection errors three times, backing off 0, 200 and
+ * 400ms (urllib3 `Retry(total=3, backoff_factor=0.1)`). */
+const TRANSPORT_RETRY_STATUSES = new Set([500, 502, 503, 504])
+const TRANSPORT_BACKOFF_MS = [0, 200, 400]
+
+/** Django's `CAPTURE_V1_INTERNAL_MAX_ATTEMPTS` and `CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS`. */
+const MAX_ATTEMPTS = 4
+const RETRY_AFTER_CAP_MS = 5000
+
+function resultFor(text: string, uuid: string): string | undefined {
+    try {
+        const result = parseJSON(text)?.results?.[uuid]?.result
+        return typeof result === 'string' ? result : undefined
+    } catch {
+        return undefined
+    }
+}
+
+/** Seconds, capped, as Django's `_parse_retry_after` reads it: absent is 0, unparseable is 1. */
+function retryAfterMs(header: string | undefined): number {
+    if (!header) {
+        return 0
+    }
+    const seconds = Number(header)
+    if (!Number.isFinite(seconds)) {
+        return 1000
+    }
+    return Math.min(Math.max(seconds * 1000, 0), RETRY_AFTER_CAP_MS)
 }
 
 function splitOptions(input: Record<string, any>): { options: Record<string, any>; properties: Record<string, any> } {
