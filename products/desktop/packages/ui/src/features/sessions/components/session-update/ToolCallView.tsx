@@ -1,4 +1,12 @@
-import { compactHomePath } from "@posthog/shared";
+import { getPostHogExecDisplay } from "@posthog/core/sessions/posthogExecDisplay";
+import {
+  compactHomePath,
+  formatPiMcpToolName,
+  readMcpProxyCallDetails,
+  readMcpToolDescriptor,
+  readPiMcpCallDetails,
+} from "@posthog/shared";
+import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 import { ToolRow } from "./ToolRow";
 import {
@@ -36,6 +44,48 @@ interface ToolCallViewProps extends ToolViewProps {
   agentToolName?: string;
 }
 
+function mcpProxyDisplay(
+  toolCall: ToolCall,
+): { title: string; input?: string } | undefined {
+  const details =
+    readPiMcpCallDetails(toolCall.details) ??
+    readMcpProxyCallDetails(toolCall._meta);
+  if (details?.kind === "search") {
+    return { title: "Search MCP tools", input: details.query };
+  }
+  if (details?.kind === "tool") {
+    const posthogDisplay = getPostHogExecDisplay({
+      tool: details.name,
+      args: details.args,
+    });
+    const descriptor = readMcpToolDescriptor(toolCall._meta);
+    const label = posthogDisplay?.label ?? descriptor?.title;
+    if (label) {
+      return {
+        title: formatPiMcpToolName(details.name, label),
+        ...(posthogDisplay?.input ? { input: posthogDisplay.input } : {}),
+      };
+    }
+    return { title: formatPiMcpToolName(details.name) };
+  }
+  const descriptor = readMcpToolDescriptor(toolCall._meta);
+  if (descriptor) {
+    return {
+      title: formatPiMcpToolName(
+        `mcp__${descriptor.server}__${descriptor.tool}`,
+        descriptor.title,
+      ),
+    };
+  }
+  if (toolCall.title.startsWith("mcp_")) {
+    return { title: formatPiMcpToolName(toolCall.title) };
+  }
+  if (toolCall.title === "mcp") {
+    return { title: "MCP" };
+  }
+  return undefined;
+}
+
 export function ToolCallView({
   toolCall,
   turnCancelled,
@@ -66,20 +116,25 @@ export function ToolCallView({
     toolDisplay && typeof highlightValue === "string"
       ? { ...toolDisplay, value: highlightValue }
       : undefined;
+  const mcpDisplay = mcpProxyDisplay(toolCall);
 
   // New thread reads back in past tense once the tool has finished ("Reading" → "Read"); the legacy
   // thread keeps the original present-tense prefix so ConversationView is unchanged when toggled off.
-  const displayText = specialDisplay
-    ? chatChrome && !isLoading
-      ? specialDisplay.pastPrefix
-      : specialDisplay.prefix
-    : filePath
-      ? `Read ${getFilename(filePath)}`
-      : title
-        ? compactHomePath(title)
-        : undefined;
+  const displayText =
+    mcpDisplay?.title ??
+    (specialDisplay
+      ? chatChrome && !isLoading
+        ? specialDisplay.pastPrefix
+        : specialDisplay.prefix
+      : filePath
+        ? `Read ${getFilename(filePath)}`
+        : title
+          ? compactHomePath(title)
+          : undefined);
 
-  const inputPreview = specialDisplay?.value ?? compactInput(rawInput);
+  const inputPreview = mcpDisplay
+    ? mcpDisplay.input
+    : (specialDisplay?.value ?? compactInput(rawInput));
   const fullInput = formatInput(rawInput);
 
   const output = stripCodeFences(getContentText(content) ?? "");

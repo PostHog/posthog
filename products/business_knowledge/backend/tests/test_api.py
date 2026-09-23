@@ -34,6 +34,7 @@ class TestKnowledgeSourceAPI(APIBaseTest):
                 analysis_version="post_resolution_v1",
                 title="Refund policy",
                 content="Refunds are available within 30 days.",
+                evidence_revision_at=timezone.now(),
             )
         )
         return str(result.source_id)
@@ -88,6 +89,9 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         KnowledgeSource.objects.unscoped().create(
             team=self.team, name="Gamma report", source_type="file", status="ready"
         )
+        KnowledgeSource.objects.unscoped().create(
+            team=self.team, name="Learned policy", source_type="text", status="ready", is_generated=True
+        )
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other"
         )
@@ -110,9 +114,41 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         # Search and type combine as AND.
         assert names("source_type=file&search=gamma") == ["Gamma report"]
         assert names("source_type=text&search=beta") == []
+        # added_by splits sources you created from ones learned from support tickets.
+        assert names("added_by=human") == ["Alpha docs", "Beta guide", "Gamma report"]
+        assert names("added_by=learned") == ["Learned policy"]
+        assert names("added_by=learned&source_type=text&search=policy") == ["Learned policy"]
+        assert names("added_by=human&search=policy") == []
+
+    def test_list_pages_do_not_skip_or_repeat_sources_with_equal_timestamps(self, _ff) -> None:
+        created_ids = sorted(
+            str(
+                KnowledgeSource.objects.unscoped()
+                .create(team=self.team, name=f"Tied {index}", source_type="text", status="ready")
+                .id
+            )
+            for index in range(4)
+        )
+        sources = KnowledgeSource.objects.unscoped().filter(team=self.team)
+        sources.update(created_at=timezone.now())
+
+        def page(offset: int) -> list[str]:
+            resp = self.client.get(f"{self.url}?limit=2&offset={offset}")
+            assert resp.status_code == status.HTTP_200_OK, resp.content
+            return [row["id"] for row in resp.json()["results"]]
+
+        first_page = page(0)
+        # An edit between the two reads rewrites the row, which moves it in the
+        # database's own tie order. Only the id tie-breaker keeps the pages aligned.
+        sources.filter(id=first_page[0]).update(name="Edited between pages")
+        paged_ids = first_page + page(2)
+
+        assert paged_ids == created_ids
 
     def test_list_rejects_unknown_source_type(self, _ff) -> None:
         response = self.client.get(f"{self.url}?source_type=bogus")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response = self.client.get(f"{self.url}?added_by=robot")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_cannot_read_other_team_source_via_id(self, _ff) -> None:

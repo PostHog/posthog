@@ -35,10 +35,9 @@ import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
-import { ScanningPausedBanner } from '../components/ScanningPausedBanner'
 import { replayVisionEmptyState } from '../emptyState/replayVisionEmptyState'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { ObservationSearchTab } from '../search/ObservationSearchTab'
+import { ObservationSearch } from '../search/ObservationSearch'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { CreateScannerButton } from './components/CreateScannerButton'
@@ -312,14 +311,12 @@ export function ReplayScannersScene(): JSX.Element {
             {activeTab === 'watch' ? (
                 <WatchFeedTab />
             ) : activeTab === ReplayScannerTab.Search ? (
-                <ObservationSearchTab scanner={null} />
+                <ObservationSearch className="mt-2 w-4/5 mx-auto" />
             ) : activeTab === 'usage' ? (
                 <VisionUsageTab />
             ) : (
                 <>
-                    {isRedesign ? (
-                        <ScanningPausedBanner />
-                    ) : (scannerStats?.total ?? 0) > 0 ? (
+                    {(scannerStats?.total ?? 0) > 0 ? (
                         <VisionMetrics />
                     ) : scannerStatsLoading ? (
                         <div className="flex items-center justify-center h-72 bg-bg-light rounded">

@@ -58,8 +58,15 @@ const hogFunctionFilterOutcomes = new Counter({
 const hogFunctionFilterErrors = new Counter({
     name: 'cdp_hog_function_filter_error',
     help: 'A filter threw while being evaluated, by the code path that asked for it',
-    labelNames: ['caller', 'type'],
+    labelNames: ['caller', 'type', 'reason'],
 })
+
+/**
+ * `not_compiled` and `no_bytecode` break every event for a destination, the rest only the events
+ * whose shape the filter cannot handle. The thrown message never becomes a label, because it
+ * carries filter expressions and its cardinality is unbounded.
+ */
+type FilterErrorReason = 'not_compiled' | 'no_bytecode' | 'prefilter' | 'vm_error' | 'unknown'
 
 const hogFunctionPreFilterCounter = new Counter({
     name: 'cdp_hog_function_prefilter_result',
@@ -403,6 +410,8 @@ export async function filterFunctionInstrumented(options: {
     }
 
     let preFilterMatch = null
+    // Narrows what the catch block can blame. Each step sets it before the call that can throw.
+    let reason: FilterErrorReason = 'unknown'
 
     try {
         // If there are no filters (only bytecode exists then on the filter object)
@@ -416,6 +425,7 @@ export async function filterFunctionInstrumented(options: {
         // check whether we have a match with our pre-filter
         // Only run if we have event filters and NO action filters (as actions are pre-saved event filters)
         if (filters?.events?.length && !filters?.actions?.length) {
+            reason = 'prefilter'
             preFilterMatch = preFilterResult(filters, filterGlobals)
             if (preFilterMatch === false) {
                 hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__pre_filtered_out' })
@@ -432,9 +442,11 @@ export async function filterFunctionInstrumented(options: {
         }
 
         if (!filters?.bytecode) {
+            reason = filters?.bytecode_error ? 'not_compiled' : 'no_bytecode'
             throw new Error('Filters were not compiled correctly and so could not be executed')
         }
 
+        reason = 'vm_error'
         const execHogOutcome = await execHog(filters.bytecode, { globals: filterGlobals })
 
         if (execHogOutcome) {
@@ -475,7 +487,7 @@ export async function filterFunctionInstrumented(options: {
             })
         }
     } catch (error) {
-        hogFunctionFilterErrors.inc({ caller, type })
+        hogFunctionFilterErrors.inc({ caller, type, reason })
 
         logger.debug('🦔', `[${fnKind}] Error filtering function`, {
             functionId: fn.id,

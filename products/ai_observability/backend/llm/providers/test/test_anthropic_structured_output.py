@@ -3,9 +3,11 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import anthropic
+from parameterized import parameterized
 from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
+    OutputTokenLimitError,
     ProviderBadRequestError,
     QuotaExceededError,
     StructuredOutputParseError,
@@ -67,11 +69,12 @@ class TestStructuredOutputComplete:
             response_format=response_format,
         )
 
-    def _make_mock_response(self, text: str):
+    def _make_mock_response(self, text: str, stop_reason: str = "end_turn") -> MagicMock:
         mock_block = MagicMock()
         mock_block.text = text
         mock_response = MagicMock()
         mock_response.content = [mock_block]
+        mock_response.stop_reason = stop_reason
         mock_response.usage.input_tokens = 10
         mock_response.usage.output_tokens = 20
         return mock_response
@@ -122,16 +125,50 @@ class TestStructuredOutputComplete:
         assert result.parsed.result is True
         assert result.parsed.reason == "The sky is blue"
 
+    @parameterized.expand(
+        [
+            (
+                "invalid_json",
+                "not valid json at all",
+                "end_turn",
+                StructuredOutputParseError,
+                "Failed to parse structured output",
+            ),
+            (
+                "truncated_json",
+                '{"result": true, "reason": "The sky',
+                "max_tokens",
+                OutputTokenLimitError,
+                "output token limit",
+            ),
+            (
+                "valid_json_at_limit",
+                '{"result": true, "reason": "The sky is blue"}',
+                "max_tokens",
+                OutputTokenLimitError,
+                "output token limit",
+            ),
+        ]
+    )
     @patch("products.ai_observability.backend.llm.providers.anthropic.settings")
     @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
-    def test_structured_output_raises_on_invalid_json(self, mock_anthropic_cls, mock_settings):
+    def test_structured_output_distinguishes_parse_errors_from_output_limits(
+        self,
+        _name: str,
+        text: str,
+        stop_reason: str,
+        expected_error: type[Exception],
+        expected_message: str,
+        mock_anthropic_cls: MagicMock,
+        mock_settings: MagicMock,
+    ) -> None:
         mock_settings.ANTHROPIC_API_KEY = "sk-ant-test"
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
-        mock_client.messages.create.return_value = self._make_mock_response("not valid json at all")
+        mock_client.messages.create.return_value = self._make_mock_response(text, stop_reason=stop_reason)
 
         adapter = AnthropicAdapter()
-        with pytest.raises(StructuredOutputParseError, match="Failed to parse structured output"):
+        with pytest.raises(expected_error, match=expected_message):
             adapter.complete(
                 self._make_request(response_format=BooleanEvalResult),
                 api_key="sk-ant-test",
@@ -154,13 +191,16 @@ class TestStructuredOutputComplete:
                 analytics=AnalyticsContext(capture=False),
             )
 
+    @parameterized.expand(["end_turn", "max_tokens"])
     @patch("products.ai_observability.backend.llm.providers.anthropic.settings")
     @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
-    def test_non_structured_output_returns_text(self, mock_anthropic_cls, mock_settings):
+    def test_non_structured_output_returns_text(
+        self, stop_reason: str, mock_anthropic_cls: MagicMock, mock_settings: MagicMock
+    ) -> None:
         mock_settings.ANTHROPIC_API_KEY = "sk-ant-test"
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
-        mock_client.messages.create.return_value = self._make_mock_response("The sky is blue.")
+        mock_client.messages.create.return_value = self._make_mock_response("The sky is blue.", stop_reason=stop_reason)
 
         adapter = AnthropicAdapter()
         result = adapter.complete(

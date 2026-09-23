@@ -230,6 +230,8 @@ jobs:
                         - 'common/ingestion/**'
                         - 'common/migration_utils/**'
                         - 'common/plugin_transpiler/**'
+                        # The personhog gRPC stubs that posthog/personhog_client imports
+                        - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
                         # Python outside backend/ — products like logs and
@@ -283,6 +285,15 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/hints.py'
                         - 'tools/hogli-commands/hogli_commands/product/**'
                         - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
+                        # owners_yaml is a runtime dependency of product code (stamphog reads
+                        # owners.yaml through it), so a resolver change has to re-run its
+                        # dependents; turbo-discover finds the products that import it.
+                        # Deliberately not in `legacy`, because a leaf-package change should
+                        # run its dependents rather than the whole Django suite.
+                        - 'packages/owners-yaml/**'
+                        # Transitional: branches that predate the move still carry the
+                        # resolver at tools/owners.
+                        - 'tools/owners/**'
                         # product:lint --all checks these generated files against the tree,
                         # so a baseline-only edit must run it too. The crossings baseline is
                         # also what product:lint reads to let a wiring location leave a
@@ -327,6 +338,8 @@ jobs:
                         - 'common/ingestion/**'
                         - 'common/migration_utils/**'
                         - 'common/plugin_transpiler/**'
+                        # The personhog gRPC stubs that posthog/personhog_client imports
+                        - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
@@ -429,6 +442,9 @@ jobs:
                         - 'products/*/product.yaml'
                         - '**/owners.yaml'
                         # Resolver changes must re-run the owners.yaml lint too.
+                        - 'packages/owners-yaml/**'
+                        # Transitional: branches that predate the move still carry the
+                        # resolver at tools/owners.
                         - 'tools/owners/**'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
@@ -470,7 +486,7 @@ jobs:
     # this job breaks that lookup.
     hand-off-to-depot:
         name: Hand off backend tests to Depot CI
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 2
         needs: [changes]
         if: needs.changes.outputs.engine == 'depot'
@@ -1472,7 +1488,7 @@ jobs:
             contents: read
             actions: write
         name: Cancel Backend CI after repo check failure
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         steps:
             - name: Cancel run
               env:
@@ -1497,8 +1513,8 @@ jobs:
             github.event.pull_request.head.repo.full_name == github.repository
             && needs.changes.outputs.engine != 'depot'
         timeout-minutes: 5
-        name: Validate product.yaml owners (ubuntu-latest)
-        runs-on: ubuntu-latest
+        name: Validate product.yaml owners (ubuntu-24.04)
+        runs-on: ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -1516,7 +1532,7 @@ jobs:
                   owner: ${{ github.repository_owner }}
                   repositories: ${{ github.event.repository.name }}
 
-            # Plain setup-python: this PR-only job runs on ubuntu-latest, whose cache
+            # Plain setup-python: this PR-only job runs on ubuntu-24.04, whose cache
             # store no master job ever saves the python tool cache to, so the
             # setup-python-cached restore would miss on every run.
             - name: Set up Python
@@ -2290,7 +2306,7 @@ jobs:
         # Mirror the dump there so fork PRs prime instead of migrating from scratch.
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         name: Mirror schema cache to GitHub cache
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read
@@ -2552,7 +2568,7 @@ jobs:
             contents: read
             actions: write
         name: Cancel Backend CI after OpenAPI check failure
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         steps:
             - name: Cancel run
               env:
@@ -2978,7 +2994,6 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
@@ -3917,7 +3932,7 @@ jobs:
         # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
         # Run even if some matrix jobs failed (to commit snapshots from passing jobs)
         if: ${{ !cancelled() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: write
@@ -3999,7 +4014,7 @@ jobs:
                 repo-checks,
             ]
         name: Django Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         permissions:
             contents: read
             actions: read # the failure rollup downloads each shard's JUnit artifact
@@ -4048,6 +4063,8 @@ jobs:
                   api="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?app_id=$DEPOT_APP_ID&check_name="
                   gate_url="$api$(jq -rn --arg n "$DEPOT_GATE_CHECK" '$n | @uri')"
                   wait_url="$api$(jq -rn --arg n "$DEPOT_WAIT_CHECK" '$n | @uri')"
+                  # shellcheck disable=SC2016 # $since and $pr are jq variables
+                  latest_run='[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id)'
                   # Reads one Depot check run into the named variable: absent, a status, or a
                   # conclusion. A 304 leaves it as it was.
                   # shellcheck disable=SC2034 # the nameref writes the caller's variable
@@ -4061,7 +4078,7 @@ jobs:
                       case "$code" in
                           200)
                               mv "/tmp/relay-$2.etag.new" "/tmp/relay-$2.etag"
-                              slot=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' "/tmp/relay-$2")
+                              slot=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" "$latest_run"' | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' "/tmp/relay-$2")
                               refusals=0
                               ;;
                           304) refusals=0 ;;
@@ -4098,7 +4115,33 @@ jobs:
                               esac
                               ;;
                           queued|in_progress|pending|waiting|requested) ;;
-                          *) echo "::error::Depot gate concluded $gate for $SHA"; exit 1 ;;
+                          *)
+                              depot_url=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" "$latest_run"' | .details_url // ""' /tmp/relay-gate)
+                              echo "::error::Backend tests on Depot CI concluded $gate. This step's log lists the retry options."
+                              printf '%s\n' \
+                                  "Backend tests for $SHA ran on Depot CI, not GitHub Actions. Re-running this job alone reads the same result." \
+                                  "Depot run: ${depot_url:-not found}" \
+                                  ""
+                              if [[ $depot_url =~ ^https://depot\.dev/orgs/([^/]+)/workflows/([a-z0-9]+) ]]; then
+                                  org=${BASH_REMATCH[1]}
+                                  workflow=${BASH_REMATCH[2]}
+                                  printf '%s\n' \
+                                      "Retry through the Depot CLI (needs access to the Depot org $org):" \
+                                      "  depot ci diagnose --org $org --workflow $workflow   # the failures, and the run ID on the 'Run:' line" \
+                                      "  depot ci retry <run ID> --org $org --workflow $workflow --failed" \
+                                      "  depot ci status <run ID> --org $org   # repeat until the run finishes" \
+                                      "  gh run rerun $GITHUB_RUN_ID --repo $REPO --failed   # relays the new Depot result" \
+                                      ""
+                              fi
+                              printf '%s\n' \
+                                  "Retry without Depot access: a new commit starts a fresh run." \
+                                  "  git commit --allow-empty -m 'chore: retry backend ci' && git push" \
+                                  "" \
+                                  "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there." \
+                                  "  gh pr edit $PR_NUMBER --repo $REPO --add-label ci-backend-github" \
+                                  "  git commit --allow-empty -m 'chore: retry backend ci on github actions' && git push"
+                              exit 1
+                              ;;
                       esac
                       # The gate check only appears when the matrix is done, so once Depot has
                       # started, a slower poll costs at most a minute of latency.
@@ -4273,7 +4316,7 @@ jobs:
             !cancelled() && github.event_name == 'pull_request' &&
             needs.changes.result != 'skipped' &&
             (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped')
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:
             contents: read
@@ -4369,7 +4412,7 @@ jobs:
     calculate-running-time:
         name: Calculate running time
         needs: [changes, django_tests]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
         if: >-
@@ -4417,7 +4460,7 @@ jobs:
     capture-test-selection:
         name: Capture test selection
         needs: [turbo-discover]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # An empty mode means this run never selected, so there is no decision to report.
         # DevEx project only, mirroring monitor-github-rate-limit; continue-on-error so
@@ -4442,7 +4485,7 @@ jobs:
         # django and turbo-tests are here for their results only; django_tests already
         # waits for both, so this adds no wall time.
         needs: [django_tests, django, turbo-tests]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         continue-on-error: true
         timeout-minutes: 10
         # Runs on every attempt: a re-run passing what an earlier attempt failed is the same-commit
@@ -4472,9 +4515,11 @@ jobs:
               id: timing-reporter
               shell: bash
               run: |
-                  # tools/owners is a path dep of the reporter, so a base ref predating it can't resolve its deps.
+                  # The owners resolver is a path dep of the reporter, so a base ref predating it
+                  # can't resolve its deps. A base ref from before the move to packages/owners-yaml still
+                  # carries it at tools/owners, so both locations count as available.
                   available=false
-                  if [[ -f .github/scripts/report_test_timings.py && -d tools/owners ]]; then
+                  if [[ -f .github/scripts/report_test_timings.py && ( -d packages/owners-yaml || -d tools/owners ) ]]; then
                     available=true
                   fi
                   # A re-run may emit only through an attempt-aware reporter: an older script would
@@ -4513,7 +4558,7 @@ jobs:
     backend-coverage-report:
         name: Backend coverage report
         needs: [changes, turbo-tests, django_tests, turbo-discover]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         continue-on-error: true # report-only, never block a PR
         timeout-minutes: 10
         # Pinned job-level: this job runs PR-head-controlled scripts with github.token, so its

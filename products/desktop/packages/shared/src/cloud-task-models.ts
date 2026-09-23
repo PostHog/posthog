@@ -53,9 +53,9 @@ export interface CloudTaskModePreset {
   description: string;
 }
 
-export const DEFAULT_GATEWAY_MODEL = "claude-opus-4-8";
+export const DEFAULT_GATEWAY_MODEL = "claude-opus-5-5";
 
-export const DEFAULT_CODEX_MODEL = "gpt-5.5";
+export const DEFAULT_CODEX_MODEL = "gpt-6-sol";
 
 export const BLOCKED_GATEWAY_MODEL_IDS = [
   "gpt-5-mini",
@@ -337,11 +337,6 @@ export function adapterForModelId(modelId: string): Adapter {
     ? "codex"
     : "claude";
 }
-
-export const HARNESS_DISPLAY_NAMES: Record<Adapter, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-};
 
 function buildModelSelectOptions(
   models: readonly GatewayModel[],

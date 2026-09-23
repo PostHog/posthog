@@ -52,7 +52,7 @@ from products.tasks.backend.facade.run_config import (
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     CONTEXT_WINDOW_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
-    PUBLIC_REASONING_EFFORTS,
+    REASONING_EFFORTS,
     WARMABLE_ORIGIN_PRODUCTS,
     LLMProvider,
     PrAuthorshipMode,
@@ -780,7 +780,7 @@ class TaskWriteSerializer(serializers.Serializer):
         help_text="LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.",
     )
     reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        choices=list(REASONING_EFFORTS),
         required=False,
         default=None,
         allow_null=True,
@@ -2954,7 +2954,7 @@ class ModelChoiceSerializer(DataclassSerializer):
         source="label", help_text="Display name for the model, such as 'Claude Opus 4.8'."
     )
     supported_efforts = serializers.ListField(
-        child=serializers.ChoiceField(choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS]),
+        child=serializers.ChoiceField(choices=list(REASONING_EFFORTS)),
         help_text="Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control.",
     )
     cost_multiplier = serializers.CharField(
@@ -3237,7 +3237,7 @@ class TaskRunCreateRequestSerializer(
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
     RUN_SOURCE_CHOICES = [source.value for source in RunSource]
     RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
-    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+    REASONING_EFFORT_CHOICES = list(REASONING_EFFORTS)
 
     mode = serializers.ChoiceField(
         choices=TaskExecutionMode.choices,
@@ -3554,7 +3554,6 @@ class TaskRunBootstrapCreateRequestSerializer(
             for field in pi_incompatible_fields:
                 if attrs.get(field) is not None:
                     errors[field] = "This field cannot be used with a Pi task."
-
             if attrs.get("reasoning_effort") == ReasoningEffort.ULTRACODE:
                 errors["reasoning_effort"] = "This reasoning effort cannot be used with a Pi task."
 
@@ -3667,7 +3666,7 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         help_text="LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.",
     )
     reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        choices=list(REASONING_EFFORTS),
         required=False,
         default=None,
         allow_null=True,
@@ -3706,6 +3705,22 @@ class WarmTaskRequestSerializer(serializers.Serializer):
             "cold Run. Omit to take the runtime's default."
         ),
     )
+    signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=Integration.objects.none(),
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text=(
+            "Inbox report the warm discussion is about. Required with origin_product `signal_report`, where the "
+            "warm Run boots repo-less and the submit that creates the report's discussion task activates it."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        cast(
+            serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
+        ).queryset = tasks_facade.signal_report_queryset()
 
     def validate_repository(self, value: str | None) -> str | None:
         if value is None:
@@ -3716,7 +3731,22 @@ class WarmTaskRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("Repository must be in the format organization/repository")
         return normalized
 
+    def validate_signal_report(self, value):
+        if value and value.team_id != self.context["team"].id:
+            raise serializers.ValidationError("Signal report must belong to the same team")
+        return value
+
     def validate(self, attrs):
+        if attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
+            if not attrs.get("signal_report"):
+                raise serializers.ValidationError({"signal_report": "Requires signal_report when set."})
+            if attrs.get("repository") or attrs.get("repositories") or attrs.get("github_integration"):
+                raise serializers.ValidationError(
+                    {"repository": "Signal report tasks resolve their repository server-side."}
+                )
+        elif attrs.get("signal_report"):
+            raise serializers.ValidationError({"signal_report": "Requires origin_product signal_report when set."})
+
         # A repository needs an integration to clone with. The reverse is allowed: the create path
         # accepts and stores an integration on a repo-less task, and the sandbox uses it to mint a
         # GitHub token, so a repo-less warm must carry the same integration to boot with the same
@@ -3769,7 +3799,7 @@ class WarmTaskResumeRequestSerializer(serializers.Serializer):
         help_text="LLM model to start before the next message is submitted.",
     )
     reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        choices=list(REASONING_EFFORTS),
         required=False,
         default=None,
         help_text="Reasoning effort to apply when the warmed successor receives its first message.",
