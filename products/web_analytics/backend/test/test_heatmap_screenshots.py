@@ -523,6 +523,12 @@ def _jpeg_bytes(width: int = 12, height: int = 12) -> bytes:
     return buf.getvalue()
 
 
+def _tiff_bytes() -> bytes:
+    buf = BytesIO()
+    Image.new("RGB", (12, 12), (200, 30, 30)).save(buf, format="TIFF")
+    return buf.getvalue()
+
+
 @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
 class TestHeatmapToolbarCapture(APIBaseTest):
     def setUp(self) -> None:
@@ -587,6 +593,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         [
             ("wildcard_url", "https://app.example.com/*", _jpeg_bytes()),
             ("not_an_image", "https://app.example.com/x", b"<html>not a jpeg</html>"),
+            ("unsupported_format", "https://app.example.com/x", _tiff_bytes()),
         ]
     )
     def test_capture_rejects_invalid_input(self, _mock_task: MagicMock, _name: str, url: str, content: bytes) -> None:

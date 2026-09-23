@@ -427,7 +427,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
 
                     let apiUrl =
                         url ||
-                        `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
 
                     const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)
 
@@ -451,7 +451,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 const beforeChange = { ...values.rawDashboards[id] }
 
                 const response = await api.update<DashboardType>(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
                 )
                 refreshTreeItem('dashboard', id)
@@ -473,7 +473,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                             label: 'Undo',
                             action: async () => {
                                 const reverted = await api.update<DashboardType>(
-                                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                                     beforeChange
                                 )
                                 actions.updateDashboardSuccess(getQueryBasedDashboard(reverted))
@@ -496,7 +496,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
             deleteDashboard: async ({ id, deleteInsights }) => {
                 const deleted = getQueryBasedDashboard(
-                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: true,
                         delete_insights: deleteInsights,
                     })
@@ -506,7 +506,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
             restoreDashboard: async ({ id }) => {
                 const restored = getQueryBasedDashboard(
-                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: false,
                     })
                 ) as DashboardType
@@ -514,18 +514,15 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 return restored
             },
             pinDashboard: async ({ id, source }) => {
-                const response = await api.update(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
-                    {
-                        pinned: true,
-                    }
-                )
+                const response = await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                    pinned: true,
+                })
                 eventUsageLogic.actions.reportDashboardPinToggled(id, true, source)
                 return getQueryBasedDashboard(response)!
             },
             unpinDashboard: async ({ id, source }) => {
                 const response = await api.update<DashboardType>(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     {
                         pinned: false,
                     }
@@ -535,7 +532,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
                 const result = await api.create<DashboardType>(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/`,
                     {
                         use_dashboard: id,
                         name: `${name} (Copy)`,
