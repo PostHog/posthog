@@ -27,5 +27,13 @@ fi
 # Mount the repo (relative layer/golden paths resolve under -w /work) and the temp
 # dir (diff.sh/gen-sql.sh/the generator pass absolute committed-tree and scratch paths
 # under $TMPDIR) so both resolve inside the container.
+#
+# $HCLEXP_MOUNT bind-mounts one more host dir at its own path, for inputs that
+# legitimately live outside the repo — check-cloud.sh reading the sibling
+# PostHog/clickhouse-schema checkout is the case this exists for. Without it any
+# path outside $PWD and $TMPDIR simply is not there, and hclexp reports the file
+# as missing rather than as unmounted.
 TMP="${TMPDIR:-/tmp}"; TMP="${TMP%/}"
-exec docker run --rm -v "$PWD:/work" -v "$TMP:$TMP" -w /work "$HCLEXP_IMAGE" "$@"
+exec docker run --rm \
+  -v "$PWD:/work" -v "$TMP:$TMP" ${HCLEXP_MOUNT:+-v "$HCLEXP_MOUNT:$HCLEXP_MOUNT"} \
+  -w /work "$HCLEXP_IMAGE" "$@"

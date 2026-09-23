@@ -7,9 +7,10 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from personhog.types.v1 import group_pb2, person_pb2
+
     from posthog.models.group.group import Group
     from posthog.models.person import Person
-    from posthog.personhog_client.proto.generated.personhog.types.v1 import group_pb2, person_pb2
 
 
 def proto_group_type_mapping_to_dict(mapping: group_pb2.GroupTypeMapping) -> dict[str, Any]:

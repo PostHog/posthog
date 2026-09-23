@@ -2,17 +2,29 @@ import { Handle, Position } from '@xyflow/react'
 import clsx from 'clsx'
 import React, { useCallback, useState } from 'react'
 
-import { IconActivity, IconClockRewind, IconPencil, IconPlay, IconPlayFilled, IconTarget } from '@posthog/icons'
+import {
+    IconActivity,
+    IconClockRewind,
+    IconPauseFilled,
+    IconPencil,
+    IconPlay,
+    IconPlayFilled,
+    IconTarget,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { ElkDirection, NodeHandle } from 'scenes/data-warehouse/scene/modeling/types'
 
-import { DataModelingJobStatus, DataModelingNode } from '~/types'
+import { DataModelingNode } from '~/types'
 
+import { MATERIALIZING_TYPES } from 'products/data_modeling/frontend/freshness'
+import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
-import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
+import { ElkDirection, NodeHandle } from './autolayout'
+import { NODE_TYPE_TAG_SETTINGS, statusBackgroundClass } from './nodeStyles'
+import { NodeTypeTag } from './NodeTypeTag'
 
 export type LineageVariant = 'full' | 'canvas'
 
@@ -28,6 +40,8 @@ export type LineageNodeShape = Pick<
     | 'upstream_count'
     | 'downstream_count'
     | 'user_tag'
+    | 'suspended'
+    | 'lineage_issue'
 >
 
 export interface LineageNodeState {
@@ -56,35 +70,48 @@ export interface LineageNodeData extends Record<string, unknown> {
     handles: NodeHandle[]
 }
 
-function NodeTypeTag({ type }: { type: DataModelingNode['type'] }): JSX.Element {
-    const { label, color } = NODE_TYPE_TAG_SETTINGS[type]
+export function lineageIssueMessage(issue: NonNullable<DataModelingNode['lineage_issue']>): string {
+    if (issue.kind === 'sync_failed') {
+        return `Lineage could not be refreshed: ${issue.detail}`
+    }
+    return `Couldn't find ${issue.detail}. This may read a table that was renamed or removed.`
+}
+
+/** The warning mark drawn on a lineage node, and repeated beside the name in the editor's table. */
+export function LineageIssueMarker({ issue }: { issue: NonNullable<DataModelingNode['lineage_issue']> }): JSX.Element {
+    const message = lineageIssueMessage(issue)
     return (
-        <span
-            className="text-[10px] lowercase tracking-wide px-1 rounded border-1"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                color,
-                backgroundColor: `color-mix(in srgb, ${color} 20%, transparent)`,
-                borderColor: `color-mix(in srgb, ${color} 80%, transparent)`,
-            }}
-        >
-            {label}
-        </span>
+        <Tooltip title={message}>
+            <span className="flex items-center" role="img" aria-label={message}>
+                <IconWarning className="text-warning text-sm" />
+            </span>
+        </Tooltip>
     )
 }
 
-function StatusDot({ status }: { status?: DataModelingJobStatus }): JSX.Element {
+function StatusDot({ node }: { node: LineageNodeShape }): JSX.Element {
+    const suspension = servingSuspension(node.suspended)
+    if (suspension) {
+        return (
+            <Tooltip
+                title={
+                    <div className="flex flex-col gap-1">
+                        <div>Suspended after repeated failures</div>
+                        <div className="opacity-75">{suspension.reason}</div>
+                    </div>
+                }
+                interactive
+            >
+                <IconPauseFilled className="text-warning text-sm" />
+            </Tooltip>
+        )
+    }
     return (
-        <Tooltip title={status ?? 'Not run yet'}>
+        <Tooltip title={node.last_run_status ?? 'Not run yet'}>
             <div
                 className={clsx(
                     'rounded-full w-3 h-3 border-1 border-primary',
-                    status === 'Completed' && 'bg-success',
-                    status === 'Running' && 'bg-warning',
-                    status === 'Failed' && 'bg-danger',
-                    status === 'Cancelled' && 'bg-warning',
-                    status === 'Skipped' && 'bg-muted',
-                    !status && 'bg-surface-primary'
+                    node.last_run_status ? statusBackgroundClass(node.last_run_status) : 'bg-surface-primary'
                 )}
             />
         </Tooltip>
@@ -144,18 +171,20 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
                 </Tooltip>
                 <IconActivity />
                 {node.last_run_at ? (
-                    <TZLabel
-                        className="text-[10px]"
-                        time={node.last_run_at}
-                        formatDate="MMM D"
-                        formatTime="HH:mm"
-                        showPopover={false}
-                    />
+                    <Tooltip title="Last successful run.">
+                        <TZLabel
+                            className="text-[10px]"
+                            time={node.last_run_at}
+                            formatDate="MMM D"
+                            formatTime="HH:mm"
+                            showPopover={false}
+                        />
+                    </Tooltip>
                 ) : (
-                    <Tooltip title="This node has not been run yet">Never</Tooltip>
+                    <Tooltip title="This model has never finished a run">Never succeeded</Tooltip>
                 )}
             </div>
-            <StatusDot status={node.last_run_status} />
+            <StatusDot node={node} />
         </div>
     )
 }
@@ -164,7 +193,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const { node, variant, direction, state, callbacks } = data
     const [isHovered, setIsHovered] = useState(false)
 
-    const showMetadata = node.type === 'matview' || node.type === 'endpoint'
+    const showMetadata = MATERIALIZING_TYPES.has(node.type)
     const showRunArrows = variant === 'canvas' && isHovered && !state.isRunning
     const { color } = NODE_TYPE_TAG_SETTINGS[node.type]
 
@@ -182,6 +211,21 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         fn?.()
     }
 
+    const handleKeyDown = (e: React.KeyboardEvent): void => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            callbacks.onClick?.()
+        }
+    }
+
+    const destination = node.type === 'metric' ? 'the metric' : 'the model'
+    const ariaLabel = [
+        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, opens ${destination}`,
+        node.lineage_issue && lineageIssueMessage(node.lineage_issue),
+    ]
+        .filter(Boolean)
+        .join('. ')
+
     return (
         <Tooltip title={node.name} delayMs={500}>
             <div
@@ -190,6 +234,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                     state.isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
                     !state.isRunning && state.isHighlighted && 'border-link ring-2 ring-link/30',
                     !state.isRunning && !state.isHighlighted && !state.isCurrent && 'border-border',
+                    node.lineage_issue && !state.isRunning && !state.isHighlighted && 'border-warning',
                     state.isCurrent && 'border-2'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -199,6 +244,10 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
                 onClick={callbacks.onClick}
+                onKeyDown={callbacks.onClick ? handleKeyDown : undefined}
+                role={callbacks.onClick ? 'button' : undefined}
+                tabIndex={callbacks.onClick ? 0 : undefined}
+                aria-label={callbacks.onClick ? ariaLabel : undefined}
             >
                 {data.handles.map((handle) => (
                     <Handle
@@ -235,6 +284,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                                 </Tooltip>
                             )}
                             <NodeTypeTag type={node.type} />
+                            {node.lineage_issue && <LineageIssueMarker issue={node.lineage_issue} />}
                         </div>
                         {node.user_tag && (
                             <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
@@ -252,7 +302,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                                 onClick={stop(callbacks.onEdit)}
                             />
                         )}
-                        {callbacks.onMaterialize && (node.type === 'matview' || node.type === 'endpoint') && (
+                        {callbacks.onMaterialize && MATERIALIZING_TYPES.has(node.type) && (
                             <Tooltip title={state.isRunning ? null : 'Run this node'}>
                                 <LemonButton
                                     size="xsmall"

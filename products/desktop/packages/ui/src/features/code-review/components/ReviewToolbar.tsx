@@ -7,6 +7,7 @@ import {
 } from "@phosphor-icons/react";
 import type { ResolvedDiffSource } from "@posthog/core/code-review/resolveDiffSource";
 import { Button } from "@posthog/quill";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useDiffViewerStore } from "@posthog/ui/features/code-editor/diffViewerStore";
 import {
   type ReviewMode,
@@ -14,8 +15,16 @@ import {
 } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { useReviewInRightPanel } from "@posthog/ui/features/navigation/useReviewInRightPanel";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
+import { track } from "@posthog/ui/shell/analytics";
 import { Flex, Separator, Text } from "@radix-ui/themes";
-import { FoldVertical, Maximize, Minimize, UnfoldVertical } from "lucide-react";
+import {
+  FoldVertical,
+  Maximize,
+  Minimize,
+  PanelRight,
+  PanelRightClose,
+  UnfoldVertical,
+} from "lucide-react";
 import { memo } from "react";
 import type { CommentFileFilter } from "../commentFileFilter";
 import { DiffSettingsMenu } from "./DiffSettingsMenu";
@@ -28,6 +37,8 @@ interface ReviewToolbarProps {
   commentedFileCount: number;
   unresolvedCommentedFileCount: number;
   commentFilter: CommentFileFilter;
+  hasFileBrowserRoom: boolean;
+  fileBrowserCollapsed: boolean;
   onCommentFilterChange?: (filter: CommentFileFilter) => void;
   hideViewedFiles: boolean;
   filteredFileCount: number;
@@ -85,6 +96,8 @@ export const ReviewToolbar = memo(function ReviewToolbar({
   commentedFileCount,
   unresolvedCommentedFileCount,
   commentFilter,
+  hasFileBrowserRoom,
+  fileBrowserCollapsed,
   onCommentFilterChange,
   hideViewedFiles,
   filteredFileCount,
@@ -105,6 +118,21 @@ export const ReviewToolbar = memo(function ReviewToolbar({
     (s) => s.reviewModes[taskId] ?? "closed",
   );
   const setReviewMode = useReviewNavigationStore((s) => s.setReviewMode);
+  const setFileBrowserCollapsed = useReviewNavigationStore(
+    (s) => s.setFileBrowserCollapsed,
+  );
+
+  const handleToggleFileBrowser = () => {
+    const collapsed = !fileBrowserCollapsed;
+    setFileBrowserCollapsed(taskId, collapsed);
+    track(ANALYTICS_EVENTS.REVIEW_FILE_BROWSER_TOGGLED, {
+      task_id: taskId,
+      collapsed,
+    });
+  };
+  const fileBrowserToggleLabel = fileBrowserCollapsed
+    ? "Show file browser"
+    : "Hide file browser";
 
   const handleToggleExpand = () => {
     const next: ReviewMode = reviewMode === "expanded" ? "split" : "expanded";
@@ -206,6 +234,24 @@ export const ReviewToolbar = memo(function ReviewToolbar({
             )}
           </Button>
         </Tooltip>
+
+        {hasFileBrowserRoom && (
+          <Tooltip content={fileBrowserToggleLabel}>
+            <Button
+              size="icon-sm"
+              onClick={handleToggleFileBrowser}
+              aria-label={fileBrowserToggleLabel}
+              aria-pressed={!fileBrowserCollapsed}
+              className="rounded-xs"
+            >
+              {fileBrowserCollapsed ? (
+                <PanelRight size={14} />
+              ) : (
+                <PanelRightClose size={14} />
+              )}
+            </Button>
+          </Tooltip>
+        )}
 
         {!inRightPanel && (
           <Tooltip

@@ -25,7 +25,7 @@ export function useTasks(
     showAllUsers?: boolean;
     showInternal?: boolean;
   },
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; subscribed?: boolean },
 ) {
   const { data: currentUser } = useMeQuery();
   const createdBy = filters?.showAllUsers ? undefined : currentUser?.id;
@@ -38,9 +38,13 @@ export function useTasks(
         repository: filters?.repository,
         createdBy,
         internal,
+        // The sidebar and every other full-list consumer narrow the task before use
+        // and never read its description, so ask for the basic payload without it.
+        basic: true,
       }) as unknown as Promise<Task[]>,
     {
       enabled: (options?.enabled ?? true) && !!currentUser?.id,
+      subscribed: options?.subscribed,
       refetchInterval: TASK_LIST_POLL_INTERVAL_MS,
     },
   );
@@ -50,7 +54,7 @@ export function useTaskSummaries(
   ids: string[],
   options?: { enabled?: boolean },
 ) {
-  return useAuthenticatedQuery<Schemas.TaskSummary[]>(
+  return useAuthenticatedQuery<Schemas.TaskSummaryDTO[]>(
     taskKeys.summaries(ids),
     (client) => client.getTaskSummaries(ids),
     {
@@ -76,6 +80,8 @@ export function useSlackTasks(options?: {
       client.getTasks({
         originProduct: "slack",
         internal,
+        // Only slack origin/thread fields are read off these rows; ask for the basic payload.
+        basic: true,
       }) as unknown as Promise<Task[]>,
     {
       enabled: options?.enabled ?? true,

@@ -2,9 +2,10 @@
 
 Handles ``POST /slack/command-callback`` — the webhook Slack hits when a user
 runs ``/posthog ...`` in a channel or DM. The vocabulary mirrors the
-``@PostHog <command>`` mention path (``help``, ``rules ...``, ``project ...``);
-free-text task creation stays on the mention path because slash commands lack
-the thread context the task workflow depends on.
+``@PostHog <command>`` mention path (``rules ...``, ``project ...``), and
+``help`` is answered here only: a mention of it replies with a pointer back to
+this surface. Free-text task creation stays on the mention path because slash
+commands lack the thread context the task workflow depends on.
 
 Slack imposes a hard 3-second response budget on slash commands — a slow first
 response surfaces to the user as ``operation_timeout``. Cheap validation and
@@ -35,11 +36,10 @@ from products.slack_app.backend.api import (
     resolve_region_or_terminal_route,
     was_proxied,
 )
+from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX
 from products.slack_app.backend.services.integration_resolver import load_integrations
 
 logger = structlog.get_logger(__name__)
-
-SLASH_COMMAND_NAME = "/posthog"
 
 
 @csrf_exempt
@@ -68,7 +68,7 @@ def slack_app_command_handler(request: HttpRequest) -> HttpResponse:
     # Present only when invoked inside a thread; forwarding it keeps the reply in-thread.
     thread_ts = payload.get("thread_ts", "")
     raw_text = (payload.get("text") or "").strip()
-    command_name = payload.get("command", SLASH_COMMAND_NAME)
+    command_name = payload.get("command", SLASH_COMMAND_PREFIX)
     # Unique per invocation — used to derive a distinct workflow id since slash
     # payloads carry no message ``ts`` or event id to key on.
     trigger_id = payload.get("trigger_id", "")

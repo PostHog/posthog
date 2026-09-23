@@ -19,7 +19,7 @@ def provider_requires_key(provider: str) -> bool:
 class LLMModelConfiguration(UUIDTModel):
     """Configuration for LLM model selection, used by evals and other features."""
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     provider = models.CharField(max_length=50, choices=llm_provider_choices)
     model = models.CharField(max_length=100)
     provider_key = models.ForeignKey(

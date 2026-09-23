@@ -35,7 +35,7 @@ actually act on.
 
 | Tool                                           | Job                                                              | Where it fits                |
 | ---------------------------------------------- | ---------------------------------------------------------------- | ---------------------------- |
-| `posthog:error-tracking-alerts-list`           | List existing alerts; dedupe before creating.                    | Step 2 — dedupe.             |
+| `posthog:error-tracking-alerts-list`           | List existing alerts (paginated); dedupe before creating.        | Step 2 — dedupe.             |
 | `posthog:integrations-list`                    | Find the user's Slack workspace id (filter by `kind=slack`).     | Step 3 — pick channel.       |
 | `posthog:integrations-channels-retrieve`       | List Slack channels for a workspace.                             | Step 3 — pick channel.       |
 | `posthog:error-tracking-alerts-create`         | Create the alert (HogFunction with `type=internal_destination`). | Step 4 — ship.               |
@@ -70,15 +70,28 @@ You need three things from the user before creating anything:
 
 ### 2. Dedupe against existing alerts
 
-Call `posthog:error-tracking-alerts-list`. Filter the response client-side by `filters.events[].id`.
+Scan **every** destination before you decide. The endpoint is paginated and defaults to 100 rows per
+page, so a single default call misses older alerts on a project with hundreds of destinations.
 
-- If an alert exists for the **same event** delivering to the **same channel**, stop. Tell the user it
-  already exists and ask whether they want to change anything (in which case use
+Call `posthog:error-tracking-alerts-list` with `type: ["internal_destination"]` and `limit: 1000`. If the
+response still carries a non-null `next`, keep paging with `offset` until `next` is null. Then filter the
+collected rows client-side by `filters.events[].id` and by any per-issue scope in `filters.properties`.
+
+The list response carries no `inputs`, so it does not tell you which channel or URL a row delivers to.
+Read the destination off `name` and `description` instead — the naming convention below puts the channel
+in the name. When a row matches on event and scope but its name does not say where it delivers, do not
+guess: show the user the matching names and ask whether one of them is the alert they mean.
+
+- If an alert exists for the **same event** delivering to the **same channel** with the **same scope**,
+  stop. Tell the user it already exists and ask whether they want to change anything (in which case use
   `error-tracking-alerts-partial-update`) or skip.
 - Multiple alerts on the same event for the same channel produce duplicate Slack messages — the user
   almost never wants this.
 - Multiple alerts on the same event for **different** channels (e.g. one for `#oncall`, one for the
   oncall webhook) is fine and sometimes intentional. Confirm.
+- Multiple alerts on the same event and channel but **different scopes** (e.g. two `_reopened` alerts
+  each pinned to a different `$exception_issue_id`) are not duplicates. Confirm before adding. Note that
+  a scoped alert and an all-issues alert to the same channel both fire on the scoped issue.
 
 PostHog's "alerts configured" recommendation only inspects `filters.events` — adding per-issue
 `filters.properties` does not affect the status the recommendations card reports.
@@ -156,7 +169,9 @@ the issue evolves.
 
 ## Token-economy rules
 
-- One `posthog:error-tracking-alerts-list` call up front, not per candidate.
+- One complete `posthog:error-tracking-alerts-list` scan up front, not per candidate. The scan is
+  complete only when `next` is null — page through it once and reuse the collected rows for every
+  candidate.
 - Reuse a single integration lookup for multiple alerts going to the same workspace.
 - Confirm the channel / URL with the user **before** creating each alert. Never batch-create alerts to a
   destination the user has not explicitly named.

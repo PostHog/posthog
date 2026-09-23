@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -271,44 +271,44 @@ class TestScoutStatusEnabledReconciliation(BaseTest):
 
 class TestScoutColdStartGrace(BaseTest):
     def test_grace_follows_creation_then_expires(self) -> None:
-        with freeze_time("2026-07-01T00:00:00Z"):
+        with time_machine.travel("2026-07-01T00:00:00Z", tick=False):
             config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
-        with freeze_time("2026-07-10T00:00:00Z"):
+        with time_machine.travel("2026-07-10T00:00:00Z", tick=False):
             assert config.in_cold_start_grace() is True
-        with freeze_time("2026-07-16T00:00:00Z"):
+        with time_machine.travel("2026-07-16T00:00:00Z", tick=False):
             assert config.in_cold_start_grace() is False
 
     def test_human_reactivation_grants_a_fresh_window(self) -> None:
-        with freeze_time("2026-06-01T00:00:00Z"):
+        with time_machine.travel("2026-06-01T00:00:00Z", tick=False):
             config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
-        with freeze_time("2026-07-15T00:00:00Z"):
+        with time_machine.travel("2026-07-15T00:00:00Z", tick=False):
             serializer = SignalScoutConfigUpdateSerializer(
                 config, data={"enabled": True}, partial=True, context={"request": self._request_stub()}
             )
             assert serializer.is_valid()
             config = serializer.save()
-        with freeze_time("2026-07-20T00:00:00Z"):
+        with time_machine.travel("2026-07-20T00:00:00Z", tick=False):
             assert config.in_cold_start_grace() is True
 
     def test_any_reactivation_grants_a_fresh_window(self) -> None:
         # Deliberately independent of attribution, so the window survives the re-enabling
         # user's account being deleted (the FK is SET_NULL).
-        with freeze_time("2026-06-01T00:00:00Z"):
+        with time_machine.travel("2026-06-01T00:00:00Z", tick=False):
             config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
-        with freeze_time("2026-07-15T00:00:00Z"):
+        with time_machine.travel("2026-07-15T00:00:00Z", tick=False):
             config.enabled = True
             config.save(update_fields=["enabled"])
-        with freeze_time("2026-07-20T00:00:00Z"):
+        with time_machine.travel("2026-07-20T00:00:00Z", tick=False):
             assert config.in_cold_start_grace() is True
 
     def test_a_system_transition_does_not_re_anchor(self) -> None:
         # A sweep's own pending_pause warning re-anchoring grace would put the scout back
         # under protection and the sweep could never pause anything.
-        with freeze_time("2026-06-01T00:00:00Z"):
+        with time_machine.travel("2026-06-01T00:00:00Z", tick=False):
             config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
-        with freeze_time("2026-07-15T00:00:00Z"):
+        with time_machine.travel("2026-07-15T00:00:00Z", tick=False):
             config.transition_status_by_system(Status.PENDING_PAUSE, pause_reason=Reason.NO_OUTPUT)
-        with freeze_time("2026-07-20T00:00:00Z"):
+        with time_machine.travel("2026-07-20T00:00:00Z", tick=False):
             assert config.in_cold_start_grace() is False
 
     def _request_stub(self):

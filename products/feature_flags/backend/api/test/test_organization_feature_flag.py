@@ -2020,6 +2020,21 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(body["warnings"], ["Project not found."])
         self.assertEqual(body["reason"], "Project not found.")
 
+    def test_copy_feature_flag_dependency_requirements_aggregates_mixed_targets(self):
+        target_team_3 = Team.objects.create(organization=self.organization)
+        flag_a, _ = self._create_dependency_chain("flag-a", "flag-b")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="flag-b", active=True)
+
+        response = self._post_dependency_requirements(flag_a, [self.team_2.id, target_team_3.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertTrue(body["can_copy_dependencies"])
+        self.assertEqual(body["dependency_count"], 1)
+        self.assertEqual(body["copied_dependency_keys"], ["flag-b"])
+        self.assertEqual(body["reused_dependency_keys"], [])
+        self.assertEqual(body["warnings"], [])
+
     def test_copy_feature_flag_rejects_more_than_50_target_projects(self):
         flag_to_copy = FeatureFlag.objects.create(
             team=self.team_1,

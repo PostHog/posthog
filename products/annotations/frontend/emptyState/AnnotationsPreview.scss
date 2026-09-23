@@ -1,0 +1,256 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.AnnotationPreview {
+    --annotation-preview-accent: var(--empty-state-accent, var(--color-product-annotations-light));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden annotated state. A direct child of .AnnotationPreview so `:checked ~` reaches all cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__chart,
+    &__panel {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Before/after pairs are stacked on one grid cell and crossfaded, so pinning the
+    // note never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-after {
+        @include preview-swap-hidden;
+    }
+
+    &__when-before {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    // Chart card
+
+    &__plot {
+        position: relative;
+        padding: 0.75rem 0.75rem 0.25rem;
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--annotation-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--annotation-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--annotation-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: AnnotationPreview__trace 3.2s linear infinite;
+    }
+
+    // The dashed date rule, hidden until the note is pinned.
+    &__marker-line {
+        opacity: 0;
+        stroke: var(--annotation-preview-accent);
+        stroke-dasharray: 3 3;
+        stroke-width: 1;
+        transition: opacity 250ms ease;
+    }
+
+    // 66% matches the marker line's x in the viewBox, so the dot sits on the dip.
+    &__marker {
+        position: absolute;
+        top: 0.5rem;
+        left: calc(0.75rem + 66% - 0.75rem * 1.32);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 1rem;
+        height: 1rem;
+        cursor: pointer;
+    }
+
+    &__marker-dot {
+        width: 9px;
+        height: 9px;
+        background: var(--color-bg-surface-primary);
+        border: 2px solid var(--annotation-preview-accent);
+        border-radius: 50%;
+        transition:
+            background 200ms ease,
+            transform 200ms ease;
+    }
+
+    &__note {
+        margin-top: 0.375rem;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        text-align: center;
+    }
+
+    &__note-card {
+        display: inline-flex;
+        gap: 0.375rem;
+        align-items: baseline;
+        justify-self: center;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.625rem;
+        background: color-mix(in oklab, var(--annotation-preview-accent) 10%, var(--color-bg-surface-primary));
+        border: 1px solid color-mix(in oklab, var(--annotation-preview-accent) 30%, transparent);
+        border-radius: var(--radius);
+
+        @include preview-accent-text(var(--annotation-preview-accent));
+    }
+
+    &__note-date {
+        font-weight: 600;
+    }
+
+    &__hint {
+        padding: 0.25rem 0.75rem 0.625rem;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        text-align: center;
+    }
+
+    // Annotations list
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row-slot,
+    &__row-spacer {
+        min-height: 1.75rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.375rem 0.5rem;
+        border-radius: var(--radius);
+    }
+
+    &__row--new {
+        background: color-mix(in oklab, var(--annotation-preview-accent) 8%, transparent);
+    }
+
+    &__flag {
+        width: 3px;
+        height: 12px;
+        background: var(--annotation-preview-accent);
+        border-radius: 999px;
+    }
+
+    &__text {
+        overflow: hidden;
+        font-size: 0.6875rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__date {
+        font-size: 0.625rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--color-text-tertiary);
+        white-space: nowrap;
+    }
+
+    @include preview-sparkline;
+}
+
+// Annotated state (user pinned the note)
+
+.AnnotationPreview__checkbox:checked ~ * .AnnotationPreview__when-after {
+    @include preview-swap-visible;
+}
+
+.AnnotationPreview__checkbox:checked ~ * .AnnotationPreview__when-before {
+    @include preview-swap-hidden;
+}
+
+.AnnotationPreview__checkbox:checked ~ .AnnotationPreview__chart .AnnotationPreview__marker-line {
+    opacity: 1;
+}
+
+.AnnotationPreview__checkbox:checked ~ .AnnotationPreview__chart .AnnotationPreview__marker-dot {
+    background: var(--annotation-preview-accent);
+    transform: scale(1.1);
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the marker it labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.AnnotationPreview__checkbox:focus-visible ~ .AnnotationPreview__chart .AnnotationPreview__marker-dot {
+    outline: 2px solid var(--annotation-preview-accent);
+    outline-offset: 2px;
+}
+
+// Nudge attention at the marker until it's clicked.
+.AnnotationPreview:not(.AnnotationPreview--static)
+    .AnnotationPreview__checkbox:not(:checked)
+    ~ .AnnotationPreview__chart
+    .AnnotationPreview__marker-dot {
+    animation: AnnotationPreview__pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes AnnotationPreview__pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--annotation-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 5px color-mix(in oklab, var(--annotation-preview-accent) 18%, transparent);
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes AnnotationPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; clicking the
+// marker still pins the note (transitions only).
+@include preview-motion-guards('AnnotationPreview');

@@ -1,16 +1,24 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { humanizeBytes } from 'lib/utils/numbers'
 
 import { FILE_UPLOAD_ACCEPT, fileUploadSourceLogic } from '../fileUploadSourceLogic'
 
 export function FileUploadSourceForm(): JSX.Element {
-    const { fileUpload, isFileUploadSubmitting } = useValues(fileUploadSourceLogic)
+    const { fileUpload, isFileUploadSubmitting, uploadStage, uploadPercent } = useValues(fileUploadSourceLogic)
     const { selectFiles, setTableName, setFileFormat } = useActions(fileUploadSourceLogic)
+
+    const busyReason = !isFileUploadSubmitting
+        ? undefined
+        : uploadStage === 'create_table'
+          ? 'Creating your table'
+          : 'Uploading your file'
 
     return (
         <Form
@@ -32,7 +40,7 @@ export function FileUploadSourceForm(): JSX.Element {
                             ]}
                             value={value}
                             onChange={setFileFormat}
-                            disabledReason={isFileUploadSubmitting ? 'Uploading your file' : undefined}
+                            disabledReason={busyReason}
                         />
                     )}
                 </LemonField>
@@ -44,7 +52,7 @@ export function FileUploadSourceForm(): JSX.Element {
                             accept={FILE_UPLOAD_ACCEPT[fileUpload.file_format]}
                             value={value}
                             onChange={selectFiles}
-                            disabledReason={isFileUploadSubmitting ? 'Uploading your file' : undefined}
+                            disabledReason={busyReason}
                         />
                     )}
                 </LemonField>
@@ -72,12 +80,26 @@ export function FileUploadSourceForm(): JSX.Element {
                 </div>
             </div>
 
+            {uploadStage === 'upload' ? (
+                <div className="flex flex-col gap-1" data-attr="file-upload-progress">
+                    <LemonProgress percent={uploadPercent} />
+                    <div className="text-xs text-secondary">
+                        Uploading file: {uploadPercent}% of {humanizeBytes(fileUpload.files[0]?.size ?? null)}
+                    </div>
+                </div>
+            ) : uploadStage === 'create_table' ? (
+                <div className="flex items-center gap-2 text-xs text-secondary" data-attr="file-upload-progress">
+                    <Spinner />
+                    File uploaded. Creating the table.
+                </div>
+            ) : null}
+
             <div className="flex justify-end">
                 <LemonButton
                     type="primary"
                     htmlType="submit"
                     loading={isFileUploadSubmitting}
-                    disabledReason={isFileUploadSubmitting ? 'Uploading your file' : undefined}
+                    disabledReason={busyReason}
                     data-attr="file-upload-submit"
                 >
                     Upload and create table

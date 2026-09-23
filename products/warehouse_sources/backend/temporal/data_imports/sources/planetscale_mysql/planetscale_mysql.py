@@ -32,12 +32,13 @@ class PlanetScaleMySQLImplementation(MySQLImplementation):
         config: MySQLSourceConfig,
         *,
         read_timeout: int | None = None,
+        team_id: int | None = None,
     ) -> Iterator[pymysql.Connection]:
         ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
 
         # PlanetScale has no SSH tunnel option, so this resolves to the configured host and
         # port. It is reused for the shared connection logging that wraps every SQL source.
-        with self._ssh_tunnel_endpoint(config) as (host, port):
+        with self._ssh_tunnel_endpoint(config, team_id) as (host, port):
             kwargs: dict[str, Any] = {
                 "host": host,
                 # pymysql rejects a non-int port; config.port arrives as a string when the config
@@ -59,5 +60,7 @@ class PlanetScaleMySQLImplementation(MySQLImplementation):
             }
             if read_timeout is not None:
                 kwargs["read_timeout"] = read_timeout
-            with _connect_with_transient_retry(kwargs) as conn:
+            # `ssl_verify_identity` checks the certificate against `host`, which the pinned socket
+            # leaves as the hostname.
+            with _connect_with_transient_retry(kwargs, team_id) as conn:
                 yield conn

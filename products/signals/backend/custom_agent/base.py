@@ -674,6 +674,7 @@ Return only a JSON object matching this schema. Do not include markdown fences o
                 model=agent_runtime.model or self.model,
                 runtime_adapter=agent_runtime.runtime_adapter,
                 reasoning_effort=agent_runtime.reasoning_effort,
+                service_tier=agent_runtime.service_tier,
             )
             session, raw_text = await MultiTurnSession.start_raw(
                 prompt=prompt,

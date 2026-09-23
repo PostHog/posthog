@@ -8,6 +8,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import source_helpers
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -55,15 +56,36 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
-def validate_credentials(api_key: str) -> bool:
+# Shared with `RenderSource.get_non_retryable_errors` so the same rejection reads the same way
+# whether it surfaces while connecting the source or mid-sync.
+KEY_REJECTED_MESSAGE = (
+    "Your Render API key is invalid or has been revoked. Create a new API key in your Render "
+    "account settings, then reconnect."
+)
+KEY_FORBIDDEN_MESSAGE = (
+    "Your Render API key does not have access to this resource. Check the key's workspace access, then reconnect."
+)
+# `validate_via_probe` reports a transport failure as a `None` status, so anything Render did not
+# answer itself leaves the key unjudged. Calling it invalid sends someone off to mint a replacement
+# that fails the same way.
+PROBE_FAILED_MESSAGE = "PostHog couldn't check your API key with Render. Wait a few minutes and try again."
+
+
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     # /owners is the cheapest authenticated probe: every valid key can list the workspaces
     # it belongs to, regardless of what resources exist.
-    url = f"{RENDER_BASE_URL}/owners?limit=1"
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    ok, status = source_helpers.validate_via_probe(
+        make_tracked_session,
+        f"{RENDER_BASE_URL}/owners?limit=1",
+        headers=_get_headers(api_key),
+    )
+    if ok:
+        return True, None
+    if status == 401:
+        return False, KEY_REJECTED_MESSAGE
+    if status == 403:
+        return False, KEY_FORBIDDEN_MESSAGE
+    return False, PROBE_FAILED_MESSAGE
 
 
 @retry(

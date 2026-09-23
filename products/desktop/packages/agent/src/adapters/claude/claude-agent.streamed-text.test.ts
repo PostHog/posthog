@@ -358,6 +358,80 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
     expect(updates.every(({ size }) => size === 1_000_000)).toBe(true);
   });
 
+  it.each([
+    {
+      source: "the SDK context usage",
+      contextUsage: { totalTokens: 900 },
+      expectedUpdates: [{ used: 900, size: 200_000 }],
+    },
+    {
+      source: "nothing, so no usage reaches the client",
+      contextUsage: {},
+      expectedUpdates: [],
+    },
+  ])(
+    "falls back to $source rather than the result's loop aggregate",
+    async ({ contextUsage, expectedUpdates }) => {
+      const { agent, client } = makeAgent();
+      const sessionId = "s-zero-stream-usage";
+      const { query, input } = installFakeSession(agent, sessionId);
+      vi.mocked(query.getContextUsage).mockResolvedValue(
+        contextUsage as Awaited<ReturnType<typeof query.getContextUsage>>,
+      );
+
+      const promptPromise = agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "hi" }],
+      });
+      await tick();
+
+      await echoUserMessage(query, input);
+      await send(query, messageStart(sessionId, "msg-zero"));
+      await send(query, assistantMessage(sessionId, "msg-zero", "done"));
+      await send(query, {
+        ...resultSuccess(sessionId),
+        usage: {
+          input_tokens: 1200,
+          output_tokens: 300,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      });
+      await promptPromise;
+
+      expect(usageUpdates(client.sessionUpdate.mock.calls)).toEqual(
+        expectedUpdates,
+      );
+    },
+  );
+
+  it("settles the turn when the SDK context usage never answers", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { agent, client } = makeAgent();
+      const sessionId = "s-hung-context-usage";
+      const { query, input } = installFakeSession(agent, sessionId);
+      vi.mocked(query.getContextUsage).mockReturnValue(new Promise(() => {}));
+
+      const promptPromise = agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "hi" }],
+      });
+      await tick();
+
+      await echoUserMessage(query, input);
+      await send(query, messageStart(sessionId, "msg-hung"));
+      await send(query, assistantMessage(sessionId, "msg-hung", "done"));
+      await send(query, resultSuccess(sessionId));
+      await vi.advanceTimersByTimeAsync(5_000);
+      await promptPromise;
+
+      expect(usageUpdates(client.sessionUpdate.mock.calls)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the original turn open until a pending steer is consumed", async () => {
     const { agent, client } = makeAgent();
     const sessionId = "s-steer-ordering";
@@ -473,7 +547,7 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
     await send(query, resultSuccess(sessionId));
 
     await expect(steerPromise).resolves.toMatchObject({
-      _meta: { steer: false },
+      _meta: { steer: false, steerDeclineCause: "turn_ended_first" },
     });
     await expect(promptPromise).resolves.toMatchObject({
       stopReason: "end_turn",
@@ -572,7 +646,7 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
     await agent.cancel({ sessionId });
 
     await expect(steerPromise).resolves.toMatchObject({
-      _meta: { steer: false },
+      _meta: { steer: false, steerDeclineCause: "cancelled" },
     });
     await expect(promptPromise).resolves.toMatchObject({
       stopReason: "cancelled",
@@ -606,7 +680,7 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
 
     await expect(outcome).resolves.toBe("rejected");
     await expect(steerPromise).resolves.toMatchObject({
-      _meta: { steer: false },
+      _meta: { steer: false, steerDeclineCause: "turn_failed" },
     });
   });
 
@@ -663,7 +737,9 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
         prompt: [{ type: "text", text: "too late" }],
         _meta: { steer: true },
       }),
-    ).resolves.toMatchObject({ _meta: { steer: false } });
+    ).resolves.toMatchObject({
+      _meta: { steer: false, steerDeclineCause: "no_in_flight_turn" },
+    });
 
     const session = (agent as unknown as { session: { turnQueue: unknown[] } })
       .session;

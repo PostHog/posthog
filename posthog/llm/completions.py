@@ -44,7 +44,7 @@ def hit_openai(
     if response_format is not None:
         optional_params["response_format"] = response_format
 
-    result = openai_client.chat.completions.create(  # type: ignore
+    result = openai_client.chat.completions.create(
         model="gpt-4.1-mini",
         temperature=0,
         messages=messages,

@@ -10,6 +10,7 @@ from products.replay_vision.backend.temporal.events_tool import (
     get_events_around,
 )
 from products.replay_vision.backend.temporal.types import EventTable, ScannerLlmInputs, SessionMetadata
+from products.replay_vision.backend.temporal.video_clock import ActiveSpan, VideoClock
 
 _COLUMNS = ["event_uuid", "event", "timestamp", "$current_url", "$window_id", "$event_type", "elements_chain_texts"]
 
@@ -20,6 +21,7 @@ def _index(
     *,
     url_mapping: dict[str, str] | None = None,
     window_mapping: dict[str, str] | None = None,
+    clock: VideoClock | None = None,
 ) -> EventsIndex:
     return build_events_index(
         ScannerLlmInputs(
@@ -34,7 +36,8 @@ def _index(
                 end_time=dt.datetime(2026, 5, 1, 12, 5, 0, tzinfo=dt.UTC),
                 duration_seconds=300.0,
             ),
-        )
+        ),
+        clock or VideoClock(spans=()),
     )
 
 
@@ -51,9 +54,9 @@ class TestGetEventsAround:
             _row("u4", "$exception", None, "url_2", None, None, []),
         ]
         offsets = {"u1": 5_000, "u2": 30_000, "u3": 35_000, "u4": 90_000}
-        out = get_events_around(_index(rows, offsets), rec_t=30, window_s=10)
+        out = get_events_around(_index(rows, offsets), vid_t=30, window_s=10)
         # 30 and 35 are within ±10 of 30; 5 and 90 are not.
-        assert [e["rec_t"] for e in out] == [30, 35]
+        assert [e["vid_t"] for e in out] == [30, 35]
         assert [e["event"] for e in out] == ["$rageclick", "$autocapture"]
 
     def test_resolves_url_and_window_tokens_and_drops_internal_and_empty(self) -> None:
@@ -65,7 +68,7 @@ class TestGetEventsAround:
                 url_mapping={"url_1": "https://app.x/cart"},
                 window_mapping={"window_1": "win-abc"},
             ),
-            rec_t=30,
+            vid_t=30,
         )
         (event,) = out
         assert event["$current_url"] == "https://app.x/cart"
@@ -80,30 +83,30 @@ class TestGetEventsAround:
         # Membership must follow `event_timestamps` (ms since recording start) — the footer/REC_T anchor —
         # never the absolute timestamp or any session-derived time.
         rows = [_row("u1", "$pageview", "1999-01-01T00:00:00Z", "url_1", None, None, [])]
-        out = get_events_around(_index(rows, {"u1": 42_000}), rec_t=42, window_s=2)
-        assert [e["rec_t"] for e in out] == [42]
-        assert get_events_around(_index(rows, {"u1": 42_000}), rec_t=10, window_s=2) == []
+        out = get_events_around(_index(rows, {"u1": 42_000}), vid_t=42, window_s=2)
+        assert [e["vid_t"] for e in out] == [42]
+        assert get_events_around(_index(rows, {"u1": 42_000}), vid_t=10, window_s=2) == []
 
     def test_caps_to_the_nearest_events(self) -> None:
         rows = [_row(f"u{i}", "$autocapture", None, "url_1", None, "click", []) for i in range(60)]
-        # All within the window, but at increasing distance from rec_t=0.
+        # All within the window, but at increasing distance from vid_t=0.
         offsets = {f"u{i}": i * 1_000 for i in range(60)}
-        out = get_events_around(_index(rows, offsets), rec_t=0, window_s=60)
+        out = get_events_around(_index(rows, offsets), vid_t=0, window_s=60)
         assert len(out) == 50  # capped
-        assert out == sorted(out, key=lambda e: e["rec_t"])  # chronological
-        assert max(e["rec_t"] for e in out) == 49  # the 10 farthest were dropped
+        assert out == sorted(out, key=lambda e: e["vid_t"])  # chronological
+        assert max(e["vid_t"] for e in out) == 49  # the 10 farthest were dropped
 
-    def test_clamps_window_and_rec_t(self) -> None:
+    def test_clamps_window_and_vid_t(self) -> None:
         rows = [_row("u1", "$pageview", None, "url_1", None, None, [])]
         offsets = {"u1": 55_000}
-        # window clamps to _MAX_WINDOW_S (60), so an event 55s away from rec_t=0 still matches.
-        assert len(get_events_around(_index(rows, offsets), rec_t=0, window_s=9999)) == 1
-        # negative rec_t clamps to 0.
-        assert get_events_around(_index(rows, offsets), rec_t=-100, window_s=1) == []
+        # window clamps to _MAX_WINDOW_S (60), so an event 55s away from vid_t=0 still matches.
+        assert len(get_events_around(_index(rows, offsets), vid_t=0, window_s=9999)) == 1
+        # negative vid_t clamps to 0.
+        assert get_events_around(_index(rows, offsets), vid_t=-100, window_s=1) == []
 
     def test_empty_when_nothing_near(self) -> None:
         rows = [_row("u1", "$pageview", None, "url_1", None, None, [])]
-        assert get_events_around(_index(rows, {"u1": 5_000}), rec_t=500, window_s=10) == []
+        assert get_events_around(_index(rows, {"u1": 5_000}), vid_t=500, window_s=10) == []
 
     def test_skips_events_with_no_resolvable_offset(self) -> None:
         # u2 is absent from event_timestamps, so it must be dropped — not pinned to second 0. A genuine offset-0
@@ -112,7 +115,7 @@ class TestGetEventsAround:
             _row("u1", "$pageview", None, "url_1", None, None, []),
             _row("u2", "$rageclick", None, "url_1", None, "click", []),
         ]
-        out = get_events_around(_index(rows, {"u1": 0}), rec_t=0, window_s=5)
+        out = get_events_around(_index(rows, {"u1": 0}), vid_t=0, window_s=5)
         assert [e["event"] for e in out] == ["$pageview"]
 
 
@@ -126,12 +129,12 @@ class TestDispatchEventsTool:
     def test_dispatches_to_get_events_around(self) -> None:
         rows = [_row("u1", "$rageclick", None, "url_1", None, "click", [])]
         index = _index(rows, {"u1": 30_000})
-        result = dispatch_events_tool(_Call("get_events_around", {"rec_t": 30, "window_s": 5}), index)
-        assert [e["rec_t"] for e in result["events"]] == [30]
+        result = dispatch_events_tool(_Call("get_events_around", {"vid_t": 30, "window_s": 5}), index)
+        assert [e["vid_t"] for e in result["events"]] == [30]
 
     def test_defaults_window_when_omitted(self) -> None:
         rows = [_row("u1", "$rageclick", None, "url_1", None, "click", [])]
-        result = dispatch_events_tool(_Call("get_events_around", {"rec_t": 30}), _index(rows, {"u1": 30_000}))
+        result = dispatch_events_tool(_Call("get_events_around", {"vid_t": 30}), _index(rows, {"u1": 30_000}))
         assert len(result["events"]) == 1
 
     def test_rejects_unknown_tool(self) -> None:
@@ -145,10 +148,10 @@ class TestDispatchEventsTool:
             ("int_string", "30"),
         ]
     )
-    def test_coerces_numeric_rec_t_variants(self, _label: str, rec_t: Any) -> None:
+    def test_coerces_numeric_vid_t_variants(self, _label: str, vid_t: Any) -> None:
         rows = [_row("u1", "$rageclick", None, "url_1", None, "click", [])]
-        result = dispatch_events_tool(_Call("get_events_around", {"rec_t": rec_t}), _index(rows, {"u1": 30_000}))
-        assert [e["rec_t"] for e in result["events"]] == [30]
+        result = dispatch_events_tool(_Call("get_events_around", {"vid_t": vid_t}), _index(rows, {"u1": 30_000}))
+        assert [e["vid_t"] for e in result["events"]] == [30]
 
     @parameterized.expand(
         [
@@ -158,12 +161,28 @@ class TestDispatchEventsTool:
             ("nan", "nan"),
         ]
     )
-    def test_malformed_rec_t_returns_error_to_model_instead_of_raising(self, _label: str, rec_t: Any) -> None:
-        result = dispatch_events_tool(_Call("get_events_around", {"rec_t": rec_t}), _index([], {}))
-        assert "rec_t" in result["error"]
+    def test_malformed_vid_t_returns_error_to_model_instead_of_raising(self, _label: str, vid_t: Any) -> None:
+        result = dispatch_events_tool(_Call("get_events_around", {"vid_t": vid_t}), _index([], {}))
+        assert "vid_t" in result["error"]
 
     def test_malformed_window_falls_back_to_default(self) -> None:
         rows = [_row("u1", "$rageclick", None, "url_1", None, "click", [])]
         index = _index(rows, {"u1": 30_000})
-        result = dispatch_events_tool(_Call("get_events_around", {"rec_t": 30, "window_s": "wide"}), index)
+        result = dispatch_events_tool(_Call("get_events_around", {"vid_t": 30, "window_s": "wide"}), index)
         assert len(result["events"]) == 1
+
+
+class TestEventsLandOnTheVideoClock:
+    def test_an_event_after_a_cut_is_indexed_at_its_video_time(self) -> None:
+        # 20s kept, 60s cut, then the recording resumes: session 90s is video 30s.
+        clock = VideoClock(
+            spans=(
+                ActiveSpan(session_from_s=0.0, session_to_s=20.0, video_from_s=0.0, video_to_s=20.0),
+                ActiveSpan(session_from_s=80.0, session_to_s=200.0, video_from_s=20.0, video_to_s=140.0),
+            )
+        )
+        rows = [_row("u1", "$rageclick", None, "url_1", None, "click", [])]
+        index = _index(rows, {"u1": 90_000}, clock=clock)
+        assert [e["vid_t"] for e in index.events] == [30]
+        assert get_events_around(index, vid_t=30, window_s=2) != []
+        assert get_events_around(index, vid_t=90, window_s=2) == []

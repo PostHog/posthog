@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
 
@@ -30,6 +31,29 @@ def _parse_window(
     if span_days > max_days:
         raise ValueError(f"date window spans {span_days} days; the maximum is {max_days}")
     return parsed_from, parsed_to
+
+
+@frozen
+class ScanWindow:
+    """The resolved window end and the start of the equal-length prior twin."""
+
+    scan_from: datetime
+    resolved_to: datetime
+
+
+@frozen
+class WindowedCount:
+    """A per-key figure with its prior-window twin, for enrichment joins."""
+
+    current: int | None
+    prior: int | None
+
+
+def _prior_window(date_from: datetime, date_to: datetime | None) -> ScanWindow:
+    """Resolve the prior-twin scan bounds in one place so every *_prior figure on a row
+    shares the same boundary."""
+    resolved_to = date_to or datetime.now(tz=date_from.tzinfo)
+    return ScanWindow(scan_from=date_from - (resolved_to - date_from), resolved_to=resolved_to)
 
 
 def _require_repo(repo: str | None) -> tuple[str, str]:

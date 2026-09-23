@@ -29,6 +29,8 @@ const meta: Meta<typeof PersonalizationSettingsView> = {
     syncFromFile: false,
     onSyncToggle: () => {},
     synced: null,
+    ste100Enabled: true,
+    onSte100Toggle: () => {},
   },
   // Match the settings dialog's content column so rows size realistically.
   decorators: [

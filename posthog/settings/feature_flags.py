@@ -4,7 +4,7 @@ from contextlib import suppress
 
 from posthog.settings.access import SECRET_KEY
 from posthog.settings.base_variables import TEST
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
 
 # Used mostly by the hobby install to have some feature flags enabled by default
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
@@ -67,17 +67,64 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS: int = max(
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS", 120, type_cast=int),
 )
 
-# Feature flag cache refresh settings
+# Refresh sweep settings for the `flags` cache; `flag_definitions` has its own pair below.
 FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS: int = get_from_env(
     "FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS", 24, type_cast=int
 )
 
-# Maximum number of teams to refresh per cache refresh run to prevent memory spikes.
+# Maximum number of teams the `flags` sweep takes per run. A routed team counts when its
+# Kafka message is produced, so a routed run caps messages and not finished rebuilds.
 # With ~200k teams, 5000 is a starting point that processes all teams across ~40 runs.
 # Run `python manage.py analyze_flags_cache_sizes` to measure actual memory usage.
 # Based on typical flag data, 5000 teams ≈ 10-100 MB depending on flag complexity.
 # See cache_expiry_manager.py for implementation details.
 FLAGS_CACHE_REFRESH_LIMIT: int = get_from_env("FLAGS_CACHE_REFRESH_LIMIT", 5000, type_cast=int)
+
+# Refresh sweep settings for the `flag_definitions` cache, which binds no `route_refresh_fn`
+# and so always builds inline and always caps finished rebuilds. Each defaults to the
+# `flags` value, which means raising the `flags` setting still raises this sweep until an
+# operator pins these.
+FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS: int = get_from_env(
+    "FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS",
+    FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
+    type_cast=int,
+)
+FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT: int = get_from_env(
+    "FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT", FLAGS_CACHE_REFRESH_LIMIT, type_cast=int
+)
+
+# Pacing for the teams the refresh sweep routes to the Kafka cache builder instead of
+# building itself. The builder drains a batch sequentially, so a whole run produced at
+# once sits in front of the flag edits raised after it and delays their rebuilds. The
+# run pauses for CHUNK_DELAY_SECONDS after every CHUNK_SIZE routed teams. WINDOW_SECONDS
+# caps the total pause, so a misconfigured chunk size or delay cannot make an hourly run
+# outlive its schedule.
+#
+# The window has to stay under the worker pod's termination grace period, currently 1230
+# seconds, because the pause happens inside the task and Celery waits for it on shutdown.
+# A window at or above that means a deploy landing mid-sweep leaves the pod in Terminating
+# for the rest of the run and then kills it before the end-of-run metrics push. 600 covers
+# a fully routed run at the volumes the sweep sees today, which peak around 2,300 teams
+# and need about 9 pauses. A larger run spends the window and routes the rest unpaced,
+# which logs a warning.
+# Per-deployment kill switch for routing the refresh sweep to the Kafka builder, read
+# before the per-team flag. The flag cannot do this job: local evaluation resolves it
+# against the single project key in posthog/apps.py, so raising it raises it in every
+# region at once, including one whose flags-cache-builder still rejects the `source`
+# field.
+FLAGS_CACHE_REFRESH_KAFKA_ENABLED: bool = get_from_env(
+    "FLAGS_CACHE_REFRESH_KAFKA_ENABLED", False, type_cast=str_to_bool
+)
+
+FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE: int = max(
+    1, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE", 250, type_cast=int)
+)
+FLAGS_CACHE_REFRESH_KAFKA_CHUNK_DELAY_SECONDS: float = max(
+    0.0, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_CHUNK_DELAY_SECONDS", 60.0, type_cast=float)
+)
+FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS: float = max(
+    0.0, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS", 600.0, type_cast=float)
+)
 
 # Batch size for flags cache verification. Each batch loads both cached data
 # (from Redis) and DB data (FeatureFlag objects) into memory simultaneously.
@@ -125,19 +172,16 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     type_cast=int,  # 512KB
 )
 
-# Staged rollout switch for feature flag filters validation (#50084). When off (the
-# production default for now), the new structural and cross-field filter tiers on the flag
-# API log violations (`feature_flag_filters_enforcement_bypassed`) instead of rejecting
-# them. Not gated by this switch: the pre-enforcement type/bounds checks
-# (_reject_serde_unsafe_filters — the cache-poisoning class) and contextual checks (cohort
-# existence, circular dependencies, size limits) always reject, so off means exactly the
-# protection that predated enforcement, plus observation logging. Rollout: ship with the
-# default off, compare the bypass-log volume against the audit's per-rule predictions for
-# a few days of live traffic (the audit measured stored data, never request-shaped input),
-# then enable via env var. The follow-up flip PR removes this switch and the now-redundant
-# _reject_serde_unsafe_filters. Defaults on under TEST so the suite validates the enforced
-# behavior.
-FEATURE_FLAG_FILTERS_ENFORCEMENT: bool = get_from_env("FEATURE_FLAG_FILTERS_ENFORCEMENT", TEST, type_cast=str_to_bool)
+# Staged rollout for feature flag filters validation (#50084). Rule ids to reject on, comma
+# separated, matching the ids in the violation metrics and in the `code` of each error this
+# returns (e.g. "cross_field.variant_rollout_sum_not_100").
+# "*" enforces every rule. Unset is the production default and rejects nothing new: both
+# tiers still log and count violations, and the checks that predate #50084 still reject.
+# Rules go in one at a time, each once its violation counter has stayed at zero — see the
+# per-rule rollout in the issue. Defaults to "*" under TEST so the suite covers enforcement.
+FEATURE_FLAG_FILTERS_ENFORCED_RULES: set[str] = get_set(
+    get_from_env("FEATURE_FLAG_FILTERS_ENFORCED_RULES", "*" if TEST else "")
+)
 
 # Team ID for the local-evaluation canary. Unset disables the canary task.
 FEATURE_FLAGS_CANARY_TEAM_ID: int | None = get_from_env("FEATURE_FLAGS_CANARY_TEAM_ID", optional=True, type_cast=int)

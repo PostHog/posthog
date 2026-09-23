@@ -5,8 +5,10 @@ from datetime import UTC, datetime
 from django.conf import settings
 
 import structlog
+import botocore.exceptions
 
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +46,18 @@ def get_data_folder(base_folder: str) -> str:
     return f"{base_folder}/data"
 
 
+def _is_forbidden(error: botocore.exceptions.ClientError) -> bool:
+    """Whether the S3 API refused the call because of credentials or a bucket policy.
+
+    HeadBucket sends no body, so botocore has only the HTTP status to put in "Code" and reports
+    the refusal as "403" instead of AccessDenied. Stores that do return a body keep the named
+    code, so both forms have to be recognized.
+    """
+    if error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 403:
+        return True
+    return error.response.get("Error", {}).get("Code") in ("403", "AccessDenied", "Forbidden")
+
+
 def ensure_bucket() -> None:
     """Ensure the S3 bucket exists for local development."""
     if settings.USE_LOCAL_SETUP:
@@ -57,12 +71,26 @@ def ensure_bucket() -> None:
                 "DATAWAREHOUSE_LOCAL_ACCESS_SECRET, DATAWAREHOUSE_LOCAL_BUCKET_REGION"
             )
 
-        ensure_bucket_exists(
-            settings.BUCKET_URL,
-            settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
-            settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
-            settings.OBJECT_STORAGE_ENDPOINT,
-        )
+        try:
+            ensure_bucket_exists(
+                settings.BUCKET_URL,
+                settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+                settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+                settings.OBJECT_STORAGE_ENDPOINT,
+            )
+        except botocore.exceptions.ClientError as error:
+            if not _is_forbidden(error):
+                raise
+            # ensure_bucket_exists already retried the refusal to let a still-registering object
+            # store finish its credential bootstrap, so one that arrives here comes from the
+            # credentials or the bucket policy and every later attempt gets the same answer.
+            # NonRetryableException stops the activity retries and keeps a known configuration
+            # failure out of error tracking.
+            logger.warning("ensure_bucket_forbidden", bucket=settings.DATAWAREHOUSE_BUCKET)
+            raise NonRetryableException(
+                "Couldn't reach the data warehouse storage with the configured credentials. "
+                "Contact support if this keeps happening."
+            ) from error
 
 
 def cleanup_folder(folder_path: str) -> None:

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import cast
 
 from django.conf import settings
 
@@ -9,6 +10,8 @@ from posthog.hogql.parser import parse_expr
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.models.team.team import Team
+
+from products.revenue_analytics.backend.views.core import SourceHandle
 
 # Stripe represents most currencies with integer amounts multiplied by 100,
 # since most currencies have its smallest unit as 1/100 of their base unit
@@ -91,6 +94,20 @@ def events_expr_for_team(team: Team) -> ast.Expr:
         return exprs[0]
     else:
         return ast.And(exprs=exprs)
+
+
+def events_expr_for_handle(handle: SourceHandle) -> ast.Expr:
+    """The handle's prepared filter expression, or a fresh one when the handle carries none.
+
+    Cloned because the resolver mutates ASTs in place and one handle builds several views.
+    Property-type resolution queries Postgres, so builders must prefer the prepared expression;
+    the fallback keeps direct builder invocations (tests, scripts) working.
+    """
+    from posthog.hogql.visitor import clone_expr
+
+    if handle.events_filter_expr is not None:
+        return cast(ast.Expr, clone_expr(handle.events_filter_expr))
+    return events_expr_for_team(handle.team)
 
 
 def get_cohort_expr(field: str) -> ast.Expr:

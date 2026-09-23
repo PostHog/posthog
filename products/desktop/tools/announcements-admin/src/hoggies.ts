@@ -1,13 +1,13 @@
 import { colors } from "@posthog/brand/colors";
 import { assets } from "@posthog/brand/hoggies/metadata";
-import { hoggiePngUrl } from "@posthog/shared/announcements";
+import { hoggiePng } from "@posthog/shared/hoggies";
 
-export interface Hoggie {
-  /** PNG file stem — what goes into the payload and onto the CDN URL. */
+interface Hoggie {
+  /** PNG file stem, which is what goes into the payload. */
   slug: string;
   name: string;
   tags: string[];
-  /** CDN URL, pinned to the same release the file list came from. */
+  /** The bundled PNG of the release the file list came from. */
   src: string;
 }
 
@@ -27,7 +27,9 @@ function titleCase(stem: string): string {
 // (five "wizard" entries for files wizard-1..5.png) — so it only decorates
 // files with display names and search tags.
 export const hoggieCatalog: Hoggie[] = __HOGGIE_FILES__
-  .map((stem) => {
+  .flatMap((stem) => {
+    const src = hoggiePng(stem);
+    if (!src) return [];
     // Second lookup catches stem/slug drift like file 9-9-6.png ↔ slug "996".
     const meta =
       metaByFileStem.get(stem) ?? metaByFileStem.get(stem.replace(/-/g, ""));
@@ -37,12 +39,7 @@ export const hoggieCatalog: Hoggie[] = __HOGGIE_FILES__
         ? `${meta.name} ${variant}`
         : meta.name
       : titleCase(stem);
-    return {
-      slug: stem,
-      name,
-      tags: meta?.tags ?? [],
-      src: hoggiePngUrl(stem),
-    };
+    return [{ slug: stem, name, tags: meta?.tags ?? [], src }];
   })
   .sort((a, b) => a.name.localeCompare(b.name));
 

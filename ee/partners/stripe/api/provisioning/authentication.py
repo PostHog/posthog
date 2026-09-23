@@ -31,7 +31,7 @@ class StripeBearerAuthentication(BaseAuthentication):
     Raises :class:`SpecError` (rendered in the view's envelope) on failure.
     """
 
-    def authenticate(self, request: Request) -> tuple[User | None, OAuthAccessToken]:
+    def authenticate(self, request: Request) -> tuple[User, OAuthAccessToken]:
         auth_header = request.headers.get("authorization", "")
         if not auth_header.startswith("Bearer "):
             raise SpecError("unauthorized", "Missing bearer token", status=401)
@@ -55,7 +55,15 @@ class StripeBearerAuthentication(BaseAuthentication):
         if app is None or not is_stripe_oauth_app(app):
             raise SpecError("unauthorized", "Authentication failed", status=401)
 
-        return access_token.user, access_token
+        # Deactivating a user drops their login sessions but leaves OAuth tokens intact, so the
+        # token has to fail closed here the way `posthog.auth._validate_token` does for the main
+        # API. A token with no user cannot identify a caller at all, and the views downstream
+        # read `request.user` as a User, so it fails closed too.
+        user = access_token.user
+        if user is None or not user.is_active:
+            raise SpecError("unauthorized", "Authentication failed", status=401)
+
+        return user, access_token
 
     def authenticate_header(self, request: Request) -> str:
         return "Bearer"

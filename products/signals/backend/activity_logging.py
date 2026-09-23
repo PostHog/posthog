@@ -14,8 +14,10 @@ import structlog
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
     ActivityScope,
+    Change,
     Detail,
     changes_between,
+    field_name_overrides,
     log_activity,
 )
 from posthog.models.activity_logging.model_activity import get_current_trigger
@@ -47,6 +49,20 @@ def handle_signal_scout_config_change(
     if instance is None:
         return
 
+    changes = changes_between(scope, previous=before_update, current=after_update)
+    if before_update is None and after_update is not None and after_update.write_scopes:
+        # `changes_between` records no fields for a creation, so a scout created with a grant
+        # would leave the log unable to say what it held before the first edit. Write access
+        # decides what an unattended agent can change, so its first value is part of the trail.
+        changes.append(
+            Change(
+                type=scope,
+                field=field_name_overrides["SignalScoutConfig"]["write_scopes"],
+                action="created",
+                after=after_update.write_scopes,
+            )
+        )
+
     log_activity(
         organization_id=None,
         team_id=instance.team_id,
@@ -56,7 +72,7 @@ def handle_signal_scout_config_change(
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
+            changes=changes,
             name=instance.skill_name,
             # Set by system-driven saves (the inactivity sweep) so an entry with no user reads as
             # "this job did it" rather than as an unattributed edit.

@@ -200,13 +200,21 @@ drf-spectacular's `COMPONENT_SPLIT_PATCH` setting (enabled by default) handles
 the PATCH case automatically, creating separate schemas for PATCH vs POST
 since PATCH doesn't require all fields.
 
-## ENUM_NAME_OVERRIDES — fixing enum naming warnings
+## Enum naming — derived from Choices classes, overrides as fallback
 
-When multiple serializer fields share the same choice values (or the same field name
-is used across components with different choices), drf-spectacular emits warnings.
-These are fixed via `ENUM_NAME_OVERRIDES` in `posthog/settings/web.py`.
+Enum components are named after the `django.db.models.Choices` class that defines
+the choices: `ChoicesEnumNameOverrides` (`posthog/openapi/enum_names.py`) walks
+every Choices subclass at schema-build time and registers it under a name derived
+from its qualname. A field whose choices come from a TextChoices class therefore
+gets a stable name with no configuration.
 
-**The hash trap:** overrides must produce the same hash that drf-spectacular computes
+When choices have no class behind them (inline lists, computed lists, pydantic
+literals) and multiple fields collide, drf-spectacular emits warnings. Those are
+fixed by defining a TextChoices class, or as a fallback via the explicit
+`ENUM_NAME_OVERRIDES` dict in `posthog/settings/web.py`; the comment on the dict
+lists the reasons an entry can be required.
+
+**The hash trap** (applies to explicit entries): overrides must produce the same hash that drf-spectacular computes
 at schema generation time. There are two different hash paths:
 
 1. **ChoiceField** (model-backed fields) — drf-spectacular injects `x-spec-enum-id`

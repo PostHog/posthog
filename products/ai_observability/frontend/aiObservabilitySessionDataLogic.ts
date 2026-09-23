@@ -32,6 +32,7 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../../frontend/src/queries/schema/schema-general'
+import type { TraceSpansTreeQueryResponse } from '../../../frontend/src/queries/schema/schema-general'
 import { aiObservabilitySessionLogic } from './aiObservabilitySessionLogic'
 import { SessionTurn, extractSessionTurns } from './extractSessionTurns'
 import { llmAnalyticsSummarizationBatchCheckCreate, llmAnalyticsSummarizationCreate } from './generated/api'
@@ -126,6 +127,7 @@ export interface aiObservabilitySessionDataLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataNodeLogic
     responseError: string | null // dataNodeLogic
     responseLoading: boolean // dataNodeLogic
@@ -250,6 +252,7 @@ export interface aiObservabilitySessionDataLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => LLMTrace[]
         sessionTurns: (traces: LLMTrace[], fullTraces: Record<string, LLMTrace>) => SessionTurn[]

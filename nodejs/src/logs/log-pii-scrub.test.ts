@@ -1,7 +1,10 @@
+import RE2 from 're2'
+
 import { parseJSON } from '~/common/utils/json-parse'
 
 import {
     PII_REDACTED,
+    PII_RULES,
     encodeAttributeCell,
     scrubLogRecord,
     scrubPlainString,
@@ -18,17 +21,31 @@ describe('log-pii-scrub', () => {
     })
 
     describe('scrubPlainString', () => {
-        it('redacts email addresses', () => {
-            expect(scrubPlainString('contact user@example.com please')).toBe(`contact ${PII_REDACTED} please`)
-        })
-
+        // Bearer keeps its prefix, so it is the one shape the table below cannot assert.
         it('redacts Bearer tokens', () => {
             expect(scrubPlainString('Authorization: Bearer abc.def.ghi')).toBe(`Authorization: Bearer ${PII_REDACTED}`)
         })
 
-        it('redacts Stripe-style secret keys', () => {
-            const syntheticStripeTestKey = 'sk_' + 'test_' + '123456789012345678901234'
-            expect(scrubPlainString(`key ${syntheticStripeTestKey}`)).toBe(`key ${PII_REDACTED}`)
+        // Secrets are built by concatenation, so no line of this file reads as a live credential to
+        // a secret scanner.
+        it.each([
+            ['email addresses', 'user@example.com'],
+            ['Stripe-style secret keys', 'sk_' + 'test_' + '123456789012345678901234'],
+            ['GitHub personal access tokens', 'gh' + 'p_' + 'A1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvWxYz'],
+            ['GitHub server tokens', 'gh' + 's_' + 'A1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvWxYz'],
+            ['Slack tokens', 'xox' + 'b-' + '123456789012-abcdefghijkl'],
+            ['AWS access key ids', 'AKIA' + 'IOSFODNN7EXAMPLE'],
+            ['JWTs', 'ey' + 'JhbGciOiJIUzI1NiJ9' + '.' + 'eyJzdWIiOiIxMjMifQ' + '.' + 'S1gnAtUr3-_x'],
+        ])('redacts %s', (_label, secret) => {
+            expect(scrubPlainString(`credential ${secret} rejected`)).toBe(`credential ${PII_REDACTED} rejected`)
+        })
+
+        it.each([
+            ['a word that opens like a GitHub prefix', 'ghost_writer opened a file'],
+            ['a truncated AWS key id', 'AKIAIOSFODNN7 is too short'],
+            ['a base64 word that is not a JWT', 'eyJhbGciOiJIUzI1NiJ9 alone'],
+        ])('leaves %s alone', (_label, input) => {
+            expect(scrubPlainString(input)).toBe(input)
         })
 
         it('does not redact PAN-like digit runs (lite scrub)', () => {
@@ -82,6 +99,22 @@ describe('log-pii-scrub', () => {
             },
         ] as const)('$_label', ({ input, expected }) => {
             expect(scrubPlainStringWithStats(input)).toEqual(expected)
+        })
+
+        it('scrubs a multi-megabyte value with thousands of matches without a quadratic stall', () => {
+            const EMAIL_COUNT = 8000
+            const MAX_DURATION_MS = 1000
+            const filler = 'x'.repeat(240)
+            const input = Array.from({ length: EMAIL_COUNT }, (_, i) => `user${i}@example.com ${filler}`).join(' ')
+
+            const startedAt = performance.now()
+            const { output, piiReplacements } = scrubPlainStringWithStats(input)
+            const durationMs = performance.now() - startedAt
+
+            expect(piiReplacements).toBe(EMAIL_COUNT)
+            expect(output).not.toContain('@example.com')
+            expect(output.split(PII_REDACTED)).toHaveLength(EMAIL_COUNT + 1)
+            expect(durationMs).toBeLessThan(MAX_DURATION_MS)
         })
     })
 
@@ -218,5 +251,21 @@ describe('log-pii-scrub', () => {
             expect(r.observed_timestamp).toBe(1_700_000_000_000_001)
             expect(r.body).toBe(PII_REDACTED)
         })
+    })
+
+    // The redaction loop reads the fired rule off the capture-group index, so a rule that adds a
+    // group of its own shifts every rule after it and applies the wrong replacement. That failure is
+    // silent: an email would redact as `Bearer {{REDACTED}}`, or a real credential would not redact
+    // at all. `MASK_RULES` carries the same ratchet.
+    describe('RE2 ratchet', () => {
+        it.each(PII_RULES.map((rule) => [rule.name, rule.pattern] as const))(
+            'rule %s compiles under RE2 and uses no lookaround, backreference, or capture group',
+            (_name, pattern) => {
+                expect(() => new RE2(pattern, 'g')).not.toThrow()
+                expect(pattern).not.toMatch(/\(\?=|\(\?!|\(\?</)
+                expect(pattern).not.toMatch(/\\[1-9]/)
+                expect(pattern.replace(/\\\(/g, '')).not.toMatch(/\((?!\?)/)
+            }
+        )
     })
 })

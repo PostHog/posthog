@@ -22,6 +22,7 @@ from products.tasks.backend.logic.services.loop_runs import (
     TRIGGER_CONTEXT_MAX_BYTES,
     fire_loop,
     handle_loop_run_terminal,
+    render_context_target_block,
     render_trigger_context,
 )
 from products.tasks.backend.models import (
@@ -82,6 +83,33 @@ class TestRenderTriggerContext(SimpleTestCase):
         fenced_body = context.split("```")[1].strip("\n")
         self.assertLessEqual(len(fenced_body.encode("utf-8")), TRIGGER_CONTEXT_MAX_BYTES)
         self.assertIn(f"[truncated: payload exceeded {TRIGGER_CONTEXT_MAX_BYTES} bytes]", context)
+
+
+class TestRenderContextTargetBlock(SimpleTestCase):
+    CHANNEL_ID = "0199c0de-0000-4000-8000-000000000001"
+    CANVAS_ID = "0199c0de-0000-4000-8000-000000000002"
+    LOOP_ID = "0199c0de-0000-4000-8000-000000000003"
+
+    @parameterized.expand(
+        [
+            ("context only", {"update_context": True}, "context page"),
+            ("canvas only", {"canvas_id": CANVAS_ID}, "canvas"),
+            ("both", {"update_context": True, "canvas_id": CANVAS_ID}, "canvas"),
+        ]
+    )
+    def test_failures_are_published_to_a_deliverable_the_target_has(self, _name, outputs, destination):
+        block = render_context_target_block(
+            {"channel_id": self.CHANNEL_ID, "name": "Growth", "outputs": outputs}, loop_id=self.LOOP_ID
+        )
+
+        self.assertIn(f"stored errors in the {destination}", block)
+
+    def test_failure_history_names_the_firing_loop(self):
+        block = render_context_target_block(
+            {"channel_id": self.CHANNEL_ID, "outputs": {"update_context": True}}, loop_id=self.LOOP_ID
+        )
+
+        self.assertIn(f"`loops-runs-retrieve` with id={self.LOOP_ID}", block)
 
 
 class LoopRunsTestCase(TestCase):

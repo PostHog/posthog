@@ -3,6 +3,7 @@ import csv
 import json
 import datetime
 import tempfile
+import textwrap
 from collections import OrderedDict
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
@@ -15,7 +16,9 @@ from django.http import QueryDict
 import requests
 import structlog
 from openpyxl import Workbook
-from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE, WriteOnlyCell
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from pydantic import BaseModel, ValidationError
 from requests.exceptions import HTTPError
 from rest_framework_csv.renderers import CSVRenderer
@@ -30,13 +33,13 @@ from posthog.api.services.query import process_query_dict
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions import ClickHouseQuerySizeExceeded
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.insights.utils.breakdowns import (
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
@@ -93,11 +96,47 @@ class ExcelWriter(TabularWriter):
         self._workbook = Workbook(write_only=True)
         self._worksheet = self._workbook.create_sheet()
         self._columns: list[str] = []
+        self._column_widths: list[int] = []
+        self._row_count = 0
+        self._alignment = Alignment(wrap_text=True, vertical="top")
+        self._header_font = Font(bold=True)
+        self._header_fill = PatternFill(fill_type="solid", fgColor="EDEDED")
+
+    def _append_row(self, values: list[str | int | float | bool | None], *, header: bool = False) -> None:
+        cells = []
+        line_count = 1
+        max_lines = 27
+        for value, width in zip(values, self._column_widths):
+            cell = WriteOnlyCell(self._worksheet, value=value)
+            cell.alignment = self._alignment
+            if header:
+                cell.font = self._header_font
+                cell.fill = self._header_fill
+            cells.append(cell)
+            if isinstance(value, str) and line_count < max_lines:
+                if len(value) > width * max_lines:
+                    line_count = max_lines
+                else:
+                    line_count = min(
+                        max_lines,
+                        max(
+                            line_count,
+                            sum(max(1, len(textwrap.wrap(line, width=width - 2))) for line in value.splitlines()),
+                        ),
+                    )
+        self._row_count += 1
+        self._worksheet.row_dimensions[self._row_count].height = min(409, 15 * line_count + 6)
+        self._worksheet.append(cells)
+        del self._worksheet.row_dimensions[self._row_count]
 
     def write_header(self, columns: list[str]) -> None:
         self._columns = columns
         try:
-            self._worksheet.append([sanitize_formula_injection(c) for c in columns])
+            self._column_widths = [min(60, max(28, len(c) + 2)) for c in columns]
+            self._worksheet.freeze_panes = "A2"
+            for index, width in enumerate(self._column_widths, start=1):
+                self._worksheet.column_dimensions[get_column_letter(index)].width = width
+            self._append_row([sanitize_formula_injection(sanitize_value_for_excel(c)) for c in columns], header=True)
         except ValueError as e:
             if "Invalid column index" in str(e):
                 raise ExcelColumnLimitExceeded() from e
@@ -114,13 +153,15 @@ class ExcelWriter(TabularWriter):
             value = sanitize_formula_injection(value)
             values.append(value)
         try:
-            self._worksheet.append(values)
+            self._append_row(values)
         except ValueError as e:
             if "Invalid column index" in str(e):
                 raise ExcelColumnLimitExceeded() from e
             raise
 
     def finish(self) -> str:
+        if self._columns:
+            self._worksheet.auto_filter.ref = f"A1:{get_column_letter(len(self._columns))}{self._row_count}"
         self._workbook.save(self._path)
         return self._path
 
@@ -453,7 +494,9 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
             # The underlying resource (e.g. a cohort) can be deleted or become unresolvable
             # mid-export, which surfaces as a 404 partway through pagination. Treat that as
             # end-of-data and return what we have rather than failing the whole export.
-            if e.response is not None and e.response.status_code == 404:
+            # A 404 on the first page is a different thing: the path never resolved, so
+            # there is nothing to return and an empty file would read as a successful export.
+            if e.response is not None and e.response.status_code == 404 and total > 0:
                 logger.warning(
                     "csv_exporter.resource_gone",
                     exc=e,

@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createGitClient } from "../client";
 import {
   CaptureCheckpointSaga,
@@ -12,7 +12,7 @@ import {
   RevertCheckpointSaga,
 } from "./checkpoint";
 
-async function setupRepo(): Promise<string> {
+async function createRepoTemplate(): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), "posthog-code-checkpoint-"));
   const git = createGitClient(dir);
   await git.init();
@@ -25,6 +25,17 @@ async function setupRepo(): Promise<string> {
   await git.add(["a.txt", "b.txt"]);
   await git.commit("initial");
 
+  return dir;
+}
+
+let repoTemplate: string;
+
+async function setupRepo(): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), "posthog-code-checkpoint-"));
+  await cp(repoTemplate, dir, {
+    recursive: true,
+    filter: (source) => !source.endsWith("fsmonitor--daemon.ipc"),
+  });
   return dir;
 }
 
@@ -82,6 +93,13 @@ async function revertCheckpoint(
 }
 
 describe("checkpoint sagas", () => {
+  beforeAll(async () => {
+    repoTemplate = await createRepoTemplate();
+  });
+
+  afterAll(async () => {
+    await rm(repoTemplate, { recursive: true, force: true });
+  });
   it("captures and reverts worktree + index + untracked", async () => {
     await withRepo(async (repoPath) => {
       const git = createGitClient(repoPath);

@@ -34,6 +34,21 @@ export function createForceDevModeDefine(): Record<string, string> | undefined {
   };
 }
 
+// The main process decides custom-cloud availability at runtime from
+// app.isPackaged and the build channel. The renderer cannot see either, so
+// both vite configs bake the same answer here. A packaged build forced into
+// dev mode (FORCE_DEV_MODE) must NOT offer Custom, because its store still
+// refuses to hold a target.
+export function createCustomCloudDefine(
+  isDevServer: boolean,
+): Record<string, string> {
+  return {
+    "import.meta.env.VITE_POSTHOG_CUSTOM_CLOUD_BUILD": JSON.stringify(
+      String(isDevServer || process.env.VITE_POSTHOG_BUILD_CHANNEL === "test"),
+    ),
+  };
+}
+
 const baseAliases: Alias[] = [
   { find: "@main", replacement: path.resolve(__dirname, "./src/main") },
   { find: "@renderer", replacement: path.resolve(__dirname, "./src/renderer") },

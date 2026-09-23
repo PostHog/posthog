@@ -16,6 +16,7 @@ Do NOT:
 - Return ORM instances or QuerySets
 """
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from posthog.schema import (
@@ -41,6 +42,13 @@ from products.tracing.backend.count_query_runner import run_count_query as _run_
 from products.tracing.backend.duration_histogram_query_runner import (
     run_duration_histogram_query as _run_duration_histogram_query,
 )
+from products.tracing.backend.error_counts import (
+    MAX_IDS_PER_LOOKUP as _MAX_IDS_PER_LOOKUP,
+    count_session_exceptions as _count_session_exceptions,
+    count_span_exceptions as _count_span_exceptions,
+    count_trace_exceptions as _count_trace_exceptions,
+)
+from products.tracing.backend.impact_query_runner import run_impact_query as _run_impact_query
 from products.tracing.backend.latency_heatmap_query_runner import (
     run_latency_heatmap_query as _run_latency_heatmap_query,
 )
@@ -54,6 +62,10 @@ if TYPE_CHECKING:
 # Allowlisted top-level span columns for the "span" breakdown type. Re-exported so the
 # presentation layer can validate `breakdownKey` without reaching into the query runner.
 FACET_COLUMNS = _FACET_COLUMNS
+
+# Cap on the ids one error-count request may ask about, per id kind. Re-exported so the
+# presentation layer can bound its request serializer without reaching into the lookup module.
+MAX_IDS_PER_LOOKUP = _MAX_IDS_PER_LOOKUP
 
 
 # --- Converters (model -> frozen dataclass) ---
@@ -73,6 +85,24 @@ def run_count_query(
 ) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
     """Run a cheap scalar count of trace spans matching the given filters."""
     return _run_count_query(
+        team=team,
+        date_range=date_range,
+        service_names=service_names,
+        status_codes=status_codes,
+        filter_group=filter_group,
+    )
+
+
+def run_impact_query(
+    *,
+    team: "Team",
+    date_range: DateRange,
+    service_names: list[str] | None = None,
+    status_codes: list[int] | None = None,
+    filter_group: PropertyGroupFilter | None = None,
+) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
+    """Run the sessions/people aggregates for the spans matching the given filters."""
+    return _run_impact_query(
         team=team,
         date_range=date_range,
         service_names=service_names,
@@ -176,3 +206,37 @@ def run_latency_heatmap_query(
 def annotate_self_time(spans: list[dict]) -> None:
     """Set `self_time_nano` on every span dict of a full trace, in place."""
     _annotate_self_time(spans)
+
+
+def count_trace_exceptions(
+    *, team: "Team", trace_ids: list[str], date_from: datetime, date_to: datetime
+) -> dict[str, int]:
+    """Count the exceptions Error Tracking linked to an issue, per trace, inside the window.
+
+    Keys come back lowercased. A trace with no such exceptions is absent from the result rather
+    than present with a zero.
+    """
+    return _count_trace_exceptions(team=team, trace_ids=trace_ids, date_from=date_from, date_to=date_to)
+
+
+def count_span_exceptions(
+    *, team: "Team", span_ids: list[str], trace_ids: list[str], date_from: datetime, date_to: datetime
+) -> dict[str, int]:
+    """Count the exceptions Error Tracking linked to an issue, per span, inside the window.
+
+    A span id is only unique within its trace, so the traces the spans belong to bound the match
+    as well. Keys come back lowercased.
+    """
+    return _count_span_exceptions(
+        team=team, span_ids=span_ids, trace_ids=trace_ids, date_from=date_from, date_to=date_to
+    )
+
+
+def count_session_exceptions(
+    *, team: "Team", session_ids: list[str], date_from: datetime, date_to: datetime
+) -> dict[str, int]:
+    """Count the exceptions Error Tracking linked to an issue, per session, inside the window.
+
+    A session with no such exceptions is absent from the result rather than present with a zero.
+    """
+    return _count_session_exceptions(team=team, session_ids=session_ids, date_from=date_from, date_to=date_to)

@@ -24,6 +24,11 @@ class BaseAction(ABC):
 
     intent_fields: Optional[list[str]] = None
 
+    # TODO(experiment-approval-policies): temporary. Action keys whose policy gates this action
+    # when it has no policy of its own, so a move to a new key leaves no window without approval.
+    # The fallback policy's conditions name the old action's fields, so they are not evaluated.
+    fallback_policy_action_keys: tuple[str, ...] = ()
+
     @classmethod
     def _get_instance(cls, view, *args, **kwargs):
         if hasattr(view, "context") and "request" in view.context:

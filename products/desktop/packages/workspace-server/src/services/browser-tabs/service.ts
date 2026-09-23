@@ -2,6 +2,8 @@ import {
   type BrowserWindow,
   closeTab,
   closeTabs,
+  DEFAULT_TAB_HREF,
+  ensureWindowHasTab,
   openTab,
   resetTabs,
   setTabOrder,
@@ -15,11 +17,7 @@ import {
 import { inject, injectable } from "inversify";
 import { BROWSER_TABS_REPOSITORY } from "../../db/identifiers";
 import type { IBrowserTabsRepository } from "../../db/repositories/browser-tabs-repository";
-import {
-  BrowserTabsEvent,
-  type BrowserTabsEvents,
-  NEW_TAB_HREF,
-} from "./schemas";
+import { BrowserTabsEvent, type BrowserTabsEvents } from "./schemas";
 
 const makeId = () => crypto.randomUUID();
 const now = () => Date.now();
@@ -48,8 +46,12 @@ export interface IBrowserTabsService {
         activate?: boolean;
       },
   ): TabsSnapshot;
-  close(tabId: string): TabsSnapshot;
-  closeMany(tabIds: string[], focusTabId?: string | null): TabsSnapshot;
+  close(tabId: string, newTabId: string): TabsSnapshot;
+  closeMany(
+    tabIds: string[],
+    newTabId: string,
+    focusTabId?: string | null,
+  ): TabsSnapshot;
   setOrder(input: { windowId: string; tabIds: string[] }): TabsSnapshot;
   setActiveTab(input: { windowId: string; tabId: string | null }): TabsSnapshot;
   snapshotChangeEvents(
@@ -95,25 +97,16 @@ export class BrowserTabsService
     return { ...snapshot, windows: [primary, ...snapshot.windows] };
   }
 
-  /**
-   * The strip must never boot empty: seed a tab on the space index when none
-   * survived. That page is also what `+` opens, so an empty strip and a fresh
-   * tab land on the same screen.
-   */
+  /** Keep a primary tab available when persisted state is empty or damaged. */
   private ensureAtLeastOneTab(snapshot: TabsSnapshot): TabsSnapshot {
-    if (snapshot.tabs.length > 0) return snapshot;
-    const primary = snapshot.windows.find((w) => w.isPrimary);
+    const primary = snapshot.windows.find((window) => window.isPrimary);
     if (!primary) return snapshot;
-    return openTab(snapshot, {
+    return ensureWindowHasTab(snapshot, {
       windowId: primary.id,
-      href: NEW_TAB_HREF,
-      viewState: null,
-      dashboardId: null,
-      taskId: null,
-      channelId: null,
+      href: DEFAULT_TAB_HREF,
       makeId,
       now,
-    }).snapshot;
+    });
   }
 
   /** Creation targets heal a stale window id (a mirror seeded before a schema
@@ -142,7 +135,7 @@ export class BrowserTabsService
 
   reset(): TabsSnapshot {
     return this.commit(
-      resetTabs(this.snapshot, { href: NEW_TAB_HREF, makeId, now }),
+      resetTabs(this.snapshot, { href: DEFAULT_TAB_HREF, makeId, now }),
     );
   }
 
@@ -184,13 +177,28 @@ export class BrowserTabsService
     return this.commit(setTabTarget(this.snapshot, { ...input, now }));
   }
 
-  close(tabId: string): TabsSnapshot {
-    const { snapshot } = closeTab(this.snapshot, tabId);
+  close(tabId: string, newTabId: string): TabsSnapshot {
+    const { snapshot } = closeTab(this.snapshot, tabId, {
+      href: DEFAULT_TAB_HREF,
+      makeId: () => newTabId,
+      now,
+    });
     return this.commit(snapshot);
   }
 
-  closeMany(tabIds: string[], focusTabId?: string | null): TabsSnapshot {
-    return this.commit(closeTabs(this.snapshot, tabIds, focusTabId));
+  closeMany(
+    tabIds: string[],
+    newTabId: string,
+    focusTabId?: string | null,
+  ): TabsSnapshot {
+    return this.commit(
+      closeTabs(
+        this.snapshot,
+        tabIds,
+        { href: DEFAULT_TAB_HREF, makeId: () => newTabId, now },
+        focusTabId,
+      ),
+    );
   }
 
   setOrder(input: { windowId: string; tabIds: string[] }): TabsSnapshot {

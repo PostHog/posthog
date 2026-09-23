@@ -1,0 +1,222 @@
+[
+    {
+        "id": "VB1",
+        "title": "A broker outage permanently drops the initial review",
+        "file": "products/stamphog/backend/facade/api.py",
+        "lines": "149-155",
+        "priority": "should_fix",
+        "claim": "The facade publishes after the TaskRun transaction commits. _start_stamphog_review catches publish failures and only writes a log. No database record or scheduled sweep retries this handoff.",
+        "validator_kept": false,
+        "validator_reason": "No verdict recorded (did not reach/pass validation)."
+    },
+    {
+        "id": "VB2",
+        "title": "The toggle gate checks one assignee instead of any assignee",
+        "file": "products/stamphog/backend/facade/inbox_hooks.py",
+        "lines": "20-22",
+        "priority": "should_fix",
+        "claim": "The resolver contract checks the selected acting reviewer only. The webhook gate treats None as a global opt-out. If the first assignee is off and a later assignee is on, no review runs, conflicting with the stated rule that any assigned user's opt-in enables Stamphog.",
+        "validator_kept": false,
+        "validator_reason": "No verdict recorded (did not reach/pass validation)."
+    },
+    {
+        "id": "VB3",
+        "title": "A broker failure permanently drops the initial review",
+        "file": "products/review_hog/backend/receivers.py",
+        "lines": "225-234",
+        "priority": "should_fix (validator→consider)",
+        "claim": "The handler catches every broker publish failure after the TaskRun output commits and only writes a log. No durable record remains, Celery retries cannot run because the broker never accepted the task, so the PR misses its initial Stamphog review permanently.",
+        "validator_kept": true,
+        "validator_reason": "\"Never reviews again\" overstated — later pushes and TaskRun saves re-fire with head-keyed dedupe, and Celery publish retries absorb blips. But the initial draft-time review can be lost with only a log during a sustained broker outage; same mode exists by design on the Temporal leg. Real but low probability, heavyweight remedy — downgraded to consider."
+    },
+    {
+        "id": "VB4",
+        "title": "Carve-out failures block stale approval dismissal",
+        "file": "products/stamphog/backend/tasks/tasks.py",
+        "lines": "873-879",
+        "priority": "must_fix",
+        "claim": "The exception path retries before the code reaches _retract_stale_approvals_on_skip. Celery drops the delivery after retries fail, so a previous approval can remain active after unreviewed commits; a partial database outage can cause this state.",
+        "validator_kept": false,
+        "validator_reason": "No verdict recorded (did not reach/pass validation)."
+    },
+    {
+        "id": "VB5",
+        "title": "A worker crash can lose the initial review",
+        "file": "products/stamphog/backend/tasks/tasks.py",
+        "lines": "1109-1112",
+        "priority": "should_fix",
+        "claim": "Celery uses early acknowledgement because this task does not set acks_late. A worker crash before row creation loses the initial review; a crash after commit can leave a queued run without a workflow.",
+        "validator_kept": false,
+        "validator_reason": "No verdict recorded (did not reach/pass validation)."
+    },
+    {
+        "id": "VB6",
+        "title": "Self-driving attribution misses failure paths",
+        "file": "products/stamphog/backend/temporal/activities.py",
+        "lines": "173-176",
+        "priority": "consider",
+        "claim": "The new property only reaches events emitted inside the sandbox. stamphog_review_failed omits it, and failures before sandbox creation produce only logs, so dashboards cannot compare failure rates for inbox vs normal reviews.",
+        "validator_kept": false,
+        "validator_reason": "No verdict recorded (did not reach/pass validation)."
+    },
+    {
+        "id": "VB7",
+        "title": "Child environments fail the team identity checks",
+        "file": "products/stamphog/backend/tasks/tasks.py",
+        "lines": "191-205",
+        "priority": "should_fix",
+        "claim": "StamphogRepoConfig stores the canonical parent team ID while TaskRun stores the child environment ID; the facade rejects these raw IDs as unequal and this caller repeats that check, so later pushes from child environments lose the inbox carve-out and skip review.",
+        "validator_kept": false,
+        "validator_reason": "No verdict recorded (did not reach/pass validation)."
+    },
+    {
+        "id": "VB8",
+        "title": "The carve-out trusts caller-controlled PR linkage",
+        "file": "products/stamphog/AGENTS.md",
+        "lines": "84-99",
+        "priority": "must_fix",
+        "claim": "Docs claim both trigger paths verify the PR-to-TaskRun link, but process_inbox_pr_review trusts supplied identifiers, and the webhook path accepts caller-writable TaskRun.output.pr_url; a caller can point a qualifying run at another accessible PR and bypass approval gates via the self-driving flag.",
+        "validator_kept": false,
+        "validator_reason": "Dismissed: no attacker-reachable path — identifiers come from the resolver-gated receiver or HMAC-verified webhook payloads, pr_url is server-written, team scope is re-verified in the facade, and only two gates are relaxed by documented design. Remaining kernel is defensive-coding guidance already in docstrings."
+    },
+    {
+        "id": "VB9",
+        "title": "The toggle gate ignores other opted-in assignees",
+        "file": "products/stamphog/README.md",
+        "lines": "14-14",
+        "priority": "should_fix",
+        "claim": "The PR promises a review when any assigned reviewer enables the toggle, but this text documents a single acting reviewer; callers check only that user's toggle, so another assigned reviewer can enable it and still receive no initial or follow-up review.",
+        "validator_kept": false,
+        "validator_reason": "Dismissed: single canonical acting reviewer is a documented maintainer decision (2026-07-02/03) — one person's settings govern each run to avoid nondeterminism. The review still runs when the acting reviewer opts in; at most a product-design discussion, not a defect this PR must fix."
+    },
+    {
+        "id": "VB10",
+        "title": "Initial inbox review trusts caller-controlled provenance",
+        "file": "products/stamphog/backend/tasks/tasks.py",
+        "lines": "1130-1181,1223-1229",
+        "priority": "must_fix",
+        "claim": "TaskRun.output.pr_url is caller-writable but the worker never loads task_run_id or signal_report_id; it only checks the team configured the URL's repository, trusts acting_user_id and the earlier toggle result, then stamps inbox_review, bypassing bot and draft gates — a task writer can target an unrelated open PR and cause a real approval.",
+        "validator_kept": false,
+        "validator_reason": "No verdict recorded (did not reach/pass validation)."
+    },
+    {
+        "id": "VB11",
+        "title": "Webhook carve-out uses writable fields as security evidence",
+        "file": "products/tasks/backend/facade/api.py",
+        "lines": "484-515",
+        "priority": "must_fix",
+        "claim": "find_task_run treats TaskRun.output.pr_url and TaskRun.branch as proof a run produced the PR, but public TaskRun update routes let callers change both; a caller can point a linked run at an unrelated repo-native bot PR, and the next webhook marks it self-driving and skips bot, review-mode, and author-permission gates.",
+        "validator_kept": false,
+        "validator_reason": "No verdict recorded (did not reach/pass validation)."
+    },
+    {
+        "id": "VB12",
+        "title": "Only one reviewer controls the any-reviewer toggle",
+        "file": "products/review_hog/backend/receivers.py",
+        "lines": "111-126,144-156",
+        "priority": "must_fix (validator→should_fix)",
+        "claim": "_resolve_assigned_reviewer returns one user and both Stamphog paths check only that user's setting; if the first reviewer opted out and a later one opted in, the initial review does not run and a later webhook can dismiss the existing approval, conflicting with the any-assigned-reviewer requirement.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed: implementation checks exactly one reviewer against the PR's stated any-assignee gate; master already ships the fix (_pick_stamphog_reviewer selects any opted-in reviewer). Failure direction is conservative (suppressed reviews, never unreviewed approvals) and feature-flagged — downgraded to should_fix."
+    },
+    {
+        "id": "VB13",
+        "title": "Qualification filters run after an unrelated row can win",
+        "file": "products/tasks/backend/facade/api.py",
+        "lines": "504-509",
+        "priority": "should_fix",
+        "claim": "find_task_run selects one row before the facade checks team_id, signal_report_id, and internal; duplicate PR URLs and branches across teams or task types let an unrelated row win the selection, so the facade returns None even when a qualifying signal run exists.",
+        "validator_kept": false,
+        "validator_reason": "No verdict recorded (did not reach/pass validation)."
+    },
+    {
+        "id": "VB14",
+        "title": "Self-driving instructions conflict with the system prompt",
+        "file": "tools/pr-approval-agent/reviewer.py",
+        "lines": "568,683-701",
+        "priority": "must_fix",
+        "claim": "The system prompt says every bot author needs human review and treats the stamphog label as a confidence signal; this flow has a bot author and no label, and _format_self_driving() adds its exception only to the lower-priority user prompt, so the model can refuse every intended review or use a nonexistent confidence signal.",
+        "validator_kept": false,
+        "validator_reason": "Dismissed: decisive premise false — the self-driving block lands in the TRUSTED context region, not the user prompt; both predicted failure modes are structurally prevented (self_driving waives bot-author and draft gates), and inbox PRs never get the stamphog label, so no confidence signal exists to misuse. Suggested change duplicates tested behavior."
+    },
+    {
+        "id": "VB15",
+        "title": "Ready self-driving PRs are reported as drafts",
+        "file": "tools/pr-approval-agent/reviewer.py",
+        "lines": "699-700",
+        "priority": "should_fix",
+        "claim": "The prompt always says the PR is a draft, but a self-driving PR can become ready before a later push starts another review, so the trusted prompt reports false state for this supported path.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed: _format_self_driving emits the draft sentence unconditionally while PRData.draft holds the actual state; the ready_for_review + synchronize re-review path builds the trusted prompt with a false draft claim that can skew the verdict. Kept at should_fix — real correctness defect, not security or data loss."
+    },
+    {
+        "id": "VB16",
+        "title": "A transient lookup error leaves the switch disabled until reload",
+        "file": "products/review_hog/backend/api/settings.py",
+        "lines": "71-82",
+        "priority": "should_fix (validator→consider)",
+        "claim": "Every lookup error becomes a successful response with stamphog_connected false; the frontend treats false as confirmed missing connection, disables the switch, and the successful request never triggers failure retry, so the switch stays disabled after recovery until another settings request.",
+        "validator_kept": true,
+        "validator_reason": "Mechanism confirmed: a product-DB blip yields false in a 200 so the retry banner never appears. But the degradation is deliberate and documented, fails safe (can only disable), self-heals on next scene mount, and affects an opt-in experiment surface — downgraded to consider."
+    },
+    {
+        "id": "VB17",
+        "title": "Failed same-head reviews have no retry limit",
+        "file": "products/stamphog/backend/tasks/tasks.py",
+        "lines": "1202-1208",
+        "priority": "should_fix",
+        "claim": "The dedupe excludes all FAILED runs and each later TaskRun output save queues the task again, so a deterministic failure can consume GitHub, Temporal, and LLM capacity without limit.",
+        "validator_kept": false,
+        "validator_reason": "No verdict recorded (did not reach/pass validation)."
+    },
+    {
+        "id": "VB18",
+        "title": "Opt-out skips the stale-approval fallback",
+        "file": "products/review_hog/backend/receivers.py",
+        "lines": "111-114,126-139",
+        "priority": "must_fix (validator→should_fix)",
+        "claim": "process_inbox_pr_review is the documented fallback for a lost synchronize webhook, but the receiver queues it only when the resolved reviewer has the toggle on; after an opt-out (or None resolution) a new head queues no Stamphog work, so an old approval stays active over unreviewed commits and can satisfy a required review.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed asymmetry: webhook path dismisses on opt-out but the fallback leg is toggle-gated, so head-keyed dismissal never fires. Requires a rare compound failure (lost webhook + opted-out reviewer) behind an experiment flag, and the suggested reconciliation job is heavyweight — downgraded to should_fix."
+    },
+    {
+        "id": "VB19",
+        "title": "Connection status accepts an unusable credential owner",
+        "file": "products/review_hog/backend/api/settings.py",
+        "lines": "71-78",
+        "priority": "should_fix",
+        "claim": "has_reviewable_repo_config only checks connected_by_user_id is non-null; the plain cross-database integer survives user deletion or deactivation, so the settings API reports true and enables the switch while every review fails at _mint_reviewer_gateway_token, which requires an active user.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed divergence between the facade's null check and the mint-time active-user check; a deleted/deactivated connector yields an enabled switch with always-failing reviews. Self-heals on re-sync, fails closed, no security exposure. Kept at should_fix — real consistency gap with a concrete user-visible consequence, not merge-blocking."
+    },
+    {
+        "id": "VB20",
+        "title": "The gate rejects the self-driving tasks it must identify",
+        "file": "products/tasks/backend/facade/api.py",
+        "lines": "507-509",
+        "priority": "must_fix",
+        "claim": "Signals creates automatic implementation tasks with internal=True, and this new condition rejects every one of those tasks; the ReviewHog save receiver also rejects them, so the target self-driving PRs receive no initial review and no webhook re-review.",
+        "validator_kept": false,
+        "validator_reason": "No verdict recorded (did not reach/pass validation)."
+    },
+    {
+        "id": "VB21",
+        "title": "An older completed run can hide the latest failed review",
+        "file": "products/stamphog/backend/tasks/tasks.py",
+        "lines": "1202-1209",
+        "priority": "should_fix",
+        "claim": "The query removes FAILED and SUPERSEDED rows before selecting the newest run; a newer failed re-review can share a head with an older completed run, which then stops the retry path, leaving the current diff without a new verdict after a same-head reopen or base-retarget review fails.",
+        "validator_kept": false,
+        "validator_reason": "No verdict recorded (did not reach/pass validation)."
+    },
+    {
+        "id": "VB22",
+        "title": "Self-driving retries get stranded on the current head",
+        "file": "tools/pr-approval-agent/review_local.py",
+        "lines": "316-324",
+        "priority": "should_fix",
+        "claim": "This path has no stamphog label; the engine can still return WAIT, ERROR, or a migration gate result, which the hosted workflow stores as terminal runs. process_inbox_pr_review then treats that head as already reviewed and check-run completion does not restart, so a temporary delay prevents a completed review until another commit arrives.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed on every claim: transient outcomes persist as terminal GATED/FAILED runs, head-keyed dedupe restarts only QUEUED, so the head is never re-reviewed until a new commit. Defeats the feature's triage-time review guarantee. Kept at should_fix — real liveness defect, not security or data loss."
+    }
+]

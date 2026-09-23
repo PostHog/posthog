@@ -1,7 +1,7 @@
 import { dedupeTaskIds } from "./selection";
 
 /** How far the pointer travels before a press counts as a drag rather than a click. */
-export const MARQUEE_THRESHOLD_PX = 4;
+const MARQUEE_THRESHOLD_PX = 4;
 
 export interface MarqueeSpan {
   top: number;

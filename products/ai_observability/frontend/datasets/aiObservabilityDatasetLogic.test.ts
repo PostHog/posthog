@@ -498,6 +498,46 @@ describe('aiObservabilityDatasetLogic', () => {
             expect(logic.values.datasetExportLoadError?.status).toBe(500)
             expect(logic.values.datasetExportLoading).toBe(false)
         })
+
+        it('blocks export until the dataset has a canonical revision', async () => {
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.datasetExportDisabledReason).toBe('Add an item before exporting this dataset.')
+
+            mockDatasetsApi.getDataset.mockResolvedValue({
+                ...mockDataset,
+                current_revision: 1,
+                current_revision_id: 'revision-1',
+            })
+            await expectLogic(logic, () => logic.actions.loadDataset()).toFinishAllListeners()
+
+            expect(logic.values.datasetExportDisabledReason).toBeUndefined()
+        })
+
+        it('keeps export enabled through a revisions load failure when the dataset has a revision', async () => {
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            mockDatasetsApi.getDataset.mockResolvedValue({
+                ...mockDataset,
+                current_revision: 1,
+                current_revision_id: 'revision-1',
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.datasetExportDisabledReason).toBeUndefined()
+
+            mockDatasetsApi.listRevisions.mockRejectedValue(new ApiError('Revision load failed', 500))
+            silenceKeaLoadersErrors()
+            try {
+                await expectLogic(logic, () => logic.actions.loadDatasetRevisions()).toFinishAllListeners()
+            } finally {
+                resumeKeaLoadersErrors()
+            }
+
+            expect(logic.values.datasetExportDisabledReason).toBeUndefined()
+        })
     })
 
     describe('dataset revisions', () => {

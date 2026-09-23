@@ -274,7 +274,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                         return null
                     }
 
-                    const response = await api.get(`/api/environments/${teamId}/default_evaluation_contexts/`)
+                    const response = await api.get(`/api/projects/${teamId}/default_evaluation_contexts/`)
                     return response as DefaultEvaluationContextsResponse
                 },
 
@@ -285,7 +285,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
-                        const response = await api.create(`/api/environments/${teamId}/default_evaluation_contexts/`, {
+                        const response = await api.create(`/api/projects/${teamId}/default_evaluation_contexts/`, {
                             context_name: contextName,
                         })
 
@@ -326,7 +326,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
 
                     try {
                         await api.delete(
-                            `/api/environments/${teamId}/default_evaluation_contexts/?context_name=${encodeURIComponent(contextName)}`
+                            `/api/projects/${teamId}/default_evaluation_contexts/?context_name=${encodeURIComponent(contextName)}`
                         )
 
                         const currentData = values.defaultEvaluationContexts
@@ -353,7 +353,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
-                        await api.create(`/api/environments/${teamId}/evaluation_context_suggestions/`, {
+                        await api.create(`/api/projects/${teamId}/evaluation_context_suggestions/`, {
                             context_name: contextName,
                         })
 
@@ -381,7 +381,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
 
                     try {
                         await api.delete(
-                            `/api/environments/${teamId}/evaluation_context_suggestions/?context_name=${encodeURIComponent(contextName)}`
+                            `/api/projects/${teamId}/evaluation_context_suggestions/?context_name=${encodeURIComponent(contextName)}`
                         )
 
                         const currentData = values.defaultEvaluationContexts

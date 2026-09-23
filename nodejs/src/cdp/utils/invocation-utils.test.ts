@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { HogInputsService } from '../services/hog-inputs.service'
+import { MAX_LOG_LENGTH } from '../utils'
 import { buildHogFunctionInvocations, cloneInvocation, createInvocation } from './invocation-utils'
 
 describe('Invocation utils', () => {
@@ -253,6 +254,40 @@ describe('Invocation utils', () => {
                     message: expect.stringContaining('Error building inputs for event uuid:'),
                 },
             ])
+        })
+
+        it('masks a secret input quoted by the failure', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.input_printer,
+                ...HOG_INPUTS_EXAMPLES.secret_inputs,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            jest.spyOn(hogInputsService, 'buildInputsWithGlobals').mockRejectedValue(
+                new Error('Unsupported unit for dateDiff: super secret')
+            )
+
+            const { logs } = await buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals())
+
+            expect(logs[0].message).toContain('Unsupported unit for dateDiff: ***REDACTED***')
+            expect(logs[0].message).not.toContain('super secret')
+            jest.restoreAllMocks()
+        })
+
+        it('truncates the failure log, which carries the VM message for every matching event', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            jest.spyOn(hogInputsService, 'buildInputsWithGlobals').mockRejectedValue(
+                new Error(`Global variable not found: missing.${'x'.repeat(MAX_LOG_LENGTH)}`)
+            )
+
+            const { logs } = await buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals())
+
+            expect(logs[0].message.length).toBeLessThan(MAX_LOG_LENGTH + 100)
+            expect(logs[0].message).toContain('(truncated)')
+            jest.restoreAllMocks()
         })
     })
 

@@ -153,7 +153,7 @@ function cloudRunStory({
 
             useStorybookMocks({
                 get: {
-                    '/api/environments/:team_id/integrations': { results: integrations },
+                    '/api/projects/:team_id/integrations': { results: integrations },
                 },
             })
 
@@ -226,7 +226,7 @@ export const PullRequestQueued: Story = {
 
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/integrations': { results: [githubIntegration] },
+                '/api/projects/:team_id/integrations': { results: [githubIntegration] },
             },
         })
 
@@ -256,7 +256,7 @@ export const RunItYourself: Story = {
 
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/integrations': { results: [] },
+                '/api/projects/:team_id/integrations': { results: [] },
             },
         })
 
@@ -299,7 +299,7 @@ function CloudRunPlayground({ githubConnected, repository, pullRequestQueued }: 
 
     useStorybookMocks({
         get: {
-            '/api/environments/:team_id/integrations': {
+            '/api/projects/:team_id/integrations': {
                 results: githubConnected ? [githubIntegration] : [],
             },
         },

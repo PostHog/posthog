@@ -12,37 +12,30 @@ import {
     engineeringAnalyticsCiCards,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
-    engineeringAnalyticsQuarantineRequest,
     engineeringAnalyticsSources,
+    engineeringAnalyticsTrunkQuarantine,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
 import type {
     CICardSummaryApi,
     GitHubSourceApi,
     PullRequestListItemApi,
-    QuarantineEntryApi,
     QuarantineFileApi,
     WorkflowHealthItemApi,
     WorkflowRunDetailApi,
 } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
-import { summarizeLifecycle, workflowRuns } from '../lib/lifecycle'
+import { workflowRuns } from '../lib/lifecycle'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import {
     DEFAULT_FILTERS,
-    DEFAULT_QUARANTINE_FILTERS,
     DEFAULT_WORKFLOW_FILTERS,
     PullRequestRow,
-    QuarantineEntryRow,
     WorkflowHealthRow,
     engineeringAnalyticsLogic,
     filterPullRequests,
     filterWorkflowHealth,
     workflowFailureSeries,
-    filterQuarantineEntries,
-    inferOwnerFromSelector,
-    quarantineCountsOf,
-    quarantineRequestErrorMessage,
 } from './engineeringAnalyticsLogic'
 import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
 import { groupRunsByCommit, sortRunsForTriage } from './pullRequestDetailLogic'
@@ -52,8 +45,8 @@ jest.mock('../generated/api', () => ({
     engineeringAnalyticsPrLifecycle: jest.fn(),
     engineeringAnalyticsPullRequests: jest.fn(),
     engineeringAnalyticsQuarantine: jest.fn(),
-    engineeringAnalyticsQuarantineRequest: jest.fn(),
     engineeringAnalyticsSources: jest.fn(),
+    engineeringAnalyticsTrunkQuarantine: jest.fn(),
     engineeringAnalyticsWorkflowHealth: jest.fn(),
 }))
 
@@ -65,61 +58,14 @@ const mockWorkflowHealth = engineeringAnalyticsWorkflowHealth as jest.MockedFunc
     typeof engineeringAnalyticsWorkflowHealth
 >
 const mockQuarantine = engineeringAnalyticsQuarantine as jest.MockedFunction<typeof engineeringAnalyticsQuarantine>
-const mockQuarantineRequest = engineeringAnalyticsQuarantineRequest as jest.MockedFunction<
-    typeof engineeringAnalyticsQuarantineRequest
->
 const mockSources = engineeringAnalyticsSources as jest.MockedFunction<typeof engineeringAnalyticsSources>
-
-function apiQuarantineEntry(overrides: Partial<QuarantineEntryApi> = {}): QuarantineEntryApi {
-    return {
-        id: 'posthog/api/test/test_foo.py::TestFoo::test_bar',
-        runner: 'pytest',
-        reason: 'flaky ordering assertion',
-        owner: '@PostHog/team-foo',
-        issue: '',
-        added: '2026-06-01',
-        expires: '2026-06-20',
-        mode: 'run',
-        lifecycle: 'active',
-        days_until_expiry: 8,
-        selector_kind: 'test',
-        ...overrides,
-    }
-}
-
-function qRow(overrides: Partial<QuarantineEntryRow> = {}): QuarantineEntryRow {
-    return {
-        id: 'posthog/api/test/test_foo.py::TestFoo::test_bar',
-        runner: 'pytest',
-        reason: 'flaky',
-        owner: '@PostHog/team-foo',
-        issue: '',
-        added: '2026-06-01',
-        expires: '2026-06-20',
-        mode: 'run',
-        lifecycle: 'active',
-        daysUntilExpiry: 8,
-        selectorKind: 'test',
-        ...overrides,
-    }
-}
+const mockTrunkQuarantine = engineeringAnalyticsTrunkQuarantine as jest.MockedFunction<
+    typeof engineeringAnalyticsTrunkQuarantine
+>
 
 const QUARANTINE: QuarantineFileApi = {
     available: true,
-    entries: [
-        apiQuarantineEntry({ id: 'a-overdue', lifecycle: 'overdue', days_until_expiry: -10, owner: '@team/x' }),
-        apiQuarantineEntry({ id: 'b-grace', lifecycle: 'in_grace', days_until_expiry: -2, owner: '@team/y' }),
-        apiQuarantineEntry({ id: 'c-soon', lifecycle: 'expiring_soon', days_until_expiry: 3, owner: '@team/x' }),
-        apiQuarantineEntry({ id: 'd-active', lifecycle: 'active', days_until_expiry: 20, owner: '@team/z' }),
-        apiQuarantineEntry({
-            id: 'product:e',
-            lifecycle: 'active',
-            mode: 'skip',
-            selector_kind: 'product',
-            owner: '@team/z',
-            reason: 'teardown hang',
-        }),
-    ],
+    entries: [],
     parse_errors: [],
     parse_warnings: [],
     repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
@@ -146,6 +92,7 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         passing: 0,
         failing: 0,
         pending: 0,
+        inconclusive: 0,
         failingWorkflows: [],
         pushes: 0,
         pushHistory: [],
@@ -160,7 +107,7 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
     return {
         author: { handle: 'alice', display_name: 'alice', avatar_url: 'https://a/avatar', is_bot: false },
         repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
-        ci: { runs: 0, passing: 0, failing: 0, pending: 0 },
+        ci: { runs: 0, passing: 0, failing: 0, pending: 0, inconclusive: 0 },
         number: 1,
         title: 'feat: x',
         state: 'open',
@@ -180,13 +127,18 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
 
 const CARDS: CICardSummaryApi = { open_prs: 18, repos: 10, stuck: 6, failing_ci: 4 }
 const PRS: PullRequestListItemApi[] = [
-    apiPr({ number: 101, ci: { runs: 3, passing: 2, failing: 1, pending: 0 }, pushes: 7, rerun_cycles: 2 }),
+    apiPr({
+        number: 101,
+        ci: { runs: 3, passing: 2, failing: 1, pending: 0, inconclusive: 0 },
+        pushes: 7,
+        rerun_cycles: 2,
+    }),
     apiPr({
         number: 102,
         title: 'fix: y',
         author: { handle: 'bob', display_name: 'bob', avatar_url: 'https://b/avatar', is_bot: false },
         repo: { provider: 'github', owner: 'posthog', name: 'posthog-js' },
-        ci: { runs: 5, passing: 5, failing: 0, pending: 0 },
+        ci: { runs: 5, passing: 5, failing: 0, pending: 0, inconclusive: 0 },
         state: 'merged',
         created_at: '2026-05-20T00:00:00Z',
         merged_at: '2026-05-21T00:00:00Z',
@@ -226,6 +178,7 @@ function makeWorkflow(overrides: Partial<WorkflowHealthRow> = {}): WorkflowHealt
         latestRunConclusion: 'success',
         granularity: 'day',
         buckets: [],
+        mergeQueueRunCount: 0,
         ...overrides,
     }
 }
@@ -248,13 +201,19 @@ describe('engineeringAnalyticsLogic', () => {
         mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
         mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
         mockQuarantine.mockResolvedValue(QUARANTINE)
-        mockQuarantineRequest.mockResolvedValue({
-            pr_url: 'https://github.com/PostHog/posthog/pull/99',
-            issue_url: 'https://github.com/PostHog/posthog/issues/4242',
-            branch: 'quarantine/foo-20260612',
-        })
         // Most tests are single- or no-source; the picker tests override with SOURCES.
         mockSources.mockResolvedValue([])
+        mockTrunkQuarantine.mockResolvedValue({
+            available: true,
+            owners_resolved: true,
+            ttl_days: 15,
+            truncated: false,
+            limit: 5000,
+            repository: 'PostHog/posthog',
+            trunk_url: null,
+            teams: [],
+            tests: [],
+        })
     })
 
     afterEach(() => {
@@ -266,16 +225,6 @@ describe('engineeringAnalyticsLogic', () => {
         }
         jest.restoreAllMocks()
         resumeKeaLoadersErrors()
-    })
-
-    it.each([
-        ['no runs', { runs: 0, failing: 0, pending: 0 }, 'none'],
-        ['a failure', { runs: 3, failing: 1, pending: 0 }, 'failing'],
-        ['failure beats pending', { runs: 5, failing: 1, pending: 2 }, 'failing'],
-        ['unsettled run', { runs: 3, failing: 0, pending: 2 }, 'running'],
-        ['all green', { runs: 3, failing: 0, pending: 0 }, 'passing'],
-    ])('ciStatusOf derives %s', (_label, rollup, expected) => {
-        expect(ciStatusOf(rollup)).toBe(expected)
     })
 
     it('filters by state, author, repo, ci status, and search', () => {
@@ -395,44 +344,25 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
     })
 
-    it('filters workflow health by the shared branch scope, only reloading on a real change', async () => {
-        // Branch lives in the shared filters logic (so it carries into the workflow detail page); the
-        // Workflows tab reads it and reloads workflow health when it's applied.
+    it('scopes workflow health to the shared run group', async () => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
         extraUnmounts.push(filters.mount())
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        // All runs is the default, and the backend already reports every run when the param is absent.
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d' })
 
-        // Typing only stages the value — no reload until applied.
-        filters.actions.setBranchFilter('main')
-        expect(filters.values.branchInput).toBe('main')
-        expect(filters.values.appliedBranch).toBe('')
-
-        // Applying promotes it and reloads with the branch param (trimmed).
-        filters.actions.setBranchFilter('  main  ')
-        filters.actions.applyBranchFilter()
+        filters.actions.setRunScope('pull_request')
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
-        expect(filters.values.appliedBranch).toBe('main')
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', branch: 'main' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', run_scope: 'pull_request' })
 
-        // Re-applying an unchanged value (e.g. a blur with no edit) does not reload.
-        mockWorkflowHealth.mockClear()
-        filters.actions.applyBranchFilter()
-        await expectLogic(logic).toNotHaveDispatchedActions(['loadWorkflowHealth'])
-        expect(mockWorkflowHealth).not.toHaveBeenCalled()
-
-        // The applied branch persists across a date-range reload.
         filters.actions.setDateRange('-90d', null)
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', branch: 'main' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', run_scope: 'pull_request' })
 
-        // Clearing the box (e.g. the search × button, which only fires onChange('')) applies
-        // immediately — no Enter/blur needed — and drops the filter.
-        filters.actions.setBranchFilter('')
-        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(filters.values.appliedBranch).toBe('')
+        filters.actions.setRunScope('all')
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
     })
 
@@ -532,7 +462,10 @@ describe('engineeringAnalyticsLogic', () => {
 
     it.each([
         ['workflows', () => urls.engineeringAnalyticsWorkflows()],
-        ['test health', () => urls.engineeringAnalyticsTestHealth()],
+        ['tests', () => urls.engineeringAnalyticsTests()],
+        ['teams', () => urls.engineeringAnalyticsTeams()],
+        ['team detail', () => urls.engineeringAnalyticsTeam('team-replay')],
+        ['deploys', () => urls.engineeringAnalyticsDeploys()],
     ])('the %s route applies ?source and ?repo like the other tabs', async (_label, url) => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -541,6 +474,16 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['setScope'])
         expect(logic.values.sourceId).toBe('src-newer')
         expect(logic.values.scopeRepo).toBe('posthog/posthog.com')
+    })
+
+    it('requests the hub once on a scoped direct load', async () => {
+        router.actions.push(urls.engineeringAnalyticsTeam('team-replay'), { source: 'src-newer' })
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
+        expect(mockCiCards).toHaveBeenCalledTimes(1)
+        expect(mockCiCards.mock.calls[0][1]).toMatchObject({ source_id: 'src-newer' })
     })
 
     it.each([
@@ -568,19 +511,6 @@ describe('engineeringAnalyticsLogic', () => {
             'hasActiveWorkflowFilters',
             'workflowFilters',
             DEFAULT_WORKFLOW_FILTERS,
-        ],
-        [
-            'quarantine',
-            [
-                ['setQuarantineSearch', 'flake'],
-                ['setQuarantineLifecycleFilter', 'active'],
-                ['setQuarantineModeFilter', 'skip'],
-                ['setQuarantineOwner', '@team/x'],
-            ],
-            'resetQuarantineFilters',
-            'hasActiveQuarantineFilters',
-            'quarantineFilters',
-            DEFAULT_QUARANTINE_FILTERS,
         ],
     ] as [string, [string, string][], string, string, string, object][])(
         'the %s reset returns filters to defaults and clears the active flag',
@@ -628,37 +558,6 @@ describe('engineeringAnalyticsLogic', () => {
     ])('workflowFailureSeries: %s', (_label, counts, completed, failures, label) => {
         const series = workflowFailureSeries([{ bucketStart: '2026-06-05', runCount: 30, ...counts }], 'day')
         expect(series).toEqual({ completed: [completed], failures: [failures], labels: [label] })
-    })
-
-    it('summarizeLifecycle rolls events up into milestones and verdicts', () => {
-        const summary = summarizeLifecycle([
-            { kind: 'opened', at: '2026-06-01T00:00:00Z' },
-            { kind: 'ci_started', at: '2026-06-01T00:01:00Z', detail: 'Backend CI' },
-            { kind: 'ci_started', at: '2026-06-01T00:02:00Z', detail: 'Frontend CI' },
-            { kind: 'ci_started', at: '2026-06-01T00:03:00Z', detail: 'E2E: smoke' },
-            { kind: 'ci_finished', at: '2026-06-01T00:30:00Z', detail: 'Backend CI: failure' },
-            { kind: 'ci_finished', at: '2026-06-01T00:20:00Z', detail: 'Frontend CI: success' },
-            { kind: 'merged', at: '2026-06-02T00:00:00Z' },
-        ])
-        expect(summary.openedAt).toBe('2026-06-01T00:00:00Z')
-        expect(summary.firstCiStartedAt).toBe('2026-06-01T00:01:00Z')
-        expect(summary.lastCiFinishedAt).toBe('2026-06-01T00:30:00Z')
-        expect(summary.mergedAt).toBe('2026-06-02T00:00:00Z')
-        expect(summary.closedAt).toBeNull()
-        expect(summary.notPassing).toEqual([
-            { workflow: 'Backend CI', conclusion: 'failure', at: '2026-06-01T00:30:00Z' },
-        ])
-        expect(summary.passed).toBe(1)
-        expect(summary.unsettled).toBe(1)
-    })
-
-    it('summarizeLifecycle keeps workflow names that contain a colon', () => {
-        const summary = summarizeLifecycle([
-            { kind: 'ci_finished', at: '2026-06-01T00:30:00Z', detail: 'E2E: smoke: timed_out' },
-        ])
-        expect(summary.notPassing).toEqual([
-            { workflow: 'E2E: smoke', conclusion: 'timed_out', at: '2026-06-01T00:30:00Z' },
-        ])
     })
 
     it('workflowRuns pairs starts and finishes into per-workflow runs with durations', () => {
@@ -730,6 +629,7 @@ describe('engineeringAnalyticsLogic', () => {
             run_attempt: 1,
             pr_number: 10,
             commit_pr_number: null,
+            is_merge_queue: false,
             ...overrides,
         })
         const groups = groupRunsByCommit([
@@ -766,215 +666,83 @@ describe('engineeringAnalyticsLogic', () => {
         }).toEqual(expected)
     })
 
-    it.each([
-        ['all', { lifecycle: 'all' as const }, ['a-overdue', 'b-grace', 'c-soon', 'd-active', 'e-skip']],
-        ['active', { lifecycle: 'active' as const }, ['d-active', 'e-skip']],
-        ['expiring_soon', { lifecycle: 'expiring_soon' as const }, ['c-soon']],
-        // past_expiry groups in_grace + overdue.
-        ['past_expiry', { lifecycle: 'past_expiry' as const }, ['a-overdue', 'b-grace']],
-        ['mode skip', { mode: 'skip' as const }, ['e-skip']],
-        ['owner', { owner: '@team/x' }, ['a-overdue', 'c-soon']],
-        ['search matches reason', { search: 'hang' }, ['e-skip']],
-        ['search matches id', { search: 'b-grace' }, ['b-grace']],
-    ])('filterQuarantineEntries: %s', (_label, partial, expectedIds) => {
-        const rows = [
-            qRow({ id: 'a-overdue', lifecycle: 'overdue', daysUntilExpiry: -10, owner: '@team/x' }),
-            qRow({ id: 'b-grace', lifecycle: 'in_grace', daysUntilExpiry: -2, owner: '@team/y' }),
-            qRow({ id: 'c-soon', lifecycle: 'expiring_soon', daysUntilExpiry: 3, owner: '@team/x' }),
-            qRow({ id: 'd-active', lifecycle: 'active', daysUntilExpiry: 20, owner: '@team/z' }),
-            qRow({ id: 'e-skip', lifecycle: 'active', mode: 'skip', owner: '@team/z', reason: 'teardown hang' }),
-        ]
-        const result = filterQuarantineEntries(rows, { ...DEFAULT_QUARANTINE_FILTERS, ...partial })
-        expect(result.map((row) => row.id)).toEqual(expectedIds)
-    })
-
-    it('quarantineCountsOf tallies lifecycle buckets, past expiry, and skips', () => {
-        const counts = quarantineCountsOf([
-            qRow({ lifecycle: 'overdue' }),
-            qRow({ lifecycle: 'in_grace' }),
-            qRow({ lifecycle: 'expiring_soon' }),
-            qRow({ lifecycle: 'active' }),
-            qRow({ lifecycle: 'active', mode: 'skip' }),
-        ])
-        expect(counts).toEqual({
-            active: 2,
-            expiringSoon: 1,
-            inGrace: 1,
-            overdue: 1,
-            pastExpiry: 2,
-            skipped: 1,
-            total: 5,
+    it('maps the trunk quarantine endpoint and filters the tests by team', async () => {
+        mockTrunkQuarantine.mockResolvedValue({
+            available: true,
+            owners_resolved: true,
+            ttl_days: 15,
+            truncated: true,
+            limit: 5000,
+            repository: 'PostHog/posthog',
+            trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',
+            teams: [{ owner_team: 'team-replay', test_count: 1, overdue_count: 1, oldest_age_days: 44 }],
+            tests: [
+                {
+                    runner: 'pytest',
+                    nodeid: 'a.py::TestA::test_a',
+                    file: 'a.py',
+                    owner_team: 'team-replay',
+                    status: 'FLAKY',
+                    quarantine_setting: 'AUTO_QUARANTINE',
+                    quarantined_at: '2026-05-19T08:00:00Z',
+                    age_days: 44,
+                    overdue: true,
+                    trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests/test/t-1?repo=PostHog/posthog',
+                },
+                {
+                    runner: 'jest',
+                    nodeid: 'b.test.tsx::renders',
+                    file: 'b.test.tsx',
+                    owner_team: 'unowned',
+                    status: 'FLAKY',
+                    quarantine_setting: 'AUTO_QUARANTINE',
+                    quarantined_at: '2026-06-23T08:00:00Z',
+                    age_days: 9,
+                    overdue: false,
+                    trunk_url: null,
+                },
+            ],
         })
-    })
-
-    it('maps the quarantine endpoint into rows with counts and owner options', async () => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadQuarantineSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadTrunkQuarantineSuccess'])
 
-        expect(logic.values.quarantine?.available).toBe(true)
-        expect(logic.values.quarantine?.repoFullName).toBe('PostHog/posthog')
-        expect(logic.values.quarantine?.entries).toHaveLength(5)
-        expect(logic.values.quarantineCounts).toEqual({
-            active: 2,
-            expiringSoon: 1,
-            inGrace: 1,
-            overdue: 1,
-            pastExpiry: 2,
-            skipped: 1,
-            total: 5,
-        })
-        expect(logic.values.quarantineOwnerOptions).toEqual(['@team/x', '@team/y', '@team/z'])
-        expect(logic.values.quarantineLoadFailed).toBe(false)
-    })
-
-    it('quarantine cards toggle the lifecycle and mode lens and back', async () => {
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-        expect(logic.values.activeQuarantineCard).toBeNull()
-
-        logic.actions.applyQuarantineCard('past_expiry')
-        expect(logic.values.activeQuarantineCard).toBe('past_expiry')
-        expect(logic.values.quarantineLifecycleFilter).toBe('past_expiry')
-        expect(logic.values.quarantineModeFilter).toBe('all')
-
-        logic.actions.applyQuarantineCard('skipped')
-        expect(logic.values.activeQuarantineCard).toBe('skipped')
-        expect(logic.values.quarantineModeFilter).toBe('skip')
-        expect(logic.values.quarantineLifecycleFilter).toBe('all')
-
-        // Clicking the active card clears the lens back to the default view.
-        logic.actions.applyQuarantineCard('skipped')
-        expect(logic.values.activeQuarantineCard).toBeNull()
-        expect(logic.values.quarantineModeFilter).toBe('all')
-    })
-
-    it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {
-        silenceKeaLoadersErrors() // the loader failure is the scenario under test
-        mockQuarantine.mockRejectedValue(
-            new Error('Connect a GitHub data warehouse source to use engineering analytics.')
+        expect(logic.values.trunkQuarantine?.ttlDays).toBe(15)
+        expect(logic.values.trunkQuarantine?.truncated).toBe(true)
+        expect(logic.values.trunkQuarantine?.limit).toBe(5000)
+        expect(logic.values.trunkQuarantine?.repository).toBe('PostHog/posthog')
+        expect(logic.values.trunkQuarantine?.trunkUrl).toBe(
+            'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog'
         )
-
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadQuarantineFailure'])
-
-        expect(logic.values.quarantineLoadFailed).toBe(true)
-    })
-
-    it.each([
-        ['product: selector', 'product:batch-exports', '@PostHog/team-batch-exports'],
-        ['products/ path', 'products/web_analytics/backend/test_foo.py::T::t', '@PostHog/team-web-analytics'],
-        ['plain nodeid', 'posthog/api/test/test_foo.py::T::t', ''],
-        ['bare file', 'frontend/src/foo.test.ts', ''],
-    ])('inferOwnerFromSelector: %s', (_label, selector, expected) => {
-        expect(inferOwnerFromSelector(selector)).toBe(expected)
-    })
-
-    it.each([
-        ['DRF detail', { detail: 'App not installed' }, 'App not installed'],
-        ['nested data.detail', { data: { detail: 'Malformed file' } }, 'Malformed file'],
-        ['error message', new Error('Network down'), 'Network down'],
-        ['unknown shape', {}, 'Could not complete the quarantine request.'],
-    ])('quarantineRequestErrorMessage: %s', (_label, error, expected) => {
-        expect(quarantineRequestErrorMessage(error)).toBe(expected)
-    })
-
-    it('a successful submit closes the modal and reloads the register', async () => {
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadQuarantineSuccess'])
-
-        logic.actions.openQuarantineModal({
-            action: 'quarantine',
-            selector: 'frontend/src/a.test.ts::renders',
-            runner: 'jest',
-            reason: 'flaky',
-            owner: '@team/x',
-            issue: '',
-            mode: 'run',
-        })
-        expect(logic.values.quarantineModal?.selector).toBe('frontend/src/a.test.ts::renders')
-        logic.actions.submitQuarantine({
-            input: {
-                action: 'quarantine',
-                selector: 'frontend/src/a.test.ts::renders',
-                runner: 'jest',
-                reason: 'flaky',
-                owner: '@team/x',
-                issue: '',
-                expires: '2026-06-26',
-                mode: 'run',
-            },
-        })
-        // The success listener reloads the register so the merged change shows up.
-        await expectLogic(logic).toDispatchActions(['submitQuarantineSuccess', 'loadQuarantine'])
-
-        // The viewed repo is threaded into the write so the PR targets it.
-        expect(mockQuarantineRequest).toHaveBeenCalledWith(
-            '1',
-            expect.objectContaining({ operation: 'quarantine', repo: 'PostHog/posthog', runner: 'jest' })
-        )
-        expect(logic.values.quarantineModal).toBeNull()
-        expect(logic.values.quarantineSubmitLoading).toBe(false)
-    })
-
-    it('omits the runner when removing a forward-compatible quarantine entry', async () => {
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-
-        logic.actions.submitQuarantine({
-            input: {
-                action: 'remove',
-                selector: 'future/runner/test',
-                reason: '',
-                owner: '',
-                issue: '',
-                expires: null,
-                mode: 'run',
-            },
-        })
-        await expectLogic(logic).toDispatchActions(['submitQuarantineSuccess'])
-
-        expect(mockQuarantineRequest).toHaveBeenCalledWith(
-            '1',
-            expect.not.objectContaining({ runner: expect.anything() })
-        )
-    })
-
-    it('a failed submit keeps the modal open so the user can retry', async () => {
-        silenceKeaLoadersErrors() // the submit failure is the scenario under test
-        mockQuarantineRequest.mockRejectedValue({ detail: "The App isn't installed on PostHog." })
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-
-        logic.actions.openQuarantineModal({
-            action: 'quarantine',
-            selector: 'a/b.py::T::t',
+        expect(logic.values.trunkQuarantine?.tests[0]).toEqual({
             runner: 'pytest',
-            reason: 'flaky',
-            owner: '@team/x',
-            issue: '',
-            mode: 'run',
+            nodeid: 'a.py::TestA::test_a',
+            file: 'a.py',
+            ownerTeam: 'team-replay',
+            status: 'FLAKY',
+            quarantineSetting: 'AUTO_QUARANTINE',
+            quarantinedAt: '2026-05-19T08:00:00Z',
+            ageDays: 44,
+            overdue: true,
+            trunkUrl: 'https://app.trunk.io/posthog-inc/flaky-tests/test/t-1?repo=PostHog/posthog',
         })
-        logic.actions.submitQuarantine({
-            input: {
-                action: 'quarantine',
-                selector: 'a/b.py::T::t',
-                runner: 'pytest',
-                reason: 'flaky',
-                owner: '@team/x',
-                issue: '',
-                expires: null,
-                mode: 'run',
-            },
-        })
-        await expectLogic(logic).toDispatchActions(['submitQuarantineFailure'])
+        expect(Object.keys(logic.values.trunkQuarantineTestsByTeam)).toEqual(['team-replay', 'unowned'])
+        expect(logic.values.trunkQuarantineTestsByTeam['team-replay'].map((test) => test.nodeid)).toEqual([
+            'a.py::TestA::test_a',
+        ])
+    })
 
-        expect(logic.values.quarantineModal).not.toBeNull()
-        expect(logic.values.quarantineSubmitLoading).toBe(false)
+    it.each([
+        [400, 'notConnected'],
+        [500, 'error'],
+    ])('maps a quarantine %i response to %s', async (statusCode, expectedStatus) => {
+        silenceKeaLoadersErrors()
+        mockTrunkQuarantine.mockRejectedValue(new ApiError('Quarantine request failed.', statusCode))
 
-        logic.actions.closeQuarantineModal()
-        expect(logic.values.quarantineModal).toBeNull()
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadTrunkQuarantineFailure'])
+
+        expect(logic.values.trunkQuarantineStatus).toBe(expectedStatus)
     })
 })

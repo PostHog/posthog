@@ -3,11 +3,12 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
-import { pickBestPersonDistinctId } from 'scenes/persons/person-utils'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { PersonsTabType, PersonType } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { pickBestPersonDistinctId } from 'products/persons/frontend/person-utils'
 
 interface LivePersonDrillDownRowProps {
     person: PersonType

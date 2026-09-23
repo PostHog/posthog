@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 572ecd734bcb50bbe0ed22d463e152594e88e43a0747f7e49a132a47a1dc68fe # shrinks to expr = Any([All([Compare { field: ElementsChain, op: Gt, literal: "alpha" }])]), event = TestEvent { event: "purchase", distinct_id: "alpha", timestamp: "2026-05-26 12:34:56.789000", elements_chain: "", properties: {"$browser": "noise", "$elements_chain": "a:href=\"/alpha\"", "$os": "noise", "country": "alpha", "plan": "alpha", "tier": "alpha", "unrelated": "noise"}, person_properties: {"email": "alpha", "role": "alpha"} }

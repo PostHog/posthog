@@ -230,8 +230,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         model = visitor.get_model()
 
-        # model_to_resource accepts both instances and classes at runtime via _meta
-        resource_type = model_to_resource(model)  # type: ignore[arg-type]
+        resource_type = model_to_resource(model)
         if resource_type is not None:
             ac = UserAccessControl(user=user, team=team)
             if not ac.check_access_level_for_resource(resource_type, required_level="viewer"):

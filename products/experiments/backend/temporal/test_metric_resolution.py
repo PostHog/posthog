@@ -41,7 +41,8 @@ class TestMetricResolution(BaseTest):
         assert resolved["source"] == "inline"
 
     def test_resolution_order_is_primary_secondary_saved(self):
-        primary, secondary = {"uuid": str(uuid.uuid4())}, {"uuid": str(uuid.uuid4())}
+        primary = {"uuid": str(uuid.uuid4()), "metric_type": "mean"}
+        secondary = {"uuid": str(uuid.uuid4()), "metric_type": "mean"}
         experiment = self._experiment(metrics=[primary], metrics_secondary=[secondary])
         saved_uuid = str(uuid.uuid4())
         self._attach_saved(experiment, {"uuid": saved_uuid, "metric_type": "mean"})
@@ -75,7 +76,14 @@ class TestMetricResolution(BaseTest):
         assert resolved is not None
         assert resolved["breakdownFilter"] == {"breakdowns": []}
 
-    def test_metrics_without_uuid_are_excluded(self):
-        experiment = self._experiment(metrics=[{"metric_type": "funnel"}])
+    def test_unschedulable_metrics_are_excluded(self):
+        experiment = self._experiment(
+            metrics=[
+                {"metric_type": "funnel"},
+                {"uuid": str(uuid.uuid4())},
+                {"uuid": str(uuid.uuid4()), "kind": "ExperimentTrendsQuery"},
+            ]
+        )
         self._attach_saved(experiment, {"metric_type": "funnel"})
+        self._attach_saved(experiment, {"uuid": str(uuid.uuid4())})
         assert iter_metric_dicts(experiment) == []

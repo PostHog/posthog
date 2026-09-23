@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import cast
 
+from django.db import models
+
 from rest_framework import serializers
 
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
@@ -82,6 +84,14 @@ class ErrorTrackingAssigneeSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=["user", "role"], help_text="Assignee target type: user or role.")
 
 
+class ErrorTrackingIssueOrderBy(models.TextChoices):
+    LAST_SEEN = "last_seen", "last_seen"
+    FIRST_SEEN = "first_seen", "first_seen"
+    OCCURRENCES = "occurrences", "occurrences"
+    USERS = "users", "users"
+    SESSIONS = "sessions", "sessions"
+
+
 class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     dateRange = ErrorTrackingDateRangeSerializer(
         required=False,
@@ -115,7 +125,7 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
         help_text="Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected.",
     )
     orderBy = serializers.ChoiceField(
-        choices=["last_seen", "first_seen", "occurrences", "users", "sessions"],
+        choices=ErrorTrackingIssueOrderBy.choices,
         required=False,
         default="occurrences",
         help_text="Field used to sort issues. Defaults to occurrences.",

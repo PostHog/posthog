@@ -140,6 +140,7 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
     "defaultValueOfTypeName": HogQLFunctionMeta("defaultValueOfTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
+    "MD5": HogQLFunctionMeta("MD5", 1, 1),
     "UUIDv7ToDateTime": HogQLFunctionMeta("UUIDv7ToDateTime", 1, 1, tz_aware=True),
 }
 
@@ -155,7 +156,9 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
                 ((StringType(),), DateType()),
                 ((DateTimeType(),), DateType()),
             ],
-            overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
+            # Only the plain constructor takes a number: toDateOrNull expects a String, and rejects a
+            # Float with code 43. Integer covers `date - date`, Float `timestamp - timestamp`.
+            overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType, ast.FloatType), "toDate")],
         )
         for name in ["toDate", "to_date"]
     },
@@ -166,7 +169,8 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         # Incorrect for parseDateTime64BestEffortOrNull but it is required because when we overload to toDateTime, we use this to figure out if timestamp is already in a function.
         tz_aware=True,
         overloads=[
-            ((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime"),
+            # Float covers the `timestamp - timestamp` duration, which the parser cannot take.
+            ((ast.DateTimeType, ast.DateType, ast.IntegerType, ast.FloatType), "toDateTime"),
             # ((ast.StringType,), "parseDateTime64"),
         ],
         signatures=[

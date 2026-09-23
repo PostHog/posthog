@@ -3,15 +3,22 @@ import {
   ChatMarkerContent,
   ChatMarkerIcon,
   cn,
-  Spinner,
 } from "@posthog/quill";
 import { readAgentToolName } from "@posthog/shared";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import {
+  AnimatePresence,
+  domAnimation,
+  LazyMotion,
+  m,
+  useReducedMotion,
+} from "framer-motion";
 import { memo, useMemo } from "react";
 import type { ConversationItem } from "../buildConversationItems";
 import { summarizeMemo } from "../new-thread/buildThreadGroups";
-import { grouping } from "../new-thread/conversationThreadConfig";
+import { isSubagentSpawnTool } from "../session-update/collaborationTools";
+import { mcpToolDisplayName } from "../session-update/mcpToolDisplay";
 import { SessionUpdateView } from "../session-update/SessionUpdateView";
 import { iconForToolCall } from "../session-update/toolCallUtils";
 
@@ -43,9 +50,11 @@ function resolveTool(item: SessionUpdateItem): {
     ...(update as unknown as ToolCall),
     status: (update as unknown as ToolCall).status ?? "in_progress",
   };
+  const toolName = readAgentToolName(fromMap._meta);
   return {
     toolCall: fromMap,
-    toolName: readAgentToolName(fromMap._meta),
+    toolName:
+      toolName ?? (isSubagentSpawnTool(fromMap.title) ? "subagent" : undefined),
   };
 }
 
@@ -57,7 +66,7 @@ function toolKey(item: SessionUpdateItem): string {
 
 /** Human label for a uniform group, e.g. `ToolSearch` → "Tool search", `mcp__x__run` → "Run". */
 function friendlyName(key: string): string {
-  if (grouping.subagentToolNames.has(key)) return "Subagents";
+  if (isSubagentSpawnTool(key)) return "Subagents";
   const last = key.includes("__") ? (key.split("__").pop() ?? key) : key;
   // Split separators and PascalCase/camelCase so tool identifiers read naturally.
   const spaced = last
@@ -66,7 +75,7 @@ function friendlyName(key: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
 }
 
-export function isToolActive(item: SessionUpdateItem): boolean {
+function isToolActive(item: SessionUpdateItem): boolean {
   const { toolCall } = resolveTool(item);
   const incomplete =
     toolCall.status === "pending" || toolCall.status === "in_progress";
@@ -138,12 +147,16 @@ export const ToolGroup = memo(function ToolGroup({
   // thought-only run has to resolve to no current tool rather than throw on `undefined`.
   const currentItem = lastActiveTool(tools) ?? tools.at(-1);
   const current = currentItem ? resolveTool(currentItem) : null;
-  const currentName = currentItem ? friendlyName(toolKey(currentItem)) : null;
-  const currentContext =
-    current?.toolCall.title &&
-    currentName &&
-    current.toolCall.title.toLocaleLowerCase() !==
-      currentName.toLocaleLowerCase()
+  const mcpName = current ? mcpToolDisplayName(current.toolCall) : undefined;
+  const currentName = currentItem
+    ? (mcpName ?? friendlyName(toolKey(currentItem)))
+    : null;
+  const currentContext = mcpName
+    ? null
+    : current?.toolCall.title &&
+        currentName &&
+        current.toolCall.title.toLocaleLowerCase() !==
+          currentName.toLocaleLowerCase()
       ? current.toolCall.title
       : null;
   const LeadIcon = current
@@ -201,31 +214,33 @@ export const ToolGroup = memo(function ToolGroup({
       >
         {/* `mode="wait"` so the outgoing label clears before the next fades in. Overlapping them
             on a single line reads as a flicker rather than a change. */}
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.span
-            key={labelKey}
-            className="flex min-w-0 items-center gap-1.5"
-            initial={reduceMotion ? false : LABEL_MOTION.initial}
-            animate={reduceMotion ? undefined : LABEL_MOTION.animate}
-            exit={reduceMotion ? undefined : LABEL_MOTION.exit}
-            transition={reduceMotion ? undefined : LABEL_MOTION.transition}
-          >
-            {showSummary ? (
-              <span className="truncate">{summary.doneLabel}</span>
-            ) : thinking || !currentName ? (
-              <span className="shrink-0 font-medium">Thinking…</span>
-            ) : (
-              <>
-                <span className="shrink-0 font-medium">{currentName}</span>
-                {currentContext ? (
-                  <span className="truncate text-muted-foreground/70">
-                    {currentContext}
-                  </span>
-                ) : null}
-              </>
-            )}
-          </motion.span>
-        </AnimatePresence>
+        <LazyMotion features={domAnimation}>
+          <AnimatePresence mode="wait" initial={false}>
+            <m.span
+              key={labelKey}
+              className="flex min-w-0 items-center gap-1.5"
+              initial={reduceMotion ? false : LABEL_MOTION.initial}
+              animate={reduceMotion ? undefined : LABEL_MOTION.animate}
+              exit={reduceMotion ? undefined : LABEL_MOTION.exit}
+              transition={reduceMotion ? undefined : LABEL_MOTION.transition}
+            >
+              {showSummary ? (
+                <span className="truncate">{summary.doneLabel}</span>
+              ) : thinking || !currentName ? (
+                <span className="shrink-0 font-medium">Thinking…</span>
+              ) : (
+                <>
+                  <span className="shrink-0 font-medium">{currentName}</span>
+                  {currentContext ? (
+                    <span className="truncate text-muted-foreground/70">
+                      {currentContext}
+                    </span>
+                  ) : null}
+                </>
+              )}
+            </m.span>
+          </AnimatePresence>
+        </LazyMotion>
       </ChatMarkerContent>
     </ChatMarker>
   );

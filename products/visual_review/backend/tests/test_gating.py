@@ -139,6 +139,8 @@ class TestGatingInvariants:
         recompute_result = runs.recompute_run(run.id, team_id=self.team.id)
         gate_passes = recompute_result["unresolved"] == 0
         assert gate_passes is expected_gate_passes
+        # The detail read counts in SQL; recompute applies `_is_unresolved` in Python.
+        assert api.get_run(run.id, team_id=self.team.id).summary.unresolved == recompute_result["unresolved"]
 
     @parameterized.expand(GATE_CASES)
     def test_raw_counts_reflect_classifier_truth(self, _name, result, action, _expected_gate, expected_changed_count):

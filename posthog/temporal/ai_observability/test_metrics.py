@@ -119,6 +119,7 @@ class TestActivityTypes:
         """Test that EVAL_ACTIVITY_TYPES contains the expected activities"""
         expected = {
             "fetch_evaluation_activity",
+            "run_local_evaluation_activity",
             "execute_llm_judge_activity",
             "execute_hog_eval_activity",
             "execute_sentiment_eval_activity",

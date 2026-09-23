@@ -1,1 +1,1 @@
-0003_alter_alertconfiguration_calculation_interval
+0007_platformalertconfiguration_platformalert_and_more

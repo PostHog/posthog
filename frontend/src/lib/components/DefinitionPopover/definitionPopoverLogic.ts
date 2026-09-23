@@ -1,6 +1,7 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
@@ -14,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
+import { cohortsModel, getReferencedCohortIds, isIndividualInsightPath } from '~/models/cohortsModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
@@ -438,7 +439,13 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         ],
     }),
     listeners(({ actions, selectors, values, props, cache }) => ({
-        setDefinition: (_, __, ___, previousState) => {
+        setDefinition: ({ item }, __, ___, previousState) => {
+            if (values.isCohort && isIndividualInsightPath(router.values.location.pathname)) {
+                const ids = getReferencedCohortIds((item as Partial<CohortType>).filters)
+                if (ids.length) {
+                    cohortsModel.findMounted()?.actions.loadCohortsByIds({ ids })
+                }
+            }
             // Reset definition popover to view mode if context is switched
             if (
                 selectors.definition(previousState)?.name &&

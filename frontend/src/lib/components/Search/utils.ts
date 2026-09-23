@@ -1,5 +1,6 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { pluralize } from 'lib/utils/strings'
 
 /** Synthetic result that jumps to the theme setting, or toggles the theme outright. */
@@ -48,9 +49,36 @@ interface NewTabCandidate {
  * navigate qualify. An item carrying `onSelect`, and the theme row, run an action instead,
  * so treating the modifier as "open in a new tab" would fire that action rather than open
  * anything, which is merely surprising for most items but destructive for "Log out".
+ * A placeholder href goes nowhere, so it would open an empty tab.
  */
 export const canOpenInNewTab = (item: NewTabCandidate): boolean =>
-    !!item.href && !item.onSelect && item.id !== SETTINGS_THEME_ITEM_ID
+    !!item.href && item.href !== PLACEHOLDER_HREF && !item.onSelect && item.id !== SETTINGS_THEME_ITEM_ID
+
+/** Optional leading `#` and nothing but digits — the shape the ticket endpoint resolves with an
+ *  exact ticket-number lookup rather than a text scan (`is_ticket_number_search` server-side). */
+const TICKET_NUMBER_QUERY = /^#?\d+$/
+
+/** Below this, a free-text ticket search is not worth sending. */
+const TICKET_SEARCH_MIN_LENGTH = 3
+
+/** The ticket endpoint drops a `search` longer than this rather than rejecting it
+ *  (`MAX_SEARCH_LENGTH` in products/conversations/backend/api/ticket_filters.py), and would answer
+ *  an over-long query with unfiltered tickets — rows presented as matches that match nothing. */
+const TICKET_SEARCH_MAX_LENGTH = 200
+
+/**
+ * Whether a query is worth sending to the ticket endpoint. Free-text ticket search scans message
+ * content, which is the most expensive lookup in the palette, and one or two characters match most
+ * of a support inbox anyway. A ticket number is exempt from the lower bound in both directions: it
+ * is an indexed lookup, and "#7" is a complete query rather than the start of a longer one.
+ */
+export const shouldSearchTickets = (query: string): boolean => {
+    const trimmed = query.trim()
+    if (trimmed.length > TICKET_SEARCH_MAX_LENGTH) {
+        return false
+    }
+    return trimmed.length >= TICKET_SEARCH_MIN_LENGTH || TICKET_NUMBER_QUERY.test(trimmed)
+}
 
 export const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
@@ -67,6 +95,7 @@ export const getCategoryDisplayName = (category: string): string => {
         persons: 'Persons',
         groups: 'Groups',
         accounts: 'Accounts',
+        tickets: 'Support tickets',
         eventDefinitions: 'Events',
         propertyDefinitions: 'Properties',
         ai: 'PostHog AI',

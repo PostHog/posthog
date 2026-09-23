@@ -16,6 +16,7 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
 from . import model, refresh_tracking
+from .google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -134,6 +135,8 @@ class FirebaseIntegration:
     ) -> "model.Integration":
         scope = "https://www.googleapis.com/auth/firebase.messaging"
 
+        key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
+
         try:
             credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
             credentials.refresh(GoogleRequest())
@@ -191,6 +194,14 @@ class FirebaseIntegration:
         scope = "https://www.googleapis.com/auth/firebase.messaging"
         key_info = self.integration.sensitive_config.get("key_info", {})
 
+        try:
+            key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
+        except InvalidGoogleTokenUriError:
+            refresh_tracking.record_refresh_failure(
+                self.integration, reason=refresh_tracking.REFRESH_FAILURE_REASON_INVALID_TOKEN_URI
+            )
+            self.integration.save(update_fields=["config"])
+            raise
         credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
 
         try:
@@ -213,6 +224,37 @@ class FirebaseIntegration:
         if self.access_token_expired():
             self.refresh_access_token()
         return self.integration.sensitive_config.get("access_token", "")
+
+
+APNS_ENVIRONMENTS = ("production", "sandbox")
+
+BUNDLE_ID_EXTRA_CHARACTERS = (".", "-")
+
+
+# Apple team ids are alphanumeric, and bundle ids add only hyphens and periods. A colon appears in
+# neither, which is what lets the environment suffix below never collide with a real bundle id.
+# The team id holds no period either, so the first period in an id always ends the team id.
+def is_apns_team_id(value: str) -> bool:
+    return value.isascii() and value.isalnum()
+
+
+def is_apns_bundle_id(value: str) -> bool:
+    return (
+        bool(value)
+        and value.isascii()
+        and all(character.isalnum() or character in BUNDLE_ID_EXTRA_CHARACTERS for character in value)
+    )
+
+
+def apns_integration_id(team_id_apple: str, bundle_id: str, environment: str) -> str:
+    """The row identity of an APNs credential, which the environment is part of.
+
+    A sandbox credential and a production one are separate credentials for the same app, and both
+    have to be connectable at once. Only the sandbox id carries the suffix, so credentials connected
+    before the environment was part of the identity keep the id they already have.
+    """
+    base = f"{team_id_apple}.{bundle_id}"
+    return f"{base}:sandbox" if environment == "sandbox" else base
 
 
 class ApplePushIntegration:
@@ -249,13 +291,32 @@ class ApplePushIntegration:
         push_identity_verification: str | None = None,
         push_identity_public_keys: list[str] | None = None,
     ) -> "model.Integration":
+        # The posted config is untyped JSON, so a field can arrive as any type. Stripping a number
+        # below raises, which the endpoint answers with a server error rather than a validation one.
+        if not all(
+            value is None or isinstance(value, str) for value in (signing_key, key_id, team_id_apple, bundle_id)
+        ):
+            raise ValidationError("All APNS fields must be strings: signing_key, key_id, team_id_apple, bundle_id")
+
+        # A space copied out of the developer portal corrupts the signed JWT and the apns-topic.
+        signing_key = (signing_key or "").strip()
+        key_id = (key_id or "").strip()
+        team_id_apple = (team_id_apple or "").strip()
+        bundle_id = (bundle_id or "").strip()
+
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
 
-        if environment not in ("production", "sandbox"):
+        if not is_apns_team_id(team_id_apple):
+            raise ValidationError("APNS team_id_apple accepts letters and digits only")
+
+        if not is_apns_bundle_id(bundle_id):
+            raise ValidationError("APNS bundle_id accepts letters, digits, hyphens and periods only")
+
+        if environment not in APNS_ENVIRONMENTS:
             raise ValidationError("APNS environment must be 'production' or 'sandbox'")
 
-        integration_id = f"{team_id_apple}.{bundle_id}"
+        integration_id = apns_integration_id(team_id_apple, bundle_id, environment)
         # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
         with transaction.atomic():
             integration, created = model.Integration.objects.update_or_create(

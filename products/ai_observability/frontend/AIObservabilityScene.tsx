@@ -48,9 +48,9 @@ import { AIObservabilityTraces } from './AIObservabilityTracesScene'
 import { AIObservabilityUsers } from './AIObservabilityUsers'
 import { aiObservabilityEmptyState } from './emptyState/aiObservabilityEmptyState'
 import { useSortableColumns } from './hooks/useSortableColumns'
+import { InstrumentationChecklistCard } from './instrumentationChecklist/InstrumentationChecklistCard'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { AIObservabilitySelfDriving } from './selfDriving/AIObservabilitySelfDriving'
-import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityErrorsLogic } from './tabs/aiObservabilityErrorsLogic'
 import { getDefaultGenerationsColumns, aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
@@ -170,6 +170,8 @@ function AIObservabilityDashboard(): JSX.Element {
     return (
         <div className="@container/dashboard" data-attr="llm-analytics-costs">
             <Filters />
+
+            <InstrumentationChecklistCard />
 
             {availableDashboardsLoading || !selectedDashboardId ? (
                 <div className="text-center p-8">
@@ -314,7 +316,6 @@ function AIObservabilityGenerations(): JSX.Element {
                         ),
                     },
                     person: aiObservabilityColumnRenderers.person,
-                    [GENERATION_SENTIMENT_SELECT]: aiObservabilityColumnRenderers[GENERATION_SENTIMENT_SELECT],
                     'properties.$ai_tools_called': aiObservabilityColumnRenderers['properties.$ai_tools_called'],
                     "f'{properties.$ai_model}' -- Model": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),

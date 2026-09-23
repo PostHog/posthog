@@ -7,14 +7,13 @@ import type { FunnelChartConfig, FunnelStepClickData, TooltipContext } from '@po
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { ChartParams } from '~/types'
 
+import { funnelDataLogic } from '../funnelDataLogic'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import {
     buildFunnelStepsBarData,
@@ -22,6 +21,7 @@ import {
     resolveFunnelStepClick,
     type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
+import { StepLegend } from './StepLegend'
 
 const BASE_STEP_WIDTH_PX = 240
 const PER_BAR_WIDTH_PX = 20

@@ -30,15 +30,10 @@ export type WorkspaceServerStatus =
   (typeof WorkspaceServerStatus)[keyof typeof WorkspaceServerStatus];
 
 export const WorkspaceServerEvent = {
-  ConnectionLost: "connectionLost",
   StatusChanged: "statusChanged",
 } as const;
 
 export interface WorkspaceServerEvents {
-  [WorkspaceServerEvent.ConnectionLost]: {
-    code: number | null;
-    signal: NodeJS.Signals | null;
-  };
   [WorkspaceServerEvent.StatusChanged]: {
     status: WorkspaceServerStatus;
     attempt: number;
@@ -69,11 +64,26 @@ export class WorkspaceServerService extends TypedEventEmitter<WorkspaceServerEve
     return { status: this.status, attempt: this.restartAttempts };
   }
 
-  start(): Promise<WorkspaceConnection> {
+  getOrStart(): Promise<WorkspaceConnection> {
     if (this.connection) return Promise.resolve(this.connection);
     if (this.pendingStart) return this.pendingStart;
+    if (this.stopping) {
+      return Promise.reject(new Error("workspace-server is stopping"));
+    }
+    if (this.status !== WorkspaceServerStatus.Idle) {
+      return Promise.reject(new Error(`workspace-server is ${this.status}`));
+    }
 
-    this.stopping = false;
+    return this.start();
+  }
+
+  private start(): Promise<WorkspaceConnection> {
+    if (this.connection) return Promise.resolve(this.connection);
+    if (this.pendingStart) return this.pendingStart;
+    if (this.stopping) {
+      return Promise.reject(new Error("workspace-server is stopping"));
+    }
+
     this.clearRestartTimer();
     this.pendingStart = this.runStart();
     return this.pendingStart;
@@ -132,6 +142,7 @@ export class WorkspaceServerService extends TypedEventEmitter<WorkspaceServerEve
     if (this.pendingStart || this.restartTimer) return;
 
     if (this.restartAttempts >= MAX_RESTART_ATTEMPTS) {
+      log.error("workspace-server failed to start", error);
       this.setStatus(WorkspaceServerStatus.Failed, errorMessage(error));
       return;
     }
@@ -204,12 +215,10 @@ export class WorkspaceServerService extends TypedEventEmitter<WorkspaceServerEve
     c.stderr?.on("data", (chunk) => process.stderr.write(chunk));
     c.once("exit", (code, signal) => {
       if (this.child !== c) return;
-      const wasConnected = this.connection !== null;
       this.child = null;
       this.connection = null;
       log.info("child exited", { code, signal });
-      if (wasConnected && !this.stopping) {
-        this.emit(WorkspaceServerEvent.ConnectionLost, { code, signal });
+      if (!this.stopping) {
         this.scheduleRestart();
       }
     });

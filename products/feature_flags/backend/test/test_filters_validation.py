@@ -7,10 +7,11 @@ from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
 from products.feature_flags.backend.api.feature_flag import _reject_serde_unsafe_filters
-from products.feature_flags.backend.api.filters_schema import FeatureFlagFiltersSerializer
+from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_PROPERTY_TYPES, FeatureFlagFiltersSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.filters_validation import (
     CROSS_FIELD_CHECKS,
+    PERSON_AGGREGATED_PROPERTY_TYPES,
     Violation,
     check_groups_non_empty_for_create,
     check_variant_rollout_sum,
@@ -162,6 +163,36 @@ class TestFiltersValidation(SimpleTestCase):
             (
                 "gt_operator_numeric_value",
                 {"groups": [{"properties": [_person_prop(operator="gt", value=5)]}]},
+                [],
+            ),
+            (
+                "gte_operator_float_value",
+                {"groups": [{"properties": [_person_prop(operator="gte", value=1.5)]}]},
+                [],
+            ),
+            (
+                "lt_operator_string_value",
+                {"groups": [{"properties": [_person_prop(operator="lt", value="5")]}]},
+                [],
+            ),
+            (
+                "lte_operator_boolean_value",
+                {"groups": [{"properties": [_person_prop(operator="lte", value=True)]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "gte_operator_value_over_f64_range",
+                {"groups": [{"properties": [_person_prop(operator="gte", value=10**400)]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "gt_operator_list_value",
+                {"groups": [{"properties": [_person_prop(operator="gt", value=[5])]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "icontains_operator_numeric_value",
+                {"groups": [{"properties": [_person_prop(operator="icontains", value=5)]}]},
                 ["cross_field.operator_requires_string_value"],
             ),
             (
@@ -323,6 +354,20 @@ class TestFiltersValidation(SimpleTestCase):
             "contextual.groups_empty_on_create"
         ]
         assert check_groups_non_empty_for_create({"groups": [{"properties": []}]}) == []
+
+    def test_group_is_the_only_property_type_outside_person_aggregation(self) -> None:
+        assert set(FEATURE_FLAG_PROPERTY_TYPES) - set(PERSON_AGGREGATED_PROPERTY_TYPES) == {"group"}, (
+            "services/mcp/src/tools/featureFlags/preserveGroupTargeting.ts encodes the person-aggregation rule as "
+            "`type !== 'group'` (in mergeConditionGroup and mergeProperty). That is the complement of "
+            "PERSON_AGGREGATED_PROPERTY_TYPES only while 'group' is the sole type outside it. A group-side type "
+            "that slips through as person-aggregated lets that merge helper silently clear a flag's group "
+            "targeting. If the new type belongs under person aggregation, add it to "
+            "PERSON_AGGREGATED_PROPERTY_TYPES and the TypeScript needs no change. If the difference came out "
+            "empty instead, 'group' was added to PERSON_AGGREGATED_PROPERTY_TYPES, and the merge helper's "
+            "`!== 'group'` check no longer separates the two aggregations at all; that change needs its own "
+            "review, not a wider tuple here. Otherwise update the merge helper and "
+            "services/mcp/tests/unit/preserve-group-targeting.test.ts, then this assertion."
+        )
 
 
 class TestRejectSerdeUnsafeFilters(SimpleTestCase):

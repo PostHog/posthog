@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA22",
+    "cluster": null,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1109 declares the initial task without acks_late or reject_on_worker_lost. The application's normal Celery construction/configuration at posthog/celery.py:40,80-87 and frozen Celery settings provide no late-ack override for it. An isolated Celery check using the same decorator options through .codex/with-flox confirms acks_late=False. This permits acknowledgement before the config/GitHub work at tasks.py:1138-1174 and before the first durable ReviewRun at 1223-1229. Abrupt worker loss during that interval leaves neither an unacknowledged message nor a run/workflow to recover. The initial source event is only the already-committed output save (review_hog/receivers.py:126-138); opened/ready webhook events do not replace it (stamphog/tasks.py:160-168).",
+            "refutation": "I first checked for global late acknowledgements, a custom Celery task base, exception retries, and a durable pre-execution record. The app uses normal Celery, the declared task options preserve early acknowledgement, and the three retry branches require Python execution to catch an exception; abrupt worker death cannot call them. The head-based dedupe and QUEUED restart at tasks.py:1202-1214 make later re-invocation safe but do not cause that invocation after an early-acked message is lost. Ordinary state/status saves are ignored at review_hog/receivers.py:85-89. This is a real worker-loss-dependent missing review with later-output/push or manual recovery available, so should_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1109 uses shared_task without acks_late or reject_on_worker_lost; the Celery configuration in /tmp/frozen-75215/posthog/settings/celery.py:18-37 and app configuration in posthog/celery.py does not override early acknowledgement. The task performs config lookup and an external GitHub fetch at :1140-1159 before creating any ReviewRun at :1223-1229. A worker loss during that acknowledged interval removes the only queued request and leaves no review row. Explicit .retry calls at :1150,1162,1165 cannot run after process death. The source output is already committed by receivers.py:131-138, and later status-only saves do not dispatch (:85-89).",
+            "refutation": "First searched global/task acknowledgement overrides and durable recovery. No global late-ack override or custom task base applies; other tasks explicitly opt into both flags (posthog/tasks/tasks.py:348-358), confirming they are per-task choices. The same-head restart guard at Stamphog tasks.py:1202-1214 handles a new delivery only after a row exists, and the generic orphan reconciler at posthog/tasks/tasks.py:270-303 dispatches Tasks TaskRuns rather than missing Stamphog reviews. The webhook carve-out at Stamphog tasks.py:160-168 excludes opened/ready events, so a final-output save need not have another trigger. This is a narrow worker-loss delivery gap with a manual refire workaround."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "The initial facade publishes only process_inbox_pr_review.delay at products/stamphog/backend/facade/api.py:138-155. Its @shared_task configuration sets retries but neither acks_late nor reject_on_worker_lost (tasks/tasks.py:1109); posthog/celery.py:80-84 loads the Django CELERY settings, whose production configuration in posthog/settings/celery.py:8-31 supplies no late-ack override. This leaves Celery's early acknowledgment behavior. The task performs repository lookup and a GitHub request before creating any durable ReviewRun (tasks.py:1140-1159,1223-1229). Losing the worker after acknowledgment during those operations loses the review request without any row for restart. No Stamphog recovery schedule exists beyond daily digests (tasks/schedules.py:1-13).",
+            "refutation": "I checked global task configuration, local durable state, normal retries, and source-save/webhook recovery. Explicit retries require the executing code to catch an exception; they cannot run after process loss. The existing-head recovery at tasks.py:1211-1214 needs both another delivery and a committed run, neither of which exists in this window. Status saves do not refire the receiver (review_hog/backend/receivers.py:85-89), and opened bot-draft events deliberately do not use the re-review carve-out (tasks.py:160-169). The repository already uses both late acknowledgment and reject_on_worker_lost to protect task execution against process loss (posthog/tasks/tasks.py:348-358; usage_report.py:109-115). A real manual Inbox signal implementation can trigger this initial path, so worker loss produces a narrow missed review with manual refire as a workaround."
+        }
+    ]
+}

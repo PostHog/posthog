@@ -1,6 +1,6 @@
 import base64
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import requests
@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import (
     DATAFORSEO_ENDPOINTS,
     DataForSEOEndpointConfig,
+    ParseKind,
 )
 
 DATAFORSEO_BASE_URL = "https://api.dataforseo.com/v3"
@@ -106,15 +107,22 @@ def _raise_for_body_status(status_code: Any, status_message: Any) -> None:
     wait=wait_exponential_jitter(initial=2, max=60),
     reraise=True,
 )
-def _post_task(
+def _request_task(
     session: requests.Session,
+    method: str,
     path: str,
-    payload: dict[str, Any],
+    payload: dict[str, Any] | None,
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
-    """POST one task to a live endpoint and return the first task's result list."""
+    """Call one endpoint and return the first task's result list.
+
+    Live endpoints take a single-task POST array; the free Labs lookups are plain GETs.
+    """
     url = f"{DATAFORSEO_BASE_URL}{path}"
-    response = session.post(url, json=[payload], timeout=REQUEST_TIMEOUT_SECONDS)
+    if method == "GET":
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    else:
+        response = session.post(url, json=[payload], timeout=REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code == 429 or response.status_code >= 500:
         raise DataForSEORetryableError(f"DataForSEO API error (retryable): status={response.status_code}, url={url}")
@@ -142,7 +150,7 @@ def _post_task(
     return [entry for entry in result if isinstance(entry, dict)]
 
 
-def _parse_items(results: list[dict[str, Any]], target: str) -> Iterator[dict[str, Any]]:
+def _parse_items(results: list[dict[str, Any]], target: str | None) -> Iterator[dict[str, Any]]:
     for result in results:
         items = result.get("items")
         if not isinstance(items, list):
@@ -152,7 +160,7 @@ def _parse_items(results: list[dict[str, Any]], target: str) -> Iterator[dict[st
                 yield {**item, "target": target}
 
 
-def _parse_ranked_keywords(results: list[dict[str, Any]], target: str) -> Iterator[dict[str, Any]]:
+def _parse_ranked_keywords(results: list[dict[str, Any]], target: str | None) -> Iterator[dict[str, Any]]:
     # Lift the primary-key fields out of the nested keyword_data/ranked_serp_element blocks so
     # the table has queryable top-level key columns; the full nested payloads are kept as-is.
     for result in results:
@@ -178,7 +186,7 @@ def _parse_ranked_keywords(results: list[dict[str, Any]], target: str) -> Iterat
             }
 
 
-def _parse_monthly_items(results: list[dict[str, Any]], target: str) -> Iterator[dict[str, Any]]:
+def _parse_monthly_items(results: list[dict[str, Any]], target: str | None) -> Iterator[dict[str, Any]]:
     for result in results:
         items = result.get("items")
         if not isinstance(items, list):
@@ -192,17 +200,23 @@ def _parse_monthly_items(results: list[dict[str, Any]], target: str) -> Iterator
             yield {**item, "target": target, "date": date}
 
 
-def _parse_result_rows(results: list[dict[str, Any]], target: str) -> Iterator[dict[str, Any]]:
+def _parse_result_rows(results: list[dict[str, Any]], target: str | None) -> Iterator[dict[str, Any]]:
     # Backlinks summary carries its fields directly on tasks[].result[] with no nested items.
     for result in results:
         yield {**result, "target": target}
 
 
-_PARSERS = {
+def _parse_lookup_rows(results: list[dict[str, Any]], target: str | None) -> Iterator[dict[str, Any]]:
+    # Lookup tables are global: their rows sit directly on tasks[].result[] and carry no target.
+    yield from results
+
+
+_PARSERS: dict[ParseKind, Callable[[list[dict[str, Any]], str | None], Iterator[dict[str, Any]]]] = {
     "items": _parse_items,
     "ranked_keywords": _parse_ranked_keywords,
     "monthly_items": _parse_monthly_items,
     "result_rows": _parse_result_rows,
+    "lookup_rows": _parse_lookup_rows,
 }
 
 
@@ -247,6 +261,12 @@ def get_rows(
     parser = _PARSERS[config.kind]
     session = _make_session(api_login, api_password)
 
+    if not config.targeted:
+        rows = list(parser(_request_task(session, config.method, config.path, None, logger), None))
+        if rows:
+            yield rows
+        return
+
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_index, start_offset = 0, 0
     # If the saved target was removed from the config since the state was written, start over.
@@ -261,8 +281,12 @@ def get_rows(
         next_target = targets[index + 1] if index + 1 < len(targets) else None
 
         while True:
-            results = _post_task(
-                session, config.path, _payload(config, target, location_name, language_name, offset), logger
+            results = _request_task(
+                session,
+                config.method,
+                config.path,
+                _payload(config, target, location_name, language_name, offset),
+                logger,
             )
             rows = list(parser(results, target))
             if rows:

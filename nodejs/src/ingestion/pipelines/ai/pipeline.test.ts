@@ -7,6 +7,8 @@ import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUT
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -43,6 +45,7 @@ describe('AiIngestionPipeline', () => {
     let mockPersonRepository: jest.Mocked<PersonReadRepository>
     let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
     let promiseScheduler: PromiseScheduler
+    let ingestedUsage: UsageRecordInput[]
     let config: AiIngestionPipelineConfig
 
     const team = createTestTeam({ id: 123, api_token: 'token-123' })
@@ -139,6 +142,14 @@ describe('AiIngestionPipeline', () => {
 
         promiseScheduler = new PromiseScheduler()
 
+        ingestedUsage = []
+        const usageClient = {
+            ingest: jest.fn((records: UsageRecordInput[]) => {
+                ingestedUsage.push(...records)
+                return Promise.resolve()
+            }),
+        } as unknown as UsageIngestionClient
+
         const single = (output: string, topic: string) =>
             new SingleIngestionOutput(output, topic, mockKafkaProducer, 'test')
 
@@ -174,7 +185,21 @@ describe('AiIngestionPipeline', () => {
                 maxBlobsPerEvent: 50,
                 uploadMaxConcurrency: 8,
             },
+            createEventUsageBatch: () =>
+                new UsageRecordBatch(usageClient, { unit: 'events', isTeamEnabled: () => true }),
         }
+    })
+
+    it('reports one ai_events usage record per event', async () => {
+        await runPipeline([createMessage('$ai_generation'), createMessage('$ai_span')])
+
+        expect(ingestedUsage).toHaveLength(2)
+        // What the identity is made of belongs to usage-records-steps.test.ts. Here it only has to
+        // be one record per event, on the event's own day.
+        expect(new Set(ingestedUsage.map((r) => r.recordId)).size).toBe(2)
+        expect(ingestedUsage.every((r) => /^2024-01-01:[0-9a-f]{32}$/.test(r.recordId))).toBe(true)
+        expect(ingestedUsage.every((r) => r.usageKey === 'ai_events' && r.quantity === 1)).toBe(true)
+        expect(ingestedUsage.every((r) => r.teamId === team.id)).toBe(true)
     })
 
     it('double-writes AI events to both the events and ai_events outputs', async () => {
@@ -192,7 +217,30 @@ describe('AiIngestionPipeline', () => {
         expect(parseJSON(emitted.properties).$ai_input_tokens).toBeNull()
     })
 
-    it.each(['$pageview', '$autocapture', '$identify', '$exception', 'custom_event'])(
+    it('admits an unlisted $ai_* event and splits, strips and bills it like a listed one', async () => {
+        await runPipeline([
+            createMessage('$ai_custom_step', {
+                $ai_input: 'large input',
+                $ai_model: 'gpt-4',
+                $set: { plan: 'pro' },
+            }),
+        ])
+
+        expect(producedForTopic(DLQ_TOPIC)).toHaveLength(0)
+        const [eventsCopy] = producedForTopic(EVENTS_TOPIC)
+        const [aiCopy] = producedForTopic(AI_EVENTS_TOPIC)
+        expect(eventsCopy.event).toBe('$ai_custom_step')
+        expect(aiCopy.event).toBe('$ai_custom_step')
+        // Large AI properties live only on ai_events; person updates never leave this pipeline.
+        expect(parseJSON(eventsCopy.properties).$ai_input).toBeUndefined()
+        expect(parseJSON(aiCopy.properties).$ai_input).toBe('large input')
+        expect(parseJSON(eventsCopy.properties).$set).toBeUndefined()
+        expect(parseJSON(aiCopy.properties).$set).toBeUndefined()
+        expect(ingestedUsage).toHaveLength(1)
+        expect(ingestedUsage[0].usageKey).toBe('ai_events')
+    })
+
+    it.each(['$pageview', '$autocapture', '$identify', '$exception', 'custom_event', 'ai_generation'])(
         'DLQs non-AI %s events instead of processing them',
         async (eventName) => {
             await runPipeline([createMessage(eventName)])

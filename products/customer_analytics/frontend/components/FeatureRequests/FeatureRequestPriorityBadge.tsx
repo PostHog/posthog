@@ -1,9 +1,13 @@
 import { LemonTag } from '@posthog/lemon-ui'
 
-import type { RequestPriorityEnumApi } from '../../generated/api.schemas'
+import type { FeatureRequestPriorityEnumApi } from '../../generated/api.schemas'
 import { featureRequestPriorityLabel } from './featureRequestOptions'
 
-export function FeatureRequestPriorityBadge({ priority }: { priority: RequestPriorityEnumApi | null }): JSX.Element {
+export function FeatureRequestPriorityBadge({
+    priority,
+}: {
+    priority: FeatureRequestPriorityEnumApi | null
+}): JSX.Element {
     const type =
         priority === 'high' ? 'danger' : priority === 'medium' ? 'warning' : priority === 'low' ? 'muted' : 'default'
     return (

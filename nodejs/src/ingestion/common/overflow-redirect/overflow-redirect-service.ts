@@ -4,13 +4,9 @@ import { EventHeaders, HealthCheckResult } from '~/types'
 // don't need to know about the repository layer
 export type { OverflowType } from './overflow-redis-repository'
 
-export interface OverflowEventKey {
-    token: string
-    distinctId: string
-}
-
 export interface OverflowEventGroup {
-    key: OverflowEventKey
+    /** The Kafka partition key capture computed, e.g. `token:distinct_id` or `token:client_ip`. */
+    key: string
     /** Headers of each event for this key in the batch; strategies count their tokens from these. */
     headersPerEvent: EventHeaders[]
     firstTimestamp: number
@@ -22,7 +18,7 @@ export interface OverflowEventGroup {
  */
 export interface OverflowRedirectService {
     /**
-     * Handle a batch of events grouped by token:distinct_id.
+     * Handle a batch of events grouped by partition key.
      *
      * - Main lane: Check if flagged, flag if rate limited, return set of keys to redirect
      * - Overflow lane: Refresh TTL for all keys, return empty set (no redirects)
@@ -30,7 +26,7 @@ export interface OverflowRedirectService {
      * The overflow keyspace (`OverflowType`) is fixed per service instance and
      * supplied at construction — a given service belongs to exactly one pipeline.
      *
-     * @returns Set of keys (token:distinctId) that should be redirected to overflow
+     * @returns Set of partition keys that should be redirected to overflow
      */
     handleEventBatch(batch: OverflowEventGroup[]): Promise<Set<string>>
 

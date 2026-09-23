@@ -170,6 +170,8 @@ pub enum RunKind {
 }
 
 impl RunKind {
+    pub const ALL: [Self; 2] = [Self::Behavioral, Self::PersonProperty];
+
     pub const fn as_str(self) -> &'static str {
         self.scope().as_str()
     }

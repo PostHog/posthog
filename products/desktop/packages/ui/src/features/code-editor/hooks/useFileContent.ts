@@ -52,3 +52,21 @@ export function useFileAsBase64(filePath: string, enabled: boolean) {
     ),
   );
 }
+
+export function useWorkspaceFileAsBase64(
+  workspaceRoot: string,
+  filePath: string,
+  enabled: boolean,
+) {
+  const trpc = useHostTRPC();
+  return useQuery(
+    trpc.fs.readWorkspaceFileAsBase64.queryOptions(
+      { workspaceRoot, filePath },
+      {
+        enabled,
+        staleTime: Number.POSITIVE_INFINITY,
+        gcTime: FILE_CONTENT_GC_MS,
+      },
+    ),
+  );
+}

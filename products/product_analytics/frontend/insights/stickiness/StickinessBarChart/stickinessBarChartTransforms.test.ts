@@ -14,7 +14,7 @@ describe('buildStickinessBarTimeSeriesConfig', () => {
         expect(buildStickinessBarTimeSeriesConfig({ isGrouped }).barLayout).toBe(expected)
     })
 
-    it('omits the xAxis date config (labels are pre-formatted interval counts)', () => {
+    it('omits the xAxis date config, since labels come from the API per bucket', () => {
         expect(buildStickinessBarTimeSeriesConfig({ isGrouped: false }).xAxis).toBeUndefined()
     })
 

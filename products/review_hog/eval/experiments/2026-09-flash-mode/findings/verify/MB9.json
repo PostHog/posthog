@@ -1,0 +1,27 @@
+{
+    "letter": "MB",
+    "id": "MB9",
+    "cluster": 58,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "The initial dispatch occurs in an on_commit callback at /tmp/frozen-75215/products/review_hog/backend/receivers.py:131-138. _start_stamphog_review catches the publication exception and only logs at :233-234; its callee /tmp/frozen-75215/products/stamphog/backend/facade/api.py:149-155 merely calls delay(). The review row and recovery state do not exist until process_inbox_pr_review executes at /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1223-1229. The queue-failure test at /tmp/frozen-75215/products/review_hog/backend/tests/test_inbox_trigger.py:358-369 confirms that the output save commits despite that exception. If this is the last PR-output save, broker recovery cannot recover an unpublished review: status-only saves are ignored (receivers.py:85-89), and the initial opened/ready_for_review events are excluded from the bot carve-out (tasks.py:167-168; test_tasks.py:835-844).",
+            "refutation": "I first looked for a durable record, automatic retry, or a guaranteed later webhook. Celery execution retries apply only after publication, and any publisher retries can still terminate in this swallowed error. The task's same-head queued-run recovery cannot help because no ReviewRun was created. A duplicate PR webhook does not necessarily resave output: the URL backstop returns when the URL is already stored (tasks/backend/webhooks.py:283-292). A later output edit, push, or reopen can rescue the review, but no such event is guaranteed for a finished single-head implementation. This is a real missed-review defect with a narrow outage trigger and workarounds."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "products/review_hog/backend/receivers.py:224-234 catches the queue function's exception and performs only logging. The function it calls, products/stamphog/backend/facade/api.py:149-155, publishes the Celery task without first recording a pending dispatch. ReviewRun creation occurs only inside that worker (tasks/tasks.py:1223-1229). The callback is registered after the TaskRun output commit (receivers.py:131-138), so a final publication failure leaves the PR-output save committed but no queued task or ReviewRun. No later webhook is guaranteed: the scope test at products/stamphog/backend/tests/test_tasks.py:835-844 explicitly excludes opened and ready_for_review for these bot PRs.",
+            "refutation": "I checked the existing failure test, worker retries, and repeated-output recovery. test_inbox_trigger.py:358-369 confirms the publication error is swallowed and the queue is called only once, without asserting eventual recovery. Synchronous Celery publish retries can mask short outages, but once they exhaust the callback still discards the error; worker retries cannot recover an unpublished task. Another output save or push can recover, but status/state-only saves return at receivers.py:85-89 and an untouched final PR may have no further output save. The existing guards therefore limit the impact but do not prevent the reported missed initial review."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "products/review_hog/backend/receivers.py:126-138 publishes only after the target-bearing output commits. _start_stamphog_review at :224-234 catches the facade's publication error and only logs it. The facade at products/stamphog/backend/facade/api.py:149-155 calls delay; the durable ReviewRun is created after delivery inside tasks/tasks.py:1223-1229. A failed publication therefore leaves no run or pending-dispatch record. The ordinary draft/bot webhook skip at tasks.py:226-231 is not overridden for opened or ready_for_review, because :167-168 excludes those events; tests/test_tasks.py:833-844 covers those exclusions. A final target output can be followed only by status/state saves, which receivers.py:85-89 deliberately ignores.",
+            "refutation": "I first looked for a durable task/run created before publication, a propagated failure that would retry the successful output save, or a guaranteed webhook replacement. None exists: the catch suppresses retry propagation, worker retry logic is unreachable until publication succeeds, and the initial events are excluded from the self-driving webhook carve-out. Transport retries do not remove the eventual-error case the handler explicitly catches. A subsequent push or another output save can recover, but is not guaranteed for a finished implementation. The claim thus describes a reachable outage-related missing initial review, appropriately should_fix rather than an unconditional failure."
+        }
+    ]
+}

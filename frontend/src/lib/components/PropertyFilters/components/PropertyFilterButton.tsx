@@ -14,7 +14,12 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
-import { formatPropertyLabel, isGroupCardFilterKey, propertyFilterTypeToPropertyDefinitionType } from '../utils'
+import {
+    formatPropertyLabel,
+    isBehavioralPropertyFilter,
+    isGroupCardFilterKey,
+    propertyFilterTypeToPropertyDefinitionType,
+} from '../utils'
 import { GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
 
 export interface PropertyFilterButtonProps {
@@ -35,6 +40,9 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
         const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(item.type)
+
+        // A behavioral label is a whole sentence, which mid-ellipsis would turn into nonsense
+        const wraps = isBehavioralPropertyFilter(item)
 
         const label =
             children ||
@@ -101,6 +109,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                     'PropertyFilterButton--closeable': closable,
                     'PropertyFilterButton--clickable': clickable,
                     'PropertyFilterButton--compact': compact,
+                    'PropertyFilterButton--wraps': wraps,
                 })}
                 aria-disabled={!!disabledReason}
                 type={ButtonComponent === 'button' ? 'button' : undefined}
@@ -108,7 +117,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             >
                 <PropertyFilterIcon type={item.type} />
                 <span className="PropertyFilterButton-content" title={showGroupCard ? undefined : label}>
-                    {midEllipsis(label, 32)}
+                    {wraps ? label : midEllipsis(label, 32)}
                 </span>
                 {closable &&
                     !disabledReason && (

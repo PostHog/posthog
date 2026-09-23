@@ -18,7 +18,7 @@ Also available to Claude Code / Codex via `hogli sync:skill`.
 hogli init:skill -- --product skills --name my-new-skill
 ```
 
-See `products/posthog_ai/scripts/build_skills.py` for the build pipeline.
+See `products/posthog_ai/scripts/build_skills/` for the build pipeline.
 
 ## Local testing
 

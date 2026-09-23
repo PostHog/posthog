@@ -20,7 +20,7 @@ export interface BuildStickinessBarTimeSeriesConfigOpts {
 export function buildStickinessBarTimeSeriesConfig(
     opts: BuildStickinessBarTimeSeriesConfigOpts
 ): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
-    // No xAxis date config — labels are pre-formatted interval counts (Day 0, Day 1, …).
+    // No xAxis date config: labels come from the API's own per-bucket labels (e.g. "1 day", "2 days").
     return {
         yAxis: buildStickinessYAxisConfig({ yAxisScaleType: opts.yAxisScaleType, showGrid: opts.showGrid }),
         valueLabels: opts.valueLabels,

@@ -2,12 +2,13 @@ import './Billing.scss'
 
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { Suspense, lazy, useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 
 import { LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -17,7 +18,7 @@ import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
 import { BillingSectionId } from './types'
 
-const BillingAlerts = lazy(() =>
+const BillingAlerts = lazyWithRetry(() =>
     import('@posthog/products-billing-alerts/frontend/BillingAlerts').then((module) => ({
         default: module.BillingAlerts,
     }))

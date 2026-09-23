@@ -2,8 +2,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.northpasslms import (
     NorthpassLMSSourceConfig,
 )
@@ -32,6 +31,10 @@ class TestNorthpassLMSSource:
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.northpass.com/v2/people?limit=100"),
             ("forbidden", "403 Client Error: Forbidden for url: https://api.northpass.com/v2/courses?limit=100"),
+            (
+                "empty_quiz_log",
+                "Northpass sent-webhooks log returned no quiz-completed events, so quiz_attempts has no rows to sync",
+            ),
         ]
     )
     def test_non_retryable_errors_match_auth_failures(self, _name, observed_error):

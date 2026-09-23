@@ -1,5 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { expectLogic } from 'kea-test-utils'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
@@ -51,5 +53,33 @@ describe('actionsLogic', () => {
         logic.actions.setFilters({ tags: ['billing'] })
         expect(logic.values.page).toEqual(1)
         expect(parseParams(logic.values.apiParams).get('offset')).toEqual('0')
+    })
+
+    // Pin only changes pinned_at. Echoing name back re-runs name validation, so an action
+    // with a blank name (which the model allows) fails to pin with "This field may not be blank".
+    it.each([
+        ['pinAction', 'pinActionSuccess'],
+        ['unpinAction', 'unpinActionSuccess'],
+    ])('%s sends only pinned_at, never name', async (actionName, successAction) => {
+        const blankNameAction = { id: 7, name: '', steps: [], pinned_at: null }
+        let patchedBody: Record<string, any> | undefined
+        useMocks({
+            get: {
+                '/api/projects/:team/actions/': { count: 1, results: [blankNameAction] },
+            },
+            patch: {
+                '/api/projects/:team/actions/:id/': async ({ request }) => {
+                    patchedBody = (await request.json()) as Record<string, any>
+                    return [200, { ...blankNameAction, ...patchedBody }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions[actionName as 'pinAction' | 'unpinAction'](blankNameAction as any)
+        }).toDispatchActions([successAction])
+
+        expect(patchedBody).not.toHaveProperty('name')
+        expect(patchedBody).toHaveProperty('pinned_at')
     })
 })

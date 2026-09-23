@@ -11,11 +11,30 @@ class TestPostHogAISystemPrompt(APIBaseTest):
     def test_build_returns_preset_append_suffix(self):
         # The object form makes the agent-server append to Claude Code's prompt (a suffix), rather
         # than the bare-string form, which would replace it.
-        assert self._build() == {
-            "type": "preset",
-            "preset": "claude_code",
-            "append": POSTHOG_AI_SYSTEM_PROMPT,
-        }
+        prompt = self._build()
+        assert prompt["type"] == "preset"
+        assert prompt["preset"] == "claude_code"
+        assert prompt["append"].startswith(POSTHOG_AI_SYSTEM_PROMPT)
+
+    def test_instructs_the_agent_to_inspect_the_complete_metric_catalog(self) -> None:
+        prompt = self._build()["append"]
+
+        assert "# Governed metrics catalog" in prompt
+        assert "`metric-list`" in prompt
+        assert "`metric-describe`" in prompt
+        assert "`data-catalog-metric-run`" in prompt
+        assert "complete governed catalog" in prompt
+        assert "its shape, not whether its noun sounds like a KPI" in prompt
+        assert "a count, sum, or amount of X per day, hour, week, month, or year" in prompt
+        assert "a rate or percentage of X" in prompt
+        assert "an average, percentile, or latency of X" in prompt
+        assert "a cost per X" in prompt
+        assert "a conversion between two events" in prompt
+        assert "are not substitutes for `metric-list`" in prompt
+        assert "product skill's query recipe does not exempt" in prompt
+        assert "Never present a `proposed` or drifted metric's result as the answer" in prompt
+        assert "Derive from an approved metric when one covers the same measure" in prompt
+        assert "otherwise derive the number yourself" in prompt
 
     def test_includes_core_sections(self):
         prompt = self._build()["append"]
@@ -29,6 +48,9 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         # The trusted/untrusted context tags the frontend wraps messages with.
         assert "<posthog_trusted_context>" in prompt
         assert "<posthog_untrusted_context>" in prompt
+        # The legacy tag the deprecated `context_wrapper.py` bridge still emits needs the same
+        # untrusted framing, or page-derived context arrives on that path with none.
+        assert "`<posthog_context>` is a legacy block" in prompt
         assert "AI observability** (also called AIO, LLM analytics, or LLMA)" in prompt
 
     def test_does_not_inject_groups_billing_core_memory_or_project_context(self):

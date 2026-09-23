@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
     mockBuildInstructions,
@@ -6,6 +6,7 @@ const {
     mockInitTotalInc,
     mockRevalidateContextMillResources,
     mockResolveState,
+    mockSkillCatalogService,
     mockTrackInitEvent,
 } = vi.hoisted(() => ({
     mockBuildInstructions: vi.fn(),
@@ -13,7 +14,20 @@ const {
     mockInitTotalInc: vi.fn(),
     mockRevalidateContextMillResources: vi.fn(),
     mockResolveState: vi.fn(),
+    mockSkillCatalogService: {
+        getCatalog: vi.fn(),
+        poll: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+        warmup: vi.fn(),
+    },
     mockTrackInitEvent: vi.fn(),
+}))
+
+vi.mock('@/hono/skill-catalog-service', () => ({
+    SkillCatalogService: vi.fn().mockImplementation(function () {
+        return mockSkillCatalogService
+    }),
 }))
 
 vi.mock('@/hono/analytics', () => ({
@@ -120,7 +134,10 @@ describe('McpDispatcher initialize resource revalidation', () => {
         mockResolveState.mockResolvedValue({ distinctId: 'test-distinct-id' })
         mockTrackInitEvent.mockResolvedValue(undefined)
         mockRevalidateContextMillResources.mockResolvedValue(undefined)
+        mockSkillCatalogService.warmup.mockReset().mockResolvedValue(undefined)
     })
+
+    afterEach(() => vi.unstubAllEnvs())
 
     it('awaits context-mill resource revalidation before returning initialize', async () => {
         let resolveRevalidation: (() => void) | undefined
@@ -148,5 +165,44 @@ describe('McpDispatcher initialize resource revalidation', () => {
         expect(response.status).toBe(200)
         expect(body.result.protocolVersion).toBe(LATEST_PROTOCOL_VERSION)
         expect(mockBuildInstructions).toHaveBeenCalled()
+    })
+
+    // The reverted skill discovery revalidated the skill archive on every handshake,
+    // which re-read megabytes from Redis per session. The archive moves only at warmup
+    // and on the service's own timer.
+    it('does no skill archive work on initialize', async () => {
+        const dispatcher = new McpDispatcher({} as any, createMockRedis())
+
+        const response = await dispatcher.handleRequest(makeInitializeRequest(), makeProps())
+
+        expect(response.status).toBe(200)
+        for (const method of ['warmup', 'poll', 'start'] as const) {
+            expect(mockSkillCatalogService[method]).not.toHaveBeenCalled()
+        }
+    })
+
+    it.each([
+        ['development', false, false],
+        ['test', false, false],
+        ['development', true, true],
+        ['development', undefined, true],
+        ['production', false, true],
+    ] as const)('honors startup overrides only in dev/test (%s, flag %s)', async (nodeEnv, override, enabled) => {
+        vi.stubEnv('NODE_ENV', nodeEnv)
+        vi.stubEnv('FEATURE_FLAG_OVERRIDES', JSON.stringify({ 'mcp-exec-skills': override }))
+        if (!enabled) {
+            mockSkillCatalogService.warmup.mockRejectedValue(new Error('archive unavailable'))
+        }
+        const dispatcher = new McpDispatcher({ warmup: vi.fn(async () => {}) } as any, createMockRedis())
+
+        await dispatcher.warmup()
+
+        expect(mockSkillCatalogService.warmup).toHaveBeenCalledTimes(enabled ? 1 : 0)
+        expect(mockSkillCatalogService.start).toHaveBeenCalledTimes(enabled ? 1 : 0)
+        if (enabled) {
+            expect(mockSkillCatalogService.start.mock.invocationCallOrder[0]).toBeGreaterThan(
+                mockSkillCatalogService.warmup.mock.invocationCallOrder[0]!
+            )
+        }
     })
 })

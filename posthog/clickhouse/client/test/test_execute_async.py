@@ -16,6 +16,7 @@ from posthog.schema import ClickhouseQueryProgress, QueryStatus
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.api_queries_budget import QueryCost, record_request_query_cost
 from posthog.clickhouse.client import (
     execute_async as client,
     sync_execute,
@@ -218,6 +219,28 @@ class TestExecuteProcessQuery(TestCase):
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
 
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_execute_process_query_stores_the_query_cost(self, mock_process_query_dict, mock_redis_client):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+
+        def run_and_meter(**kwargs):
+            record_request_query_cost(QueryCost(bytes_read=1234, remaining_bytes=99.9))
+            return {"results": []}
+
+        mock_process_query_dict.side_effect = run_and_meter
+
+        execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+
+        args, _kwargs = mock_redis.set.call_args
+        stored = json.loads(args[1])
+        assert stored["bytes_read"] == 1234
+        assert stored["budget_remaining_bytes"] == 99
+
     @parameterized.expand(
         [
             ("user_safe_ch_error", ExposedCHQueryError("NOT_AN_AGGREGATE"), False),
@@ -284,6 +307,43 @@ class TestExecuteProcessQuery(TestCase):
             assert user.sharing_configuration.id == sharing_configuration.id
         else:
             assert user is None
+
+    @parameterized.expand(
+        [
+            ("a real user", True, True),
+            # A shared link is read from outside the project, and the scan reports how much data
+            # the project holds, so neither it nor the key that addresses it may be stored.
+            ("a shared link viewer", False, False),
+        ]
+    )
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_a_killed_run_stores_its_scan_only_for_a_real_user(
+        self, _name, real_user, expect_scan, mock_process_query_dict, mock_redis_client
+    ):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        error = ExposedCHQueryError("query timed out")
+        error.cache_key = "cache_key_1"
+        error.query_scan = {"rows_read": 41_200, "duration_ms": 19_000, "killed": True, "analysis_requested": True}
+        mock_process_query_dict.side_effect = error
+        sharing_configuration = None if real_user else SharingConfiguration.objects.create(team=self.team, enabled=True)
+
+        execute_process_query(
+            self.team.id,
+            self.user.id if real_user else None,
+            self.query_id,
+            self.query_json,
+            self.limit_context,
+            sharing_configuration_id=sharing_configuration.id if sharing_configuration else None,
+        )
+
+        stored = json.loads(mock_redis.set.call_args.args[1])
+        assert (stored.get("cache_key") == "cache_key_1") is expect_scan
+        assert (stored.get("query_scan") is not None) is expect_scan
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
@@ -410,26 +470,38 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         except Exception as e:
             self.assertEqual(str(e), f"Query {query_id} not found for team {wrong_team}")
 
+    @parameterized.expand(
+        [
+            ("still_running", None, 1),
+            ("finished", False, 2),
+            ("failed", True, 2),
+        ]
+    )
     @patch("posthog.clickhouse.client.execute_process_query")
-    def test_async_query_client_is_lazy(self, execute_process_query_mock):
+    def test_async_query_client_joins_only_a_run_still_going(
+        self, _name, finished_with_error, expected_runs, execute_process_query_mock
+    ):
         query = build_query("SELECT 4 + 4")
         query_id = uuid.uuid4().hex
+        manager = QueryStatusManager(query_id, self.team.id)
+        client.enqueue_process_query_task(
+            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
+        if finished_with_error is not None:
+            status = manager.get_query_status()
+            status.complete = True
+            status.error = finished_with_error
+            manager.store_query_status(status)
+
+        # The same query ID twice more: joined while the run is going, rerun once it has finished.
+        client.enqueue_process_query_task(
+            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
         client.enqueue_process_query_task(
             self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
         )
 
-        # Try the same query again
-        client.enqueue_process_query_task(
-            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
-
-        # Try the same query again (for good measure!)
-        client.enqueue_process_query_task(
-            self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
-
-        # Assert that we only called clickhouse once
-        execute_process_query_mock.assert_called_once()
+        self.assertEqual(execute_process_query_mock.call_count, expected_runs)
 
     @patch("posthog.clickhouse.client.execute_process_query")
     def test_async_query_client_is_lazy_but_not_too_lazy(self, execute_process_query_mock):

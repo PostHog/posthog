@@ -114,6 +114,9 @@ class ResourcesCreateView(BearerResourceAPIView):
                     "resource_created", "error", partner=app, error_code="team_not_found", team_id=team_id
                 )
                 raise ProvisioningError("team_not_found", "Team not found", resource_id=str(team_id), status=404)
+            # The project_id branch above re-checks access inside resolve_or_create_project_team;
+            # this branch takes the team straight off the token's scope, so it checks here.
+            self.assert_team_access(team, access_token, resource_id=str(team_id))
 
         capture_provisioning_event(
             "resource_created",

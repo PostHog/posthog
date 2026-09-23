@@ -12,7 +12,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.coup
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.settings import ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.settings import (
+    COUPA_ENDPOINTS,
+    ENDPOINTS,
+    PAGE_SIZE,
+)
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.coupa.coupa"
 
@@ -190,6 +194,16 @@ class TestGetRows:
         # Coupa defaults to XML — the session must be created with Accept: application/json.
         session_headers = mock_session.call_args.kwargs["headers"]
         assert session_headers == {"Accept": "application/json"}
+
+
+class TestEndpointPaths:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_paths_have_no_parent_placeholder(self, endpoint):
+        # get_rows builds the URL by concatenation, so a nested path such as
+        # /purchase_orders/{id}/order_lines would be requested verbatim. Coupa
+        # exposes its line-level objects as top-level collections instead.
+        assert "{" not in COUPA_ENDPOINTS[endpoint].path
+        assert ":" not in COUPA_ENDPOINTS[endpoint].path
 
 
 class TestCoupaSourceResponse:

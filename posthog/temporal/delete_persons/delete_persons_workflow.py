@@ -35,7 +35,7 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
     """
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
-    from posthog.personhog_client.proto import DeletePersonsRequest, GetPersonsRequest
+    from posthog.personhog_client.proto import DeletePersonsMode, DeletePersonsRequest, GetPersonsRequest
 
     client = get_personhog_client()
     if client is None:
@@ -49,7 +49,15 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
 
         deleted = 0
         for uuid_chunk in _chunked(uuids, DELETE_PERSONS_MAX_UUIDS):
-            delete_resp = client.delete_persons(DeletePersonsRequest(team_id=team_id, person_uuids=uuid_chunk))
+            # A purge publishes no ClickHouse tombstones, so the rows must go rather than
+            # stay behind as tombstones nothing would ever sweep.
+            delete_resp = client.delete_persons(
+                DeletePersonsRequest(
+                    team_id=team_id,
+                    person_uuids=uuid_chunk,
+                    mode=DeletePersonsMode.DELETE_PERSONS_MODE_HARD,
+                )
+            )
             deleted += delete_resp.deleted_count
         return deleted
 

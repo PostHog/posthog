@@ -350,6 +350,79 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         sql = self._compile_select("SELECT person.properties FROM events")
         assert "JSONDropKeys" not in sql
 
+    def _restrict_group_property(self, name: str = "arr", group_type_index: int = 0) -> None:
+        group_prop = PropertyDefinition.objects.create(
+            team=self.team,
+            name=name,
+            property_type="Numeric",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=group_type_index,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=group_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+    @parameterized.expand([("groups",), ("raw_groups",)])
+    def test_groups_tables_properties_blob_strips_restricted_keys(self, table_name: str):
+        # The groups blob (`group_properties`) was read unscrubbed, so `SELECT properties FROM groups` returned a group
+        # property an admin had restricted.
+        self._restrict_group_property()
+        sql, values = self._compile_select_with_values(f"SELECT properties FROM {table_name}")
+        assert "JSONDropKeys" in sql
+        assert "arr" not in sql
+        self._assert_value_present(values, "arr")
+
+    def test_denied_group_property_read_is_not_extracted(self):
+        # `SELECT properties.arr FROM groups` used to compile to a real JSON read of the restricted key.
+        self._restrict_group_property()
+        sql, values = self._compile_select_with_values("SELECT properties.arr FROM groups")
+        # The lazy groups table hoists the read into its argMax subquery, where the restricted value is a constant NULL.
+        assert "JSONExtract" not in sql
+        assert "'arr'" not in sql
+        assert not any("arr" in str(v) for v in values.values())
+
+    def test_system_groups_properties_blob_strips_restricted_keys(self):
+        self._restrict_group_property()
+        sql, values = self._compile_select_with_values("SELECT group_properties FROM system.groups")
+        assert "JSONDropKeys" in sql
+        assert "arr" not in sql
+        self._assert_value_present(values, "arr")
+
+    def test_denied_system_group_property_read_is_not_extracted(self):
+        self._restrict_group_property()
+        sql, values = self._compile_select_with_values("SELECT group_properties.arr FROM system.groups")
+        assert "JSONExtract" not in sql
+        assert "'arr'" not in sql
+        assert not any("arr" in str(value) for value in values.values())
+
+    def test_group_restriction_only_applies_to_matching_group_type(self):
+        self._restrict_group_property(group_type_index=0)
+        sql = self._compile_select("SELECT goe_1.properties.arr FROM events")
+        assert "JSONExtract" in sql
+        assert "arr" in sql
+
+    @parameterized.expand(
+        [
+            ("groups_lazy_join", "SELECT group_0.properties FROM events"),
+            ("group_on_events", "SELECT goe_0.properties FROM events"),
+        ]
+    )
+    def test_group_properties_blob_on_events_strips_restricted_keys(self, _case_name: str, query: str):
+        # Group properties reachable from events — through the groups lazy join and through the group-on-events blob
+        # columns — must be scrubbed too, or the restriction is one join away from bypassed.
+        self._restrict_group_property()
+        sql, values = self._compile_select_with_values(query)
+        assert "JSONDropKeys" in sql
+        assert "arr" not in sql
+        self._assert_value_present(values, "arr")
+
+    def test_group_restriction_does_not_affect_event_properties_blob(self):
+        self._restrict_group_property()
+        sql = self._compile_select("SELECT properties FROM events")
+        assert "JSONDropKeys" not in sql
+
     def test_restrictions_do_not_affect_non_event_or_person_tables(self):
         PropertyAccessControl.objects.create(
             team=self.team,

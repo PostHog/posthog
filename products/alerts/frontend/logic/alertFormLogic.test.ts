@@ -22,6 +22,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
+import * as generatedApi from '../generated/api'
 import { supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import {
@@ -199,6 +200,59 @@ describe('alertFormLogic', () => {
             expect(logic.values.alertForm.detector_config).toEqual(expectedDetectorConfig)
         }
     )
+
+    it.each([
+        ['cleared', (logic: ReturnType<typeof mountForm>) => logic.actions.clearSimulation()],
+        ['run over another range', (logic: ReturnType<typeof mountForm>) => logic.actions.setSimulationDateFrom('-7d')],
+        [
+            'run against another series',
+            (logic: ReturnType<typeof mountForm>) =>
+                logic.actions.setAlertFormValue('config', { type: 'TrendsAlertConfig', series_index: 1 }),
+        ],
+    ])('drops a preview that resolves after the settings it was run with were %s', async (_label, invalidate) => {
+        // Neither action cancels the request the model is still judging, so its verdict must not
+        // repopulate the chart against settings the model never saw.
+        let resolveSimulation: (result: any) => void = () => {}
+        jest.spyOn(generatedApi, 'alertsSimulateCreate').mockImplementation(
+            () => new Promise((resolve) => (resolveSimulation = resolve))
+        )
+        const logic = mountForm()
+        logic.actions.setAlertFormValue('detector_config', { type: 'zscore', threshold: 0.95, window: 30 })
+
+        logic.actions.simulateAlert()
+        invalidate(logic)
+        resolveSimulation({ data: [1], dates: ['2026-01-01'], scores: [0.1], triggered_indices: [], total_points: 1 })
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.simulationResult).toBeNull()
+    })
+
+    it('leaves the loader to the newest preview when an older one settles first', async () => {
+        const pending: ((result: any) => void)[] = []
+        const failing: ((error: Error) => void)[] = []
+        jest.spyOn(generatedApi, 'alertsSimulateCreate').mockImplementation(
+            () => new Promise((resolve, reject) => (pending.push(resolve), failing.push(reject)))
+        )
+        const logic = mountForm()
+        logic.actions.setAlertFormValue('detector_config', { type: 'zscore', threshold: 0.95, window: 30 })
+
+        logic.actions.simulateAlert()
+        logic.actions.simulateAlert()
+        failing[0](new Error('model timed out'))
+        await expectLogic(logic).delay(0)
+
+        expect(logic.values.simulationResultLoading).toBe(true)
+        expect(errorToastSpy).not.toHaveBeenCalled()
+
+        const newest = { data: [2], dates: ['2026-01-02'], scores: [0.2], triggered_indices: [], total_points: 1 }
+        pending[1](newest)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.simulationResultLoading).toBe(false)
+        expect(logic.values.simulationResult).toEqual(newest)
+        const simulationRuns = captureSpy.mock.calls.filter(([event]) => event === 'alert simulation run')
+        expect(simulationRuns).toEqual([['alert simulation run', expect.objectContaining({ success: true })]])
+    })
 
     it('shows success toast and no error toast when create succeeds', async () => {
         const logic = mountForm()

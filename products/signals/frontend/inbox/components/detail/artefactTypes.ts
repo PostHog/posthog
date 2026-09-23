@@ -67,6 +67,20 @@ export interface RelatedToContent {
     report_id?: string
 }
 
+export interface ReportLinkContent {
+    kind?: string
+    report_id?: string
+    reason?: string | null
+}
+
+export const REPORT_LINK_KIND_LABELS: Record<string, string> = {
+    depends_on: 'Depends on',
+    part_of: 'Part of',
+    follow_up_of: 'Follow-up of',
+    duplicate_of: 'Duplicate of',
+    recurrence_of: 'Recurrence of',
+}
+
 export interface CodeReviewContent {
     repository?: string
     head_sha?: string
@@ -81,6 +95,43 @@ export interface CodeReviewContent {
     }
 }
 
+export interface CheckResultContent {
+    check_id?: string
+    kind?: string
+    title?: string
+    outcome?: 'passed' | 'failed' | 'errored'
+    explanation?: string
+    observed_value?: number | null
+    baseline_value?: number | null
+    threshold?: string | null
+    run_id?: string | null
+}
+
+/** What every entry in a check's life carries. Mirrors `CheckLifecycleEntry` in `artefact_schemas.py`. */
+export interface CheckLifecycleContent {
+    check_id?: string
+    kind?: string
+    title?: string
+}
+
+export interface CheckScheduledContent extends CheckLifecycleContent {
+    rationale?: string
+    next_run_at?: string
+    arms_on_resolve?: boolean
+    soak_minutes?: number | null
+    skill_name?: string | null
+    runs?: number
+}
+
+export interface CheckExpiredContent extends CheckLifecycleContent {
+    expired_at?: string
+    last_run_at?: string | null
+}
+
+export interface CheckCancelledContent extends CheckLifecycleContent {
+    reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research'
+}
+
 export interface TitleChangeContent {
     old_title?: string | null
     new_title: string
@@ -89,6 +140,40 @@ export interface TitleChangeContent {
 export interface SummaryChangeContent {
     old_summary?: string | null
     new_summary: string
+}
+
+export interface ImplementationDecisionContent {
+    supersede?: boolean
+    blocked_reason?: 'revision_limit' | null
+    reason?: string
+    targets?: { pr_url: string }[]
+}
+
+export interface ImplementationReplacementContent {
+    decision: ImplementationDecisionContent
+}
+
+export interface ImplementationHandoverContent {
+    status: 'processing' | 'completed' | 'failed' | 'cancelled' | 'needs_attention'
+    explanation?: string
+    replacement_pr_urls?: string[]
+    results?: Record<string, 'closed' | 'already_closed' | 'skipped'>
+}
+
+// ── Activity visibility ──────────────────────────────────────────────────────────────────────
+
+/**
+ * The activity rows worth showing a reader. A handover row lands once per attempt, so `processing`
+ * rows are internal retry bookkeeping rather than something that happened to the report. The
+ * activity count and the log itself both read this, so the two cannot disagree.
+ */
+export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): SignalReportArtefact[] {
+    return artefacts.filter(
+        (artefact) =>
+            artefact.type !== 'implementation_dispatch' &&
+            (artefact.type !== 'implementation_handover' ||
+                (artefact.content as ImplementationHandoverContent).status !== 'processing')
+    )
 }
 
 // ── Type labels ──────────────────────────────────────────────────────────────────────────────
@@ -111,7 +196,15 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     title_change: 'Title edited',
     summary_change: 'Summary edited',
     related_to: 'Related report',
+    report_link: 'Report linked',
     code_review: 'Code review',
+    check_result: 'Follow-up check',
+    check_scheduled: 'Follow-up check scheduled',
+    check_expired: 'Follow-up check expired',
+    check_cancelled: 'Follow-up check cancelled',
+    implementation_decision: 'Open PR assessed',
+    implementation_replacement: 'Replacement started',
+    implementation_handover: 'Replacement outcome',
 }
 
 export function artefactTypeLabel(type: string): string {

@@ -15,10 +15,12 @@
             "type": "array"
         },
         "tags": {
-            "description": "Tag names to add, remove, or set.",
+            "description": "Tag names to add, remove, or set (up to 100 per request, 255 characters each).",
             "items": {
+                "maxLength": 255,
                 "type": "string"
             },
+            "maxItems": 100,
             "type": "array"
         }
     },

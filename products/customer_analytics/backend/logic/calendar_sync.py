@@ -6,10 +6,11 @@ from typing import Any
 from django.db.models import Prefetch, Q
 from django.utils import timezone
 
-import requests
 import structlog
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
+from posthog.egress.google_workspace import google_workspace_request
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.team import Team
 
@@ -23,6 +24,7 @@ BACKFILL_DAYS = 365
 PAGE_SIZE = 250
 SYNC_TOKEN_CONFIG_KEY = "calendar_sync_token"
 SYNC_STARTED_AT_CONFIG_KEY = "calendar_sync_started_at"
+SYNC_RETRY_AT_CONFIG_KEY = "calendar_sync_retry_at"
 LAST_SYNCED_AT_CONFIG_KEY = "calendar_last_synced_at"
 # Matches the sync activity's start_to_close timeout: past this, an unfinished run is dead.
 SYNC_STALE_AFTER = timedelta(minutes=30)
@@ -53,6 +55,32 @@ class CalendarSyncCounts:
     unmatched_emails: set[str] = field(default_factory=set)
 
 
+@frozen
+class CalendarBackfillPage:
+    next_page_token: str | None
+    counts: CalendarSyncCounts
+
+
+def mark_calendar_sync_started(integration_id: int, team_id: int) -> None:
+    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
+    integration.config[SYNC_STARTED_AT_CONFIG_KEY] = timezone.now().isoformat()
+    integration.config.pop(SYNC_RETRY_AT_CONFIG_KEY, None)
+    integration.save(update_fields=["config"])
+
+
+def mark_calendar_sync_retrying(integration_id: int, team_id: int, retry_after: timedelta) -> None:
+    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
+    integration.config[SYNC_RETRY_AT_CONFIG_KEY] = (timezone.now() + retry_after).isoformat()
+    integration.save(update_fields=["config"])
+
+
+def mark_calendar_sync_completed(integration_id: int, team_id: int) -> None:
+    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
+    integration.config[LAST_SYNCED_AT_CONFIG_KEY] = timezone.now().isoformat()
+    integration.config.pop(SYNC_RETRY_AT_CONFIG_KEY, None)
+    integration.save(update_fields=["config"])
+
+
 def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSyncCounts:
     """Sync one connected Google Calendar into customer_analytics meetings.
 
@@ -66,24 +94,70 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
     connected_email = (integration.config or {}).get("email", "")
     internal_domain = _domain_of(connected_email)
 
-    integration.config[SYNC_STARTED_AT_CONFIG_KEY] = timezone.now().isoformat()
-    integration.save(update_fields=["config"])
+    mark_calendar_sync_started(integration_id, team_id)
+    integration.refresh_from_db(fields=["config"])
 
     counts = CalendarSyncCounts()
     sync_token = (integration.config or {}).get(SYNC_TOKEN_CONFIG_KEY)
     try:
-        next_sync_token = _sync_events(team, access_token, sync_token, internal_domain, counts)
+        next_sync_token = _sync_events(
+            team, access_token, str(integration.integration_id), sync_token, internal_domain, counts
+        )
     except SyncTokenExpired:
-        next_sync_token = _sync_events(team, access_token, None, internal_domain, counts)
+        next_sync_token = _sync_events(
+            team, access_token, str(integration.integration_id), None, internal_domain, counts
+        )
 
     integration.config[SYNC_TOKEN_CONFIG_KEY] = next_sync_token
-    integration.config[LAST_SYNCED_AT_CONFIG_KEY] = timezone.now().isoformat()
     integration.save(update_fields=["config"])
+    mark_calendar_sync_completed(integration_id, team_id)
     return counts
 
 
+def sync_calendar_integration_backfill_page(
+    integration_id: int,
+    team_id: int,
+    *,
+    start_at: datetime,
+    end_at: datetime,
+    page_token: str | None,
+) -> CalendarBackfillPage:
+    if start_at >= end_at:
+        raise CalendarSyncError("Calendar backfill start must be before its end")
+
+    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
+    access_token = _get_fresh_access_token(integration)
+    mark_calendar_sync_started(integration_id, team_id)
+    params: dict[str, Any] = {
+        "singleEvents": "true",
+        "showDeleted": "true",
+        "maxResults": PAGE_SIZE,
+        "timeMin": start_at.isoformat(),
+        "timeMax": end_at.isoformat(),
+    }
+    if page_token:
+        params["pageToken"] = page_token
+    payload = _get_events_page(access_token, str(integration.integration_id), params)
+    counts = CalendarSyncCounts(fetched=len(payload.get("items", [])))
+    _process_events(
+        integration.team,
+        payload.get("items", []),
+        _domain_of((integration.config or {}).get("email", "")),
+        counts,
+    )
+    return CalendarBackfillPage(
+        next_page_token=str(payload.get("nextPageToken") or "") or None,
+        counts=counts,
+    )
+
+
 def _sync_events(
-    team: Team, access_token: str, sync_token: str | None, internal_domain: str, counts: CalendarSyncCounts
+    team: Team,
+    access_token: str,
+    google_account_id: str,
+    sync_token: str | None,
+    internal_domain: str,
+    counts: CalendarSyncCounts,
 ) -> str:
     params: dict[str, Any] = {"singleEvents": "true", "showDeleted": "true", "maxResults": PAGE_SIZE}
     if sync_token:
@@ -95,15 +169,7 @@ def _sync_events(
     page_token: str | None = None
     while True:
         page_params = {**params, **({"pageToken": page_token} if page_token else {})}
-        response = requests.get(
-            EVENTS_URL, params=page_params, headers={"Authorization": f"Bearer {access_token}"}, timeout=30
-        )
-        if response.status_code == 410:
-            raise SyncTokenExpired
-        if response.status_code != 200:
-            raise CalendarSyncError(f"Google Calendar API returned {response.status_code}: {response.text[:200]}")
-
-        payload = response.json()
+        payload = _get_events_page(access_token, google_account_id, page_params)
         events = payload.get("items", [])
         counts.fetched += len(events)
         _process_events(team, events, internal_domain, counts)
@@ -113,6 +179,24 @@ def _sync_events(
             next_sync_token = payload.get("nextSyncToken", "")
             break
     return next_sync_token
+
+
+def _get_events_page(access_token: str, google_account_id: str, params: dict[str, Any]) -> dict[str, Any]:
+    response = google_workspace_request(
+        "GET",
+        EVENTS_URL,
+        access_token=access_token,
+        account_id=google_account_id,
+        source="customer_analytics_calendar_sync",
+        endpoint="/calendar/v3/calendars/primary/events",
+        params=params,
+        timeout=30,
+    )
+    if response.status_code == 410:
+        raise SyncTokenExpired
+    if response.status_code != 200:
+        raise CalendarSyncError(f"Google Calendar API returned {response.status_code}: {response.text[:200]}")
+    return response.json()
 
 
 def _process_events(team: Team, events: list[dict], internal_domain: str, counts: CalendarSyncCounts) -> None:

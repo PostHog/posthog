@@ -60,10 +60,19 @@ final __address__, after the annotation port rewrite.
 {{- end }}
 
 {{- define "posthog-metrics-agent.collectorConfig" -}}
-{{- if and (not .Values.scrape.annotationDiscovery) (not .Values.scrape.staticTargets) (not .Values.scrape.extraScrapeConfigs) }}
-{{- fail "at least one of scrape.annotationDiscovery, scrape.staticTargets or scrape.extraScrapeConfigs must be set" }}
+{{- $scrape := or .Values.scrape.annotationDiscovery .Values.scrape.staticTargets .Values.scrape.extraScrapeConfigs }}
+{{- $gcp := .Values.gcp.projectId }}
+{{- if and (not $scrape) (not $gcp) }}
+{{- fail "at least one of scrape.annotationDiscovery, scrape.staticTargets, scrape.extraScrapeConfigs or gcp.projectId must be set" }}
+{{- end }}
+{{- if and $gcp (gt (int .Values.shards) 1) }}
+{{- fail "gcp.projectId cannot be combined with shards > 1: every shard would pull the same Cloud Monitoring series. Run a separate release for Google Cloud Monitoring" }}
+{{- end }}
+{{- if and $gcp (not .Values.gcp.metrics) (not .Values.gcp.metricFilters) }}
+{{- fail "gcp.metrics or gcp.metricFilters is required when gcp.projectId is set" }}
 {{- end }}
 receivers:
+{{- if $scrape }}
     prometheus:
         config:
             scrape_configs:
@@ -112,6 +121,19 @@ receivers:
 {{- with .Values.scrape.extraScrapeConfigs }}
 {{ tpl . $ | indent 16 }}
 {{- end }}
+{{- end }}
+{{- if $gcp }}
+    googlecloudmonitoring:
+        project_id: {{ .Values.gcp.projectId }}
+        collection_interval: {{ .Values.gcp.collectionInterval }}
+        metrics_list:
+{{- range .Values.gcp.metrics }}
+            - metric_name: '{{ . | replace "'" "''" }}'
+{{- end }}
+{{- range .Values.gcp.metricFilters }}
+            - metric_descriptor_filter: '{{ . | replace "'" "''" }}'
+{{- end }}
+{{- end }}
 
 processors:
     # Shed load instead of buffering unbounded memory when PostHog is unreachable.
@@ -120,6 +142,15 @@ processors:
         limit_mib: 512
         spike_limit_mib: 128
     batch:
+{{- if $gcp }}
+    # Cloud Monitoring resources carry no service.name; give them one so they
+    # group in the Metrics UI. `insert` never overrides a scraped job_name.
+    resource/gcp:
+        attributes:
+            - key: service.name
+              value: '{{ .Values.gcp.serviceName | default "google-cloud-monitoring" | replace "'" "''" }}'
+              action: insert
+{{- end }}
 
 exporters:
     otlphttp:
@@ -161,7 +192,7 @@ service:
     extensions: [health_check{{ if .Values.persistence.enabled }}, file_storage{{ end }}]
     pipelines:
         metrics:
-            receivers: [prometheus]
-            processors: [memory_limiter, batch]
+            receivers: [{{ if $scrape }}prometheus{{ end }}{{ if and $scrape $gcp }}, {{ end }}{{ if $gcp }}googlecloudmonitoring{{ end }}]
+            processors: [memory_limiter, {{ if $gcp }}resource/gcp, {{ end }}batch]
             exporters: [otlphttp]
 {{- end }}

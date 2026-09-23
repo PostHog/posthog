@@ -1,5 +1,6 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -79,6 +80,22 @@ describe('definitionPopoverLogic', () => {
         actionsModel.mount()
         propertyDefinitionsModel.mount()
         cohortsModel.mount()
+    })
+
+    it('resolves nested names when previewing an unselected cohort on an insight', async () => {
+        await expectLogic(cohortsModel).toFinishAllListeners()
+        router.actions.push('/insights/123')
+        useMocks({ get: { '/api/projects/:team/cohorts/3000/': { ...mockCohort, id: 3000, name: 'Nested cohort' } } })
+        logic = definitionPopoverLogic({ type: TaxonomicFilterGroupType.Cohorts })
+        logic.mount()
+        await expectLogic(logic, () =>
+            logic.actions.setDefinition({
+                ...mockCohort,
+                filters: { properties: { type: 'AND', values: [{ type: 'cohort', value: 3000 }] } },
+            } as unknown as CohortType)
+        ).toFinishAllListeners()
+        await expectLogic(cohortsModel).toFinishAllListeners()
+        expect(cohortsModel.values.cohortsById[3000]?.name).toBe('Nested cohort')
     })
 
     describe('editing mode', () => {

@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './AssigneeDisplay'
 import { assigneeSelectLogic } from './assigneeSelectLogic'
-import { Assignee, TicketAssignee } from './types'
+import { Assignee, TicketAssignee, toTicketAssignee } from './types'
 
 export interface AssigneeDropdownProps {
     assignee: TicketAssignee
@@ -45,7 +45,6 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                                 type: 'user',
                                 user: currentUserMember.user,
                             }}
-                            type="user"
                             onSelect={onChange}
                             activeId={assignee?.id}
                             labelSuffix={<span className="text-secondary">(you)</span>}
@@ -57,7 +56,6 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                     title="Roles"
                     loading={rolesLoading}
                     search={!!search}
-                    type="role"
                     items={filteredRoles.map((role) => ({
                         id: role.id,
                         type: 'role' as const,
@@ -82,7 +80,6 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                         title="Users"
                         loading={membersLoading}
                         search={!!search}
-                        type="user"
                         items={otherFilteredMembers.map((member) => ({
                             id: member.user.id,
                             type: 'user' as const,
@@ -99,13 +96,11 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
 
 const AssigneeItem = ({
     item,
-    type,
     onSelect,
     activeId,
     labelSuffix,
 }: {
     item: Assignee
-    type: 'user' | 'role'
     onSelect: (value: TicketAssignee) => void
     activeId?: string | number
     labelSuffix?: JSX.Element
@@ -116,7 +111,7 @@ const AssigneeItem = ({
             role="menuitem"
             size="small"
             icon={<AssigneeIconDisplay assignee={item} />}
-            onClick={() => item?.id && onSelect(String(activeId) === String(item.id) ? null : { type, id: item.id })}
+            onClick={() => item?.id && onSelect(String(activeId) === String(item.id) ? null : toTicketAssignee(item))}
             active={String(activeId) === String(item?.id)}
         >
             <span className="flex items-center gap-1">
@@ -130,7 +125,6 @@ const AssigneeItem = ({
 const Section = ({
     loading,
     search,
-    type,
     items,
     onSelect,
     activeId,
@@ -140,7 +134,6 @@ const Section = ({
     title: string
     loading: boolean
     search: boolean
-    type: 'user' | 'role'
     items: Assignee[]
     onSelect: (value: TicketAssignee) => void
     activeId?: string | number
@@ -152,7 +145,7 @@ const Section = ({
                 <h5 className="mx-2 my-0.5">{title}</h5>
                 {items.map((item) => (
                     <li key={item?.id || 'unassigned'}>
-                        <AssigneeItem item={item} type={type} onSelect={onSelect} activeId={activeId} />
+                        <AssigneeItem item={item} onSelect={onSelect} activeId={activeId} />
                     </li>
                 ))}
 

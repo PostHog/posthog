@@ -37,13 +37,18 @@
         flex-direction: column;
         width: 100%;
         height: 100%;
-        opacity: 0;
-        animation: SampleDataState__fade-up 0.7s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+
+        // The chart is a picture of made-up data, so it answers nothing the pointer asks of it.
+        // Hover still reaches __viz, which owns the settle-to-full-opacity effect.
+        pointer-events: none;
+
+        // The hidden start comes from the keyframe plus `both`, never a declared `opacity: 0` -
+        // that would leave the placeholder invisible forever if the animation never runs
+        animation: SampleDataState__fade-up 0.7s cubic-bezier(0.25, 0.1, 0.25, 1) both;
     }
 
     &__row {
-        opacity: 0;
-        animation: SampleDataState__fade-up 0.5s ease-out forwards;
+        animation: SampleDataState__fade-up 0.5s ease-out both;
     }
 
     &__row-cell {
@@ -53,8 +58,7 @@
     }
 
     &__number {
-        opacity: 0;
-        animation: SampleDataState__fade-up 0.7s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+        animation: SampleDataState__fade-up 0.7s cubic-bezier(0.25, 0.1, 0.25, 1) both;
     }
 
     // One-shot entrance animations complete instantly for reduced motion or screenshot tests;

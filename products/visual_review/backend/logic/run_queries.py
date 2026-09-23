@@ -7,6 +7,7 @@ from uuid import UUID
 from django.db import models as db_models
 from django.db.models import Count, Q
 
+from posthog.dataclasses import frozen
 from posthog.helpers.trigram_search import (
     TrigramSearchField,
     apply_trigram_search,
@@ -18,6 +19,14 @@ from ..db import WRITER_DB
 from ..facade.enums import RunPurpose, RunStatus, SnapshotResult
 from ..models import Run, RunSnapshot
 from . import errors
+
+
+@frozen
+class SnapshotKey:
+    """One snapshot identity. The same identifier under two run types is two."""
+
+    run_type: str
+    identifier: str
 
 
 def is_run_stale(run: Run) -> bool:
@@ -152,3 +161,41 @@ def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[RunSnaps
 # include both candidates and assume nobody has both — whichever has rows wins.
 # When `trunk`/`develop`-style defaults show up, this becomes a `Repo` field.
 _DEFAULT_BRANCHES = ("master", "main")
+
+
+def latest_default_branch_runs(repo_id: UUID) -> list[Run]:
+    """The newest completed run per `(branch, run_type)` on the default branches.
+
+    The universe every "current baseline" read is anchored on: one row per
+    `(run_type, identifier)` in these runs is the closest thing to what a new
+    capture would be compared against right now.
+
+    `status=completed` rather than `superseded_by IS NULL`: a freshly started
+    run on the default branch is un-superseded but has few or no RunSnapshots
+    ingested yet, which would collapse the universe to whatever it has loaded
+    so far.
+    """
+    return list(
+        Run.objects.filter(
+            repo_id=repo_id,
+            branch__in=_DEFAULT_BRANCHES,
+            status=RunStatus.COMPLETED,
+        )
+        .order_by("repo_id", "branch", "run_type", "-created_at")
+        .distinct("repo_id", "branch", "run_type")
+        .only("id", "run_type", "completed_at", "created_at")
+    )
+
+
+def newest_run_by_run_type(runs: list[Run]) -> dict[str, Run]:
+    """One run per run type, newest first.
+
+    `latest_default_branch_runs` holds one run per branch and run type, so a repo with runs on
+    both master and main has two per run type. A `(run_type, identifier)` identity carries no
+    branch, so without this reduction whichever branch was read last decides the baseline and two
+    identical requests can disagree.
+    """
+    newest: dict[str, Run] = {}
+    for run in sorted(runs, key=lambda r: r.created_at, reverse=True):
+        newest.setdefault(run.run_type, run)
+    return newest

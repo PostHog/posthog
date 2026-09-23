@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from rest_framework import status
@@ -42,7 +42,7 @@ class TestWebVitalsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_web_vitals_with_data(self):
         # Freeze time at query time
         timestamp = f"2024-01-07T12:00:00.000Z"
-        with freeze_time(timestamp):
+        with time_machine.travel(timestamp, tick=False):
             session_id = str(uuid7("2024-01-07"))
 
             # Create some events for each of the metrics

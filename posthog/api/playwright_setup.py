@@ -1,7 +1,8 @@
 """Test setup API endpoint for Playwright tests."""
 
 from django.conf import settings
-from django.http import Http404
+from django.http import Http404, HttpRequest, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
 
 from pydantic import BaseModel
 from rest_framework import status
@@ -47,3 +48,14 @@ def setup_test(request: Request, test_name: str) -> Response:
             {"error": f"Failed to run playwright setup '{test_name}': {str(e)}", "test_name": test_name},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+@csrf_exempt
+def delete_events(request: HttpRequest) -> HttpResponse:
+    from posthog.clickhouse.client import sync_execute  # noqa: PLC0415 - keep test-only ClickHouse imports deferred
+    from posthog.models.event.sql import (
+        TRUNCATE_EVENTS_TABLE_SQL,  # noqa: PLC0415 - keep test-only ClickHouse imports deferred
+    )
+
+    sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
+    return HttpResponse()

@@ -12,6 +12,8 @@ import type {
     BusinessKnowledgeDocumentsSearchListParams,
     BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeGapSuggestionsListParams,
+    BusinessKnowledgeSettingsApi,
+    BusinessKnowledgeSourcesDocumentsListParams,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesTextRetrieve200,
     CreateTextSourceApi,
@@ -23,7 +25,9 @@ import type {
     KnowledgeSearchResultApi,
     KnowledgeSourceApi,
     PaginatedKnowledgeGapSuggestionListApi,
+    PaginatedKnowledgeSourceDocumentListApi,
     PaginatedKnowledgeSourceListApi,
+    PatchedBusinessKnowledgeSettingsUpdateApi,
     PatchedUpdateTextSourceApi,
 } from './api.schemas'
 
@@ -246,6 +250,45 @@ export const businessKnowledgeGapSuggestionsDismissTopicCreate = async (
     })
 }
 
+export const getBusinessKnowledgeSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/settings/`
+}
+
+/**
+ * Fetch whether this project learns from resolved support tickets, and whether Support is on in this environment.
+ * @summary Get business knowledge settings
+ */
+export const businessKnowledgeSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<BusinessKnowledgeSettingsApi> => {
+    return apiMutator<BusinessKnowledgeSettingsApi>(getBusinessKnowledgeSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeSettingsPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/settings/`
+}
+
+/**
+ * Partially update Business knowledge learning settings. Enabling learn-from-support requires Support to be on in this environment.
+ * @summary Update business knowledge settings
+ */
+export const businessKnowledgeSettingsPartialUpdate = async (
+    projectId: string,
+    patchedBusinessKnowledgeSettingsUpdateApi?: PatchedBusinessKnowledgeSettingsUpdateApi,
+    options?: RequestInit
+): Promise<BusinessKnowledgeSettingsApi> => {
+    return apiMutator<BusinessKnowledgeSettingsApi>(getBusinessKnowledgeSettingsPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedBusinessKnowledgeSettingsUpdateApi),
+    })
+}
+
 export const getBusinessKnowledgeSourcesListUrl = (projectId: string, params?: BusinessKnowledgeSourcesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -336,6 +379,41 @@ export const businessKnowledgeSourcesDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getBusinessKnowledgeSourcesDocumentsListUrl = (
+    projectId: string,
+    id: string,
+    params?: BusinessKnowledgeSourcesDocumentsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/sources/${id}/documents/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/sources/${id}/documents/`
+}
+
+export const businessKnowledgeSourcesDocumentsList = async (
+    projectId: string,
+    id: string,
+    params?: BusinessKnowledgeSourcesDocumentsListParams,
+    options?: RequestInit
+): Promise<PaginatedKnowledgeSourceDocumentListApi> => {
+    return apiMutator<PaginatedKnowledgeSourceDocumentListApi>(
+        getBusinessKnowledgeSourcesDocumentsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getBusinessKnowledgeSourcesRefreshCreateUrl = (projectId: string, id: string) => {

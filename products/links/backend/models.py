@@ -23,11 +23,7 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
     short_code = models.CharField(
         max_length=255, help_text="The unique code/path that identifies the short link, e.g. 'abc123'"
     )
-    team = models.ForeignKey(
-        Team,
-        on_delete=models.CASCADE,
-        help_text="Team that owns this link",
-    )
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, help_text="Team that owns this link", related_name="+")
     description = models.TextField(null=True, blank=True)
 
     class Meta:

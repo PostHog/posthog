@@ -13,6 +13,7 @@ threshold-tuned consumers migrate) and the ICP fit score on its own `icp_fit_*` 
 The two never share a key, so neither can misattribute the other's values.
 """
 
+import datetime as dt
 from collections.abc import Callable
 from typing import Any, Optional, Union
 
@@ -28,6 +29,12 @@ from products.growth.backend.enrichment.score import SCORE_VERSION
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 
 ORGANIZATION_GROUP_TYPE = "organization"
+
+# Published in org_icp_fit_current, so these names are a contract and must stay spelled out
+# as constants rather than inlined.
+HARMONIC_STATUS_KEY = "harmonic_enrichment_status"
+HARMONIC_STATUS_AT_KEY = "harmonic_enrichment_status_at"
+HARMONIC_URN_KEY = "harmonic_enrichment_urn"
 
 # Every fit key tied to one evaluation's numeric outcome. An evaluation that doesn't
 # produce one of these strips it, so the record never carries a value the current
@@ -63,15 +70,42 @@ def merge_into_record(
         record.save(update_fields=["data", "updated_at"])
 
 
-def _fit_record_writes(fit: IcpFitResult) -> tuple[dict[str, Any], list[str]]:
+def write_harmonic_enrichment_status(
+    organization_id: str, *, status: str, observed_at: str, urn: str, pha_client: Client
+) -> Optional[str]:
+    """Reads the record's stored status inside the same locked write that merges the new one, so a caller can
+    tell a genuine transition from a retried batch re-stamping the same status.
+    """
+    values = {HARMONIC_STATUS_KEY: status, HARMONIC_STATUS_AT_KEY: observed_at, HARMONIC_URN_KEY: urn}
+    previous_status: Optional[str] = None
+
+    def _merge(current: dict[str, Any]) -> dict[str, Any]:
+        nonlocal previous_status
+        previous_status = current.get(HARMONIC_STATUS_KEY)
+        return values
+
+    merge_into_record(organization_id, _merge)
+    pha_client.group_identify(ORGANIZATION_GROUP_TYPE, organization_id, properties=values)
+    return previous_status
+
+
+def _fit_record_writes(
+    fit: IcpFitResult, *, evaluation_kind: str, evaluated_at: dt.datetime
+) -> tuple[dict[str, Any], list[str]]:
     """The Postgres (data) writes and key removals for one fit evaluation.
 
     Removals are derived from the keys this evaluation actually produced, so a scored org
     that is later disqualified loses its stale components and flags, and a score-less
     evaluation (insufficient_data / not_found) strips every numeric key — the status is
-    the result.
+    the result. icp_fit_evaluated_at/icp_fit_evaluation_kind sit outside _FIT_NUMERIC_KEYS
+    so a score-less evaluation still records when and how it ran.
     """
-    values: dict[str, Any] = {"icp_fit_status": fit.status, "icp_fit_version": fit.version}
+    values: dict[str, Any] = {
+        "icp_fit_status": fit.status,
+        "icp_fit_version": fit.version,
+        "icp_fit_evaluated_at": evaluated_at.isoformat(),
+        "icp_fit_evaluation_kind": evaluation_kind,
+    }
     if fit.lists_version:
         values["icp_fit_lists_version"] = fit.lists_version
 
@@ -87,6 +121,8 @@ def _fit_record_writes(fit: IcpFitResult) -> tuple[dict[str, Any], list[str]]:
                 "low_confidence": fit.low_confidence,
                 "agency_flag": fit.agency_flag,
                 "nonprofit_flag": fit.nonprofit_flag,
+                "wizard_ai_sdk": fit.wizard_ai_sdk,
+                "ai_pilled_source": fit.ai_pilled_source,
             }.items()
             if value is not None
         }
@@ -121,6 +157,8 @@ def write_organization_enrichment(
     icp_score: Optional[int] = None,
     mirror_distinct_id: Optional[str] = None,
     fit: Optional[IcpFitResult] = None,
+    fit_evaluation_kind: Optional[str] = None,
+    fit_evaluated_at: Optional[dt.datetime] = None,
     fit_mirror_distinct_id: Optional[str] = None,
 ) -> None:
     """Persist enrichment to Postgres and project it onto the organization group.
@@ -145,6 +183,12 @@ def write_organization_enrichment(
     field backfill, a fit-only write (fields=None) is the score backfill and the
     miss-path status stamp.
 
+    `fit_evaluation_kind` (initial | recheck | backfill | sweep) is required whenever
+    `fit` is given. It and `fit_evaluated_at` (defaulting to now) land on every evaluation,
+    including score-less ones, because the sweep overwrites scores in place and the record
+    must say which run wrote the current value. Both ride the Postgres record only, not the
+    group projection or the person mirror.
+
     No-op when there are no set fields and no scores, so a Harmonic miss with fit scoring
     degraded leaves the stores untouched.
     """
@@ -154,7 +198,11 @@ def write_organization_enrichment(
     if icp_score is not None:
         values = {**values, "icp_score": icp_score, "icp_score_version": SCORE_VERSION}
     if fit is not None:
-        fit_values, remove = _fit_record_writes(fit)
+        if fit_evaluation_kind is None:
+            raise ValueError("fit_evaluation_kind is required when fit is provided")
+        fit_values, remove = _fit_record_writes(
+            fit, evaluation_kind=fit_evaluation_kind, evaluated_at=fit_evaluated_at or dt.datetime.now(dt.UTC)
+        )
         values = {**values, **fit_values}
 
     if not values:

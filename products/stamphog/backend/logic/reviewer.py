@@ -23,7 +23,11 @@ from __future__ import annotations
 import json
 from dataclasses import field
 
+import structlog
+
 from posthog.dataclasses import frozen
+
+logger = structlog.get_logger(__name__)
 
 # Final-verdict strings the engine emits (review_pr.Pipeline.final_verdict) mapped
 # onto the contract's ReviewVerdict values. Anything unrecognized escalates —
@@ -51,9 +55,9 @@ _LEGACY_VERDICT_MAP = {
 }
 
 
-# Mirrors the engine's VERDICT_SCHEMA cap (products/stamphog/packages/pr-approval-agent/reviewer.py) and the
-# stamphog_reviewrun column width.
-CHANGE_SUMMARY_MAX_CHARS = 200
+# Mirrors the engine's VERDICT_SCHEMA cap (products/stamphog/packages/pr-approval-agent/reviewer.py).
+# The columns that hold this text are TextField, so the schema is the only width it must respect.
+CHANGE_SUMMARY_MAX_CHARS = 600
 
 
 @frozen
@@ -87,9 +91,10 @@ class ReviewerVerdict:
     # The engine-rendered comment body (reasoning + judgment bullets + gate
     # mechanics), posted verbatim when present.
     review_body: str = ""
-    # One-sentence plain-language description of what the change does, written
-    # in the sandbox where the diff is available. Feeds the daily digest. Blank
-    # when the engine predates the field, which the digest tolerates.
+    # Plain-language description of what the change does, written in the sandbox where the diff is
+    # available: one sentence about the whole change, plus one clause per owning team when more
+    # than one team owns files in it. Feeds the daily digest, which reads the clause addressed to
+    # its own audience. Blank when the engine predates the field, which the digest tolerates.
     change_summary: str = ""
     # The engine version the output reports, for analytics segmentation.
     stamphog_version: str = ""
@@ -190,7 +195,12 @@ def _parse_rich(obj: dict) -> ReviewerVerdict:
     reasoning = str(reviewer.get("reasoning", "")).strip()
     # Clipped rather than rejected: the engine caps this at CHANGE_SUMMARY_MAX_CHARS, but the
     # value crosses a trust boundary, so the server does not rely on the sandbox honoring it.
-    change_summary = str(reviewer.get("change_summary", "")).strip()[:CHANGE_SUMMARY_MAX_CHARS]
+    # Warned about because a clip inside the last per-team clause drops that team's merge from the
+    # digest with nothing else to see it.
+    change_summary = str(reviewer.get("change_summary", "")).strip()
+    if len(change_summary) > CHANGE_SUMMARY_MAX_CHARS:
+        logger.warning("stamphog_change_summary_clipped", length=len(change_summary), limit=CHANGE_SUMMARY_MAX_CHARS)
+    change_summary = change_summary[:CHANGE_SUMMARY_MAX_CHARS]
     issues = reviewer.get("issues") or []
     showstoppers = [str(i) for i in issues] if isinstance(issues, list) else [str(issues)]
 

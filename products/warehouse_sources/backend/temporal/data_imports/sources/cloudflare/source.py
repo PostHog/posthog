@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
     cloudflare_source,
     validate_credentials as validate_cloudflare_credentials,
@@ -51,7 +49,7 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLOUDFLARE,
+            name=ExternalDataSourceType.CLOUDFLARE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cloudflare",
             caption="""Enter your Cloudflare API token to pull your Cloudflare configuration, security, and usage data into the PostHog Data warehouse.
@@ -59,7 +57,7 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
 Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/profile/api-tokens) with read permissions for the areas you want to sync, such as Account Settings, Zone, DNS, Firewall Services, Logs, Workers, and Access. Zone tables are synced from every zone the token can read, and account tables from every account. Zones and accounts the token can't read are skipped.""",
             iconPath="/static/services/cloudflare.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/cloudflare",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -124,11 +122,11 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
         if status is None or status == 429 or status >= 500:
             return (
                 False,
-                "Couldn't reach Cloudflare to verify your API token. Please try again in a moment.",
+                "Couldn't reach Cloudflare to verify your API token. Try again in a moment.",
             )
         return (
             False,
-            "Invalid Cloudflare API token. Please check the token has read permissions and hasn't been revoked.",
+            "Your Cloudflare API token was rejected. Create a new token with read permissions in your Cloudflare dashboard, then reconnect.",
         )
 
     def source_for_pipeline(self, config: CloudflareSourceConfig, inputs: SourceInputs) -> SourceResponse:

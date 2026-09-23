@@ -1,0 +1,12 @@
+{
+    "id": "NA20",
+    "file": "products/review_hog/backend/receivers.py",
+    "lines": "115-139",
+    "priority": "should_fix",
+    "title": "ReviewHog startup runs before the Stamphog-first dispatch",
+    "problem": "Django runs these callbacks immediately in autocommit and serially inside a transaction. The code connects to Temporal before it publishes the Stamphog job. A slow Temporal service delays Stamphog. An import failure prevents its callback from running. This reverses the stated Stamphog-first flow.",
+    "suggestion": "Publish the Stamphog job first. If Stamphog must gate ReviewHog, start ReviewHog from the Stamphog result. Otherwise use robust callbacks and catch deferred import failures.",
+    "cluster": 25,
+    "cluster_issue": "Two on_commit hooks registered with robust=False, so an exception in the first silently cancels the stamphog hook",
+    "cluster_verified": "2/2"
+}

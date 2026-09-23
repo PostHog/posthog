@@ -8,12 +8,13 @@ import {
   EmptyMedia,
   EmptyTitle,
   Heading,
-  Spinner,
   Text,
 } from "@posthog/quill";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useMemo } from "react";
 import { useContextWikiHealthReport } from "../hooks/useContextWiki";
 
+/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export function ContextWikiHealthPane({
   onOpenPage,
 }: {
@@ -23,7 +24,7 @@ export function ContextWikiHealthPane({
   const groups = useMemo(() => groupFindings(data?.findings ?? []), [data]);
 
   if (isLoading) {
-    return <Spinner className="m-auto" />;
+    return <LoadingState />;
   }
   if (error) {
     return (

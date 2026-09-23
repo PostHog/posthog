@@ -63,11 +63,14 @@ export function TaskRow({
     cloudPrUrl: task.cloudPrUrl,
     taskRunEnvironment: task.taskRunEnvironment,
   });
-  const isArchiving = useArchivingTasksStore((state) =>
-    state.archivingTaskIds.has(task.id),
+  const archivePresentation = useArchivingTasksStore((state) =>
+    state.hiddenArchivingTaskIds.has(task.id)
+      ? "hidden"
+      : state.archivingTaskIds.has(task.id)
+        ? "progress"
+        : null,
   );
-
-  if (isArchiving) return null;
+  if (archivePresentation === "hidden") return null;
 
   return (
     <TaskItem
@@ -77,6 +80,7 @@ export function TaskRow({
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
+      isArchiving={archivePresentation === "progress"}
       hideHoverActions={hideHoverActions}
       isEditing={isEditing}
       workspaceMode={effectiveMode}

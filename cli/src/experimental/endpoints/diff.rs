@@ -19,7 +19,7 @@ pub fn diff_endpoints(args: &DiffArgs) -> Result<()> {
     let yaml_files = collect_yaml_files(&args.paths)?;
 
     if yaml_files.is_empty() {
-        println!("No endpoint YAML files found in the specified paths.");
+        crate::safe_println!("No endpoint YAML files found in the specified paths.");
         return Ok(());
     }
 
@@ -30,7 +30,7 @@ pub fn diff_endpoints(args: &DiffArgs) -> Result<()> {
             |(path, content)| match serde_yaml::from_str::<EndpointYaml>(content) {
                 Ok(endpoint) => Some(endpoint),
                 Err(e) => {
-                    eprintln!("{} Failed to parse {}: {}", "⚠".yellow(), path, e);
+                    crate::safe_eprintln!("{} Failed to parse {}: {}", "⚠".yellow(), path, e);
                     None
                 }
             },
@@ -38,7 +38,7 @@ pub fn diff_endpoints(args: &DiffArgs) -> Result<()> {
         .collect();
 
     if local_endpoints.is_empty() {
-        println!("No valid endpoint YAML files found.");
+        crate::safe_println!("No valid endpoint YAML files found.");
         return Ok(());
     }
 
@@ -50,7 +50,7 @@ pub fn diff_endpoints(args: &DiffArgs) -> Result<()> {
         .map(|e| (e.name.as_str(), e))
         .collect();
 
-    println!();
+    crate::safe_println!();
 
     let mut has_differences = false;
     let mut new_count = 0;
@@ -63,21 +63,21 @@ pub fn diff_endpoints(args: &DiffArgs) -> Result<()> {
             if changes.is_empty() {
                 unchanged_count += 1;
                 if args.verbose {
-                    println!("  {}  {}", "SAME".dimmed(), local.name);
+                    crate::safe_println!("  {}  {}", "SAME".dimmed(), local.name);
                 }
             } else {
                 changed_count += 1;
                 has_differences = true;
-                println!("  {}  {}", "CHANGED".yellow().bold(), local.name.bold());
+                crate::safe_println!("  {}  {}", "CHANGED".yellow().bold(), local.name.bold());
                 for change in &changes {
                     print_change_with_labels(change);
                 }
-                println!();
+                crate::safe_println!();
             }
         } else {
             new_count += 1;
             has_differences = true;
-            println!(
+            crate::safe_println!(
                 "  {}  {} (not in PostHog)",
                 "NEW".green().bold(),
                 local.name.bold()
@@ -89,15 +89,15 @@ pub fn diff_endpoints(args: &DiffArgs) -> Result<()> {
                     } else {
                         desc.clone()
                     };
-                    println!("    {}", truncated.dimmed());
+                    crate::safe_println!("    {}", truncated.dimmed());
                 }
             }
-            println!();
+            crate::safe_println!();
         }
     }
 
     // Summary
-    println!(
+    crate::safe_println!(
         "{} file{} compared: {} new, {} changed, {} unchanged",
         local_endpoints.len(),
         if local_endpoints.len() == 1 { "" } else { "s" },
@@ -107,8 +107,8 @@ pub fn diff_endpoints(args: &DiffArgs) -> Result<()> {
     );
 
     if has_differences {
-        println!();
-        println!(
+        crate::safe_println!();
+        crate::safe_println!(
             "{}",
             "Run 'posthog-cli exp endpoints push <path>' to apply changes.".dimmed()
         );
@@ -147,7 +147,7 @@ fn collect_yaml_files(paths: &[String]) -> Result<Vec<(String, String)>> {
                 }
             }
         } else {
-            eprintln!("{} Path not found: {}", "⚠".yellow(), path_str);
+            crate::safe_eprintln!("{} Path not found: {}", "⚠".yellow(), path_str);
         }
     }
 
@@ -158,8 +158,8 @@ fn collect_yaml_files(paths: &[String]) -> Result<Vec<(String, String)>> {
 fn print_change_with_labels(change: &Change) {
     match change {
         Change::Description { from, to } => {
-            println!("    {}:", "Description".bold());
-            println!(
+            crate::safe_println!("    {}:", "Description".bold());
+            crate::safe_println!(
                 "      {} {}",
                 "remote:".cyan(),
                 if from.is_empty() {
@@ -168,7 +168,7 @@ fn print_change_with_labels(change: &Change) {
                     from.clone()
                 }
             );
-            println!(
+            crate::safe_println!(
                 "      {}  {}",
                 "local:".green(),
                 if to.is_empty() {
@@ -179,33 +179,33 @@ fn print_change_with_labels(change: &Change) {
             );
         }
         Change::Query { from, to } => {
-            println!("    {}:", "Query".bold());
-            println!("      {} {}", "---".red(), "remote (PostHog)".red());
-            println!("      {} {}", "+++".green(), "local (YAML)".green());
+            crate::safe_println!("    {}:", "Query".bold());
+            crate::safe_println!("      {} {}", "---".red(), "remote (PostHog)".red());
+            crate::safe_println!("      {} {}", "+++".green(), "local (YAML)".green());
             print_diff(from, to, "      ");
         }
         Change::QueryDefinition { from, to } => {
-            println!("    {}:", "Query definition".bold());
-            println!("      {} {}", "---".red(), "remote (PostHog)".red());
-            println!("      {} {}", "+++".green(), "local (YAML)".green());
+            crate::safe_println!("    {}:", "Query definition".bold());
+            crate::safe_println!("      {} {}", "---".red(), "remote (PostHog)".red());
+            crate::safe_println!("      {} {}", "+++".green(), "local (YAML)".green());
             print_diff(from, to, "      ");
         }
         Change::Materialization { from, to } => {
-            println!("    {}:", "Materialization".bold());
-            println!(
+            crate::safe_println!("    {}:", "Materialization".bold());
+            crate::safe_println!(
                 "      {} {}",
                 "remote:".cyan(),
                 if *from { "enabled" } else { "disabled" }
             );
-            println!(
+            crate::safe_println!(
                 "      {}  {}",
                 "local:".green(),
                 if *to { "enabled" } else { "disabled" }
             );
         }
         Change::Schedule { from, to } => {
-            println!("    {}:", "Schedule".bold());
-            println!(
+            crate::safe_println!("    {}:", "Schedule".bold());
+            crate::safe_println!(
                 "      {} {}",
                 "remote:".cyan(),
                 if from.is_empty() {
@@ -214,14 +214,14 @@ fn print_change_with_labels(change: &Change) {
                     from.as_str()
                 }
             );
-            println!(
+            crate::safe_println!(
                 "      {}  {}",
                 "local:".green(),
                 if to.is_empty() { "(none)" } else { to.as_str() }
             );
         }
         Change::Variables { from, to } => {
-            println!("    {}:", "Variables".bold());
+            crate::safe_println!("    {}:", "Variables".bold());
             let from_str = if from.is_empty() {
                 "(none)".to_string()
             } else {
@@ -232,8 +232,8 @@ fn print_change_with_labels(change: &Change) {
             } else {
                 to.join(", ")
             };
-            println!("      {} [{}]", "remote:".cyan(), from_str);
-            println!("      {}  [{}]", "local:".green(), to_str);
+            crate::safe_println!("      {} [{}]", "remote:".cyan(), from_str);
+            crate::safe_println!("      {}  [{}]", "local:".green(), to_str);
         }
     }
 }

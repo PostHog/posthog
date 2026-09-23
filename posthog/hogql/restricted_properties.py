@@ -2,13 +2,69 @@ import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
+from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+
+from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
+from posthog.constants import GROUP_TYPES_LIMIT
 
 logger = structlog.get_logger(__name__)
 
+# JSON blob columns that hold a restrictable property class, so the printer knows which blob reads to wrap in
+# JSONDropKeys. Everything here must be covered by a branch in `restricted_property_keys_for_table_type`, and vice
+# versa — a blob whose table type maps to a property class but whose column is missing here is read unscrubbed.
+RESTRICTABLE_JSON_BLOB_COLUMNS: frozenset[str] = frozenset(
+    {
+        "properties",  # events.properties, persons.properties, groups.group_properties reads via the HogQL name
+        "person_properties",  # EventsPersonSubTable (PoE mode)
+        "group_properties",  # groups / raw_groups
+        # EventsGroupSubTable (group-on-events mode) exposes each group type's blob on the events table.
+        *(f"group{index}_properties" for index in range(GROUP_TYPES_LIMIT)),
+    }
+)
 
-def restricted_property_keys_for_table_type(table_type: ast.Type, context: HogQLContext) -> set[str]:
+# flag_evaluations columns that store a verbatim copy of an event property, mapped to the property each copies.
+# The shards compute them from `properties`, so both spellings return one value, and masking only reaches the
+# `properties.<key>` and whole-blob paths. Restricting the property has to mask the column by name too, or the
+# column answers what those two refuse.
+_FLAG_EVALUATIONS_MIRRORED_COLUMNS: dict[str, str] = {
+    "flag_key": "$feature_flag",
+    "response": "$feature_flag_response",
+    "session_id": "$session_id",
+    "request_id": "$feature_flag_request_id",
+    **{f"$group_{index}": f"$group_{index}" for index in range(GROUP_TYPES_LIMIT)},
+}
+
+
+def mirrored_property_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> str | None:
+    """The event property a typed column copies verbatim, or None when the column copies nothing.
+
+    A caller that prints one of these columns must mask the read when the property is restricted, in a predicate
+    as much as in a SELECT: an unmasked column lets a filter narrow down a value the same user cannot read.
+    `events` exposes mirror columns of its own that nothing consults this for; see ACCESS_CONTROL.md.
+    """
+    if not isinstance(table_type, ast.BaseTableType):
+        return None
+
+    try:
+        table = table_type.resolve_database_table(context)
+    except Exception:
+        # Fail-open to match restricted_property_keys_for_table_type, whose docstring explains why this is
+        # unreachable today; log so a future table type that can raise does not silently unmask a column.
+        logger.warning("mirrored_property_table_resolution_failed", table_type=type(table_type).__name__)
+        return None
+
+    if isinstance(table, FlagEvaluationsTable):
+        return _FLAG_EVALUATIONS_MIRRORED_COLUMNS.get(column_name)
+    return None
+
+
+def restricted_property_keys_for_table_type(
+    table_type: ast.Type, context: HogQLContext, *, group_type_index: int | None = None
+) -> set[str]:
     """Top-level property names restricted by property-level access control for a table, or an empty set.
 
     Single source of truth shared by the ClickHouse printer (which JSONDropKeys-wraps the blob) and the property
@@ -34,13 +90,49 @@ def restricted_property_keys_for_table_type(table_type: ast.Type, context: HogQL
         logger.warning("restricted_property_table_resolution_failed", table_type=type(table_type).__name__)
         return set()
 
+    # EventsPersonSubTable and EventsGroupSubTable are virtual tables over `events`, not EventsTable subclasses, but
+    # they carry person/group properties — match them before the EventsTable branch either way. flag_evaluations has
+    # no counterpart for either: it stores the event blob alone, plus a person id and group keys.
     if isinstance(table, EventsPersonSubTable):
         prop_def_type = PropertyDefinition.Type.PERSON
-    elif isinstance(table, EventsTable):
+    elif isinstance(table, EventsGroupSubTable):
+        prop_def_type = PropertyDefinition.Type.GROUP
+        group_type_index = table.group_index
+    elif isinstance(table, EventsTable | FlagEvaluationsTable):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
         prop_def_type = PropertyDefinition.Type.PERSON
+    elif isinstance(table, (GroupsTable, RawGroupsTable)) or (
+        isinstance(table, PostgresTable) and table.postgres_table_name == "posthog_group"
+    ):
+        prop_def_type = PropertyDefinition.Type.GROUP
     else:
+        # PropertyDefinition.Type.SESSION is deliberately absent: the sessions tables expose each session property as
+        # its own column rather than a JSON blob, so there is nothing for this function's callers to scrub. Restricting
+        # a session property therefore has no query-time effect yet — enforcing it needs field-level denial, not a
+        # blob-key drop.
         return set()
 
-    return {name for name, ptype in context.restricted_properties if ptype == prop_def_type}
+    restricted_keys = {
+        restriction.name
+        for restriction in context.restricted_properties
+        if restriction.property_type == prop_def_type
+        and (
+            prop_def_type != PropertyDefinition.Type.GROUP
+            or group_type_index is None
+            or restriction.group_type_index == group_type_index
+        )
+    }
+    if restricted_keys and context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable)):
+        # Quarantine contains raw property values inside a string, beyond JSONDropKeys' reach.
+        restricted_keys.add(UNPARSEABLE_PROPERTIES_KEY)
+    return restricted_keys
+
+
+def native_property_path_overlaps_restriction(property_name: str, table_type: ast.Type, context: HogQLContext) -> bool:
+    if not context.restricted_properties or not context.uses_new_events_schema():
+        return False
+    return any(
+        property_name == key or property_name.startswith(key + ".") or key.startswith(property_name + ".")
+        for key in restricted_property_keys_for_table_type(table_type, context)
+    )

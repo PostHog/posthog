@@ -67,6 +67,25 @@ graphics code owns a canvas element, or a mostly static page can mount one inter
 This is a judgment call, not a persisted mode — ask the user only when the choice changes a
 user-visible requirement you cannot infer.
 
+## Images
+
+Use public media library URLs for images in a canvas. Call `posthog:media-images-list` with
+`purpose="canvas"` first and reuse a suitable image when one already exists.
+
+To add a local image:
+
+1. Call `posthog:media-image-upload-start` with the file name and `purpose="canvas"`.
+2. From a shell, POST the file to the returned `upload_url` as multipart form data. Include every
+   returned `form_fields` entry and put the file part last.
+3. Call `posthog:media-image-upload-complete` with the returned id and use its permanent `url` as
+   the image `src`.
+4. Add the URL's exact origin to `project.capabilities.network.origins`. Canvas validation checks
+   this declaration, and the published artifact uses it in its Content Security Policy.
+
+Canvas media URLs are public and do not require authentication. Never upload secrets, credentials,
+customer data, or sensitive screenshots. Images must be under 4 MB and decode as PNG, JPEG, GIF,
+WebP, AVIF, or BMP. Never base64-encode image bytes into a tool call.
+
 ## Common request patterns
 
 Use these as routing examples, not fixed templates:
@@ -100,20 +119,22 @@ matching shape above. The pattern is a hint; the user's actual request remains a
    runtime and validation rejects undeclared calls.
 3. Follow `validating-and-publishing-canvases`: validate with `canvas-validate-create` as often as
    needed and fix every error-severity diagnostic.
-4. Save the project — which tool depends on whether the canvas is already live:
+4. Save the project by publishing it — publishing is the default and goes live at once:
    - **First version** (`current_version_id` is null): publish the complete project with
      `canvas-publish-create`, passing `expected_current_version_id: null`.
-   - **Already live** (`current_version_id` is set): stage the complete project as a draft with
-     `canvas-draft-create` — the user previews the draft and promotes it to live. Publish or
-     promote yourself only when the user explicitly asked to make the change live.
+   - **Already live** (`current_version_id` is set): publish per-file changes with
+     `canvas-edit-create`, or the complete project with `canvas-publish-create`, passing the
+     live `current_version_id` as `expected_current_version_id`.
+   - Stage a draft with `canvas-draft-create` only when the user asked for a draft, a preview, or
+     a review step before going live.
      Follow the `validating-and-publishing-canvases` skill for diagnostics and conflict recovery.
 5. **Wait for the build** — drafts and publishes alike queue one. Poll `canvas-builds-retrieve`
    (every few seconds, up to ~2 minutes) until your build is `ready` or `failed`. On `failed`,
    read the build's error diagnostics, fix the project, and save again — do not finish the
    task with a failed build.
 
-Save once per requested change, when the canvas is ready — not after every micro-edit. When you
-staged a draft, end your reply by saying a draft is ready to preview and promote; the
+Save once per requested change, when the canvas is ready — not after every micro-edit. When the
+user asked for a draft, end your reply by saying a draft is ready to preview and promote; the
 `validating-and-publishing-canvases` skill covers the draft → build → preview → promote flow.
 
 End your reply by naming the channel the canvas is in and linking it with the `url` field the
@@ -136,12 +157,18 @@ That field is the only valid link to a canvas — never construct one yourself; 
   `canvases-actions-retrieve` tool and follow each verb's `usage` (payload/result shape,
   behavior, and the confirmation copy it warrants) before wiring it.
 
+- **`ph.connectors.call(provider, tool, args)`** — read live third-party data (GitHub, or any
+  MCP store server) with the VIEWER's own connection at view time. Never call GitHub, Calendly,
+  or another service yourself and paste the result into the source: that snapshot is stale on
+  publish and shows every viewer the author's data. Declare each provider and tool in
+  `capabilities.connectors`; discover them with the `canvas-connectors-retrieve` tool. See
+  `querying-canvas-data` for the result and not-connected handling.
 - **`ph.agent.request(prompt)`** — ask the canvas's authoring agent for a change, with the viewer's
   approval. Declare `agentRequests: true` in `capabilities.posthog`. Call it only from a direct
   click or form submission — the host shows the exact prompt and asks the viewer to accept before
-  spending compute, and rejects calls made during render, mount, or polling. The agent stages the
-  change as a draft for the canvas creator to review; a non-creator's request is filed in the
-  authoring task's thread instead of starting a run.
+  spending compute, and rejects calls made during render, mount, or polling. The agent publishes
+  the change as a new version; a non-creator's request is filed in the authoring task's thread
+  instead of starting a run.
 
 ## Source-project shape
 
@@ -150,7 +177,8 @@ That field is the only valid link to a canvas — never construct one yourself; 
   relative TypeScript, TSX, JavaScript, JSON, SVG, CSS, and admitted asset files from the project.
 - Self-contained module workers may be imported with `./worker.ts?worker`. A worker must not import
   another local module.
-- Binary assets belong in the project's `assets` map as base64 content with an admitted content type.
-  PNG, JPEG, GIF, WebP, AVIF, WOFF/WOFF2, WebAssembly, and generic octet-stream assets are supported.
+- Use the public media library flow above for images. Other binary assets belong in the project's
+  `assets` map as base64 content with an admitted content type. WOFF/WOFF2, WebAssembly, and generic
+  octet-stream assets are supported.
 - Keep the platform dependency map exactly as returned. Do not add npm packages; local relative
   imports are project files, while bare imports remain limited to the platform-pinned set.

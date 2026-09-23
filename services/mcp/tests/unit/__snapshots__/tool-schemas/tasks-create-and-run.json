@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "branch": {
+            "anyOf": [
+                {
+                    "maxLength": 255,
+                    "minLength": 1,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Base branch for the run."
+        },
+        "description": {
+            "description": "Instructions for the agent.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "repository": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Repository in organization/repo format."
+        },
+        "title": {
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "required": ["description"],
+    "type": "object"
+}

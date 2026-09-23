@@ -170,6 +170,7 @@ export class ArchiveService {
             archivedTitle: input.title ?? null,
             archivedTaskCreatedAt: input.taskCreatedAt ?? null,
             archivedRepository: input.repository ?? null,
+            serverArchiveScope: input.serverArchiveScope ?? null,
           });
         },
         async () => {
@@ -531,20 +532,22 @@ export class ArchiveService {
     return { taskId, worktreeName: restoredWorktreeName };
   }
 
-  getArchivedTasks(): ArchivedTask[] {
+  getArchivedTasks(serverArchiveScope: string | null = null): ArchivedTask[] {
     const fromWorkspaces = this.archiveRepo.findAll().map((archive) => {
       const workspace = this.workspaceRepo.findById(
         archive.workspaceId,
       ) as Workspace;
       return this.toArchivedTask(workspace, archive);
     });
-    const rowless = this.rowlessArchived().map((meta) =>
+    const rowless = this.rowlessArchived(serverArchiveScope).map((meta) =>
       this.toRowlessArchivedTask(meta),
     );
     return [...fromWorkspaces, ...rowless];
   }
 
-  async listArchivedTasks(): Promise<ArchivedTask[]> {
+  async listArchivedTasks(
+    serverArchiveScope: string | null = null,
+  ): Promise<ArchivedTask[]> {
     if (!this.recoveryStarted) {
       this.recoveryStarted = true;
       void this.recoverArchivedTaskDetails().catch((error) => {
@@ -552,7 +555,7 @@ export class ArchiveService {
         this.log.warn("Failed to recover archived task details", { error });
       });
     }
-    return this.getArchivedTasks();
+    return this.getArchivedTasks(serverArchiveScope);
   }
 
   private async recoverArchivedTaskDetails(): Promise<void> {
@@ -615,13 +618,20 @@ export class ArchiveService {
   // workspace row is owned by the `archives` table, so it's excluded here even
   // if an `archivedAt` lingers in its metadata — otherwise it would surface
   // twice in the archived lists.
-  private rowlessArchived(): TaskMetadataRow[] {
+  private rowlessArchived(
+    serverArchiveScope: string | null = null,
+  ): TaskMetadataRow[] {
     return this.taskMetadataRepo
       .findAllArchived()
-      .filter((meta) => !this.workspaceRepo.findByTaskId(meta.taskId));
+      .filter(
+        (meta) =>
+          !this.workspaceRepo.findByTaskId(meta.taskId) &&
+          (meta.serverArchiveScope === null ||
+            meta.serverArchiveScope === serverArchiveScope),
+      );
   }
 
-  getArchivedTaskIds(): string[] {
+  getArchivedTaskIds(serverArchiveScope: string | null = null): string[] {
     const fromWorkspaces = this.archiveRepo
       .findAll()
       .map((archive) => {
@@ -629,7 +639,9 @@ export class ArchiveService {
         return workspace?.taskId;
       })
       .filter((id): id is string => id !== undefined);
-    const rowless = this.rowlessArchived().map((meta) => meta.taskId);
+    const rowless = this.rowlessArchived(serverArchiveScope).map(
+      (meta) => meta.taskId,
+    );
     return [...fromWorkspaces, ...rowless];
   }
 

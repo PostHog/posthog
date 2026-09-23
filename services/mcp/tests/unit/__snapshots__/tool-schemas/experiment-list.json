@@ -13,6 +13,10 @@
             "description": "Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.",
             "type": "string"
         },
+        "excluded_tags": {
+            "description": "JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.",
+            "type": "string"
+        },
         "feature_flag_id": {
             "description": "Filter to experiments linked to the given feature flag ID.",
             "type": "number"
@@ -40,6 +44,10 @@
         "status": {
             "description": "Filter by experiment status. Values: \"draft\" (not yet launched), \"running\" (launched, flag active), \"paused\" (launched, flag deactivated — mutually exclusive with running), \"exposure_frozen\" (launched, enrollment frozen to the already-exposed cohort while metrics keep flowing), \"stopped\" or \"complete\" (both mean ended), \"all\" (no filter). Defaults to all non-archived experiments.",
             "enum": ["all", "complete", "draft", "exposure_frozen", "paused", "running", "stopped"],
+            "type": "string"
+        },
+        "tags": {
+            "description": "JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `[\"growth\", \"checkout\"]`.",
             "type": "string"
         }
     },

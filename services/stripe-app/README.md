@@ -184,20 +184,57 @@ The trick is to temporarily route through a production URL and then redirect bac
 The full approach is more involved but tests the entire production flow.
 For day-to-day development, the quick approach is recommended.
 
-### Uploading
+### Releasing
 
-**You must bump the version in `stripe-app.json` before uploading.**
-Stripe rejects uploads with an already-published version number.
-Use semver: bump the patch for fixes, minor for new fields/features, major for breaking changes.
+Merging a manifest change does not ship it. A release is three steps, and an
+uploaded version is not a published one: every install keeps running the last
+published version until someone publishes the new one in the Stripe dashboard.
 
-```bash
-# 1. Bump "version" in stripe-app.json
-# 2. Upload
-cd services/stripe-app
-pnpm run upload
-```
+1. **Bump the version in both `stripe-app.json` and `package.json`.**
+   Stripe rejects an upload whose version is already published. The upload
+   regenerates `package-lock.json` from `package.json`, so bumping only the
+   manifest sends Stripe a lockfile that disagrees with it.
+   Use semver: patch for fixes, minor for new fields/features, major for breaking changes.
 
-This creates a `package-lock.json` (required by Stripe) and uploads the app.
+2. **Upload.**
+
+   ```bash
+   cd services/stripe-app
+   pnpm run upload
+   ```
+
+   This creates a `package-lock.json` (required by Stripe) and uploads the app.
+   Stripe then processes the files, which is not instant.
+
+3. **Publish the version in the Stripe dashboard.** Until then, installs stay on
+   the previously published version, whatever this repo says.
+
+Nothing in CI checks that a merged manifest change was ever uploaded or published,
+and a failed upload leaves no trace here. Version 1.4.0 sat unpublished for 18 days
+for exactly that reason. Confirm the version is live in the dashboard before
+treating a manifest change as shipped.
+
+#### Permissions Stripe refuses
+
+Stripe rejects a manifest that requests certain permissions, failing the upload with
+`requesting <name> permission is disallowed`. `webhook_write` is one of them, which is
+why OAuth-connected warehouse sources cannot create webhooks and point the user at
+manual setup instead. A restricted API key can still hold those permissions, so the
+source keeps `rak_webhook_write` in its `PERMISSIONS` list while the manifest omits it.
+
+`MANIFEST_DISALLOWED` in `test_stripe_source.py` tracks the refused set, and a test
+fails if the manifest reintroduces one. When Stripe refuses a new permission, add it
+there rather than dropping it from `PERMISSIONS`.
+
+#### What the two permission lists control
+
+`permissions` is what the app may do inside the user's Stripe account.
+
+`provisioning.oauth_scopes` is the scope set PostHog grants Stripe's own OAuth token
+for provisioning calls. The PostHog personal API key handed to a provisioned Stripe
+Projects user currently copies that token's scopes, so widening this list widens both.
+That key widens only on a fresh account request, because a refresh carries previous
+scopes forward.
 
 ## Environment variables
 

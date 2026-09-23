@@ -189,6 +189,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                                 label={`Projected ${periodEndPct}% of the monthly spend limit by ${
                                     resetsOn ?? 'period end'
                                 }`}
+                                limitLabel={`Spend limit · ${formatCreditCount(cap)}`}
                             />
                         </div>
                     </Tooltip>

@@ -1,5 +1,9 @@
 import { DateTime } from 'luxon'
 
+import { SnapshotMode } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
+
+import { ReplayIndexEntry } from './replay-index-entry'
+
 /**
  * Creates a no-op metadata block with all counters set to zero.
  * Used as a base for special events like deletion markers.
@@ -30,6 +34,7 @@ export function createNoopBlockMetadata(sessionId: string, teamId: number): Sess
         messageCount: 0,
         snapshotSource: null,
         snapshotLibrary: null,
+        snapshotMode: null,
         retentionPeriodDays: null,
         isDeleted: false,
     }
@@ -40,6 +45,8 @@ export function createDeletionBlockMetadata(sessionId: string, teamId: number): 
 }
 
 export interface SessionBlockMetadata {
+    replayIndexEntries?: ReplayIndexEntry[]
+    replayIndexTruncated?: boolean
     /** Unique identifier for the session */
     sessionId: string
     /** ID of the team that owns this session recording */
@@ -84,6 +91,8 @@ export interface SessionBlockMetadata {
     snapshotSource: string | null
     /** Library used for the snapshot */
     snapshotLibrary: string | null
+    /** Only applies when snapshotSource is 'mobile'; null until a visual snapshot identifies the mode. */
+    snapshotMode: SnapshotMode | null
     /** Retention period for this session block */
     retentionPeriodDays: number | null
     /** Whether this recording has been deleted */

@@ -10,18 +10,20 @@ from llm_gateway.metrics.prometheus import CLEAR_THINKING_EDIT_DROPPED
 
 CLEAR_THINKING_EDIT: Final[str] = "clear_thinking_20251015"
 OPUS_5_REQUIRED_THINKING_EFFORTS: Final[frozenset[str]] = frozenset({"xhigh", "max"})
+# Rejects `thinking: {"type": "disabled"}` at every effort level, not only the top two.
+ALWAYS_THINKING_MODELS: Final[frozenset[str]] = frozenset({"claude-opus-5-5"})
 
 
 def enable_required_opus_5_thinking(request_data: dict[str, Any]) -> dict[str, Any]:
     output_config = request_data.get("output_config")
     effort = output_config.get("effort") if isinstance(output_config, dict) else None
     thinking = request_data.get("thinking")
+    model = request_data.get("model")
 
-    if (
-        request_data.get("model") != "claude-opus-5"
-        or effort not in OPUS_5_REQUIRED_THINKING_EFFORTS
-        or not isinstance(thinking, dict)
-        or thinking.get("type") != "disabled"
+    if not isinstance(thinking, dict) or thinking.get("type") != "disabled":
+        return request_data
+    if model not in ALWAYS_THINKING_MODELS and (
+        model != "claude-opus-5" or effort not in OPUS_5_REQUIRED_THINKING_EFFORTS
     ):
         return request_data
 
@@ -51,6 +53,19 @@ def convert_enabled_thinking_to_adaptive(request_data: dict[str, Any]) -> dict[s
         output_config["effort"] = reasoning_effort_from_thinking_budget(budget if isinstance(budget, int) else 0)
         normalized["output_config"] = output_config
     return normalized
+
+
+def force_stream_usage(kwargs: dict[str, Any], *, continuous_usage_stats: bool) -> None:
+    if not kwargs.get("stream"):
+        return
+    stream_options = dict(kwargs.get("stream_options") or {})
+    stream_options["include_usage"] = True
+    if continuous_usage_stats:
+        stream_options["continuous_usage_stats"] = True
+    kwargs["stream_options"] = stream_options
+    extra_body = dict(kwargs.get("extra_body") or {})
+    extra_body["stream_options"] = stream_options
+    kwargs["extra_body"] = extra_body
 
 
 def drop_orphaned_clear_thinking(request_data: dict[str, Any], *, product: str) -> dict[str, Any]:

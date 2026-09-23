@@ -104,7 +104,7 @@ describe("SignalSourceService.toggleSource", () => {
     const result = await service.toggleSource(
       client,
       1,
-      "session_replay",
+      "health_checks",
       true,
       [],
       [],

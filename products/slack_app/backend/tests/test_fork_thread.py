@@ -331,22 +331,34 @@ class TestPendingForkHandoff(TestCase):
         )
 
     def _reply_in_dm(self):
-        from products.slack_app.backend.api import _handle_assistant_dm_message
+        from django.test import RequestFactory
 
-        event = {"type": "message", "channel": "D_ALICE", "ts": "999.2", "thread_ts": "999.1", "user": "U_ALICE"}
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+        from products.slack_app.backend.models import SlackSettings
+
+        other_team = Team.objects.create(organization=self.org, name="Default project")
+        other = Integration.objects.create(team=other_team, kind="slack", integration_id="T_SLACK")
+        SlackSettings.objects.update_or_create(
+            slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", defaults={"default_integration": other}
+        )
+        event = {
+            "type": "message",
+            "channel_type": "im",
+            "text": "Please explain",
+            "channel": "D_ALICE",
+            "ts": "999.2",
+            "thread_ts": "999.1",
+            "user": "U_ALICE",
+        }
         with (
             patch("products.slack_app.backend.api.SlackIntegration") as slack_cls,
             patch("products.slack_app.backend.api._start_mention_workflow") as start,
+            patch("products.slack_app.backend.api.resolve_posthog_user_from_event", return_value=self.user),
+            patch("products.slack_app.backend.api.cross_region_routing_enabled", return_value=False),
         ):
             slack_cls.return_value.missing_scopes.return_value = set()
-            _handle_assistant_dm_message(
-                event,
-                self.integration,
-                "T_SLACK",
-                None,
-                "D_ALICE",
-                "999.1",
-                posthog_user=self.user,
+            route_posthog_code_event_to_relevant_region(
+                RequestFactory().post("/slack/event-callback/"), event, "T_SLACK"
             )
         return start
 
@@ -364,6 +376,7 @@ class TestPendingForkHandoff(TestCase):
 
         start = self._reply_in_dm()
 
+        assert start.call_args.args[1] == self.integration
         kwargs = start.call_args.kwargs
         assert kwargs["fork_source_channel"] == "C_SOURCE"
         assert kwargs["fork_source_thread_ts"] == "111.1"

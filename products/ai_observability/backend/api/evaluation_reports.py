@@ -643,7 +643,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                 generated_report_count=Count("runs"),
                 last_generated_at=Max("runs__created_at"),
             )
-            .order_by("-created_at"),
+            .order_by("-created_at", "id"),
         )
         if not is_service_auth(self.request):
             visible_evaluation_ids = self.user_access_control.filter_queryset_by_access_level(
@@ -772,7 +772,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def runs(self, request: Request, **kwargs) -> Response:
         """List report runs (history) for this report."""
         report = self.get_object()
-        queryset = EvaluationReportRun.objects.filter(report=report).order_by("-created_at")
+        queryset = EvaluationReportRun.objects.filter(report=report).order_by("-created_at", "id")
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = EvaluationReportRunSerializer(page, many=True)

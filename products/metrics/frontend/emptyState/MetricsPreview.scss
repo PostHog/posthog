@@ -1,0 +1,241 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.MetricsPreview {
+    --metrics-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden selection state. A direct child of .MetricsPreview so `:checked ~` reaches both cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__panel,
+    &__chart {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    &__chart {
+        padding: 0.5rem 0.75rem 0.625rem;
+    }
+
+    // Latency/memory pairs are stacked on one grid cell and crossfaded, so swapping
+    // the charted metric never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-memory {
+        @include preview-swap-hidden;
+    }
+
+    &__when-latency {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__live-dot {
+        width: 7px;
+        height: 7px;
+        background: var(--metrics-preview-accent);
+        border-radius: 50%;
+        animation: MetricsPreview__pulse 2s ease-in-out infinite;
+    }
+
+    // Metric list
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.375rem 0.5rem;
+        border-radius: var(--radius);
+        transition: background-color 250ms ease;
+    }
+
+    &__row--memory {
+        cursor: pointer;
+        user-select: none;
+    }
+
+    &__row--memory:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    &__radio {
+        width: 9px;
+        height: 9px;
+        background: var(--metrics-preview-accent);
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 2px var(--color-bg-surface-primary);
+        transition: background-color 250ms ease;
+    }
+
+    &__radio--off {
+        background: var(--color-bg-fill-tertiary);
+    }
+
+    &__name {
+        overflow: hidden;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__kind {
+        font-size: 0.5625rem;
+        font-weight: 600;
+        color: var(--color-text-tertiary);
+        text-transform: uppercase;
+    }
+
+    &__hint {
+        padding: 0.25rem 0.75rem 0.5rem;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    // Chart card
+
+    &__spark-window {
+        font-size: 0.625rem;
+        font-weight: 400;
+        color: var(--color-text-tertiary);
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--metrics-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--metrics-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--metrics-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: MetricsPreview__trace 3.2s linear infinite;
+    }
+
+    @include preview-sparkline;
+}
+
+// Memory selected (user clicked the gauge row)
+
+.MetricsPreview__checkbox:checked ~ * .MetricsPreview__when-memory {
+    @include preview-swap-visible;
+}
+
+.MetricsPreview__checkbox:checked ~ * .MetricsPreview__when-latency {
+    @include preview-swap-hidden;
+}
+
+// The list's selection dot follows the charted metric.
+.MetricsPreview__checkbox:checked ~ .MetricsPreview__panel .MetricsPreview__row--latency .MetricsPreview__radio {
+    background: var(--color-bg-fill-tertiary);
+}
+
+.MetricsPreview__checkbox:not(:checked) ~ .MetricsPreview__panel .MetricsPreview__row--memory .MetricsPreview__radio {
+    background: var(--color-bg-fill-tertiary);
+}
+
+.MetricsPreview__checkbox:checked ~ .MetricsPreview__panel .MetricsPreview__row--memory {
+    background: color-mix(in oklab, var(--metrics-preview-accent) 8%, transparent);
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the row it labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.MetricsPreview__checkbox:focus-visible ~ .MetricsPreview__panel .MetricsPreview__row--memory {
+    outline: 2px solid var(--metrics-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the gauge row until it's selected.
+.MetricsPreview:not(.MetricsPreview--static)
+    .MetricsPreview__checkbox:not(:checked)
+    ~ .MetricsPreview__panel
+    .MetricsPreview__row--memory
+    .MetricsPreview__radio {
+    animation: MetricsPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes MetricsPreview__nudge {
+    0%,
+    100% {
+        box-shadow:
+            inset 0 0 0 2px var(--color-bg-surface-primary),
+            0 0 0 0 color-mix(in oklab, var(--metrics-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow:
+            inset 0 0 0 2px var(--color-bg-surface-primary),
+            0 0 0 4px color-mix(in oklab, var(--metrics-preview-accent) 20%, transparent);
+    }
+}
+
+@keyframes MetricsPreview__pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.35;
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes MetricsPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; clicking the
+// gauge row still flips the state (transitions only).
+@include preview-motion-guards('MetricsPreview');

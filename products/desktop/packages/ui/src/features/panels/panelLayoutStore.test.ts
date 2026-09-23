@@ -17,6 +17,11 @@ import {
   openMultipleFiles,
   withRootGroup,
 } from "./panelTestHelpers";
+import type { LeafPanel, PanelNode } from "./panelTypes";
+
+function leafPanels(node: PanelNode): LeafPanel[] {
+  return node.type === "leaf" ? [node] : node.children.flatMap(leafPanels);
+}
 
 describe("panelLayoutStore", () => {
   beforeEach(() => {
@@ -232,6 +237,43 @@ describe("panelLayoutStore", () => {
         type: "posthog-object",
         objectId: second,
       });
+    });
+  });
+
+  describe("openInjectedBlockTab", () => {
+    beforeEach(() => {
+      usePanelLayoutStore.getState().initializeTask("task-1");
+    });
+
+    const contextSnapshot = (body: string) => ({
+      block: {
+        kind: "channel-context" as const,
+        body,
+        attrs: { channel: "growth" },
+      },
+      label: "#growth CONTEXT.md",
+    });
+
+    it("keys snapshots by body, so a changed CONTEXT.md opens beside the old one", () => {
+      const store = usePanelLayoutStore.getState();
+      store.openInjectedBlockTab("task-1", contextSnapshot("# Growth v1"));
+      store.openInjectedBlockTab("task-1", contextSnapshot("# Growth v2"));
+      store.openInjectedBlockTab("task-1", contextSnapshot("# Growth v1"));
+
+      const snapshots = leafPanels(getPanelTree("task-1")).flatMap((leaf) =>
+        leaf.content.tabs
+          .filter((tab) => tab.data.type === "injected-block")
+          .map((tab) => ({ tab, activeTabId: leaf.content.activeTabId })),
+      );
+      expect(snapshots.map(({ tab }) => tab.label)).toEqual([
+        "#growth CONTEXT.md",
+        "#growth CONTEXT.md",
+      ]);
+      expect(snapshots.map(({ tab }) => tab.data)).toEqual([
+        { type: "injected-block", block: contextSnapshot("# Growth v1").block },
+        { type: "injected-block", block: contextSnapshot("# Growth v2").block },
+      ]);
+      expect(snapshots[0]?.activeTabId).toBe(snapshots[0]?.tab.id);
     });
   });
 

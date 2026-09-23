@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, Mock, patch
 
@@ -61,7 +61,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         cache.clear()
         super().tearDown()
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_no_events_updates_checkpoint(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -80,7 +80,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at is None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_existing_checkpoint_used(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -100,7 +100,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         params = call_args[0][1]
         assert params["last_sync_timestamp"] == checkpoint_time
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_updates_null_timestamps(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -118,7 +118,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at == latest_timestamp
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_updates_only_more_recent_timestamps(
@@ -148,7 +148,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         # flag3 should be updated
         assert self.flag3.last_called_at == newer_timestamp
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_handles_nonexistent_flags(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -168,7 +168,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at is not None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_skips_flag_keys_with_nul_bytes(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -187,7 +187,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at is not None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     @override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_BATCH_SIZE=2)
@@ -234,7 +234,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         assert flag4.last_called_at == timestamp
         assert flag5.last_called_at == timestamp
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_redis_error_falls_back_to_lookback_days(
@@ -258,7 +258,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         assert last_sync.month == 6
         assert last_sync.day == 14
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.tasks.tasks.get_client")
     def test_concurrent_execution_prevented(self, mock_get_client: MagicMock) -> None:
         """Only one instance should execute at a time due to lock"""
@@ -273,7 +273,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
             # Task should exit early without executing query
             mock_sync_execute.assert_not_called()
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_lock_released_after_execution(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -288,7 +288,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         # Lock should be deleted
         assert cache.get(lock_key) is None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_lock_released_after_exception(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -305,7 +305,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         # Lock should be deleted
         assert cache.get(lock_key) is None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_handles_invalid_timestamps(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -328,7 +328,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         self.flag2.refresh_from_db()
         assert self.flag2.last_called_at is not None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_checkpoint_updated_to_current_sync_timestamp(
@@ -356,7 +356,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         assert "2024-06-15" in stored_timestamp
         assert "2024-06-15T11:59:00" in stored_timestamp
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     @override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT=2)
@@ -373,7 +373,7 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         params = call_args[0][1]
         assert params["limit"] == 2
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_handles_naive_datetimes_from_clickhouse(
@@ -425,7 +425,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         cache.clear()
         super().tearDown()
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_chunking_splits_large_window(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -452,7 +452,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
             params = call[0][1]
             assert params["last_sync_timestamp"] == expected_starts[i], f"Chunk {i} start mismatch"
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_checkpoint_stops_at_first_failed_chunk(
@@ -490,7 +490,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         stored = redis_mock.storage.get(checkpoint_key)
         assert stored == tz.make_aware(datetime(2024, 6, 15, 11, 50, 0)).isoformat()
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_every_chunk_failing_raises_and_leaves_checkpoint(
@@ -515,7 +515,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         assert mock_sync_execute.call_count == 1
         assert redis_mock.storage.get(checkpoint_key) == checkpoint_time.isoformat().encode()
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_transient_error_propagates_instead_of_being_tolerated(
@@ -548,7 +548,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at is None
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_max_lookback_caps_stale_checkpoint(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -569,7 +569,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         expected_cap = tz.make_aware(datetime(2024, 6, 15, 6, 0, 0))
         assert first_start == expected_cap
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_merges_results_across_chunks(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
@@ -598,7 +598,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at == later_ts
 
-    @freeze_time("2024-06-15 12:00:00")
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_all_none_timestamps_skips_pg_query(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:

@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { NEW_QUERY_STARTED_ERROR_MESSAGE, isUserInitiatedError } from 'lib/utils/kea-logic-builders'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { AggregatedSpanRow, DateRange } from '~/queries/schema/schema-general'
@@ -24,7 +25,6 @@ import {
 import type { HeatmapBrushSelection } from './heatmapBrush'
 import { type DurationRange, operationFilterGroup } from './operationFilters'
 import { traceLookupDateRange } from './traceLinks'
-import { isUserInitiatedError, NEW_QUERY_STARTED_ERROR_MESSAGE } from './tracingDataLogic'
 import { DEFAULT_DATE_RANGE } from './tracingFiltersLogic'
 import type { Span } from './types'
 

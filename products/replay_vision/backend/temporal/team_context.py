@@ -11,11 +11,11 @@ from collections.abc import Mapping
 from functools import cache
 from typing import Any
 
-from django.db.models import Q
-
 from posthog.llm.semantic_enrichment import get_team_business_context
 from posthog.models import Team
 from posthog.settings import EE_AVAILABLE
+
+from products.event_definitions.backend.models import effective_project_id_expr
 
 # CoreMemory.text is model-capped at 10k chars; cap lower since the preamble is resent on every scan step.
 _MAX_PRODUCT_CONTEXT_LEN = 4000
@@ -102,9 +102,10 @@ def fetch_event_descriptions(team: Team, columns: list[str], rows: list[list[Any
 
     custom_names = session_custom_event_names(columns, rows)
     found = dict(
-        EnterpriseEventDefinition.objects.filter(
+        EnterpriseEventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(
             # Definitions are project-scoped with a team-scoped legacy fallback; mirrors posthog/api/event_definition.py.
-            Q(project_id=team.project_id) | Q(project_id__isnull=True, team_id=team.project_id),
+            effective_project_id=team.project_id,
             name__in=custom_names,
         )
         .exclude(description__isnull=True)

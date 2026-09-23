@@ -12,7 +12,7 @@ import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { waitForHogInvocationResultsMvReady } from '~/tests/helpers/hog-invocation-results'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
@@ -193,18 +193,15 @@ describe('RerunPaginatorService integration', () => {
         // consumers keep their connections. Includes KAFKA_HOG_INVOCATION_RESULTS, which this test's
         // MV needs but the shared set does not cover.
         await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
-        await clickhouse.truncate('hog_invocation_results_data')
         await waitForHogInvocationResultsMvReady(clickhouse)
     })
 
     beforeEach(async () => {
-        await resetTestDatabase()
-        await clickhouse.truncate('hog_invocation_results_data')
         seededCount = 0
 
         hub = await createHub()
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
         // Real seeding path: outputs → kafka → MV → CH.
         const deps = createCdpConsumerDeps(hub, kafkaProducer)

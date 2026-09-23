@@ -1,6 +1,7 @@
 import { DndContext, DragEndEvent, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
@@ -14,9 +15,10 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExperimentStatsMethod, InsightType } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+
 import { experimentLogic } from '../../experimentLogic'
 import { experimentMetricsLogic } from '../../experimentMetricsLogic'
-import { isLaunched } from '../../experimentsLogic'
 import { resolveSequentialEnabled } from '../../ExperimentView/sequential'
 import { type ExperimentVariantResult, getDefaultMetricTitle, getVariantInterval } from '../shared/utils'
 import { MAX_AXIS_RANGE } from './constants'
@@ -43,6 +45,8 @@ interface MetricsTableProps {
     isSecondary: boolean
     getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
     showDetailsModal?: boolean
+    /** Drops the table's own border so it can sit inside a parent panel. */
+    embedded?: boolean
 }
 
 export function MetricsTable({
@@ -53,6 +57,7 @@ export function MetricsTable({
     isSecondary,
     getInsightType,
     showDetailsModal = true,
+    embedded = false,
 }: MetricsTableProps): JSX.Element {
     const { experiment, exposuresLoading } = useValues(experimentLogic)
     const { recalculatingMetricUuids } = useValues(experimentMetricsLogic({ experiment }))
@@ -176,7 +181,7 @@ export function MetricsTable({
             accessibility={{ announcements }}
             onDragEnd={handleDragEnd}
         >
-            <div className="w-full overflow-x-auto rounded-md border">
+            <div className={clsx('w-full overflow-x-auto', !embedded && 'rounded-md border')}>
                 <table className="w-full border-collapse text-sm">
                     <colgroup>
                         <col className="min-w-[200px]" />

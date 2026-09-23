@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.awin import (
     AwinResumeConfig,
     awin_source,
@@ -48,7 +46,7 @@ class AwinSource(ResumableSource[AwinSourceConfig, AwinResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AWIN,
+            name=ExternalDataSourceType.AWIN,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Awin",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -107,6 +105,12 @@ Create a personal OAuth2 token from the [Awin API settings](https://ui.awin.com/
         def _description(endpoint: str) -> str | None:
             if endpoint == "reports_advertiser":
                 return "Full refresh only. A rolling snapshot of the last 30 days of performance, aggregated per advertiser"
+            if endpoint == "reports_publisher":
+                return "Full refresh only. A rolling snapshot of the last 30 days of performance, aggregated per publisher. Needs an advertiser account"
+            if endpoint == "advertiser_publishers":
+                return "Full refresh only. Needs an advertiser account"
+            if endpoint in ("commission_groups", "programme_details"):
+                return "Full refresh only. Takes one request per joined programme, so it syncs slowly if your publisher accounts are in many programmes"
             if endpoint == "transactions":
                 return "Only syncs the last 365 days on initial sync"
             return None

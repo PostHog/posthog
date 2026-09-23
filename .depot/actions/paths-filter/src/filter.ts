@@ -38,6 +38,12 @@ export interface FilterResults {
   [key: string]: File[]
 }
 
+// A key gates a job on whether any file matched it, so its answer is `length > 0` and
+// nothing finer. Both the action's outputs and the shadow comparison read it through here.
+export function firedKeys(results: FilterResults): Set<string> {
+  return new Set(Object.keys(results).filter(key => results[key].length > 0))
+}
+
 export class Filter {
   rules: {[key: string]: FilterRuleItem[]} = {}
 

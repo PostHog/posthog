@@ -11,6 +11,8 @@ from posthog.hogql.database.utils import get_join_field_chain
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
@@ -245,10 +247,9 @@ def _is_same_external_scope(
         return False
 
     # noqa keeps the warehouse ORM off this module's import path — only needed when a Database is built.
-    from products.warehouse_sources.backend.facade.models import ExternalDataSource  # noqa: PLC0415
 
     source = warehouse_table.external_data_source
-    if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+    if source is not None and source.access_method == ExternalDataSourceAccessMethod.DIRECT:
         return isinstance(target_hogql_table, DirectSQLTable) and target_hogql_table.external_data_source_id == str(
             source.id
         )

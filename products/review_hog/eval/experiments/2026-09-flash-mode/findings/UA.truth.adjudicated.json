@@ -1,0 +1,56 @@
+{
+    "UA1": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 6,
+        "source": "adjudicated:3/3"
+    },
+    "UA2": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 18,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "UA3": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 39,
+        "source": "adjudicated:3/3"
+    },
+    "UA4": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 4,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "UA5": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 9,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "UA6": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "adjudicated:0/3"
+    },
+    "UA7": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 2,
+        "source": "adjudicated:2/3"
+    },
+    "UA8": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "UA9": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 58,
+        "source": "adjudicated:2/3"
+    }
+}

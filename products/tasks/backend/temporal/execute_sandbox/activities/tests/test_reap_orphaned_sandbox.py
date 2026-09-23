@@ -5,15 +5,18 @@ from unittest.mock import ANY, Mock, patch
 
 from asgiref.sync import async_to_sync
 
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox import (
     ReapOrphanedSandboxInput,
     reap_orphaned_sandbox,
 )
 from products.tasks.backend.temporal.execute_sandbox.activities.sandbox_state import SANDBOX_ID_STATE_KEY
 
-# Patch target — `Sandbox` is imported into the reap module's namespace, so
-# patching at the import site is what intercepts the call.
-SANDBOX_IMPORT_PATH = "products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox.Sandbox"
+# Patch target — the reap module resolves the provider class per sandbox id, so
+# patching the resolver at its import site is what intercepts the call.
+SANDBOX_IMPORT_PATH = (
+    "products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox.get_sandbox_class_for_sandbox_id"
+)
 
 
 @pytest.mark.requires_secrets
@@ -29,7 +32,7 @@ class TestReapOrphanedSandbox:
         assert result.reaped_sandbox_id is None
         assert result.destroy_succeeded is True
         # Modal call must not happen when there's nothing to reap.
-        sandbox_cls.get_by_id.assert_not_called()
+        sandbox_cls.return_value.get_by_id.assert_not_called()
 
     def test_returns_none_when_task_run_missing(self, activity_environment):
         with patch(SANDBOX_IMPORT_PATH) as sandbox_cls:
@@ -39,7 +42,7 @@ class TestReapOrphanedSandbox:
             )
 
         assert result.reaped_sandbox_id is None
-        sandbox_cls.get_by_id.assert_not_called()
+        sandbox_cls.return_value.get_by_id.assert_not_called()
 
     @pytest.mark.parametrize("bogus_value", [123, "", None, [], {}])
     def test_treats_non_string_persisted_value_as_no_sandbox(self, activity_environment, test_task_run, bogus_value):
@@ -56,15 +59,26 @@ class TestReapOrphanedSandbox:
             )
 
         assert result.reaped_sandbox_id is None
-        sandbox_cls.get_by_id.assert_not_called()
+        sandbox_cls.return_value.get_by_id.assert_not_called()
 
-    def test_destroys_and_clears_when_persisted_id_present(self, activity_environment, test_task_run):
-        test_task_run.state = {SANDBOX_ID_STATE_KEY: "sb-orphan", "mode": "background"}
+    @pytest.mark.parametrize("replacement", [False, True])
+    def test_destroys_and_clears_when_persisted_id_present(self, activity_environment, test_task_run, replacement):
+        connection = {
+            SANDBOX_ID_STATE_KEY: "sb-orphan",
+            "sandbox_url": "https://sandbox.example.com/rpc",
+            "sandbox_connect_token": "fake-token",
+            "sandbox_jwt_kid": "fake-kid",
+            "sandbox_backend": "modal",
+        }
+        test_task_run.state = {**connection, "mode": "background"}
         test_task_run.save(update_fields=["state"])
 
         with patch(SANDBOX_IMPORT_PATH) as sandbox_cls:
             destroy_mock = Mock()
-            sandbox_cls.get_by_id.return_value = Mock(destroy=destroy_mock)
+            if replacement:
+                connection[SANDBOX_ID_STATE_KEY] = "sb-replacement"
+                destroy_mock.side_effect = lambda: TaskRun.update_state_atomic(test_task_run.id, updates=connection)
+            sandbox_cls.return_value.get_by_id.return_value = Mock(destroy=destroy_mock)
 
             result = async_to_sync(activity_environment.run)(
                 reap_orphaned_sandbox,
@@ -73,13 +87,12 @@ class TestReapOrphanedSandbox:
 
         assert result.reaped_sandbox_id == "sb-orphan"
         assert result.destroy_succeeded is True
-        sandbox_cls.get_by_id.assert_called_once_with("sb-orphan")
+        sandbox_cls.return_value.get_by_id.assert_called_once_with("sb-orphan")
         destroy_mock.assert_called_once()
 
         test_task_run.refresh_from_db()
         # State key is cleared; other keys preserved.
-        assert SANDBOX_ID_STATE_KEY not in test_task_run.state
-        assert test_task_run.state == {"mode": "background"}
+        assert test_task_run.state == ({**connection, "mode": "background"} if replacement else {"mode": "background"})
 
     def test_records_cpu_usage_before_destroy(self, activity_environment, test_task_run):
         test_task_run.state = {SANDBOX_ID_STATE_KEY: "sb-orphan"}
@@ -91,7 +104,7 @@ class TestReapOrphanedSandbox:
                 "products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox.close_sandbox_session"
             ) as close_session,
         ):
-            sandbox = sandbox_cls.get_by_id.return_value
+            sandbox = sandbox_cls.return_value.get_by_id.return_value
             sandbox.read_cpu_usage_usec.return_value = 12_345_678
             sandbox.read_billed_cpu_usage_usec.return_value = 15_000_000
 
@@ -119,7 +132,7 @@ class TestReapOrphanedSandbox:
         test_task_run.save(update_fields=["state"])
 
         with patch(SANDBOX_IMPORT_PATH) as sandbox_cls:
-            sandbox_cls.get_by_id.side_effect = RuntimeError("modal down")
+            sandbox_cls.return_value.get_by_id.side_effect = RuntimeError("modal down")
 
             result = async_to_sync(activity_environment.run)(
                 reap_orphaned_sandbox,

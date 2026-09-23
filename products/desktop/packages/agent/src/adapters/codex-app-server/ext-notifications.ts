@@ -36,7 +36,7 @@ export function buildSdkSessionParams(
 }
 
 /** Per-turn token usage. `totalTokens` is derived so consumers don't re-sum. */
-export interface TurnCompleteUsage {
+interface TurnCompleteUsage {
   inputTokens: number;
   outputTokens: number;
   cachedReadTokens: number;

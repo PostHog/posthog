@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this alert configuration.",
+            "type": "string"
+        },
+        "slack_channel_id": {
+            "description": "Slack channel ID to post in, for example C0123456789.",
+            "type": "string"
+        },
+        "slack_channel_name": {
+            "description": "Optional channel name shown on the destination.",
+            "type": "string"
+        },
+        "slack_workspace_id": {
+            "description": "Integration ID of the connected Slack workspace.",
+            "type": "number"
+        },
+        "type": {
+            "default": "slack",
+            "description": "Destination type. Slack is the only type this tool creates.",
+            "enum": ["slack"],
+            "type": "string"
+        }
+    },
+    "required": ["id", "slack_workspace_id", "slack_channel_id"],
+    "type": "object"
+}

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -91,7 +91,7 @@ def pending_batch_select_columns(status_alias: str) -> str:
         b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
         b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
         b.cumulative_row_count, b.resource_name, b.is_resume,
-        b.is_first_ever_sync, b.metadata,
+        b.is_first_ever_sync, b.metadata, b.destination_ids,
         COALESCE({status_alias}.attempt, 0) AS latest_attempt,
         b.created_at
     """
@@ -373,6 +373,40 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     """
 
 
+def _orphaned_candidate_runs_sql() -> str:
+    """Runs holding a ``failed`` batch that still have claimable batches behind it.
+
+    Split out from its caller so the plan-shape test can EXPLAIN exactly what runs,
+    the same way :func:`_state_claim_candidates_sql` is pinned.
+    """
+    return f"""
+        WITH stuck_runs AS (
+            SELECT
+                b.run_uuid,
+                b.team_id,
+                b.schema_id,
+                MIN(b.created_at) AS oldest_created_at,
+                count(*) AS non_terminal_batches
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+              AND b.latest_state IN ('pending', 'waiting_retry')
+            GROUP BY b.run_uuid, b.team_id, b.schema_id
+        )
+        SELECT r.run_uuid, r.team_id, r.schema_id, r.non_terminal_batches
+        FROM stuck_runs r
+        WHERE EXISTS (
+            SELECT 1
+            FROM {BATCH_TABLE} bf
+            WHERE bf.run_uuid = r.run_uuid
+              AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+              AND bf.latest_state = 'failed'
+            OFFSET 0
+        )
+        ORDER BY r.oldest_created_at ASC
+        LIMIT %(limit)s
+    """
+
+
 def _stranded_candidate_runs_sql() -> str:
     """Candidate selection for the stranded-run sweep: aggregate first, then gate per run.
 
@@ -387,6 +421,22 @@ def _stranded_candidate_runs_sql() -> str:
     The ``OFFSET 0`` in the failed-run gate is an optimization fence: without
     it the planner flattens the subquery back into that same hash anti-join.
     It changes no semantics; the plan-shape test pins the probe.
+
+    Loader progress anywhere in a (team_id, schema_id) group spares every run
+    in it. The loader serializes a group and claims its batches oldest-first,
+    so a run queued behind a long sibling makes no progress of its own until
+    the sibling drains, however many hours that takes. An active-state
+    transition in the group inside the stale window means the group is being
+    drained and its other runs are waiting their turn, not abandoned. Only
+    'executing', 'succeeded' and 'waiting_retry' count, as in
+    ``supersede_other_runs``: a 'failed' write is the reconcile sweep's own
+    output, and heartbeats refresh the status log but not ``state_changed_at``,
+    so a wedged-but-heartbeating loader cannot shield a group forever (its live
+    lease already protects it while it heartbeats). The group lease cannot
+    stand in for this check: the loader releases it between claim windows, so
+    a busy group is lease-less for an instant many times an hour. The probe
+    runs once per group rather than once per run, because a genuinely stale
+    group answers only after reading every batch it holds.
     """
     return f"""
         WITH stranded_runs AS (
@@ -396,6 +446,17 @@ def _stranded_candidate_runs_sql() -> str:
               AND b.created_at <= now() - make_interval(secs => %(stale)s)
               AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
             GROUP BY b.run_uuid, b.team_id, b.schema_id
+        ),
+        progressing_groups AS (
+            SELECT g.team_id, g.schema_id
+            FROM (SELECT DISTINCT team_id, schema_id FROM stranded_runs) g
+            WHERE EXISTS (
+                SELECT 1 FROM {BATCH_TABLE} bp
+                WHERE bp.team_id = g.team_id AND bp.schema_id = g.schema_id
+                  AND bp.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                  AND bp.latest_state IN ('executing', 'succeeded', 'waiting_retry')
+                  AND bp.state_changed_at > now() - make_interval(secs => %(stale)s)
+            )
         )
         SELECT r.run_uuid, r.team_id, r.schema_id
         FROM stranded_runs r
@@ -410,6 +471,10 @@ def _stranded_candidate_runs_sql() -> str:
                 AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                 AND bf.latest_state = 'failed'
               OFFSET 0
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM progressing_groups p
+              WHERE p.team_id = r.team_id AND p.schema_id = r.schema_id
           )
         -- Oldest-batch-first, so the window can't be starved by an arbitrary set of
         -- not-yet-stale runs the outer HAVING later rejects: the longest-stranded runs
@@ -473,6 +538,8 @@ class PendingBatch:
     is_first_ever_sync: bool
     metadata: dict[str, Any]
     latest_attempt: int
+    # Snapshotted on the batch when the run started. Empty means the PostHog warehouse only.
+    destination_ids: list[str] = field(default_factory=list)
     created_at: datetime | None = None
     # Observed denormalized state clock at read time; None for sinks that don't surface it.
     state_changed_at: datetime | None = None
@@ -510,6 +577,7 @@ class PendingBatch:
             "partition_mode": self.metadata.get("partition_mode"),
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
+            "destination_ids": self.destination_ids or [],
         }
 
 
@@ -539,6 +607,20 @@ class StrandedRunRef:
     team_id: int
     schema_id: str
     workflow_run_id: str | None
+    non_terminal_batches: int
+
+
+@dataclass(frozen=True, slots=True)
+class OrphanedRunRef:
+    """A run holding a ``failed`` batch that still has non-terminal batches behind it.
+
+    Carries no ``job_id``: the job is already terminal by the time a run reaches
+    this state, so the only work left is terminalizing the queue rows.
+    """
+
+    run_uuid: str
+    team_id: int
+    schema_id: str
     non_terminal_batches: int
 
 
@@ -580,6 +662,23 @@ class GroupLease:
     updated_at: datetime
     expires_at: datetime
     is_live: bool
+
+
+@dataclass(frozen=True, slots=True)
+class QueueFreshness:
+    """What one freshness probe reads off the pending set.
+
+    Three numbers rather than one because they fail differently: the age says
+    how far the queue head has fallen behind, the blocked count says how much
+    of the table can never move, and the group count says how widely the lag
+    is spread. An alert on the age alone cannot tell one wedged tenant from a
+    fleet-wide stall.
+    """
+
+    # None when nothing claimable is waiting.
+    oldest_age_seconds: float | None
+    blocked_batches: int
+    backlogged_groups: int
 
 
 class BatchQueue:
@@ -763,7 +862,7 @@ class BatchQueue:
                         b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
                         b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
                         b.cumulative_row_count, b.resource_name, b.is_resume,
-                        b.is_first_ever_sync, b.metadata,
+                        b.is_first_ever_sync, b.metadata, b.destination_ids,
                         b.latest_attempt,
                         b.created_at
                     FROM {BATCH_TABLE} b
@@ -1248,6 +1347,56 @@ class BatchQueue:
         ]
 
     @staticmethod
+    async def get_runs_with_orphaned_batches(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        limit: int,
+    ) -> list[OrphanedRunRef]:
+        """Runs that hold a ``failed`` batch and still have non-terminal batches behind it.
+
+        Those batches are stuck in both directions: the claim query refuses any
+        run with a failed batch, and the stranded sweep excludes the same runs
+        because ``get_failed_runs`` is supposed to own them. It cannot reach all
+        of them. It is ``ORDER BY failed_at DESC LIMIT n`` inside a lookback,
+        with no gate for runs it has already swept, so every sweep re-picks the
+        same newest runs; once a failure ages past the lookback its leftovers
+        are unreachable until the retention prune, days later.
+
+        This pass closes that gap and cannot starve: oldest-first, and a run
+        leaves the set as soon as its batches go terminal. Normally it returns
+        nothing — the set is non-empty only when the newest-first pass has
+        fallen behind.
+
+        Shaped like :func:`_stranded_candidate_runs_sql`: aggregate the bounded
+        claimable scan into runs first, then one ``sb_run_gate_idx`` probe per
+        candidate run. Gating the raw batch rows instead turns the failed probe
+        into a hash anti-join whose hash side is every failed batch in the
+        window, which is exactly the shape that melted down under a failure
+        storm. The ``OFFSET 0`` fence is what holds the probe shape.
+
+        The candidate states are exactly ``sb_claimable_idx``'s, and must stay
+        that way. Widening them to every non-terminal state (adding 'waiting'
+        and 'executing') puts the scan outside that partial index, and the
+        planner answers it with a parallel sequential scan of every partition
+        instead — 12x the cost on the production queue, once every reconcile
+        interval. It also loses nothing: a blocked batch is one no consumer
+        could claim, and 'executing' rows belong to the stale-executing sweep.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(_orphaned_candidate_runs_sql(), {"limit": limit})
+            rows = await cur.fetchall()
+
+        return [
+            OrphanedRunRef(
+                run_uuid=row["run_uuid"],
+                team_id=row["team_id"],
+                schema_id=row["schema_id"],
+                non_terminal_batches=row["non_terminal_batches"],
+            )
+            for row in rows
+        ]
+
+    @staticmethod
     async def get_stale_stranded_runs(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -1262,7 +1411,9 @@ class BatchQueue:
         without this the batches strand until the retention prune (days later).
 
         Staleness is *loader progress only*: the newest status write across the run, or — when the
-        loader never claimed anything — the oldest batch's age. Batch inserts (producer activity)
+        loader never claimed anything — the oldest batch's age. Progress on any sibling run of the same
+        (team_id, schema_id) group also spares the run: the loader drains a group one run at a time, so
+        a run queued behind a long sibling is waiting, not abandoned. Batch inserts (producer activity)
         deliberately do not reset the clock, mirroring ``get_run_activity_summary``, so a live producer
         streaming into a dead loader still reads as stale. A live group lease means a pod is actively
         working the group (making progress, or the recovery sweep reclaims it on lease expiry), so those
@@ -1314,36 +1465,74 @@ class BatchQueue:
         ]
 
     @staticmethod
-    async def get_oldest_unclaimed_batch_age_seconds(
+    async def get_queue_freshness(
         conn: psycopg.AsyncConnection[Any],
-    ) -> float | None:
-        """Age in seconds of the oldest batch no consumer has ever picked up, or None when none are waiting.
+        *,
+        backlog_threshold_seconds: int,
+    ) -> QueueFreshness:
+        """Three readings off one scan of the pending set, bounded to ``FRESHNESS_WINDOW``.
 
-        'pending' means no status row yet — this is the queue's data-freshness
-        signal, and it rises whenever loading stalls regardless of the cause.
-        Answered from the claimable partial index; bounded to
-        ``FRESHNESS_WINDOW`` so the reported age saturates instead of scanning
-        unbounded history.
+        ``oldest_age_seconds`` excludes batches whose run already holds a
+        ``failed`` batch. The claim query refuses those (see
+        ``_state_claim_candidates_sql``) and the stranded sweep skips them too,
+        so nothing can ever pick them up: counting them made the gauge report
+        the age of an abandoned row rather than the queue's lag, and it grew at
+        exactly one second per second until retention pruned it.
+        ``get_oldest_non_terminal_batch_age_seconds`` already excludes them for
+        the same reason.
+
+        ``blocked_batches`` keeps that excluded population visible in its own
+        lane, so a leak still shows up somewhere instead of disappearing.
+
+        ``backlogged_groups`` is the breadth companion to the age: the age is a
+        fleet-wide max, so one wedged (team, schema) pins it and a fleet-wide
+        alert cannot tell one stuck tenant from a real stall. Counting the
+        groups past the threshold separates those.
         """
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
-                SELECT EXTRACT(EPOCH FROM (now() - min(b.created_at)))
-                FROM {BATCH_TABLE} b
-                WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
-                  AND b.latest_state = 'pending'
-                """
+                WITH pending AS (
+                    SELECT
+                        b.team_id,
+                        b.schema_id,
+                        b.created_at,
+                        EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_failed
+                            WHERE b_failed.run_uuid = b.run_uuid
+                                AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND b_failed.latest_state = 'failed'
+                        ) AS blocked
+                    FROM {BATCH_TABLE} b
+                    WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
+                      AND b.latest_state = 'pending'
+                )
+                SELECT
+                    EXTRACT(EPOCH FROM (now() - min(created_at) FILTER (WHERE NOT blocked))),
+                    count(*) FILTER (WHERE blocked),
+                    count(DISTINCT (team_id, schema_id)) FILTER (
+                        WHERE NOT blocked
+                          AND created_at <= now() - make_interval(secs => %(backlog_threshold)s)
+                    )
+                FROM pending
+                """,
+                {"backlog_threshold": backlog_threshold_seconds},
             )
             row = await cur.fetchone()
-        if row is None or row[0] is None:
-            return None
-        return float(row[0])
+        if row is None:
+            return QueueFreshness(oldest_age_seconds=None, blocked_batches=0, backlogged_groups=0)
+        return QueueFreshness(
+            oldest_age_seconds=float(row[0]) if row[0] is not None else None,
+            blocked_batches=int(row[1] or 0),
+            backlogged_groups=int(row[2] or 0),
+        )
 
     @staticmethod
     async def get_claimable_batch_count(conn: psycopg.AsyncConnection[Any]) -> int:
         """How many batches are state-eligible for claiming right now (queue depth).
 
-        The depth companion to :meth:`get_oldest_unclaimed_batch_age_seconds`:
+        The depth companion to :meth:`get_queue_freshness`:
         the claim's per-run, schema-busy, and lease gates are deliberately not
         applied (they need per-row probes; this must stay one cheap partial-index
         scan), and neither is the retry-backoff gate (it needs the fleet's backoff

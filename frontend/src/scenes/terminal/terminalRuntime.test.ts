@@ -1,0 +1,96 @@
+import { V86 } from 'v86'
+
+import assetHashes from './assets/hashes.json'
+import { NinePServer } from './ninepServer'
+import { TerminalFilesystem } from './terminalFilesystem'
+import { TerminalRuntime } from './terminalRuntime'
+
+jest.mock('v86', () => ({ V86: jest.fn() }))
+jest.mock('v86/build/v86.wasm?url', () => 'wasm', { virtual: true })
+jest.mock('./assets/seabios.bin?url', () => 'bios', { virtual: true })
+jest.mock('./assets/vgabios.bin?url', () => 'vga', { virtual: true })
+jest.mock('./assets/buildroot-bzimage.bin?url', () => 'kernel', { virtual: true })
+jest.mock('./assets/jq-linux-i386.bin?url', () => 'jq', { virtual: true })
+jest.mock('./assets/tools-linux-i386.tar.gz.bin?url', () => 'tools', { virtual: true })
+
+describe('terminal VM lifecycle', () => {
+    const originalGlobals = {
+        fetch: globalThis.fetch,
+        Blob: globalThis.Blob,
+        Response: globalThis.Response,
+        DecompressionStream: globalThis.DecompressionStream,
+    }
+    const originalSubtle = Object.getOwnPropertyDescriptor(crypto, 'subtle')
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        const hashes = [
+            '73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98',
+            'a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880',
+            '7befbaea31e249d9a518c4b95fa42b2a193d0e3de46250d617cbdeb866ee28b0',
+            'ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd',
+            assetHashes.toolsSha256,
+        ]
+        Object.defineProperty(crypto, 'subtle', {
+            configurable: true,
+            value: {
+                digest: jest.fn(
+                    async () => Uint8Array.from(hashes.shift()!.match(/../g)!, (hex) => parseInt(hex, 16)).buffer
+                ),
+            },
+        })
+        Object.assign(globalThis, {
+            fetch: jest.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(0) })),
+            Blob: jest.fn(() => ({ stream: () => ({ pipeThrough: () => ({}) }) })),
+            Response: jest.fn(() => ({ arrayBuffer: async () => new ArrayBuffer(0) })),
+            DecompressionStream: jest.fn(),
+        })
+    })
+
+    afterEach(() => {
+        Object.assign(globalThis, originalGlobals)
+        if (originalSubtle) {
+            Object.defineProperty(crypto, 'subtle', originalSubtle)
+        } else {
+            Reflect.deleteProperty(crypto, 'subtle')
+        }
+    })
+
+    it.each(['initializing', 'loaded'])(
+        'stops a VM that is %s without allowing late output or startup',
+        async (phase) => {
+            const listeners = new Map<string, (value?: number) => void>()
+            const emulator = {
+                add_listener: jest.fn((event, callback) => listeners.set(event, callback)),
+                run: jest.fn(),
+                destroy: jest.fn(async () => {}),
+            }
+            jest.mocked(V86).mockImplementation(() => emulator as unknown as V86)
+            const output = jest.fn()
+            const ready = jest.fn()
+            const runtime = new TerminalRuntime(output)
+            await runtime.start(
+                new NinePServer(new TerminalFilesystem(), jest.fn()),
+                new AbortController().signal,
+                ready
+            )
+            expect(V86).toHaveBeenCalledWith(expect.objectContaining({ autostart: false }))
+            if (phase === 'loaded') {
+                listeners.get('emulator-loaded')!()
+                expect(emulator.run).toHaveBeenCalledTimes(1)
+            }
+            runtime.dispose()
+            if (phase === 'initializing') {
+                expect(emulator.destroy).not.toHaveBeenCalled()
+                listeners.get('emulator-loaded')!()
+                expect(emulator.run).not.toHaveBeenCalled()
+            }
+            listeners.get('serial0-output-byte')!(65)
+            listeners.get('serial1-output-byte')!(30)
+            expect(emulator.destroy).toHaveBeenCalledTimes(1)
+            expect(runtime.read()).toBe('')
+            expect(output).not.toHaveBeenCalled()
+            expect(ready).not.toHaveBeenCalled()
+        }
+    )
+})

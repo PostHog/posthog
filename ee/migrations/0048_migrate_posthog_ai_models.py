@@ -6,8 +6,6 @@ from django.db import migrations
 class Migration(migrations.Migration):
     dependencies = [
         ("ee", "0047_migrate_ai_observability_models"),
-        ("posthog_ai", "0002_migrate_posthog_ai_models"),
-        ("signals", "0027_migrate_posthog_ai_models"),
     ]
 
     operations = [

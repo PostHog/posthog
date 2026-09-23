@@ -13,7 +13,7 @@ import { CommandCenterToolbar } from "./CommandCenterToolbar";
 export function CommandCenterView() {
   const layout = useCommandCenterStore((s) => s.layout);
   const { cells, summary } = useCommandCenterData();
-  const { markAsViewed } = useTaskViewed();
+  const { markAsViewed, timestamps, timestampsReady } = useTaskViewed();
 
   useAutofillCommandCenter();
 
@@ -42,11 +42,11 @@ export function CommandCenterView() {
     .join(",");
 
   useEffect(() => {
-    if (!visibleTaskIdsKey) return;
+    if (!visibleTaskIdsKey || !timestampsReady) return;
     for (const taskId of visibleTaskIdsKey.split(",")) {
-      markAsViewed(taskId);
+      if (timestamps[taskId]?.lastViewedAt == null) markAsViewed(taskId);
     }
-  }, [visibleTaskIdsKey, markAsViewed]);
+  }, [visibleTaskIdsKey, markAsViewed, timestamps, timestampsReady]);
 
   // Root-level page: no breadcrumb row. Its own toolbar names the view, and
   // there's no parent space to walk back to, so the bar was an empty frame.

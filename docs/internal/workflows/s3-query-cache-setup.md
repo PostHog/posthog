@@ -8,7 +8,7 @@ See `posthog/query_cache/storage.py`.
 
 ## Semantics
 
-- **Expiry is governed by the Redis pointer's TTL** (`CACHED_RESULTS_TTL`), not by S3. Once the pointer expires or is evicted, the entry is gone regardless of whether the S3 object still exists.
+- **Expiry is governed by the Redis pointer's TTL**, not by S3. Attached and UI-initiated entries live for `CACHED_RESULTS_TTL`; programmatic writes outside an insight or dashboard live for the shorter `CACHED_RESULTS_PROGRAMMATIC_TTL`. Once the pointer expires or is evicted, the entry is gone regardless of whether the S3 object still exists.
 - **Blobs are deleted eagerly once nothing references them.** Replacing or evicting a pointer entry enqueues a best-effort Celery delete, delayed by `BLOB_DELETE_DELAY_SECONDS` (60s) so a reader that just fetched the pointer from Redis can still complete its S3 read. An upload whose pointer swap lost to a newer write deletes its own blob immediately, since that pointer never entered Redis.
 - **The S3 lifecycle rule is the garbage collection backstop.** It deletes whatever the eager path misses: pointers that expired by TTL, shadow-mode uploads, rolled-back teams, failed deletes, and writes from a process that could not reach the Celery broker.
 - Rollout is controlled by the `query-cache-s3-writes` multivariate feature flag on the organization group. It gates writes only; reads never evaluate the flag, they follow whatever the stored record says.

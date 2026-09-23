@@ -21,10 +21,10 @@ export function InsightRetentionBanner({ insightProps }: { insightProps: Insight
         <LemonBanner
             type="warning"
             onClose={snooze}
-            action={{ children: 'Upgrade to unlock past data', to: urls.organizationBilling() }}
+            action={{ children: 'Upgrade plan', to: urls.organizationBilling() }}
         >
-            This insight has the potential to go back further than your {retentionPeriodLabel} of events data retention.
-            Older events aren't included in the results.
+            This insight's date range goes beyond your {retentionPeriodLabel} data retention, so events older than that
+            aren't included.
         </LemonBanner>
     )
 }

@@ -38,10 +38,10 @@ function SubscribeIcon({ dashboardId }: { dashboardId: number }): JSX.Element {
 }
 
 export function DashboardSubscribeButton(): JSX.Element | null {
-    const { dashboard, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
     const { push } = useActions(router)
 
-    if (!dashboard || !canEditDashboard) {
+    if (!dashboard || !canEditDashboard || tiles.length === 0) {
         return null
     }
 

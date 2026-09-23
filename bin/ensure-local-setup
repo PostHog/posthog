@@ -86,6 +86,8 @@ def ensure_wizard_oauth_app() -> None:
 STEPS = [
     ("dev personal API key", lambda: call_command("setup_local_api_key")),
     ("wizard cloud-run OAuth app", ensure_wizard_oauth_app),
+    # Local migrate runs use --scope=postgres, which skips bin/migrate's tasks-oauth scope, so seed the sandbox agent OAuth apps here.
+    ("task sandbox OAuth apps", lambda: call_command("setup_tasks_oauth")),
 ]
 
 

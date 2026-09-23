@@ -39,6 +39,14 @@ def _response(results: list[dict[str, Any]] | None, *, drop_results: bool = Fals
     return resp
 
 
+def _object_response(body: dict[str, Any]) -> Response:
+    """A bare object body — `organization/get` returns the row itself, not a `results` list."""
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
 def _error_response(status_code: int) -> Response:
     resp = Response()
     resp.status_code = status_code
@@ -144,8 +152,9 @@ class TestRows:
         auth(prepared)
         assert prepared.headers["Authorization"] == "Token pat"
 
+    @pytest.mark.parametrize("endpoint", ["campaigns", "ads", "adgroups", "segments"])
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_campaigns_fan_out_over_advertisables(self, MockSession):
+    def test_scoped_endpoints_fan_out_over_advertisables(self, MockSession, endpoint):
         session = MockSession.return_value
         snapshots = _wire(
             session,
@@ -156,15 +165,45 @@ class TestRows:
             ],
         )
 
-        rows = _rows(_source("campaigns"))
+        rows = _rows(_source(endpoint))
 
         assert [(c["eid"], c["_advertisable_eid"]) for c in rows] == [("C1", "ADV1"), ("C2", "ADV2")]
         child_queries = [parse_qs(urlparse(s["url"]).query) for s in snapshots[1:]]
         assert child_queries[0]["advertisable"] == ["ADV1"]
         assert child_queries[1]["advertisable"] == ["ADV2"]
-        assert all(urlparse(s["url"]).path == CAMPAIGNS_PATH for s in snapshots[1:])
+        assert all(urlparse(s["url"]).path == ADROLL_ENDPOINTS[endpoint].path for s in snapshots[1:])
         # The apikey param rides along on every request, parent and children alike.
         assert all(s["params"]["apikey"] == "cid" for s in snapshots)
+
+    @pytest.mark.parametrize("endpoint", ["advertisable_reports", "campaign_reports", "ad_reports"])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_report_endpoints_filter_by_advertisables_in_entity_format(self, MockSession, endpoint):
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"eid": "ADV1"}]),
+                _response([{"eid": "C1", "impressions": 5}]),
+            ],
+        )
+
+        rows = _rows(_source(endpoint))
+
+        assert rows == [{"eid": "C1", "impressions": 5, "_advertisable_eid": "ADV1"}]
+        assert urlparse(snapshots[1]["url"]).path == ADROLL_ENDPOINTS[endpoint].path
+        # The reporting endpoints take a list of advertisables, not a single one.
+        assert parse_qs(urlparse(snapshots[1]["url"]).query)["advertisables"] == ["ADV1"]
+        assert snapshots[1]["params"]["data_format"] == "entity"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_organization_yields_the_bare_response_object(self, MockSession):
+        session = MockSession.return_value
+        snapshots = _wire(session, [_object_response({"eid": "ORG1", "name": "Acme"})])
+
+        rows = _rows(_source("organization"))
+
+        assert rows == [{"eid": "ORG1", "name": "Acme"}]
+        assert urlparse(snapshots[0]["url"]).path == "/api/v1/organization/get"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_advertisables_without_eid_are_skipped(self, MockSession):

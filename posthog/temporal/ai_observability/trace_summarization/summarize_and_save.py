@@ -215,6 +215,9 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
             mode=mode_enum,
             model=model_enum,
             user_id=f"temporal-workflow-team-{input.team_id}",
+            # The batch pipeline can wait for its summaries, so it takes the cheaper flex tier.
+            # The provider falls back to the standard tier when flex is refused or stalls.
+            flex=True,
         )
         llm_duration_s = time.monotonic() - t0
         log.info(

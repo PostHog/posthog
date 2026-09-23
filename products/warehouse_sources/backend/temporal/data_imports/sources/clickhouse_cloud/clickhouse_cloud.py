@@ -134,14 +134,19 @@ def _coerce_date(value: Any) -> date | None:
 
 
 def _format_rfc3339(value: Any) -> str:
-    """Format a datetime/date as an RFC 3339 UTC timestamp with a Z suffix."""
+    """Format a datetime/date as an RFC 3339 UTC timestamp with a Z suffix.
+
+    The activities endpoint's `from_date` rejects a timestamp with no fractional-seconds
+    component (or one with a precision other than milliseconds) with a 400, so the millisecond
+    part is always included even when it's zero.
+    """
     if isinstance(value, datetime):
         dt = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
     elif isinstance(value, date):
         dt = datetime.combine(value, datetime.min.time(), tzinfo=UTC)
     else:
         return str(value)
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
 
 
 def _list_organizations(session: requests.Session, logger: FilteringBoundLogger) -> list[dict[str, Any]]:

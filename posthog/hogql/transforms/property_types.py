@@ -12,6 +12,7 @@ from posthog.hogql.database.schema.events import (
     EventsPersonSubTable,
     EventsTable,
 )
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.errors import QueryError
@@ -23,7 +24,6 @@ from posthog.hogql.restricted_properties import restricted_property_keys_for_tab
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
-from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
 from posthog.dataclasses import frozen
 
@@ -118,7 +118,7 @@ class PropertyFinder(TraversingVisitor):
                     self.person_properties.add(property_name)
                 elif isinstance(resolved_table, EventsGroupSubTable):
                     pass  # group properties are handled above via GroupsTable
-                elif isinstance(resolved_table, EventsTable):
+                elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
                     self.event_properties.add(property_name)
 
     def visit_field(self, node: ast.Field):
@@ -464,17 +464,11 @@ class PropertySwapper(CloningVisitor):
             chain=[*field_arg.chain, first_key],
             type=ast.PropertyType(chain=[first_key], field_type=field_type),
         )
-        subcolumns = (
-            EVENTS_PROPERTIES_JSON_SUBCOLUMNS if field_type.name == "properties" else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+        property_document: ast.Expr = ast.Call(
+            name="toJSONString",
+            args=[property_field],
+            type=ast.StringType(nullable=True),
         )
-        declared_type = subcolumns.get(first_key)
-        property_document: ast.Expr = property_field
-        if len(property_path) == 1 or declared_type not in ("String", "Nullable(String)"):
-            property_document = ast.Call(
-                name="toJSONString",
-                args=[property_field],
-                type=ast.StringType(nullable=True),
-            )
         property_document = ast.Call(
             name="ifNull",
             args=[
@@ -709,7 +703,7 @@ class PropertySwapper(CloningVisitor):
                 if isinstance(resolved_table, EventsPersonSubTable):
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
-                elif isinstance(resolved_table, EventsTable):
+                elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
                     if property_name in self.event_properties:
                         return self._convert_string_property_to_type(node, "event", property_name)
         if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:

@@ -179,7 +179,7 @@ def cmd_isolate_move(name: str, views: tuple[str, ...], dry_run: bool) -> None:
     if dry_run:
         click.echo("\n(dry run — nothing changed)")
     else:
-        click.echo("\nNext: review `git status`, then run tach check + lint-imports + hogli product:lint")
+        click.echo("\nNext: review `git status`, then run hogli lint:tach + lint-imports + hogli product:lint")
 
 
 @click.command(
@@ -189,16 +189,21 @@ def cmd_isolate_move(name: str, views: tuple[str, ...], dry_run: bool) -> None:
 @click.argument("name", required=False)
 @click.option("--all", "scan_all", is_flag=True, help="Scan every product that holds crossing entries")
 @click.option("--json", "as_json", is_flag=True, help="Emit one JSON object per use instead of the report")
-@click.option("--write-baseline", is_flag=True, help="Regenerate products/model_crossing_uses_baseline.txt")
+@click.option(
+    "--write-baseline",
+    is_flag=True,
+    help="Record removals in products/model_crossing_uses_baseline.txt; refuses to add a line",
+)
 def cmd_crossings(name: str | None, scan_all: bool, as_json: bool, write_baseline: bool) -> None:
     import json as json_module
     from dataclasses import asdict
 
     from .crossings import (
         BASELINE_PATH,
+        BaselineWouldGrow,
+        all_crossing_uses,
         crossing_classes,
         render_report,
-        scan_crossing_uses,
         write_baseline as write_baseline_file,
     )
 
@@ -208,9 +213,12 @@ def cmd_crossings(name: str | None, scan_all: bool, as_json: bool, write_baselin
         raise click.UsageError("--write-baseline regenerates the whole file, so it needs --all")
 
     products = None if scan_all else [name] if name else None
-    uses = scan_crossing_uses(products)
+    uses = all_crossing_uses(products)
     if write_baseline:
-        write_baseline_file(uses)
+        try:
+            write_baseline_file(uses)
+        except BaselineWouldGrow as refusal:
+            raise click.ClickException(str(refusal)) from refusal
         click.echo(f"Baseline written: {BASELINE_PATH}")
         return
     if as_json:

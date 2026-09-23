@@ -17,6 +17,8 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { AccessControlLevel, ActivityScope, Breadcrumb, ExperimentsTabs } from '~/types'
 import type { UserBasicType } from '~/types'
 
+import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import type { BillingType } from '../../../types'
@@ -39,6 +41,8 @@ export interface SharedMetric {
     tags: string[]
     metadata?: Record<string, any>
     user_access_level: AccessControlLevel
+    // Populated only when the metric is fetched by id; empty in list responses
+    linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[]
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
@@ -56,11 +60,13 @@ export interface sharedMetricLogicValues {
     currentProjectId: number | string // teamLogic
     action: 'create' | 'duplicate' | 'update'
     breadcrumbs: Breadcrumb[]
+    metricSaving: boolean
     newSharedMetric: {
         created_at?: string | null | undefined
         created_by?: UserBasicType | null | undefined
         description?: string | undefined
         id?: number | undefined
+        linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
         metadata?: Record<string, any> | undefined
         name?: string | undefined
         query: ExperimentMetricUnion
@@ -102,6 +108,7 @@ export interface sharedMetricLogicActions {
                   created_by?: UserBasicType | null | undefined
                   description?: string | undefined
                   id?: number | undefined
+                  linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
                   metadata?: Record<string, any> | undefined
                   name?: string | undefined
                   query: ExperimentMetricUnion
@@ -118,6 +125,7 @@ export interface sharedMetricLogicActions {
                   created_by?: UserBasicType | null | undefined
                   description?: string | undefined
                   id?: number | undefined
+                  linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
                   metadata?: Record<string, any> | undefined
                   name?: string | undefined
                   query: ExperimentMetricUnion
@@ -126,6 +134,9 @@ export interface sharedMetricLogicActions {
                   user_access_level?: AccessControlLevel | undefined
               }
         payload?: any
+    }
+    setMetricSaving: (saving: boolean) => {
+        saving: boolean
     }
     setSharedMetric: (metric: Partial<SharedMetric>) => {
         metric: Partial<SharedMetric>
@@ -171,6 +182,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         createSharedMetric: true,
         updateSharedMetric: (redirect?: boolean) => ({ redirect }),
         deleteSharedMetric: true,
+        setMetricSaving: (saving: boolean) => ({ saving }),
     }),
 
     loaders(({ props, values }) => ({
@@ -192,7 +204,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         },
     })),
 
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         /**
          * we need to wait for the metric to load to check if we need to modify the name and id
          */
@@ -213,6 +225,10 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             }
         },
         createSharedMetric: async () => {
+            if (values.metricSaving) {
+                return
+            }
+            actions.setMetricSaving(true)
             try {
                 const response = await api.create(
                     `api/projects/${values.currentProjectId}/experiment_saved_metrics/`,
@@ -226,18 +242,41 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 }
             } catch (error: any) {
                 lemonToast.error(error.detail || error.data?.name?.[0] || 'Failed to create shared metric')
+            } finally {
+                actions.setMetricSaving(false)
             }
         },
         updateSharedMetric: async ({ redirect = true }: { redirect?: boolean } = {}) => {
-            const response = await api.update(
-                `api/projects/${values.currentProjectId}/experiment_saved_metrics/${values.sharedMetricId}`,
-                values.sharedMetric
-            )
-            if (response.id) {
-                lemonToast.success('Shared metric updated successfully')
-                actions.loadSharedMetrics()
-                if (redirect) {
-                    router.actions.push('/experiments?tab=shared-metrics')
+            if (values.metricSaving) {
+                // Queue a trailing rerun instead of dropping the call: the request reads
+                // values.sharedMetric at send time, so one rerun persists the newest state
+                // (e.g. a tag edit made while an explicit save was in flight)
+                cache.queuedUpdateRedirect = Boolean(cache.queuedUpdateRedirect) || redirect
+                cache.updateQueued = true
+                return
+            }
+            actions.setMetricSaving(true)
+            try {
+                const response = await api.update(
+                    `api/projects/${values.currentProjectId}/experiment_saved_metrics/${values.sharedMetricId}`,
+                    values.sharedMetric
+                )
+                if (response.id) {
+                    lemonToast.success('Shared metric updated successfully')
+                    actions.loadSharedMetrics()
+                    if (redirect && !cache.updateQueued) {
+                        router.actions.push('/experiments?tab=shared-metrics')
+                    }
+                }
+            } catch (error: any) {
+                lemonToast.error(error.detail || error.data?.name?.[0] || 'Failed to update shared metric')
+            } finally {
+                actions.setMetricSaving(false)
+                if (cache.updateQueued) {
+                    const queuedRedirect = Boolean(cache.queuedUpdateRedirect) || redirect
+                    cache.updateQueued = false
+                    cache.queuedUpdateRedirect = false
+                    actions.updateSharedMetric(queuedRedirect)
                 }
             }
         },
@@ -261,6 +300,12 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             { ...NEW_SHARED_METRIC } as Partial<SharedMetric>,
             {
                 setSharedMetric: (state, { metric }) => ({ ...state, ...metric }),
+            },
+        ],
+        metricSaving: [
+            false,
+            {
+                setMetricSaving: (_, { saving }) => saving,
             },
         ],
     }),

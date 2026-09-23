@@ -3,16 +3,28 @@ import {
   canvasBuildStatusSchema,
 } from "@posthog/shared";
 import { z } from "zod";
+import { canvasBuildRecordSchema } from "./canvasBuildSchemas";
 import { canvasAgentRequestInputSchema } from "./freeformSchemas";
-import { componentMetaSchema } from "./gridLayoutSchemas";
+import {
+  canvasLayoutSchema,
+  componentLifecycleSeedSchema,
+  componentMetaSchema,
+} from "./gridLayoutSchemas";
+
+export const canvasCreatorSchema = z.object({
+  id: z.number().optional(),
+  uuid: z.string(),
+  first_name: z.string().nullish(),
+  last_name: z.string().nullish(),
+  email: z.string().nullish(),
+});
+export type CanvasCreator = z.infer<typeof canvasCreatorSchema>;
 
 // A canvas record from the PostHog canvases API, normalized to camelCase and
 // epoch-ms timestamps. Source code and version history are NOT part of the
 // record — they live behind the source/versions endpoints, and the rendered
 // output behind the build lifecycle.
-export const canvasKindSchema = z.enum(["freeform", "grid", "component"]);
-export type CanvasKind = z.infer<typeof canvasKindSchema>;
-
+const canvasKindSchema = z.enum(["freeform", "grid", "component"]);
 export const dashboardRecordSchema = z.object({
   id: z.string(),
   // The backend channel (task channel UUID) this canvas belongs to.
@@ -26,14 +38,13 @@ export const dashboardRecordSchema = z.object({
   // For components: the head version's placement contract (size, configSchema).
   componentMeta: componentMetaSchema.nullish(),
   templateId: z.string().default("freeform"),
-  // The live author-written context (markdown) passed to the agent.
-  context: z.string().default(""),
   // Id of the task currently generating this canvas (freeform gen runs as a
   // dedicated task, like CONTEXT.md). null/absent = no generation in flight.
   generationTaskId: z.string().nullish(),
   // Display name of the creator (from the backend's created_by user).
   createdBy: z.string().optional(),
   createdByUuid: z.string().optional(),
+  createdByUser: canvasCreatorSchema.optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
   // Epoch ms the canvas was pinned to its channel; absent = not pinned.
@@ -53,6 +64,7 @@ export const canvasVersionSchema = z.object({
   prompt: z.string().nullish(),
   taskId: z.string().nullish(),
   createdBy: z.string().optional(),
+  createdByUuid: z.string().optional(),
   createdAt: z.number(),
 });
 export type CanvasVersion = z.infer<typeof canvasVersionSchema>;
@@ -90,6 +102,23 @@ export const canvasSourceSchema = z.object({
   currentVersionId: z.string().nullish(),
 });
 export type CanvasSource = z.infer<typeof canvasSourceSchema>;
+
+// Everything the app needs to open a canvas, in one round trip (the `view`
+// endpoint): the record, the live build with its signed artifact URL, and,
+// only when there is nothing built to render, the head source (freeform/
+// component) or layout (grid).
+export const canvasViewSchema = z.object({
+  record: dashboardRecordSchema,
+  publishedBuild: canvasBuildRecordSchema.nullable(),
+  currentVersionId: z.string().nullable(),
+  hasActiveBuild: z.boolean(),
+  source: canvasSourceProjectSchema.nullable(),
+  layout: canvasLayoutSchema.nullable(),
+  // For grids: the placed components' renderable builds, so a primed grid
+  // renders without a builds fetch per placement.
+  componentLifecycles: z.array(componentLifecycleSeedSchema).optional(),
+});
+export type CanvasView = z.infer<typeof canvasViewSchema>;
 
 export const listDashboardsInput = z.object({ channelId: z.string().min(1) });
 
@@ -130,13 +159,6 @@ export const promoteCanvasInput = z.object({
   id: z.string().min(1),
   versionId: z.string().min(1),
   expectedCurrentVersionId: z.string().nullable(),
-});
-
-// Persist the author-written context (markdown) shown in the Context tab and
-// passed to generation tasks.
-export const saveContextInput = z.object({
-  id: z.string().min(1),
-  context: z.string(),
 });
 
 // Rename a canvas (its display title).
@@ -240,3 +262,34 @@ export type CanvasActionResult = z.infer<typeof canvasActionResultSchema>;
 export const requestCanvasAgentInput = canvasAgentRequestInputSchema.extend({
   id: z.string().min(1),
 });
+
+export const canvasConnectorCallServiceInput = z.object({
+  approval_token: z.string().max(200).optional(),
+  id: z.string().min(1),
+  provider: z.string().min(1).max(300),
+  tool: z.string().min(1).max(200),
+  arguments: z.record(z.string(), z.unknown()).default({}),
+});
+
+// Mirrors the API's connector call result. `status` is "ok" when `result`
+// holds the tool output; every other status explains itself in `detail`.
+export const canvasConnectorCallResultSchema = z.object({
+  approval_token: z.string().nullable().optional(),
+  status: z.enum([
+    "ok",
+    "not_connected",
+    "needs_reauth",
+    "needs_approval",
+    "blocked",
+    "tool_missing",
+    "write_blocked",
+    "upstream_error",
+  ]),
+  result: z.record(z.string(), z.unknown()).nullable(),
+  detail: z.string(),
+  truncated: z.boolean(),
+  connect_path: z.string().nullable(),
+});
+export type CanvasConnectorCallResult = z.infer<
+  typeof canvasConnectorCallResultSchema
+>;

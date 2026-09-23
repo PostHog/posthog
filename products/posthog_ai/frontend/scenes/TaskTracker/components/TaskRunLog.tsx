@@ -18,17 +18,43 @@ export function TaskRunLog({
     taskId,
     optimisticStreamKey,
     optimisticRunId,
+    interactionKey,
+    autoFocus,
 }: {
     taskId: string
     /** Client `streamKey` of an optimistic-create stream to adopt — set only during the create handoff. */
     optimisticStreamKey?: string
     /** Run id created by the optimistic flow, before the runs list has loaded it. */
     optimisticRunId?: string
+    interactionKey?: string
+    autoFocus?: boolean
 }): JSX.Element | null {
     const logic = taskDetailSceneLogic({ taskId })
-    const { runs, selectedRun, selectedRunId, runsError, selectedRunError, selectedRunNotFound, isRunPending } =
-        useValues(logic)
-    const { loadTaskRuns, loadSelectedTaskRun } = useActions(logic)
+    const {
+        runs,
+        selectedRun,
+        selectedRunId,
+        runsError,
+        selectedRunError,
+        selectedRunNotFound,
+        isRunPending,
+        runContinuation,
+    } = useValues(logic)
+    const { loadTaskRuns, loadSelectedTaskRun, clearContinuationDraft } = useActions(logic)
+
+    if (runContinuation && selectedRunId === runContinuation.run.id) {
+        return (
+            <div className="flex-1 min-h-0">
+                <TaskRunChat
+                    taskId={taskId}
+                    runId={runContinuation.run.id}
+                    streamKey={runContinuation.streamKey}
+                    initialDraft={runContinuation.draft}
+                    onDraftAdopted={() => clearContinuationDraft(runContinuation.run.id)}
+                />
+            </div>
+        )
+    }
 
     // Optimistic-create handoff: render the run immediately on the seeded stream, bypassing the runs-list
     // load (no skeleton re-flash). `selectedRunId ?? optimisticRunId` tracks the live id — the created run
@@ -37,7 +63,13 @@ export function TaskRunLog({
     if (optimisticStreamKey && effectiveRunId) {
         return (
             <div className="flex-1 min-h-0">
-                <TaskRunChat taskId={taskId} runId={effectiveRunId} streamKey={optimisticStreamKey} />
+                <TaskRunChat
+                    taskId={taskId}
+                    runId={effectiveRunId}
+                    streamKey={optimisticStreamKey}
+                    interactionKey={effectiveRunId === optimisticRunId ? interactionKey : undefined}
+                    autoFocus={effectiveRunId === optimisticRunId && autoFocus}
+                />
             </div>
         )
     }

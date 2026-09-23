@@ -51,6 +51,11 @@ pub async fn build_flags_cache(
     team_id: TeamId,
 ) -> Result<HypercacheFlagsWrapper, FlagError> {
     let mut flags = FeatureFlagList::from_pg(pg_reader.clone(), team_id).await?;
+    // Python's builder (`facade/references.py`) raises `ConfigFormatError` here and fails
+    // the whole team rebuild; both writers of this entry must agree.
+    for flag in flags.iter().filter(|flag| is_evaluable(flag)) {
+        flag.filters.require_v1()?;
+    }
     retain_evaluable_and_referenced_flags(&mut flags);
     let evaluation_metadata = compute_flag_dependencies(&flags)?;
     let cohorts = fetch_referenced_cohorts(pg_reader, team_id, &flags).await?;
@@ -956,6 +961,21 @@ mod tests {
             .insert_flag(team.id, Some(disabled_row("unreferenced-disabled-flag")))
             .await
             .expect("Failed to insert unreferenced inactive flag");
+        for (key, active, deleted) in [("inactive-v2", false, false), ("deleted-v2", true, true)] {
+            context
+                .insert_flag(
+                    team.id,
+                    Some(FeatureFlagRow {
+                        key: key.to_string(),
+                        active,
+                        deleted,
+                        filters: serde_json::json!({"version": 2}),
+                        ..base_flag_row(team.id)
+                    }),
+                )
+                .await
+                .expect("Failed to insert unevaluable v2 flag");
+        }
         let dependent = context
             .insert_flag(
                 team.id,
@@ -1012,5 +1032,25 @@ mod tests {
             HashSet::from([referenced.id])
         );
         assert!(meta.flags_with_missing_deps.is_empty());
+    }
+
+    #[test]
+    fn test_blank_inactive_filters_blanks_every_config_format() {
+        for version in [
+            serde_json::json!(1),
+            serde_json::json!(2),
+            serde_json::json!(3),
+            serde_json::json!(null),
+        ] {
+            let flag: FeatureFlag = serde_json::from_value(serde_json::json!({
+                "id": 1, "team_id": 1, "key": "inactive", "active": false,
+                "filters": {"version": version, "groups": [{"rollout_percentage": 100}]}
+            }))
+            .unwrap();
+            let mut flags = vec![flag];
+            blank_inactive_filters(&mut flags);
+            let after = serde_json::to_value(&flags[0]).unwrap();
+            assert_eq!(after["filters"], serde_json::json!({"groups": []}));
+        }
     }
 }

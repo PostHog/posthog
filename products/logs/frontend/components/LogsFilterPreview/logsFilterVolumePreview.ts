@@ -18,6 +18,11 @@ export const SPARKLINE_ROW_LIMIT = 1000
 
 export type LogsFilterPreviewMetric = 'count' | 'bytes'
 
+/** How far back the preview query looks. Doubles as the `-{lookback}` relative date_from. */
+export type LogsFilterPreviewLookback = '1h' | '24h'
+
+export const DEFAULT_PREVIEW_LOOKBACK: LogsFilterPreviewLookback = '24h'
+
 export interface LogsFilterPreviewPoint {
     time: string
     service: string

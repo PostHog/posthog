@@ -11,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpIntervalFilter } from './components/McpIntervalFilter'
+import { McpSharedFilters } from './components/McpSharedFilters'
 import { mcpAnalyticsToolQualityLogic, mcpToolReportUrl } from './mcpAnalyticsToolQualityLogic'
 import { ToolQualityCharts } from './tool-quality/ToolQualityCharts'
 import { ToolQualityTable } from './tool-quality/ToolQualityTable'
@@ -113,18 +114,25 @@ export function MCPAnalyticsToolQuality(): JSX.Element {
     const theme = useChartTheme()
 
     return (
-        <div className="flex flex-col gap-4" data-quill>
-            <FilterBar />
-            <ChartsScopeHeader />
-            <ToolQualityCharts
-                data={dailyChartData}
-                loading={dailyStatsLoading}
-                theme={theme}
-                timezone={timezone}
-                interval={interval}
-                incompleteTail={incompleteTail}
-            />
-            <ToolQualityTable />
+        <div className="flex flex-col gap-4">
+            <div data-quill>
+                <FilterBar />
+            </div>
+            {/* Stays outside the quill scope: `[data-quill]` redefines the `--color-*` tokens, which
+                paints the checked test-account switch as unchecked. */}
+            <McpSharedFilters pageKey="mcp-tool-quality" dataAttrPrefix="mcp-tool-quality" />
+            <div className="flex flex-col gap-4" data-quill>
+                <ChartsScopeHeader />
+                <ToolQualityCharts
+                    data={dailyChartData}
+                    loading={dailyStatsLoading}
+                    theme={theme}
+                    timezone={timezone}
+                    interval={interval}
+                    incompleteTail={incompleteTail}
+                />
+                <ToolQualityTable />
+            </div>
         </div>
     )
 }

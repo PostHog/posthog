@@ -29,6 +29,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.temporal.tests.conftest import activity_environment, setup_postgres_test_db  # noqa: F401
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
+from products.managed_warehouse.backend.facade.temporal import (
+    DuckLakeCopyDataImportsWorkflow,
+    DuckLakeRegisterDataImportsWorkflow,
+)
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, get_latest_run_if_exists
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
@@ -187,7 +191,16 @@ async def run_external_data_job_workflow(
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow, PostImportWorkflow],
+                # DuckLake's registration/copy children are fire-and-forget (ABANDON policy) and
+                # normally run on their own task queue. Test settings collapse every queue to one
+                # name, so this worker receives them and would otherwise fail the parent on a
+                # workflow it does not know, turning an unrelated feature into an import failure.
+                workflows=[
+                    ExternalDataJobWorkflow,
+                    PostImportWorkflow,
+                    DuckLakeRegisterDataImportsWorkflow,
+                    DuckLakeCopyDataImportsWorkflow,
+                ],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),

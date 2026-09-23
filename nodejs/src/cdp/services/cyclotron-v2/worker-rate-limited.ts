@@ -2,7 +2,7 @@ import { logger } from '~/common/utils/logger'
 
 import { CyclotronV2BatchLimit, CyclotronV2WorkerConfig } from './types'
 import { CyclotronV2DequeuedJob } from './types'
-import { CyclotronV2Worker, sleep } from './worker'
+import { CyclotronV2Worker, consumerLoopErrorsCounter, sleep } from './worker'
 
 /**
  * Variant of CyclotronV2Worker that consults a per-poll rate-limit hook before
@@ -69,6 +69,7 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
                 const jobs = rows.map((row) => this.wrapJob(row))
                 await processBatch(jobs)
             } catch (err) {
+                consumerLoopErrorsCounter.labels({ queue: this.queueName }).inc()
                 logger.error('CyclotronV2RateLimitedWorker consumer loop error', { error: String(err) })
                 await sleep(this.pollDelayMs)
             }

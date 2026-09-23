@@ -5,14 +5,12 @@ import {
     FACETS as CONFIGURED_FACETS,
     FacetConfig,
     FacetScope,
-    cycleResourceAttributeFilter,
+    buildCustomFacet,
+    customFacetIdentity,
     facetScopeSignature,
     filterFacetsByName,
-    logFilterExclusions,
     mergeSelectedIntoOptions,
     resolveFacets,
-    resourceAttributeSelection,
-    setLogFilterExclusions,
 } from './facets'
 
 const facet = (key: string, title: string, group: string): FacetConfig => ({
@@ -85,165 +83,6 @@ describe('facets', () => {
         })
     })
 
-    describe('tri-state resource attribute selection', () => {
-        const KEY = 'k8s.namespace.name'
-
-        const groupOf = (filters: Record<string, unknown>[]): UniversalFiltersGroup => ({
-            type: FilterLogicalOperator.And,
-            values: [{ type: FilterLogicalOperator.And, values: filters as UniversalFiltersGroup['values'] }],
-        })
-        const railFilter = (
-            operator: PropertyOperator,
-            value: unknown,
-            key: string = KEY
-        ): Record<string, unknown> => ({
-            key,
-            type: PropertyFilterType.LogResourceAttribute,
-            operator,
-            value,
-        })
-        const read = (group: UniversalFiltersGroup | undefined): { included: string[]; excluded: string[] } =>
-            resourceAttributeSelection(group, KEY)
-
-        describe('resourceAttributeSelection', () => {
-            it.each<[string, Record<string, unknown>[], string[], string[]]>([
-                ['empty group reads as empty selection', [], [], []],
-                [
-                    'exact array filter reads as included',
-                    [railFilter(PropertyOperator.Exact, ['a', 'b'])],
-                    ['a', 'b'],
-                    [],
-                ],
-                ['is_not array filter reads as excluded', [railFilter(PropertyOperator.IsNot, ['c'])], [], ['c']],
-                [
-                    'both polarities read into their own sets',
-                    [railFilter(PropertyOperator.Exact, ['a']), railFilter(PropertyOperator.IsNot, ['c'])],
-                    ['a'],
-                    ['c'],
-                ],
-                [
-                    'scalar chip value reads as a single-element set',
-                    [railFilter(PropertyOperator.Exact, 'a')],
-                    ['a'],
-                    [],
-                ],
-                ['scalar is_not chip reads as excluded', [railFilter(PropertyOperator.IsNot, 'c')], [], ['c']],
-                ['other operators are not rail state', [railFilter(PropertyOperator.IContains, 'a')], [], []],
-                ['other keys are not this facet', [railFilter(PropertyOperator.Exact, ['a'], 'host.name')], [], []],
-            ])('%s', (_, filters, included, excluded) => {
-                expect(read(groupOf(filters))).toEqual({ included, excluded })
-            })
-        })
-
-        describe('cycleResourceAttributeFilter', () => {
-            it('cycles a value unchecked → included → excluded → unchecked', () => {
-                const afterFirst = cycleResourceAttributeFilter(groupOf([]), KEY, 'argocd')
-                expect(read(afterFirst)).toEqual({ included: ['argocd'], excluded: [] })
-
-                const afterSecond = cycleResourceAttributeFilter(afterFirst, KEY, 'argocd')
-                expect(read(afterSecond)).toEqual({ included: [], excluded: ['argocd'] })
-
-                const afterThird = cycleResourceAttributeFilter(afterSecond, KEY, 'argocd')
-                expect(read(afterThird)).toEqual({ included: [], excluded: [] })
-                // both rail filters are dropped once their side of the selection empties
-                expect((afterThird.values[0] as UniversalFiltersGroup).values).toEqual([])
-            })
-
-            it('writes includes as an exact filter and excludes as an is_not filter, both array-valued', () => {
-                let group = cycleResourceAttributeFilter(groupOf([]), KEY, 'a')
-                group = cycleResourceAttributeFilter(group, KEY, 'b')
-                group = cycleResourceAttributeFilter(group, KEY, 'a') // a → excluded
-
-                expect((group.values[0] as UniversalFiltersGroup).values).toEqual([
-                    railFilter(PropertyOperator.Exact, ['b']),
-                    railFilter(PropertyOperator.IsNot, ['a']),
-                ])
-            })
-
-            it('preserves other keys and same-key non-rail chips when writing', () => {
-                const otherKey = railFilter(PropertyOperator.Exact, ['prod'], 'deployment.environment.name')
-                const sameKeyContains = railFilter(PropertyOperator.IContains, 'kube')
-                const group = cycleResourceAttributeFilter(groupOf([otherKey, sameKeyContains]), KEY, 'argocd')
-
-                expect((group.values[0] as UniversalFiltersGroup).values).toEqual([
-                    otherKey,
-                    sameKeyContains,
-                    railFilter(PropertyOperator.Exact, ['argocd']),
-                ])
-            })
-
-            it('a value in both polarities (hand-edited chips) cycles to excluded only, without duplication', () => {
-                const corrupt = groupOf([
-                    railFilter(PropertyOperator.Exact, ['a']),
-                    railFilter(PropertyOperator.IsNot, ['a']),
-                ])
-                expect(read(cycleResourceAttributeFilter(corrupt, KEY, 'a'))).toEqual({
-                    included: [],
-                    excluded: ['a'],
-                })
-            })
-        })
-
-        describe('column facet exclusions (log filters)', () => {
-            const LEVEL_KEY = 'severity_level'
-            const logFilter = (
-                operator: PropertyOperator,
-                value: unknown,
-                key: string = LEVEL_KEY
-            ): Record<string, unknown> => ({ key, type: PropertyFilterType.Log, operator, value })
-
-            it.each<[string, Record<string, unknown>[], string[]]>([
-                [
-                    'is_not log filter reads as exclusions',
-                    [logFilter(PropertyOperator.IsNot, ['info', 'debug'])],
-                    ['info', 'debug'],
-                ],
-                [
-                    'scalar is_not chip reads as a single exclusion',
-                    [logFilter(PropertyOperator.IsNot, 'info')],
-                    ['info'],
-                ],
-                [
-                    'an exact log chip on the same key is not rail state',
-                    [logFilter(PropertyOperator.Exact, ['error'])],
-                    [],
-                ],
-                [
-                    'a resource-attribute filter under the same key is not a log exclusion',
-                    [railFilter(PropertyOperator.IsNot, ['info'], LEVEL_KEY)],
-                    [],
-                ],
-            ])('%s', (_, filters, excluded) => {
-                expect(logFilterExclusions(groupOf(filters), LEVEL_KEY)).toEqual(excluded)
-            })
-
-            it('writes, replaces, and drops the is_not filter as the exclusion set changes', () => {
-                const withOne = setLogFilterExclusions(groupOf([]), LEVEL_KEY, ['info'])
-                expect(logFilterExclusions(withOne, LEVEL_KEY)).toEqual(['info'])
-
-                const withTwo = setLogFilterExclusions(withOne, LEVEL_KEY, ['info', 'debug'])
-                expect((withTwo.values[0] as UniversalFiltersGroup).values).toEqual([
-                    logFilter(PropertyOperator.IsNot, ['info', 'debug']),
-                ])
-
-                const cleared = setLogFilterExclusions(withTwo, LEVEL_KEY, [])
-                expect((cleared.values[0] as UniversalFiltersGroup).values).toEqual([])
-            })
-
-            it('preserves resource rail filters and same-key exact chips when writing', () => {
-                const resource = railFilter(PropertyOperator.Exact, ['argocd'])
-                const exactChip = logFilter(PropertyOperator.Exact, ['fatal'])
-                const group = setLogFilterExclusions(groupOf([resource, exactChip]), LEVEL_KEY, ['info'])
-
-                expect((group.values[0] as UniversalFiltersGroup).values).toEqual([
-                    resource,
-                    exactChip,
-                    logFilter(PropertyOperator.IsNot, ['info']),
-                ])
-            })
-        })
-    })
-
     describe('facetScopeSignature', () => {
         const configured = (key: string): FacetConfig => CONFIGURED_FACETS.find((f) => f.key === key)!
         const LEVEL = configured('level')
@@ -265,8 +104,6 @@ describe('facets', () => {
             currentTeamId: 1,
             utcDateRange: { date_from: '-1h', date_to: null, explicitDate: false },
             searchTerm: undefined,
-            severityLevels: [],
-            serviceNames: [],
             queryFilterGroup: group(),
             personId: undefined,
         }
@@ -276,7 +113,16 @@ describe('facets', () => {
         // A facet that reacts to its own selection refetches a list the backend guarantees is
         // unchanged; one that ignores a filter it should see serves stale counts. Both are silent.
         it.each<[string, FacetConfig, Partial<FacetScope>, boolean]>([
-            ['level ignores its own included levels', LEVEL, { severityLevels: ['error'] }, false],
+            [
+                'level ignores its own included levels',
+                LEVEL,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.Log, 'severity_level', PropertyOperator.Exact, ['error'])
+                    ),
+                },
+                false,
+            ],
             [
                 'level ignores its own excluded levels',
                 LEVEL,
@@ -307,7 +153,16 @@ describe('facets', () => {
                 },
                 true,
             ],
-            ['level sees the service selection', LEVEL, { serviceNames: ['api'] }, true],
+            [
+                'level sees the service selection',
+                LEVEL,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.Log, 'service_name', PropertyOperator.Exact, ['api'])
+                    ),
+                },
+                true,
+            ],
             [
                 'level sees a service exclusion',
                 LEVEL,
@@ -321,7 +176,16 @@ describe('facets', () => {
             ['level sees the body search', LEVEL, { searchTerm: 'timeout' }, true],
             ['level sees the date range', LEVEL, { utcDateRange: { date_from: '-7d', date_to: null } }, true],
             ['level sees the person scope', LEVEL, { personId: 'abc' }, true],
-            ['service ignores its own included services', SERVICE, { serviceNames: ['api'] }, false],
+            [
+                'service ignores its own included services',
+                SERVICE,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.Log, 'service_name', PropertyOperator.Exact, ['api'])
+                    ),
+                },
+                false,
+            ],
             [
                 'service ignores its own excluded services',
                 SERVICE,
@@ -332,7 +196,16 @@ describe('facets', () => {
                 },
                 false,
             ],
-            ['service sees the level selection', SERVICE, { severityLevels: ['error'] }, true],
+            [
+                'service sees the level selection',
+                SERVICE,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.Log, 'severity_level', PropertyOperator.Exact, ['error'])
+                    ),
+                },
+                true,
+            ],
             [
                 'namespace ignores its own included values',
                 NAMESPACE,
@@ -431,6 +304,27 @@ describe('facets', () => {
 
         it('keeps column facets whatever the tenant emits', () => {
             expect(resolveFacets(CONFIGURED_FACETS, []).map((f) => f.key)).toEqual(['level', 'service'])
+        })
+
+        it('passes a plain-attribute facet through unchanged, regardless of presence', () => {
+            // Custom facets are added by the user picking a real key, not resolved against a curated
+            // alias list — resolveFacets must never drop or rewrite them the way it does resourceAttribute.
+            const attributeFacet = buildCustomFacet('http.status_code', 'attribute')
+            expect(resolveFacets([attributeFacet], [])).toEqual([attributeFacet])
+        })
+    })
+
+    describe('buildCustomFacet / customFacetIdentity', () => {
+        it.each<['attribute' | 'resourceAttribute']>([['attribute'], ['resourceAttribute']])(
+            'round-trips the key and sourceType through a %s facet',
+            (sourceType) => {
+                const built = buildCustomFacet('http.status_code', sourceType)
+                expect(customFacetIdentity(built)).toEqual({ key: 'http.status_code', sourceType })
+            }
+        )
+
+        it('returns null for a curated facet', () => {
+            expect(customFacetIdentity(CONFIGURED_FACETS[0])).toBeNull()
         })
     })
 })

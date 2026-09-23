@@ -60,9 +60,14 @@ function warn(message: string): void {
  * Report what the run found and return the exit code.
  *
  * Observe (tracking-only) runs have nothing to approve, so the backend reports zero unresolved
- * however many snapshots drifted, and they must not fail the job. They still have to leave a
- * trace: an identifier that drifts on the default branch without being approved or quarantined
- * fails the next PR that renders it.
+ * however many snapshots drifted. The drift still has to stop something. A merge-queue run
+ * renders the tree that is about to land, so drift there is the merge moving pictures nobody
+ * approved, and the job must fail.
+ *
+ * `tolerateDrift` exempts the default branch: no merge is left to stop there, and a red job
+ * would block the repair too. Such a run still names the drift, because an identifier that
+ * drifts on the default branch without being approved or quarantined reds the next PR that
+ * renders it.
  *
  * The change counts are already the drift count on an observe run. A snapshot matching a
  * tolerated hash is reclassified `unchanged` by the server, so it never reaches `changed`, and
@@ -75,7 +80,8 @@ export async function reportRunOutcome(
     client: VisualReviewClient,
     run: Run,
     reviewUrl: string,
-    purpose: string
+    purpose: string,
+    tolerateDrift = false
 ): Promise<number> {
     const runId = run.id
     const s = run.summary
@@ -90,7 +96,7 @@ export async function reportRunOutcome(
         warn(
             `Unapproved snapshot drift on ${run.branch}: approve the new baseline, or quarantine the identifier if it flips between runs, before it fails an unrelated PR. Review at: ${reviewUrl}`
         )
-        return 0
+        return tolerateDrift ? 0 : 1
     }
 
     const unresolved = s.unresolved ?? changes

@@ -41,7 +41,7 @@ def get_pr_babysit_snapshot(input: GetPrBabysitSnapshotInput) -> PRSnapshot | No
         try:
             task_run = TaskRun.objects.get(id=ctx.run_id)
         except TaskRun.DoesNotExist:
-            activity.logger.warning("get_pr_babysit_snapshot_task_run_not_found", run_id=ctx.run_id)
+            activity.logger.warning("get_pr_babysit_snapshot_task_run_not_found", extra={"run_id": ctx.run_id})
             return None
 
         pr_url = (task_run.output or {}).get("pr_url")
@@ -57,8 +57,10 @@ def get_pr_babysit_snapshot(input: GetPrBabysitSnapshotInput) -> PRSnapshot | No
         except ObjectDoesNotExist:
             activity.logger.warning(
                 "get_pr_babysit_snapshot_github_integration_not_found",
-                github_integration_id=ctx.github_integration_id,
-                github_user_integration_id=ctx.github_user_integration_id,
+                extra={
+                    "github_integration_id": ctx.github_integration_id,
+                    "github_user_integration_id": ctx.github_user_integration_id,
+                },
             )
             return None
 
@@ -89,9 +91,7 @@ def get_pr_babysit_snapshot(input: GetPrBabysitSnapshotInput) -> PRSnapshot | No
         if not raw.get("success"):
             activity.logger.warning(
                 "get_pr_babysit_snapshot_failed",
-                run_id=ctx.run_id,
-                pr_url=pr_url,
-                error=raw.get("error"),
+                extra={"run_id": ctx.run_id, "pr_url": pr_url, "error": raw.get("error")},
             )
             increment_pr_babysit_snapshot("unavailable")
             return None

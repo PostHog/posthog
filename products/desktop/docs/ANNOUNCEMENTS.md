@@ -33,14 +33,15 @@ the What's New changelog and the update modals.
   promo dialog): a hedgehog on a colored band by default, overridable per item
   via `hero` — `{ "hedgehog": "<slug>", "color": "#rrggbb" }`,
   `{ "imageUrl": "https://…" }`, or `{ "none": true }` for a plain modal.
-  The slug is a bundled name (`builder`, `explorer`, `happy`, `loop` — local
-  assets, no network) or any hoggie PNG file name from
-  [PostHog/brand](https://brand.posthog.com/hoggies) — variants are
+  The slug is a hoggie PNG file name from
+  [PostHog/brand](https://brand.posthog.com/hoggies). Variants are
   file-name-suffixed (`wizard-3`, `dadd-ai-1`), so the metadata slug alone is
   not always a valid name; the admin editor's picker lists exactly the valid
-  ones. Non-bundled names load from a CDN copy pinned to the package release
-  (`hoggiePngUrl`) with a fallback to the default hedgehog when unreachable.
-  Banners never render a hero.
+  ones. Both the app and the editor bundle the whole hoggie set of the
+  installed release and resolve a name through `hoggiePng`
+  (`packages/shared/src/hoggies.ts`), so a hero needs no network and a name the
+  release does not ship falls back to the kind default (`megaphone`, or
+  `level-up` for a required update). Banners never render a hero.
 
 ## The two kinds
 

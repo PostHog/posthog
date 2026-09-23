@@ -22,6 +22,28 @@ METRIC_FIELDS_TO_IGNORE: set[str] = {
 }
 
 
+def _strip_empty_breakdowns(clean_metric: dict) -> None:
+    """Remove a breakdownFilter that carries no breakdowns before hashing.
+
+    An empty breakdown list is the same metric config as no breakdowns, but the two dict shapes hash to
+    different values. Saved-metric resolution (`_merge_saved_metric_breakdowns`) injects
+    `breakdownFilter.breakdowns = []` when the experiment link has none, while the daily timeseries discovery
+    and the experiment serializer hash the raw saved query. Without this normalization the same config gets
+    two fingerprints, so readers on one convention (timeseries sync, cold-start fallback) never find rows
+    written under the other.
+    """
+    breakdown_filter = clean_metric.get("breakdownFilter")
+    if breakdown_filter is None:
+        clean_metric.pop("breakdownFilter", None)
+        return
+    if isinstance(breakdown_filter, dict) and not breakdown_filter.get("breakdowns"):
+        remaining = {key: value for key, value in breakdown_filter.items() if key != "breakdowns"}
+        if remaining:
+            clean_metric["breakdownFilter"] = remaining
+        else:
+            clean_metric.pop("breakdownFilter")
+
+
 def compute_metric_fingerprint(
     metric: dict,
     start_date: Any,
@@ -48,6 +70,7 @@ def compute_metric_fingerprint(
     clean_metric = deepcopy(metric)
     for field in METRIC_FIELDS_TO_IGNORE:
         clean_metric.pop(field, None)
+    _strip_empty_breakdowns(clean_metric)
 
     # Convert datetime to ISO string for JSON serialization
     # Always use UTC to ensure consistent fingerprints regardless of user timezone

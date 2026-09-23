@@ -87,6 +87,7 @@ vi.mock("phosphor-react-native", async () => {
     CircleIcon: icon("CircleIcon"),
     CircleNotch: icon("CircleNotch"),
     Clock: icon("Clock"),
+    ClockCounterClockwise: icon("ClockCounterClockwise"),
     CloudArrowDown: icon("CloudArrowDown"),
     Code: icon("Code"),
     Copy: icon("Copy"),

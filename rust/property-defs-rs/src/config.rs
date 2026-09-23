@@ -23,6 +23,24 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub pg_max_lifetime_secs: u64,
 
+    // === Read-before-write ===
+    // Reader connection string, e.g. an Aurora reader endpoint. Empty falls back to
+    // database_url. Filter reads get their own pool either way, so they never compete
+    // with batch writes for the writer pool.
+    #[envconfig(default = "")]
+    pub database_read_url: String,
+
+    // Check each write batch against the Postgres reader first and drop rows the
+    // database already covers, so no-op upserts become cheap reader probes instead
+    // of writer traffic.
+    #[envconfig(default = "false")]
+    pub read_before_write_enabled: bool,
+
+    // Budget per probe query. A probe that exceeds it is abandoned and the batch is
+    // written unfiltered, so a slow reader can never stall the write path.
+    #[envconfig(default = "2000")]
+    pub read_before_write_timeout_ms: u64,
+
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 

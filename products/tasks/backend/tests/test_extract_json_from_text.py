@@ -20,6 +20,8 @@ class TestExtractJsonFromText:
             ("text_above_and_below_bare_json", f"Here is your answer:\n{JSON_STR}\nHope that helps!"),
             ("text_above_and_below_generic_block", f"Here is your answer:\n```\n{JSON_STR}\n```\nHope that helps!"),
             ("text_above_and_below_json_block", f"Here is your answer:\n```json\n{JSON_STR}\n```\nHope that helps!"),
+            ("brace_in_text_below_bare_json", f"{JSON_STR}\nReplace {{name}} before you send it."),
+            ("unmatched_brace_in_text_above_bare_json", f"The reply must start with {{ — here it is:\n{JSON_STR}"),
         ]
     )
     def test_extracts_json(self, _name, text):
@@ -39,6 +41,10 @@ class TestExtractJsonFromText:
             ("whitespace_only", "   \n\t ", "empty or whitespace-only"),
             ("prose_only", "I checked everything and found nothing worth surfacing.", "prose with no JSON object"),
             ("fenced_invalid", "```json\nnot: valid json\n```", "code fence but its contents did not parse"),
+            # A reply cut off mid-object holds inner objects that parse on their own. Returning one
+            # gives the caller a fragment, and the schema error that follows blames a missing field.
+            ("truncated_with_whole_inner_object", '{"duplicates": [{"id": "1-3-3"}', "Output truncated"),
+            ("truncated_mid_value", '{"duplicates": [{"id": "1-3', "Output truncated"),
         ]
     )
     def test_classifies_unparseable_text(self, _name, text, expected_message):

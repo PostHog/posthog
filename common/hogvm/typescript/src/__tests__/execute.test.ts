@@ -120,6 +120,7 @@ describe('hogvm execute', () => {
                         const match = new RegExp(regex).exec(value)
                         return match?.[1] ?? match?.[0] ?? ''
                     },
+                    match: (regex: string, value: string): boolean => new RE2(regex).test(value),
                 },
             },
         }
@@ -169,6 +170,65 @@ describe('hogvm execute', () => {
         expect(() => execSync(['_H', 1, op.CALL_GLOBAL, 'match', 1], options)).toThrow(
             'Not enough arguments on the stack'
         )
+
+        expect(() => execSync(['_H', 1, op.STRING, 'a', op.CALL_GLOBAL, 'replaceOne', 1], options)).toThrow(
+            'Function replaceOne requires at least 3 arguments'
+        )
+        expect(() =>
+            execSync(['_H', 1, op.STRING, 'AB', op.STRING, 'extra', op.CALL_GLOBAL, 'lower', 2], options)
+        ).toThrow('Function lower requires at most 1 arguments')
+    })
+
+    test.each<[string, unknown[], unknown]>([
+        ['round', [1.2345, 2], 1],
+        ['floor', [1.9, 1], 1],
+        ['toString', [123, 'UTC'], '123'],
+        ['now', ['UTC'], expect.objectContaining({ __hogDateTime__: true, zone: 'UTC' })],
+        ['position', ['abc', 'b', 1], 2],
+        ['positionCaseInsensitive', ['abc', 'B', 1], 2],
+        [
+            'dateTrunc',
+            ['day', { __hogDateTime__: true, dt: 3600, zone: 'UTC' }, 'UTC'],
+            { __hogDateTime__: true, dt: 0, zone: 'UTC' },
+        ],
+        [
+            'toStartOfDay',
+            [{ __hogDateTime__: true, dt: 3600, zone: 'UTC' }, 'UTC'],
+            { __hogDateTime__: true, dt: 0, zone: 'UTC' },
+        ],
+        [
+            'toStartOfWeek',
+            [{ __hogDateTime__: true, dt: 345600, zone: 'UTC' }, 1],
+            { __hogDateTime__: true, dt: 345600, zone: 'UTC' },
+        ],
+        [
+            'arraySort',
+            [
+                [2, 1],
+                [20, 10],
+            ],
+            [1, 2],
+        ],
+        [
+            'arrayReverseSort',
+            [
+                [2, 1],
+                [20, 10],
+            ],
+            [2, 1],
+        ],
+        ['JSONHas', ['{}'], true],
+    ])('%s accepts HogQL arguments through direct and indirect calls', (name, args, expected) => {
+        const bytecode: (string | number)[] = ['_H', 1]
+        const globals: Record<string, unknown> = {}
+        for (const [index, arg] of args.entries()) {
+            globals[`arg${index}`] = arg
+            bytecode.push(op.STRING, `arg${index}`, op.GET_GLOBAL, 1)
+        }
+        expect(execSync([...bytecode, op.CALL_GLOBAL, name, args.length], { globals })).toEqual(expected)
+        expect(
+            execSync([...bytecode, op.STRING, name, op.GET_GLOBAL, 1, op.CALL_LOCAL, args.length], { globals })
+        ).toEqual(expected)
     })
 
     test('null coercion in ordering comparisons - preserved behavior', () => {
@@ -2027,7 +2087,7 @@ describe('hogvm execute', () => {
 
     test('uncaught exceptions', () => {
         // throw Error('Not a good day')
-        const bytecode1 = ['_h', op.NULL, op.NULL, op.STRING, 'Not a good day', op.CALL_GLOBAL, 'Error', 3, op.THROW]
+        const bytecode1 = ['_h', op.STRING, 'Not a good day', op.CALL_GLOBAL, 'Error', 1, op.THROW]
         expect(() => execSync(bytecode1)).toThrow(new UncaughtHogVMException('Error', 'Not a good day', null))
 
         // throw RetryError('Not a good day', {'key': 'value'})

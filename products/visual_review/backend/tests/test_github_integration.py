@@ -163,6 +163,7 @@ def mock_github_api(local_git_repo):
                         "content": encoded,
                         "sha": blob_sha,
                         "encoding": "base64",
+                        "size": len(content.encode()),
                     }
                 ),
             )

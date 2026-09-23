@@ -242,8 +242,12 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         if personal_api_key.scoped_organizations:
             org_ids = personal_api_key.scoped_organizations
         elif personal_api_key.scoped_teams:
-            teams = Team.objects.filter(pk__in=personal_api_key.scoped_teams).select_related("organization")
-            org_ids = list({team.organization_id for team in teams})
+            # `organization_id` is a column on the team row, so no organization join is needed.
+            org_ids = list(
+                Team.objects.filter(pk__in=personal_api_key.scoped_teams)
+                .values_list("organization_id", flat=True)
+                .distinct()
+            )
         else:
             user_permissions = UserPermissions(personal_api_key.user)
             org_ids = list(user_permissions.organization_memberships.keys())

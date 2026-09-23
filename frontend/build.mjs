@@ -30,6 +30,7 @@ copyPublicFolder(
     path.resolve(__dirname, 'node_modules', '@posthog', 'hedgehog-mode', 'assets'),
     path.resolve(__dirname, 'dist', 'hedgehog-mode')
 )
+copyEmojibaseData()
 copySnappyWASMFile(__dirname)
 copyRRWebWorkerFiles(__dirname)
 
@@ -183,6 +184,18 @@ export function writePreloadManifest(outputs = {}) {
         }
     }
     fs.writeFileSync(path.resolve(distDir, 'preload-manifest.json'), JSON.stringify(manifest, null, 2))
+}
+
+// EmojiPickerPanel loads frimousse's emoji data from /static/emoji rather than from a CDN. frimousse
+// requests only these two files for the `en` locale. The Vite public-assets plugin copies the same files
+// in development.
+function copyEmojibaseData() {
+    const from = path.resolve(__dirname, 'node_modules', 'emojibase-data', 'en')
+    const to = path.resolve(__dirname, 'dist', 'emoji', 'en')
+    fs.mkdirSync(to, { recursive: true })
+    for (const file of ['data.json', 'messages.json']) {
+        fs.copyFileSync(path.resolve(from, file), path.resolve(to, file))
+    }
 }
 
 export function writeIndexHtml(chunks = {}, entrypoints = []) {

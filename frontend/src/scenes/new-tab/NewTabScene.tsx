@@ -4,6 +4,7 @@ import { useCallback } from 'react'
 
 import { Search } from 'lib/components/Search/Search'
 import { SearchItem } from 'lib/components/Search/searchLogic'
+import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -21,7 +22,7 @@ export function NewTabScene(): JSX.Element {
         if (openInNewTab) {
             newInternalTab(item.href)
         } else {
-            router.actions.push(item.href)
+            navigateToHref(item.href)
         }
     }, [])
 

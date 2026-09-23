@@ -105,6 +105,7 @@ describe("useStartTaskFromWorktree", () => {
     expect(trackMock).toHaveBeenCalledWith(
       "Task created",
       expect.objectContaining({
+        task_id: task.id,
         created_from: "sidebar-worktree",
         workspace_mode: "worktree",
       }),
@@ -112,6 +113,7 @@ describe("useStartTaskFromWorktree", () => {
     expect(queryFilterMock).toHaveBeenCalledWith({
       mainRepoPath: MAIN_REPO_PATH,
     });
+    expect(trackMock).toHaveBeenCalledTimes(1);
     expect(toastErrorMock).not.toHaveBeenCalled();
     expect(setFailedMock).not.toHaveBeenCalled();
     await waitFor(() =>
@@ -179,7 +181,10 @@ describe("useStartTaskFromWorktree", () => {
     );
     // Provisioning failure is still a successful task creation: the create
     // event still fires and the adoptable-worktrees list still refetches.
-    expect(trackMock).toHaveBeenCalled();
+    expect(trackMock).toHaveBeenCalledExactlyOnceWith(
+      "Task created",
+      expect.objectContaining({ task_id: task.id }),
+    );
     expect(queryFilterMock).toHaveBeenCalledWith({
       mainRepoPath: MAIN_REPO_PATH,
     });

@@ -1,6 +1,11 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
+from django.contrib.admin.templatetags.admin_list import results
+from django.db import connection
+from django.test import RequestFactory
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -115,14 +120,13 @@ class TestAITrainingOptInHistory(APIBaseTest):
             (True, None, False),
         ]
     )
-    def test_warns_only_when_a_hipaa_organization_is_opted_in(
-        self, is_hipaa: bool, opted_in: bool | None, expect_warning: bool
+    def test_warns_only_when_an_organization_with_a_signed_baa_is_opted_in(
+        self, has_baa: bool, opted_in: bool | None, expect_warning: bool
     ) -> None:
-        self.organization.is_hipaa = is_hipaa
-        self.organization.save()
         self._set_opt_in_without_logging(opted_in)
 
-        history = get_ai_training_opt_in_history(self.organization)
+        with patch("posthog.admin.ai_training_opt_in_history.has_signed_baa", return_value=has_baa):
+            history = get_ai_training_opt_in_history(self.organization)
 
         self.assertEqual(history.warning is not None, expect_warning)
 
@@ -193,6 +197,36 @@ class TestAITrainingOptInHistory(APIBaseTest):
         self.assertIn("Currently opted in", html)
         self.assertIn("opted out → opted in", html)
         self.assertIn(self.user.email, html)
+
+    def _baa_queries(self, context: CaptureQueriesContext) -> list[str]:
+        return [q["sql"] for q in context.captured_queries if "legal_documents_legaldocument" in q["sql"]]
+
+    def _render_organization_changelist(self) -> None:
+        # Drives the same field resolution the changelist template does, without rendering
+        # the admin page itself, whose app-list sidebar cannot reverse in the test settings.
+        request = RequestFactory().get("/admin/posthog/organization/")
+        request.user = self.user
+        changelist = OrganizationAdmin(Organization, AdminSite()).get_changelist_instance(request)
+        # The changelist view sets this; `results` reads it to decide whether rows are editable.
+        changelist.formset = None
+        list(results(changelist))
+
+    def test_admin_organization_list_does_not_read_the_baa_per_row(self) -> None:
+        for _ in range(3):
+            Organization.objects.bootstrap(self.user)
+        self.user.is_staff = True
+        self.user.save()
+
+        with CaptureQueriesContext(connection) as context:
+            self._render_organization_changelist()
+
+        self.assertEqual(self._baa_queries(context), [])
+
+    def test_admin_change_form_reads_the_baa_once(self) -> None:
+        with CaptureQueriesContext(connection) as context:
+            OrganizationAdmin(Organization, AdminSite()).ai_training_opt_in_history_display(self.organization)
+
+        self.assertEqual(len(self._baa_queries(context)), 1)
 
     def test_admin_panel_is_blank_on_the_add_form(self) -> None:
         html = OrganizationAdmin(Organization, AdminSite()).ai_training_opt_in_history_display(Organization())

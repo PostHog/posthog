@@ -1,6 +1,5 @@
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Optional
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -27,11 +26,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-    LazyComputationResult,
-    LazyComputationTable,
-    ensure_precomputed,
-)
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.experiments.backend.analysis_health import evaluate_bias_risk
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
@@ -41,11 +36,11 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
     get_exposure_config_params_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import (
-    experiment_has_min_runtime_for_precomputation,
-    experiment_precompute_ttl_schedule,
-    has_uncalculated_cohorts,
+    ExperimentResultsCacheMixin,
+    ensure_exposures_precomputed,
+    team_precompute_skip_reason,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key, has_activation_config
+from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -55,7 +50,7 @@ QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * varia
 SRM_MINIMUM_SAMPLE_SIZE = 100  # Minimum total exposures required for SRM calculation
 
 
-class ExperimentExposuresQueryRunner(QueryRunner):
+class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     query: ExperimentExposureQuery
     cached_response: CachedExperimentExposureQueryResponse
 
@@ -72,7 +67,10 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             raise ValidationError("feature_flag key is required")
         self.exposure_criteria = self.query.exposure_criteria
 
-        self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
+        try:
+            self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
+        except Experiment.DoesNotExist:
+            raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
         self.feature_flag_key: str = self.experiment.feature_flag.key_without_tombstone()
         # From the DB flag, not the query dict — callers vary in the feature_flag shape they
         # pass (full flag object vs bare filters), and a missed group index would bypass the
@@ -121,24 +119,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         return analysis_window(self.window_start, self.window_end_date, self.team, self.as_of)
 
     def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
-        query_string, placeholders = builder.get_exposure_query_for_precomputation()
-
         if not self.window_start:
             raise ValidationError("Experiment must have a start date for lazy computation")
 
-        date_from = self.window_start
-        date_to = analysis_window_end(self.window_end_date, self.as_of)
-
-        return ensure_precomputed(
-            team=self.team,
-            insert_query=query_string,
-            time_range_start=date_from,
-            time_range_end=date_to,
-            ttl_seconds=experiment_precompute_ttl_schedule(self.team.timezone),
-            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
-            placeholders=placeholders,
-            sentinel_placeholders={"experiment_date_to"},
-            spill_to_disk=True,
+        return ensure_exposures_precomputed(
+            self.team,
+            builder,
+            self.window_start,
+            analysis_window_end(self.window_end_date, self.as_of),
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
@@ -163,20 +151,17 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # lets PrecomputationMode.PRECOMPUTED bypass the gate, but this path has
         # no equivalent escape hatch yet, so callers cannot force precomputation
         # on a sub-12h experiment for the exposures view.
-        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         # group_type_index gate: mirrors the main runner — group builds always fail
         # (the INSERT can't resolve the materialized $group_N column on sharded_events).
         if (
             self.group_type_index is None
-            and config.experiment_precomputation_enabled
-            and experiment_has_min_runtime_for_precomputation(
-                self.experiment.start_date,
-                self.experiment.end_date,
+            and team_precompute_skip_reason(
+                self.team,
+                get_or_create_team_extension(self.team, TeamExperimentsConfig),
+                self.experiment,
+                self.exposure_criteria,
             )
-            and not has_uncalculated_cohorts(self.team, self.exposure_criteria)
-            # Activation-mode exposures can't be cached per day: the flag→activation
-            # ordering crosses bucket boundaries.
-            and not has_activation_config(self.exposure_criteria)
+            is None
         ):
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
@@ -416,18 +401,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         return complete_results
 
-    # Cache results for 24 hours
-    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
-        if last_refresh is None:
-            return None
-        return last_refresh + timedelta(hours=24)
-
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         payload["experiment_exposures_response_version"] = 2
         return payload
-
-    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
-        if not last_refresh:
-            return True
-        return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)

@@ -157,8 +157,20 @@ class TestPagination:
         # targets the saved cursor.
         assert params[0]["startingAfter"] == "cur-99"
 
+    @parameterized.expand(
+        [
+            ("time_entries", "https://www.ruddr.io/api/workspace/time-entries"),
+            ("project_tasks", "https://www.ruddr.io/api/workspace/project-tasks"),
+            ("project_prepayments", "https://www.ruddr.io/api/workspace/project-prepayments"),
+            ("timesheet_attestations", "https://www.ruddr.io/api/workspace/timesheet-attestations"),
+            ("task_categories", "https://www.ruddr.io/api/workspace/task-categories"),
+            ("pipeline_activities", "https://www.ruddr.io/api/workspace/pipeline-activities"),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_request_targets_endpoint_path(self, MockSession) -> None:
+    def test_request_targets_endpoint_path(self, endpoint: str, expected_url: str, MockSession) -> None:
+        # Schema names use underscores but Ruddr's paths use hyphens; assert each declared path
+        # reaches the hyphenated URL rather than a 404.
         session = MockSession.return_value
         session.headers = {}
         captured: list[str] = []
@@ -170,8 +182,8 @@ class TestPagination:
         session.prepare_request.side_effect = _prepare
         session.send.side_effect = [_response([{"id": "1"}], has_more=False)]
 
-        _rows(ruddr_source("key", "time_entries", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert captured[0] == "https://www.ruddr.io/api/workspace/time-entries"
+        _rows(ruddr_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+        assert captured[0] == expected_url
 
 
 class TestErrorHandling:

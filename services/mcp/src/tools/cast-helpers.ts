@@ -31,6 +31,21 @@ export const castStringToInt = (v: unknown): unknown => {
 }
 
 /**
+ * Cast a boolean to its lowercase string form; pass everything else through.
+ *
+ * Some string query params read as booleans to an agent — a filter named
+ * `enabled` is the clearest case — so agents send `true` where the schema
+ * wants a string. The backend filters already accept `true` / `false` as
+ * aliases, so the only thing standing between the call and a result is the
+ * tool boundary. Anything that isn't a boolean passes through unchanged, so
+ * zod still rejects true type mismatches.
+ *
+ * Wired up declaratively via `param_overrides: { enabled: { cast: 'boolean-string' } }`
+ * in product `tools.yaml` files — see services/mcp/scripts/generate-tools.ts.
+ */
+export const castBooleanToString = (v: unknown): unknown => (typeof v === 'boolean' ? String(v) : v)
+
+/**
  * Normalize alternate key spellings to a canonical param name before validation.
  *
  * Agents composing calls from scratch guess the identifier key from context —

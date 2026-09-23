@@ -51,7 +51,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import GitHubInstallRequest, UserGitHubIntegration, UserIntegration
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission
 from posthog.rate_limit import UserAuthenticationThrottle
 from posthog.user_permissions import UserPermissions
 
@@ -303,7 +303,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
     ]
 
     authentication_classes = [OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, TimeSensitiveActionPermission]
+    # Refreshing the cached repository list and dismissing a pending install request change no access.
+    time_sensitive_exclude_actions = ["github_repos_refresh", "github_install_requests_destroy"]
     http_method_names = ["get", "post", "delete"]
     serializer_class = UserGitHubIntegrationItemSerializer
 
@@ -719,9 +721,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         for integration in candidates:
             if permissions.team(integration.team).effective_membership_level is None:
                 continue
-            # Feature-flag check per workspace so an org that hasn't rolled out
-            # the flag yet doesn't show up in another org's picker.
-            if not is_slack_app_oauth_enabled(integration, integration.integration_id):
+            # Scope check per workspace so an install that can't resolve identities
+            # doesn't show up in another org's picker.
+            if not is_slack_app_oauth_enabled(integration):
                 continue
             # `(config or {}).get("team", {})` doesn't defend against an explicit
             # ``config["team"] = None`` — dict.get returns the literal None
@@ -779,7 +781,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 "This project has no Slack workspace connected. Ask an admin to install the Slack app first."
             )
 
-        if not is_slack_app_oauth_enabled(workspace, workspace.integration_id):
+        if not is_slack_app_oauth_enabled(workspace):
             raise exceptions.PermissionDenied("Slack identity linking is not enabled for this organization.")
 
         if UserIntegration.objects.filter(

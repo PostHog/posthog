@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
+import * as burningMoneyHogPng from '@posthog/brand/hoggies/png/burning-money'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { BurningMoneyHog } from 'lib/components/hedgehogs'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightShortId } from '~/types'
@@ -13,10 +13,12 @@ import { InsightShortId } from '~/types'
 import { AccountBillingChart, canRenderBillingChart } from './AccountBillingChart'
 import { AccountBillingKind, accountBillingLogic } from './accountBillingLogic'
 
+const HedgehogBurningMoney = pngHoggie(burningMoneyHogPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function BillingInsightNotFound({ kind }: { kind: AccountBillingKind }): JSX.Element {
-    const Hog = kind === 'spend' ? BurningMoneyHog : HedgehogMagnifyingGlass
+    const Hog = kind === 'spend' ? HedgehogBurningMoney : HedgehogMagnifyingGlass
+
     return (
         <div
             className="flex flex-col items-center justify-center gap-2 p-8 text-center"
@@ -41,8 +43,16 @@ export function AccountBillingExpansion({
     kind: AccountBillingKind
 }): JSX.Element {
     const logic = accountBillingLogic({ accountId, externalId, kind })
-    const { savedInsights, savedInsightsLoading, dateRange, variableOverridesByShortId, queryKeyFor } = useValues(logic)
-    const { setDateRange } = useActions(logic)
+    const {
+        displayInsights: savedInsights,
+        savedInsightsLoading,
+        dateRange,
+        variableOverridesByShortId,
+        queryKeyFor,
+        usageInterval,
+        canAggregateUsage,
+    } = useValues(logic)
+    const { setDateRange, setUsageInterval } = useActions(logic)
 
     if (!externalId) {
         return <div className="p-4 text-secondary">This account has no linked organization.</div>
@@ -60,11 +70,26 @@ export function AccountBillingExpansion({
 
     return (
         <div className="flex flex-col gap-3">
-            <DateFilter
-                dateFrom={dateRange.date_from}
-                dateTo={dateRange.date_to}
-                onChange={(from, to) => setDateRange(from, to)}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+                <DateFilter
+                    dateFrom={dateRange.date_from}
+                    dateTo={dateRange.date_to}
+                    onChange={(from, to) => setDateRange(from, to)}
+                />
+                {canAggregateUsage && (
+                    <LemonSelect
+                        value={usageInterval}
+                        onChange={setUsageInterval}
+                        options={[
+                            { value: 'day', label: 'Daily' },
+                            { value: 'week', label: 'Weekly' },
+                            { value: 'month', label: 'Monthly' },
+                        ]}
+                        aria-label="Usage aggregation"
+                        data-attr="account-usage-interval"
+                    />
+                )}
+            </div>
             {savedInsights.map((insight) => {
                 const queryKey = queryKeyFor(insight.short_id)
                 const variablesOverride = variableOverridesByShortId[insight.short_id] ?? null

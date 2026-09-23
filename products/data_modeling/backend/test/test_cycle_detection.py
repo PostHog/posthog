@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -20,7 +20,7 @@ class LinkedListCycleDetectionTest(BaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        with freeze_time("2025-01-01T12:00:00.000Z"):
+        with time_machine.travel("2025-01-01T12:00:00.000Z", tick=False):
             cls.ll_dag = DAG.objects.create(team=cls.team, name=LINKED_LIST_DAG_ID)
             ll_queries = [
                 DataWarehouseSavedQuery.objects.create(
@@ -73,7 +73,7 @@ class TreeCycleDetectionTest(BaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        with freeze_time("2025-01-01T12:00:00.000Z"):
+        with time_machine.travel("2025-01-01T12:00:00.000Z", tick=False):
             cls.bt_dag = DAG.objects.create(team=cls.team, name=BALANCED_TREE_DAG_ID)
             bt_root = [
                 DataWarehouseSavedQuery.objects.create(

@@ -37,6 +37,7 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.test.utils import pretty_print_in_tests
@@ -146,7 +147,9 @@ class TestEventsPredicatePushdownTransform(BaseTest):
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(pushDownPredicates=push_down),
             )
-            context.restricted_properties = {("email", PropertyDefinition.Type.EVENT)}
+            context.restricted_properties = {
+                RestrictedProperty(name="email", property_type=PropertyDefinition.Type.EVENT)
+            }
             query, _ = prepare_and_print_ast(parse_select(select), context, "clickhouse")
             return pretty_print_in_tests(query, self.team.pk)
 

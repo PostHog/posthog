@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.c
     CampfireResumeConfig,
     CampfireTokenAuth,
     _format_incremental_value,
+    _incremental_config,
     _validate_next_url,
     campfire_source,
     validate_credentials,
@@ -244,10 +245,19 @@ class TestRetries:
 
 class TestCampfireSourceResponse:
     def test_every_endpoint_builds_a_source_response(self) -> None:
+        # Catches a catalog entry whose wiring can't be built at all -- a fan-out naming a parent
+        # that isn't in the catalog raises here rather than mid-sync.
         for endpoint in ENDPOINTS:
             response = campfire_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
             assert response.name == endpoint
-            assert response.primary_keys == ["id"]
+
+    def test_fanout_rows_are_keyed_by_contract_and_id(self) -> None:
+        # Subscription ids are only documented as unique within their contract, and the fan-out
+        # pools every contract's rows into one table.
+        response = campfire_source(
+            "key", "contract_subscriptions", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+        assert response.primary_keys == ["contract", "id"]
 
     def test_payment_sync_endpoints_are_ascending(self) -> None:
         # Campfire documents (last_modified_at, id) ascending order on the payment sync endpoints,
@@ -295,3 +305,113 @@ class TestValidateCredentials:
         with patch.object(campfire, "make_tracked_session", return_value=session):
             validate_credentials("cf_test_key", path="/rr/api/v1/contracts")
         assert session.get.call_args[0][0].startswith(f"{CAMPFIRE_BASE_URL}/rr/api/v1/contracts?")
+
+
+class TestUnpaginatedEndpoints:
+    """Some endpoints return a bare JSON array and document no pagination params."""
+
+    def test_bare_array_rows_are_yielded(self) -> None:
+        rows, _, session = _run("chart_entities", [_response([{"id": 1}, {"id": 2}])])
+        assert rows == [{"id": 1}, {"id": 2}]
+        # No `next` key to follow, so the sync stops after the single response.
+        assert session.send.call_count == 1
+
+    def test_no_page_size_is_requested(self) -> None:
+        # `/coa/api/entity` documents no `limit`; sending one would be an undocumented param.
+        _, snapshots, _ = _run("chart_entities", [_response([])])
+        assert "limit" not in snapshots[0]["params"]
+
+
+class TestIncrementalConfig:
+    def test_binds_last_modified_at_to_the_server_side_filter(self) -> None:
+        config = _incremental_config("last_modified_at")
+        assert config is not None
+        assert config["start_param"] == "last_modified_at__gte"
+        assert config["cursor_path"] == "last_modified_at"
+
+    def test_unknown_cursor_field_gets_no_request_window(self) -> None:
+        # Campfire filters on `last_modified_at` and nothing else, so any other field must not
+        # produce a param the API would ignore.
+        assert _incremental_config("created_at") is None
+
+
+class TestFanout:
+    """`contract_subscriptions` is only reachable per contract, so it walks `contracts` first."""
+
+    def _responses(self) -> list[requests.Response]:
+        return [
+            _response({"count": 2, "next": None, "results": [{"id": 11}, {"id": 22}]}),
+            _response([{"id": 1, "contract": 11}]),
+            _response([{"id": 2, "contract": 22}]),
+        ]
+
+    def test_fetches_each_contracts_subscriptions(self) -> None:
+        rows, snapshots, _ = _run("contract_subscriptions", self._responses())
+
+        assert rows == [{"id": 1, "contract": 11}, {"id": 2, "contract": 22}]
+        assert snapshots[0]["url"] == f"{CAMPFIRE_BASE_URL}/rr/api/v1/contracts"
+        assert [s["url"] for s in snapshots[1:]] == [
+            f"{CAMPFIRE_BASE_URL}/rr/api/v1/contracts/11/subscriptions",
+            f"{CAMPFIRE_BASE_URL}/rr/api/v1/contracts/22/subscriptions",
+        ]
+
+    def test_only_the_parent_listing_requests_a_page_size(self) -> None:
+        # The child endpoint documents no `limit`; the parent needs one to page past its default.
+        _, snapshots, _ = _run("contract_subscriptions", self._responses())
+        assert snapshots[0]["params"]["limit"] == CAMPFIRE_ENDPOINTS["contracts"].page_size
+        assert all("limit" not in s["params"] for s in snapshots[1:])
+
+    def test_child_requests_carry_the_watermark(self) -> None:
+        _, snapshots, _ = _run(
+            "contract_subscriptions",
+            self._responses(),
+            should_use_incremental_field=True,
+            incremental_field="last_modified_at",
+            db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+        )
+        assert [s["params"].get("last_modified_at__gte") for s in snapshots[1:]] == [
+            "2026-01-02T03:04:05Z",
+            "2026-01-02T03:04:05Z",
+        ]
+        # The parent walk is unfiltered: a subscription can change without its contract changing.
+        assert "last_modified_at__gte" not in snapshots[0]["params"]
+
+    def test_first_incremental_sync_sends_an_epoch_floor(self) -> None:
+        # The framework sends the start param on every request, so with no stored watermark it
+        # must still be a timestamp that selects everything.
+        _, snapshots, _ = _run(
+            "contract_subscriptions",
+            self._responses(),
+            should_use_incremental_field=True,
+            incremental_field="last_modified_at",
+            db_incremental_field_last_value=None,
+        )
+        assert snapshots[1]["params"]["last_modified_at__gte"] == "1970-01-01T00:00:00Z"
+
+    def test_full_refresh_sends_no_watermark(self) -> None:
+        _, snapshots, _ = _run("contract_subscriptions", self._responses())
+        assert all("last_modified_at__gte" not in s["params"] for s in snapshots)
+
+    def test_checkpoints_each_finished_contract(self) -> None:
+        manager = _make_manager()
+        _run("contract_subscriptions", self._responses(), manager=manager)
+        assert [s.completed for s in manager.saved][-1] == [
+            "/rr/api/v1/contracts/11/subscriptions",
+            "/rr/api/v1/contracts/22/subscriptions",
+        ]
+
+    def test_resumes_past_contracts_already_synced(self) -> None:
+        manager = _make_manager(
+            CampfireResumeConfig(completed=["/rr/api/v1/contracts/11/subscriptions"], current=None, child_state=None)
+        )
+        rows, snapshots, _ = _run(
+            "contract_subscriptions",
+            [
+                _response({"count": 2, "next": None, "results": [{"id": 11}, {"id": 22}]}),
+                _response([{"id": 2, "contract": 22}]),
+            ],
+            manager=manager,
+        )
+
+        assert rows == [{"id": 2, "contract": 22}]
+        assert [s["url"] for s in snapshots[1:]] == [f"{CAMPFIRE_BASE_URL}/rr/api/v1/contracts/22/subscriptions"]

@@ -22,6 +22,7 @@ import { FeatureRequestAccountEvidenceModal } from './FeatureRequestAccountEvide
 import { FeatureRequestAccountItem } from './FeatureRequestAccountItem'
 import { FeatureRequestDetailSection } from './FeatureRequestDetailSection'
 import { FeatureRequestEditModal } from './FeatureRequestEditModal'
+import { FeatureRequestGithubSection } from './FeatureRequestGithubSection'
 import { FeatureRequestHistorySection } from './FeatureRequestHistorySection'
 import { FeatureRequestImages } from './FeatureRequestImages'
 import { FeatureRequestPriorityBadge } from './FeatureRequestPriorityBadge'
@@ -142,6 +143,8 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                 </div>
 
                 <aside className="flex flex-col min-w-0 gap-5">
+                    <FeatureRequestGithubSection request={request} />
+
                     <FeatureRequestDetailSection icon={<IconFolder />} title="Product areas">
                         <div className="flex flex-wrap gap-1.5">
                             {request.product_areas.map((area) => (

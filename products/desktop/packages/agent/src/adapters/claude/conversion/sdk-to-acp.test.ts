@@ -6,18 +6,82 @@ import type {
   SDKAssistantMessage,
   SDKModelRefusalFallbackMessage,
   SDKPartialAssistantMessage,
+  SDKResultMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
 import { Logger } from "../../../utils/logger";
 import type { Session } from "../types";
 import {
+  handleResultMessage,
   handleStreamEvent,
   handleSystemMessage,
   handleUserAssistantMessage,
   type MessageHandlerContext,
   stripMarkerTags,
 } from "./sdk-to-acp";
+
+describe("handleResultMessage error text", () => {
+  it("shows a subscription usage-limit result as-is, without an 'Internal error:' prefix", () => {
+    const message = {
+      subtype: "success",
+      is_error: true,
+      result: "Claude AI usage limit reached. Your limit will reset at 3pm.",
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message);
+
+    expect(error?.message).toBe(
+      "Claude AI usage limit reached. Your limit will reset at 3pm.",
+    );
+  });
+
+  it("keeps the 'Internal error:' prefix for other agent errors", () => {
+    const message = {
+      subtype: "success",
+      is_error: true,
+      result: "API Error: 500 something broke",
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message);
+
+    expect(error?.message).toBe(
+      "Internal error: API Error: 500 something broke",
+    );
+  });
+
+  it("keeps tool progress on a provider error", () => {
+    const message = {
+      subtype: "success",
+      is_error: true,
+      result: "API Error: 500 something broke",
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message, true);
+
+    expect(
+      (error as unknown as { data?: { madeProgress?: boolean } }).data
+        ?.madeProgress,
+    ).toBe(true);
+  });
+
+  it("keeps tool progress on an execution error", () => {
+    const message = {
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: ["API Error: 500 something broke"],
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message, true);
+
+    expect(error).toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        madeProgress: true,
+      }),
+    });
+  });
+});
 
 describe("stripMarkerTags", () => {
   it("strips a single marker and keeps surrounding prose", () => {
@@ -109,6 +173,7 @@ function assistantMessage(
   apiId: string,
   content: Array<Record<string, unknown>>,
   parentToolUseId: string | null = null,
+  isApiErrorMessage?: boolean,
 ): SDKAssistantMessage {
   return {
     type: "assistant",
@@ -120,6 +185,7 @@ function assistantMessage(
       role: "assistant",
       content,
     },
+    isApiErrorMessage,
   } as unknown as SDKAssistantMessage;
 }
 
@@ -152,6 +218,112 @@ async function streamLiveText(
 }
 
 describe("assembled assistant text fallback", () => {
+  it("forwards partial tool inputs without retaining snapshots in session history", async () => {
+    const { context, updates } = createHandlerContext();
+    await handleStreamEvent(
+      streamEvent({
+        type: "content_block_start",
+        index: 0,
+        content_block: {
+          type: "tool_use",
+          id: "tool-1",
+          name: "Bash",
+          input: {},
+        },
+      }),
+      context,
+    );
+    for (const partial_json of ['{"command":"echo ', "hello ", 'world"}']) {
+      await handleStreamEvent(
+        streamEvent({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json },
+        }),
+        context,
+      );
+    }
+    await handleStreamEvent(
+      streamEvent({ type: "content_block_stop", index: 0 }),
+      context,
+    );
+
+    expect(updates.slice(-3).map(({ update }) => update)).toMatchObject([
+      { sessionUpdate: "tool_call_update", rawInput: { command: "echo" } },
+      {
+        sessionUpdate: "tool_call_update",
+        rawInput: { command: "echo hello" },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        rawInput: { command: "echo hello world" },
+      },
+    ]);
+    expect(context.session.notificationHistory).toEqual([]);
+    updates.length = 0;
+
+    await handleUserAssistantMessage(
+      assistantMessage("msg_1", [
+        {
+          type: "tool_use",
+          id: "tool-1",
+          name: "Bash",
+          input: { command: "echo hello world" },
+        },
+      ]),
+      context,
+    );
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0].update).toMatchObject({
+      rawInput: { command: "echo hello world" },
+    });
+    expect(context.session.notificationHistory).toEqual(updates);
+  });
+
+  it.each([false, true])(
+    "preserves the MCP result metadata in ACP and stored notifications (isError=%s)",
+    async (isError) => {
+      const { context, updates } = createHandlerContext();
+      context.toolUseCache.toolu_query = {
+        type: "tool_use",
+        id: "toolu_query",
+        name: "mcp__posthog__exec",
+        input: {},
+      };
+      const rawResult = {
+        content: [{ type: "text", text: "3 rows" }],
+        _meta: {
+          "com.posthog.mcp/app_data": { query: { kind: "TrendsQuery" } },
+        },
+      };
+      await handleUserAssistantMessage(
+        {
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_query",
+                content: rawResult.content,
+                is_error: isError,
+              },
+            ],
+          },
+          tool_use_result: rawResult,
+        } as SDKUserMessage,
+        context,
+      );
+
+      expect(updates[0].update).toMatchObject({
+        sessionUpdate: "tool_call_update",
+        rawOutput: { ...rawResult, isError },
+      });
+      expect(context.session.notificationHistory).toEqual(updates);
+    },
+  );
+
   it("forwards assembled text that never streamed", async () => {
     const { context, updates } = createHandlerContext();
     await handleUserAssistantMessage(
@@ -160,6 +332,34 @@ describe("assembled assistant text fallback", () => {
     );
     expect(chunkTexts(updates, "agent_message_chunk")).toEqual(["full answer"]);
   });
+
+  it.each([
+    { isApiErrorMessage: true, expected: [] },
+    {
+      isApiErrorMessage: false,
+      expected: ["API Error: Content block is not a thinking block"],
+    },
+  ])(
+    "filters SDK API error messages when marked $isApiErrorMessage",
+    async ({ isApiErrorMessage, expected }) => {
+      const { context, updates } = createHandlerContext();
+      await handleUserAssistantMessage(
+        assistantMessage(
+          "msg_1",
+          [
+            {
+              type: "text",
+              text: "API Error: Content block is not a thinking block",
+            },
+          ],
+          null,
+          isApiErrorMessage,
+        ),
+        context,
+      );
+      expect(chunkTexts(updates, "agent_message_chunk")).toEqual(expected);
+    },
+  );
 
   it("drops assembled text that already streamed live", async () => {
     const { context, updates } = createHandlerContext();

@@ -48,13 +48,7 @@ def reverse_content_type(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("early_access_features", "0006_migrate_feature_flags_models"),
-        ("ee", "0045_migrate_feature_flags_models"),
-        ("experiments", "0015_migrate_feature_flags_models"),
-        ("feature_flags", "0002_migrate_feature_flags_models"),
         ("posthog", "1181_taggeditem_endpoint_unique_constraint"),
-        ("product_tours", "0007_migrate_feature_flags_models"),
-        ("surveys", "0004_migrate_feature_flags_models"),
     ]
 
     operations = [

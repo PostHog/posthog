@@ -19,7 +19,7 @@ class FieldNote(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDT
         RESOLVED = "resolved", "Resolved"
         DISMISSED = "dismissed", "Dismissed"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     comment = models.TextField(help_text="The note the user wrote about the element.")
     # Field named `field_note_status` (not `status`) to avoid a drf-spectacular enum-name collision.

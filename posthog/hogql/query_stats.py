@@ -1,0 +1,145 @@
+"""Add up the rows and time ClickHouse spent on one query request.
+
+One request can run several ClickHouse queries (a trends insight runs one per series). The runner
+opens ``query_stats_scope()`` around the run, ``sync_execute`` calls ``record()`` after each query,
+and the runner reads the totals at the end. With no scope open, ``record()`` does nothing.
+
+A new thread does not see the scope its parent opened, so a runner that runs its queries in threads
+reads the totals with ``get_active()`` and installs them in each thread with ``use()``.
+"""
+
+from __future__ import annotations
+
+import threading
+import contextlib
+from collections.abc import Iterator
+from contextvars import ContextVar
+from dataclasses import field
+from typing import TYPE_CHECKING
+
+from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.hogql import ast
+    from posthog.hogql.constants import HogQLGlobalSettings
+    from posthog.hogql.context import HogQLContext
+
+
+@frozen
+class RecordedExecution:
+    """One ClickHouse execution inside a scope, held by reference for the job to explain later.
+
+    ``lookup`` is the ``QueryTags.lookup`` value the execution ran under, so a run's analysis can
+    leave out an internal lookup a runner made on the way to its real query. ``settings`` are the
+    ones the query was printed with, so the job plans it under the same ones.
+    """
+
+    tree: ast.Expr
+    context: HogQLContext
+    rows_read: int
+    lookup: str | None = None
+    settings: HogQLGlobalSettings | None = None
+
+
+@frozen(frozen=False)
+class QueryStats:
+    """The totals for one request."""
+
+    rows_read: int = 0
+    duration_ms: float = 0.0
+    # How many ClickHouse queries the request ran. Zero means it never reached ClickHouse, for
+    # example a warehouse query over a direct connection, so there is nothing to report.
+    query_count: int = 0
+    # The part of the totals spent on lookups tagged ``QueryTags.lookup``, which run under a runner's
+    # scope without being the query the person wrote, so a reader can judge the run without them.
+    lookup_rows_read: int = 0
+    lookup_duration_ms: float = 0.0
+    # Runners that record from several threads share one QueryStats.
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    # References only, filled by the executor, so the job can explain each execution without rerunning it.
+    executions: list[RecordedExecution] = field(default_factory=list, repr=False, compare=False)
+
+    def add(self, *, rows_read: int, duration_ms: float, lookup: bool = False) -> None:
+        with self.lock:
+            self.rows_read += rows_read
+            self.duration_ms += duration_ms
+            self.query_count += 1
+            if lookup:
+                self.lookup_rows_read += rows_read
+                self.lookup_duration_ms += duration_ms
+
+    def record_execution(
+        self,
+        *,
+        tree: ast.Expr,
+        context: HogQLContext,
+        rows_read: int,
+        lookup: str | None = None,
+        settings: HogQLGlobalSettings | None = None,
+    ) -> None:
+        with self.lock:
+            self.executions.append(
+                RecordedExecution(tree=tree, context=context, rows_read=rows_read, lookup=lookup, settings=settings)
+            )
+
+
+_accumulator: ContextVar[QueryStats | None] = ContextVar("query_stats_accumulator", default=None)
+
+# The rows of the last query recorded in the current thread, for the executor to attribute to the
+# tree it just ran. Kept per thread rather than read off the shared totals, because runners that
+# fan out over threads share one QueryStats, and a change in its total would charge one thread with
+# rows another read at the same time.
+_last_rows_read: ContextVar[int] = ContextVar("query_stats_last_rows_read", default=0)
+
+
+@contextlib.contextmanager
+def query_stats_scope() -> Iterator[QueryStats]:
+    """Add up every ClickHouse query run inside this block. Nested in another scope, it adds to that one."""
+    outer = _accumulator.get()
+    if outer is not None:
+        yield outer
+        return
+    stats = QueryStats()
+    token = _accumulator.set(stats)
+    try:
+        yield stats
+    finally:
+        _accumulator.reset(token)
+
+
+def get_active() -> QueryStats | None:
+    """The totals of the open scope, or None when none is open."""
+    return _accumulator.get()
+
+
+@contextlib.contextmanager
+def use(stats: QueryStats | None) -> Iterator[None]:
+    """Record into ``stats`` inside this block, for a thread that does not see its parent's scope.
+    Does nothing for None."""
+    if stats is None:
+        yield
+        return
+    token = _accumulator.set(stats)
+    try:
+        yield
+    finally:
+        _accumulator.reset(token)
+
+
+def record(*, rows_read: int, duration_ms: float, lookup: bool = False) -> None:
+    """Add one ClickHouse query to the open scope. Does nothing without one."""
+    _last_rows_read.set(rows_read)
+    stats = _accumulator.get()
+    if stats is None:
+        return
+    stats.add(rows_read=rows_read, duration_ms=duration_ms, lookup=lookup)
+
+
+def reset_last_rows_read() -> None:
+    """Forget the last query's rows in this thread, before a run that must not inherit them."""
+    _last_rows_read.set(0)
+
+
+def last_rows_read() -> int:
+    """The rows of the last query recorded in this thread since the reset, or 0."""
+    return _last_rows_read.get()

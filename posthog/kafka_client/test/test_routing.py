@@ -25,6 +25,10 @@ from posthog.kafka_client.topics import (
     KAFKA_DEAD_LETTER_QUEUE,
     KAFKA_DWH_CDP_RAW_TABLE,
     KAFKA_EVENTS_JSON,
+    KAFKA_LOGS_INGESTION,
+    KAFKA_LOGS_INGESTION_DLQ,
+    KAFKA_TRACES_INGESTION,
+    KAFKA_TRACES_INGESTION_DLQ,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
 )
 
@@ -113,6 +117,10 @@ class CurrentTopicRoutingTest(TestCase):
         self.assertEqual(mapping.get(KAFKA_DWH_CDP_RAW_TABLE), KafkaClusterProfile.CYCLOTRON)
         # KAFKA_APP_METRICS2 is routed to the INGESTION cluster.
         self.assertEqual(mapping.get(KAFKA_APP_METRICS2), KafkaClusterProfile.INGESTION)
+        self.assertEqual(mapping.get(KAFKA_TRACES_INGESTION), KafkaClusterProfile.TRACES)
+        self.assertEqual(mapping.get(KAFKA_TRACES_INGESTION_DLQ), KafkaClusterProfile.TRACES)
+        self.assertEqual(mapping.get(KAFKA_LOGS_INGESTION), KafkaClusterProfile.LOGS)
+        self.assertEqual(mapping.get(KAFKA_LOGS_INGESTION_DLQ), KafkaClusterProfile.LOGS)
 
     def test_env_overrides_add_new_topic(self):
         # KAFKA_DEAD_LETTER_QUEUE is deliberately absent from the defaults, so this covers

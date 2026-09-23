@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import TestCase
+from django.utils import timezone
 
 from posthog.models.user import User
 
@@ -32,6 +33,19 @@ class TestHogFlow(TestCase):
         mock_reload.assert_not_called()
 
         hog_flow.save(update_fields=["draft", "name"])
+        mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(hog_flow.id)])
+
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_email_pause_save_reloads_the_workers(self, mock_reload):
+        # The worker enforces the pause off its cached config, so a pause that does not publish a
+        # reload lets in-flight runs and queued batch sends keep sending for the cache's lifetime.
+        hog_flow = HogFlow.objects.create(name="Test Flow", team=self.team)
+        mock_reload.reset_mock()
+
+        hog_flow.email_sending_paused_at = timezone.now()
+        hog_flow.email_sending_paused_reason = "Spam complaints reached 2%."
+        hog_flow.save(update_fields=["email_sending_paused_at", "email_sending_paused_reason"])
+
         mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(hog_flow.id)])
 
     @patch("products.workflows.backend.tasks.hog_flows.refresh_affected_hog_flows.delay")

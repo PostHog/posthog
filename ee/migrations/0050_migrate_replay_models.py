@@ -38,7 +38,9 @@ def reverse_content_types(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("ee", "0049_migrate_posthog_ai_models"), ("replay", "0001_migrate_replay_models")]
+    dependencies = [
+        ("ee", "0049_migrate_posthog_ai_models"),
+    ]
 
     operations = [
         migrations.SeparateDatabaseAndState(

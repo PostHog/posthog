@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.clickhouse.query_tagging import Product, QueryTags, query_tags, reset_query_tags, tag_queries
 from posthog.constants import AvailableFeature
@@ -40,6 +41,33 @@ class TestRateLimit(BaseTest):
         self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=17))
         with self.assertRaises(ConcurrencyLimitExceeded):
             self.cancels.append(self.limit.use(True, 8, 18))
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    @patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel.FULL)
+    @patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=True)
+    def test_non_query_limit_can_disable_clickhouse_controls(self, bypass: Mock, kill_switch: Mock) -> None:
+        limit = RateLimit(
+            max_concurrency=2,
+            limit_name="non_query_limit",
+            get_task_name=lambda **_kwargs: "non-query-limit",
+            get_task_id=lambda **kwargs: kwargs["task_id"],
+            apply_clickhouse_kill_switch=False,
+            allow_team_bypass=False,
+        )
+        slots: list[ConcurrencySlot] = []
+        try:
+            first = limit.use(team_id=42, task_id="first")
+            second = limit.use(team_id=42, task_id="second")
+            assert first is not None
+            assert second is not None
+            slots.extend([first, second])
+            with self.assertRaises(ConcurrencyLimitExceeded):
+                limit.use(team_id=42, task_id="third")
+            bypass.assert_not_called()
+            kill_switch.assert_not_called()
+        finally:
+            for slot in slots:
+                limit.release(slot)
 
     @parameterized.expand(
         [

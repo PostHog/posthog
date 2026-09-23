@@ -57,7 +57,7 @@ pub fn transformation_ext_fns() -> HashMap<String, NativeFunction> {
                     let mut parts: Vec<String> = Vec::with_capacity(args.len());
                     for arg in &args {
                         let part = match arg.deref(&vm.heap)? {
-                            HogLiteral::String(value) => value.clone(),
+                            HogLiteral::String(value) => value.to_string(),
                             _ => serde_json::to_string(&vm.hog_to_json(arg)?)
                                 .map_err(|e| VmError::NativeCallFailed(e.to_string()))?,
                         };
@@ -128,7 +128,7 @@ pub fn transformation_ext_fns() -> HashMap<String, NativeFunction> {
                     let HogLiteral::String(ip) = arg.deref(&vm.heap)? else {
                         return Ok(HogLiteral::Boolean(false).into());
                     };
-                    let known = list.iter().any(|known_ip| known_ip == ip);
+                    let known = list.iter().any(|known_ip| known_ip == ip.as_str());
                     Ok(HogLiteral::Boolean(known).into())
                 }),
             );

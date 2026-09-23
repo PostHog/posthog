@@ -25,10 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.loop_retur
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.settings import (
+    API_MAX_RANGE_DAYS,
     DEFAULT_BACKFILL_DAYS,
     LOOP_RETURNS_ENDPOINTS,
     MAX_BACKFILL_DAYS,
-    MAX_WINDOW_DAYS,
     RETURN_STATES,
 )
 
@@ -98,21 +98,22 @@ class TestLoopReturnsPaginator:
 
         assert request.params == {
             "from": "2024-01-01T00:00:00.000Z",
-            "to": "2024-04-30T00:00:00.000Z",
+            "to": "2024-03-31T00:00:00.000Z",
             "filter": "created_at",
             "state": "open",
             "paginate": "true",
             "pageSize": 250,
         }
 
-    def test_windows_never_exceed_the_api_range_cap(self) -> None:
-        # Loop rejects a range wider than 120 days, so every window has to stay inside it.
+    def test_windows_stay_inside_the_api_range_cap(self) -> None:
+        # A window spanning Loop's full documented 120-day range comes back 422, which fails the
+        # whole sync, so every window has to ask for a strictly narrower range.
         sent = _walk(_paginator(days=250), [{"returns": [], "nextPageUrl": None}] * 3)
 
         for params in sent:
             start = datetime.fromisoformat(params["from"].replace("Z", "+00:00"))
             end = datetime.fromisoformat(params["to"].replace("Z", "+00:00"))
-            assert end - start <= timedelta(days=MAX_WINDOW_DAYS)
+            assert end - start < timedelta(days=API_MAX_RANGE_DAYS)
 
     def test_windows_walk_the_whole_range_then_restart_for_the_next_state(self) -> None:
         # Loop's `state` filter takes one value and defaults to open/closed/expired, so cancelled
@@ -121,9 +122,9 @@ class TestLoopReturnsPaginator:
 
         first_pass = [(params["from"], params["to"]) for params in sent[:3]]
         assert first_pass == [
-            ("2024-01-01T00:00:00.000Z", "2024-04-30T00:00:00.000Z"),
-            ("2024-04-30T00:00:00.000Z", "2024-08-28T00:00:00.000Z"),
-            ("2024-08-28T00:00:00.000Z", "2024-09-07T00:00:00.000Z"),
+            ("2024-01-01T00:00:00.000Z", "2024-03-31T00:00:00.000Z"),
+            ("2024-03-31T00:00:00.000Z", "2024-06-29T00:00:00.000Z"),
+            ("2024-06-29T00:00:00.000Z", "2024-09-07T00:00:00.000Z"),
         ]
         assert [params["state"] for params in sent] == [state for state in RETURN_STATES for _ in range(3)]
         assert sent[3]["from"] == "2024-01-01T00:00:00.000Z"
@@ -173,7 +174,7 @@ class TestLoopReturnsPaginator:
             ],
         )
         saved = paginator.get_resume_state()
-        assert saved == {"window_start": "2024-04-30T00:00:00.000Z", "state_index": 0, "cursor": "xyz"}
+        assert saved == {"window_start": "2024-03-31T00:00:00.000Z", "state_index": 0, "cursor": "xyz"}
 
         resumed = _paginator(days=250)
         resumed.set_resume_state(cast(dict[str, Any], saved))
@@ -181,7 +182,7 @@ class TestLoopReturnsPaginator:
         resumed.init_request(request)
 
         assert request.params is not None
-        assert request.params["from"] == "2024-04-30T00:00:00.000Z"
+        assert request.params["from"] == "2024-03-31T00:00:00.000Z"
         assert request.params["cursor"] == "xyz"
         assert request.params["state"] == "open"
 
@@ -226,11 +227,12 @@ class TestLoopReturnsPaginator:
         assert request.params["to"] == request.params["from"]
 
     def test_endpoint_without_pagination_or_states_only_windows(self) -> None:
-        sent = _walk(_paginator("advanced_shipping_notices", days=200), [[], []])
+        sent = _walk(_paginator("advanced_shipping_notices", days=200), [[], [], []])
 
         assert [(params["from"], params["to"]) for params in sent] == [
-            ("2024-01-01T00:00:00.000Z", "2024-04-30T00:00:00.000Z"),
-            ("2024-04-30T00:00:00.000Z", "2024-07-19T00:00:00.000Z"),
+            ("2024-01-01T00:00:00.000Z", "2024-03-31T00:00:00.000Z"),
+            ("2024-03-31T00:00:00.000Z", "2024-06-29T00:00:00.000Z"),
+            ("2024-06-29T00:00:00.000Z", "2024-07-19T00:00:00.000Z"),
         ]
         assert all("state" not in params and "cursor" not in params for params in sent)
         # The ASN report doesn't accept the `filter` param, so it must not be sent.

@@ -10,11 +10,21 @@ from temporalio import activity
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
-from posthog.models.person.util import get_person_by_distinct_id
+from posthog.models.group_type_mapping import get_group_types_for_project
+from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.queries.session_group_keys import fetch_session_group_keys
+from products.replay_vision.backend.queries.session_group_keys import (
+    fetch_group_display_names,
+    fetch_session_group_keys,
+)
+from products.replay_vision.backend.queries.session_identity import (
+    fetch_session_person_properties,
+    person_display_name,
+    person_email,
+    person_organization,
+)
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
@@ -33,6 +43,8 @@ from products.replay_vision.backend.temporal.types import (
     FetchSessionEventsInputs,
     NavigationEntry,
     ScannerLlmInputs,
+    SessionGroup,
+    SessionIdentity,
     SessionMetadata,
 )
 
@@ -96,41 +108,90 @@ async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> Non
 
 
 def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) -> None:
-    email: str | None = None
-    if payload.distinct_id:
-        try:
-            person = get_person_by_distinct_id(payload.team_id, payload.distinct_id)
-            email = person.properties.get("email") if person is not None else None
-        except Exception:
-            logger.warning(
-                "replay_vision.fetch.subject_email_lookup_failed", observation_id=str(observation_id), exc_info=True
-            )
     ReplayObservation.objects.filter(pk=observation_id).update(
         distinct_id=payload.distinct_id,
-        recording_subject_email=email,
+        recording_subject_email=payload.identity.person_email,
         session_started_at=payload.metadata.start_time,
-        session_group_keys=_resolve_group_keys(observation_id, payload),
+        session_group_keys=payload.group_keys or None,
     )
 
 
-def _resolve_group_keys(observation_id: Any, payload: ScannerLlmInputs) -> dict[int, str] | None:
-    """Group keys for the recorded session, or None when they can't be read.
+def _resolve_group_keys(team: Team, session_id: str, metadata: RecordingMetadata) -> dict[int, str]:
+    """Group keys for the recorded session, or empty when they can't be read.
 
     Best-effort: a scan that produced a real observation must not fail over missing group attribution.
     """
     try:
-        team = Team.objects.get(pk=payload.team_id)
         return fetch_session_group_keys(
             team=team,
-            session_id=payload.session_id,
-            start=payload.metadata.start_time,
-            end=payload.metadata.end_time,
+            session_id=session_id,
+            start=metadata["start_time"],
+            end=metadata["end_time"],
         )
     except Exception:
-        logger.warning(
-            "replay_vision.fetch.group_keys_lookup_failed", observation_id=str(observation_id), exc_info=True
+        logger.warning("replay_vision.fetch.group_keys_lookup_failed", session_id=session_id, exc_info=True)
+        return {}
+
+
+def _resolve_identity(
+    team: Team, session_id: str, metadata: RecordingMetadata, group_keys: dict[int, str]
+) -> SessionIdentity:
+    """The recorded person and the groups their session belongs to, as far as each can be read.
+
+    Every lookup is independent and best-effort: a scanner that only needs the video must not fail because
+    the person query returned nothing or the groups query errored.
+    """
+    properties = _resolve_person_properties(team, session_id, metadata)
+    return SessionIdentity(
+        person_email=person_email(properties),
+        person_name=person_display_name(properties),
+        person_organization=person_organization(properties),
+        groups=_resolve_groups(team, group_keys),
+    )
+
+
+def _resolve_person_properties(team: Team, session_id: str, metadata: RecordingMetadata) -> dict[str, Any]:
+    """The recorded person's identity properties, or empty when they can't be read."""
+    try:
+        return fetch_session_person_properties(
+            team=team,
+            session_id=session_id,
+            # The subject the replay itself names — never whoever else emitted events under this session id.
+            distinct_id=metadata.get("distinct_id"),
+            start=metadata["start_time"],
+            end=metadata["end_time"],
         )
-        return None
+    except Exception:
+        logger.warning("replay_vision.fetch.person_identity_lookup_failed", session_id=session_id, exc_info=True)
+        return {}
+
+
+def _resolve_groups(team: Team, group_keys: dict[int, str]) -> list[SessionGroup]:
+    """The session's groups as label/name pairs, skipping any group with no readable name."""
+    if not group_keys:
+        return []
+    try:
+        names = fetch_group_display_names(team=team, group_keys=group_keys)
+    except Exception:
+        logger.warning("replay_vision.fetch.group_names_lookup_failed", team_id=team.id, exc_info=True)
+        return []
+    # Labels are cosmetic, so a group-type outage falls back to the index rather than dropping resolved names.
+    labels = _group_type_labels(team)
+    return [
+        SessionGroup(label=str(labels.get(index, f"group_{index}")), name=name) for index, name in sorted(names.items())
+    ]
+
+
+def _group_type_labels(team: Team) -> dict[int, str]:
+    """Display label per group type index (`Organization`, `Project`), or empty when they can't be read."""
+    try:
+        return {
+            int(group_type["group_type_index"]): (group_type.get("name_singular") or group_type["group_type"])
+            for group_type in get_group_types_for_project(team.project_id, caller_tag="replay_vision_scan")
+        }
+    except Exception:
+        logger.warning("replay_vision.fetch.group_types_lookup_failed", team_id=team.id, exc_info=True)
+        return {}
 
 
 def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
@@ -210,6 +271,9 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     except Exception:
         logger.warning("replay_vision.fetch.team_context_failed", team_id=team_id, session_id=session_id, exc_info=True)
 
+    group_keys = _resolve_group_keys(team, session_id, metadata)
+    distinct_id = metadata.get("distinct_id")
+
     return ScannerLlmInputs(
         session_id=session_id,
         team_id=team_id,
@@ -222,7 +286,9 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
         navigation=processed.navigation,
         navigation_dropped=processed.navigation_dropped,
         events_truncated=events_truncated,
-        distinct_id=metadata.get("distinct_id"),
+        distinct_id=distinct_id,
+        identity=_resolve_identity(team, session_id, metadata, group_keys),
+        group_keys=group_keys,
         metadata=SessionMetadata(
             start_time=metadata["start_time"],
             end_time=metadata["end_time"],

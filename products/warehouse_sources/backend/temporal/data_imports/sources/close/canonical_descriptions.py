@@ -7,6 +7,7 @@ Sourced from the official Close API reference (https://developer.close.com/) and
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
+    CanonicalEndpoint,
 )
 
 # Fields shared by most Close objects; merged into each entry so we don't repeat them.
@@ -20,6 +21,32 @@ _COMMON_COLUMNS = {
 
 def _columns(**overrides: str) -> dict[str, str]:
     return {**_COMMON_COLUMNS, **overrides}
+
+
+# Custom field definitions share one shape across every object type they attach to.
+def _custom_field_columns(**overrides: str) -> dict[str, str]:
+    return _columns(
+        name="The custom field's name, as shown in Close.",
+        description="Free-form description of the custom field.",
+        type="Data type of the field, for example text, number, date or user.",
+        choices="Allowed values, for a choices field.",
+        accepts_multiple_values="Whether the field can hold more than one value.",
+        editable_with_roles="Roles allowed to edit the field. Empty means every role can.",
+        created_by="ID of the user who created the custom field.",
+        updated_by="ID of the user who last updated the custom field.",
+        **overrides,
+    )
+
+
+def _custom_field_table(object_type: str, table: str) -> CanonicalEndpoint:
+    return {
+        "description": (
+            f"A {object_type} custom field definition. Resolves the opaque custom.cf_* keys "
+            f"carried on the {table} rows."
+        ),
+        "docs_url": f"https://developer.close.com/api/resources/custom-fields/custom-fields-{object_type}/",
+        "columns": _custom_field_columns(),
+    }
 
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
@@ -138,6 +165,67 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             body="The email template's body content.",
             is_shared="Whether the template is shared with the whole organization.",
             created_by="ID of the user who created the template.",
+        ),
+    },
+    "Events": {
+        "description": (
+            "An event log entry — one change to a Close object, with the fields that changed and "
+            "their previous values. Close keeps about 30 days of history."
+        ),
+        "docs_url": "https://developer.close.com/api/resources/events/",
+        "columns": _columns(
+            date_updated=(
+                "Time at which the event was last updated. Close consolidates repeated updates to "
+                "the same object into one event, which moves this forward while date_created stays put."
+            ),
+            object_type="Type of the object the event is about, for example lead or activity.email.",
+            object_id="ID of the object the event is about.",
+            lead_id="ID of the related lead, or null when the event is not tied to one.",
+            action="What happened to the object, for example created, updated or deleted.",
+            changed_fields="Names of the fields an update event changed.",
+            data="The affected object as the API would return it. Null for delete events.",
+            previous_data="Previous values of the changed fields. All attributes for a delete event.",
+            user_id="ID of the user whose action generated the event, or null.",
+            api_key_id="ID of the API key that generated the event, or null.",
+            request_id="Identifier shared by every event from the same request.",
+            meta="Extra context for certain event types, such as the bulk action or merge ids.",
+        ),
+    },
+    "Outcomes": {
+        "description": "A call or meeting outcome — the standardized result a rep picks when logging one.",
+        "docs_url": "https://developer.close.com/api/resources/outcomes/",
+        "columns": _columns(
+            name="The outcome's name.",
+            description="Free-form description of the outcome.",
+            type="Whether the outcome is a custom one or the built-in voicemail-dropped outcome.",
+            applies_to="Activity types the outcome can be applied to: calls, meetings, or both.",
+            created_by="ID of the user who created the outcome.",
+            updated_by="ID of the user who last updated the outcome.",
+        ),
+    },
+    "Organizations": {
+        "description": "The Close organization — the environment a team works in, with its memberships.",
+        "docs_url": "https://developer.close.com/api/resources/organizations/",
+        "columns": _columns(
+            name="The organization's name.",
+            memberships="Active members of the organization, each with their user and role ids.",
+            inactive_memberships="Members who no longer have access to the organization.",
+            lead_statuses="Lead statuses configured in the organization.",
+            created_by="ID of the user who created the organization.",
+        ),
+    },
+    "LeadCustomFields": _custom_field_table("lead", "Leads"),
+    "ContactCustomFields": _custom_field_table("contact", "Contacts"),
+    "OpportunityCustomFields": _custom_field_table("opportunity", "Opportunities"),
+    "ActivityCustomFields": _custom_field_table("activity", "Activities"),
+    "SharedCustomFields": {
+        "description": (
+            "A custom field definition usable on more than one object type. Resolves the "
+            "custom.cf_* keys on the objects it is associated with."
+        ),
+        "docs_url": "https://developer.close.com/api/resources/custom-fields/custom-fields-shared/",
+        "columns": _custom_field_columns(
+            associations="Object types the field can be used on, and whether it is required on each.",
         ),
     },
 }

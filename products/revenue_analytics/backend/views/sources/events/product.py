@@ -2,11 +2,10 @@ from posthog.hogql import ast
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_event
 from products.revenue_analytics.backend.views.schemas.product import SCHEMA as PRODUCT_SCHEMA
-from products.revenue_analytics.backend.views.sources.helpers import events_expr_for_team
+from products.revenue_analytics.backend.views.sources.helpers import events_expr_for_handle
 
 
 def build(handle: SourceHandle) -> BuiltQuery:
-    team = handle.team
     event = handle.event
 
     if event is None:
@@ -26,7 +25,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         distinct=True,
         select=[ast.Alias(alias="product_id", expr=ast.Field(chain=["events", "properties", event.productProperty]))],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        where=events_expr_for_team(team),
+        where=events_expr_for_handle(handle),
     )
 
     query = ast.SelectQuery(

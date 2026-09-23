@@ -7,7 +7,7 @@ export function nextActivityId(): number {
   return activityIdCounter;
 }
 
-export function extractPathFromRawInput(
+function extractPathFromRawInput(
   tool: string,
   rawInput: Record<string, unknown> | undefined,
 ): string | null {
@@ -47,7 +47,7 @@ export function extractPathFromRawInput(
   }
 }
 
-export function extractToolCall(
+function extractToolCall(
   update: Record<string, unknown>,
 ): ActivityEntry | null {
   const sessionUpdate = update.sessionUpdate as string | undefined;
@@ -72,7 +72,7 @@ export function extractToolCall(
   return { id: nextActivityId(), toolCallId, tool, filePath, title };
 }
 
-export function extractAgentMessageText(
+function extractAgentMessageText(
   update: Record<string, unknown>,
 ): string | null {
   if (update.sessionUpdate !== "agent_message_chunk") return null;

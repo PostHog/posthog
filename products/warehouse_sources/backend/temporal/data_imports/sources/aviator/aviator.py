@@ -22,6 +22,9 @@ AVIATOR_BASE_URL = "https://api.aviator.co/api/v1"
 REPO_PAGE_SIZE = 10
 # Bound the config-history paginator so a misbehaving API can't loop forever.
 CONFIG_HISTORY_MAX_PAGES = 1000
+# GET /user_actions documents no page size and no total, so bound it the same way. The endpoint
+# returns newest-first, so a capped run keeps the most recent history rather than the oldest.
+USER_ACTIONS_MAX_PAGES = 1000
 # Re-pull a trailing window of daily analytics each incremental run: recent days' aggregates can
 # still be revised upstream. Merge dedupes the re-pulled days on the [repo, date] primary key.
 ANALYTICS_LOOKBACK_DAYS = 7
@@ -79,11 +82,16 @@ def _fetch(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     params: Optional[dict[str, Any]] = None,
+    json_body: Optional[dict[str, Any]] = None,
+    none_on_not_found: bool = False,
 ) -> Any:
-    response = session.get(url, headers=headers, params=params, timeout=60)
+    response = session.get(url, headers=headers, params=params, json=json_body, timeout=60)
 
     if response.status_code == 429 or response.status_code >= 500:
         raise AviatorRetryableError(f"Aviator API error (retryable): status={response.status_code}, url={url}")
+
+    if none_on_not_found and response.status_code == 404:
+        return None
 
     if not response.ok:
         # Log only status and URL — never the response body. Aviator error bodies can echo
@@ -120,6 +128,47 @@ def _iter_repositories(
         if len(items) < REPO_PAGE_SIZE:
             break
         page += 1
+
+
+def _iter_user_actions(
+    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
+) -> Iterator[dict[str, Any]]:
+    """Page through GET /user_actions yielding each audit entry, newest first."""
+    page = 1
+    while page <= USER_ACTIONS_MAX_PAGES:
+        data = _fetch(session, f"{AVIATOR_BASE_URL}/user_actions", headers, logger, params={"page": page})
+        items = data if isinstance(data, list) else []
+        if not items:
+            break
+        for item in items:
+            # `timestamp` leads the composite primary key and the endpoint exposes no id, so an
+            # entry without one cannot be identified at all — drop it.
+            timestamp = item.get("timestamp")
+            if not timestamp:
+                logger.warning("Aviator: skipping user action without a timestamp")
+                continue
+            yield {
+                "timestamp": timestamp,
+                "actor": item.get("actor"),
+                "action": item.get("action"),
+                "entity": item.get("entity"),
+                "target": item.get("target"),
+            }
+        page += 1
+    else:
+        logger.warning(f"Aviator user_actions hit the page cap ({USER_ACTIONS_MAX_PAGES})")
+
+
+def _iter_queued_pull_request_numbers(
+    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger, org: str, name: str
+) -> Iterator[Any]:
+    """Yield the number of every pull request currently in a repository's merge queue."""
+    url = f"{AVIATOR_BASE_URL}{AVIATOR_ENDPOINTS['queued_pull_requests'].path}"
+    payload = _fetch(session, url, headers, logger, params={"org": org, "repo": name})
+    for pull_request in payload.get("pull_requests", []):
+        number = pull_request.get("number")
+        if number is not None:
+            yield number
 
 
 def _parse_date(value: Any) -> date:
@@ -211,6 +260,64 @@ def _extract_fan_out_rows(
         }
         return
 
+    if endpoint == "branches":
+        # The docs label these "query parameters", but the documented curl sends them as a JSON body
+        # on the GET — and the nested repository object cannot be expressed as flat query params, so
+        # the body is the only form matching the spec. `pattern` is optional; omit it to list them all.
+        payload = _fetch(session, url, headers, logger, json_body={"repository": {"org": org, "name": name}})
+        for branch in payload.get("branches", []):
+            # `pattern` is part of the (org, repo, pattern) primary key. A row missing it would merge
+            # under a null key, collapsing every patternless branch in the repo into one row — skip it.
+            pattern = branch.get("pattern")
+            if not pattern:
+                logger.warning(f"Aviator: skipping branch without a pattern for {org}/{name}")
+                continue
+            yield {
+                "org": org,
+                "repo": name,
+                "pattern": pattern,
+                "paused": branch.get("paused"),
+                "paused_message": branch.get("paused_message"),
+            }
+        return
+
+    if endpoint == "bot_pull_requests":
+        # GET /bot_pull_request is a per-PR lookup, so the queue is the only enumerable set of PR
+        # numbers to resolve batches from. Several queued PRs share one batch, so dedupe the results:
+        # merge only dedupes across syncs, and duplicate keys within one batch multi-match on merge.
+        seen_bot_pr_numbers: set[Any] = set()
+        for pull_request_number in _iter_queued_pull_request_numbers(session, headers, logger, org, name):
+            payload = _fetch(
+                session,
+                url,
+                headers,
+                logger,
+                params={"org": org, "repo": name, "number": pull_request_number},
+                # Aviator only creates bot PRs in parallel mode, so a repo on serial mode — or a PR
+                # not yet batched — legitimately has none.
+                none_on_not_found=True,
+            )
+            if not payload:
+                continue
+            bot_pr_number = payload.get("number")
+            if bot_pr_number is None or bot_pr_number in seen_bot_pr_numbers:
+                continue
+            seen_bot_pr_numbers.add(bot_pr_number)
+            yield {
+                "org": org,
+                "repo": name,
+                "number": bot_pr_number,
+                "github_url": payload.get("github_url"),
+                "target_branch": payload.get("target_branch"),
+                "head_commit_sha": payload.get("head_commit_sha"),
+                # `head_branch_oid` is documented as a legacy alias for head_commit_sha, so it is dropped.
+                "codemix_pre_batch_sha": payload.get("codemix_pre_batch_sha"),
+                "pull_request_numbers": [
+                    pr.get("number") for pr in payload.get("pull_requests", []) if pr.get("number") is not None
+                ],
+            }
+        return
+
     if endpoint == "config_history":
         page = 1
         while page <= CONFIG_HISTORY_MAX_PAGES:
@@ -243,14 +350,25 @@ def _extract_fan_out_rows(
     raise ValueError(f"Unknown fan-out endpoint: {endpoint}")
 
 
-def _get_repository_rows(
+_TOP_LEVEL_ITERATORS: dict[str, Any] = {
+    "repositories": _iter_repositories,
+    "user_actions": _iter_user_actions,
+}
+
+
+def _get_top_level_rows(
     session: requests.Session,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     batcher: Batcher,
+    endpoint: str,
 ) -> Iterator[Any]:
-    for repo in _iter_repositories(session, headers, logger):
-        batcher.batch(repo)
+    iterator = _TOP_LEVEL_ITERATORS.get(endpoint)
+    if iterator is None:
+        raise ValueError(f"Unknown top-level endpoint: {endpoint}")
+
+    for row in iterator(session, headers, logger):
+        batcher.batch(row)
         if batcher.should_yield():
             yield batcher.get_table()
 
@@ -339,7 +457,7 @@ def get_rows(
             db_incremental_field_last_value,
         )
     else:
-        yield from _get_repository_rows(session, headers, logger, batcher)
+        yield from _get_top_level_rows(session, headers, logger, batcher, endpoint)
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
@@ -371,7 +489,7 @@ def aviator_source(
         # Fan-out runs persist the incremental watermark only at successful job end (desc mode): a
         # partial run's max date says nothing about repos it never reached, so per-batch persistence
         # could advance the watermark past rows a crashed run still owes.
-        sort_mode="desc" if config.fan_out_over_repos else "asc",
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

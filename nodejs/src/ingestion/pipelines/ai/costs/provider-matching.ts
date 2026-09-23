@@ -111,13 +111,40 @@ export const resolveProviderAliases = (provider: string): string => {
  * @param model - The model name for the resolved cost
  * @returns The resolved model cost, or undefined if no valid cost is found
  */
+// Tier-key suffixes per served service tier, in probe order. Naming is per-provider:
+// google-ai-studio-priority and xai-priority are literal, while openai-fast and
+// anthropic-fast are those providers' names for their priority tier.
+const SERVICE_TIER_KEY_SUFFIXES: Record<string, string[]> = {
+    flex: ['-flex'],
+    priority: ['-priority', '-fast'],
+}
+
 export const resolveModelCostForProvider = (
     providerCosts: ModelCostByProvider,
     provider: string | undefined,
-    model: string
+    model: string,
+    serviceTier?: unknown
 ): ResolvedModelCost | undefined => {
     if (!providerCosts || Object.keys(providerCosts).length === 0) {
         return undefined
+    }
+
+    // A served tier resolves by its own provider key, as direct checks: the cascade below
+    // falls back to the `default` key, which can carry promotional pricing.
+    // Object.hasOwn: the tier is customer-controlled, and "__proto__"/"constructor" would
+    // otherwise return inherited non-array values that throw below.
+    const tierSuffixes =
+        typeof serviceTier === 'string' && Object.hasOwn(SERVICE_TIER_KEY_SUFFIXES, serviceTier)
+            ? SERVICE_TIER_KEY_SUFFIXES[serviceTier]
+            : undefined
+    if (provider && tierSuffixes) {
+        const canonical = resolveProviderAliases(provider)
+        for (const suffix of tierSuffixes) {
+            const tierCost = providerCosts[canonical + suffix]
+            if (tierCost) {
+                return { model, provider: canonical + suffix, cost: tierCost }
+            }
+        }
     }
 
     const findProviderMatch = (providerKey: string): ResolvedModelCost | undefined => {

@@ -26,7 +26,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
     } = defaults ?? {}
 
     return (
-        <PayGateMini feature={AvailableFeature.ACCESS_CONTROL}>
+        <PayGateMini feature={AvailableFeature.ACCESS_CONTROL} featureDetail="resource-access-control-default-settings">
             <div className="space-y-4">
                 <div className="p-3 bg-surface-primary rounded border border-border flex flex-row justify-between items-center">
                     <div>

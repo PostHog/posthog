@@ -1,7 +1,7 @@
 import uuid
 import smtplib
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -24,7 +24,7 @@ def mock_ee_email_messages(MockEmailMessage: MagicMock):
 
 
 @patch("ee.tasks.subscriptions.email_subscriptions.EmailMessage")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 class TestEmailSubscriptionsTasks(APIBaseTest):
     subscription: Subscription
     dashboard: Dashboard
@@ -219,7 +219,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert str(delivery_id) in mocked_email_messages[0].campaign_key
 
 
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 class TestEmailSubscriptionDeliveryDetection(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

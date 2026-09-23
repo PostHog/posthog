@@ -18,7 +18,6 @@ from products.data_modeling.backend.schedule import (
     build_schedule_spec,
     get_v2_saved_query_ids,
     get_v2_scheduled_dag_ids,
-    partition_saved_queries_by_v2_schedule,
 )
 
 
@@ -329,29 +328,6 @@ class TestV2ScheduleGuard(BaseTest):
         ):
             result = get_v2_saved_query_ids([self.sq_on_v2.id, self.sq_on_v1.id])
         assert result == set()
-
-    def test_partition_splits_v1_eligible_from_v2(self):
-        with mock.patch(
-            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
-            return_value={str(self.v2_dag.id)},
-        ):
-            eligible, on_v2 = partition_saved_queries_by_v2_schedule([self.sq_on_v2, self.sq_on_v1])
-        assert [sq.id for sq in eligible] == [self.sq_on_v1.id]
-        assert [sq.id for sq in on_v2] == [self.sq_on_v2.id]
-
-    def test_partition_keeps_all_when_no_v2_schedules(self):
-        with mock.patch(
-            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
-            return_value=set(),
-        ):
-            eligible, on_v2 = partition_saved_queries_by_v2_schedule([self.sq_on_v2, self.sq_on_v1])
-        assert {sq.id for sq in eligible} == {self.sq_on_v2.id, self.sq_on_v1.id}
-        assert on_v2 == []
-
-    def test_partition_empty_input(self):
-        eligible, on_v2 = partition_saved_queries_by_v2_schedule([])
-        assert eligible == []
-        assert on_v2 == []
 
     def _saved_query(self, name: str) -> DataWarehouseSavedQuery:
         return DataWarehouseSavedQuery.objects.create(

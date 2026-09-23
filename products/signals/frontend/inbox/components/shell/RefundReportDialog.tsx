@@ -13,6 +13,12 @@ export interface RefundReportDialogResult {
 interface OpenRefundReportDialogParams {
     /** Report title for the dialog copy. */
     reportTitle?: string | null
+    /**
+     * True when a merged PR resolved the report. The refund then leaves it in Resolved instead of
+     * dismissing it, so the copy must not promise a dismissal. Mirrors the `resolved_via_merged_pr`
+     * branch in the refund endpoint.
+     */
+    staysResolved?: boolean
     /** Called with the chosen reason + note once the user confirms. */
     onConfirm: (result: RefundReportDialogResult) => void | Promise<void>
 }
@@ -28,15 +34,18 @@ const REFUND_REASON_OPTIONS: LemonRadioOption<SignalReportRefundReasonEnumApi>[]
 
 /**
  * Opens the refund dialog (mirrors {@link openDismissReportDialog}): pick a required reason plus an
- * optional note, then refund. The caller wires `onConfirm` to the refund API call; refunding also
- * archives the report, so the copy says both. `shouldAwaitSubmit` keeps the primary button in a
- * loading state while the request is in flight, so it can't be double-submitted.
+ * optional note, then refund. The caller wires `onConfirm` to the refund API call. Refunding
+ * dismisses the report, except when a merged PR resolved it (then it stays resolved), which
+ * `staysResolved` reflects in the copy. `shouldAwaitSubmit` keeps the primary button in a loading
+ * state while the request is in flight, so it can't be double-submitted.
  */
-export function openRefundReportDialog({ reportTitle, onConfirm }: OpenRefundReportDialogParams): void {
+export function openRefundReportDialog({ reportTitle, staysResolved, onConfirm }: OpenRefundReportDialogParams): void {
+    const outcomeLine = staysResolved
+        ? 'The report stays resolved.'
+        : "The report is dismissed as part of the refund and can't be restored."
     LemonDialog.openForm({
         title: `Refund the PR for "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`,
-        description:
-            "You won't pay for this PR and it won't count toward your included PRs. The report is archived as part of the refund and can't be restored.",
+        description: `You won't pay for this PR and it won't count toward your included PRs. ${outcomeLine}`,
         maxWidth: '30rem',
         initialValues: { reason: null as SignalReportRefundReasonEnumApi | null, note: '' },
         content: (

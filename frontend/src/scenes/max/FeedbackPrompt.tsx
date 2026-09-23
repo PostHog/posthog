@@ -19,6 +19,7 @@ interface FeedbackPromptProps {
     traceId: string | null
 }
 
+// Duplicated for the sandbox runtime in products/posthog_ai/frontend/components/FeedbackPromptDetails.tsx; this copy is deleted with the LangGraph runtime.
 /**
  * Detailed feedback form shown after user clicks "Bad" rating.
  * Allows text feedback submission or escalation to support ticket.

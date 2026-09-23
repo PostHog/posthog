@@ -55,18 +55,29 @@ class TestPersistSandboxId:
 @pytest.mark.requires_secrets
 @pytest.mark.django_db(transaction=True)
 class TestClearPersistedSandboxId:
-    def test_removes_sandbox_id_key(self, activity_environment, test_task_run):
-        test_task_run.state = {SANDBOX_ID_STATE_KEY: "sb-123", "mode": "background"}
+    @pytest.mark.parametrize("sandbox_id", [None, "sb-123", "sb-replaced"])
+    def test_removes_sandbox_id_key(self, activity_environment, test_task_run, sandbox_id):
+        connection = {
+            "sandbox_url": "https://sandbox.example.com/rpc",
+            "sandbox_connect_token": "fake-token",
+            "sandbox_jwt_kid": "fake-kid",
+            "sandbox_backend": "modal",
+        }
+        test_task_run.state = {**connection, SANDBOX_ID_STATE_KEY: "sb-123", "mode": "background"}
         test_task_run.save(update_fields=["state"])
 
         async_to_sync(activity_environment.run)(
             clear_persisted_sandbox_id,
-            ClearPersistedSandboxIdInput(run_id=str(test_task_run.id)),
+            ClearPersistedSandboxIdInput(run_id=str(test_task_run.id), sandbox_id=sandbox_id),
         )
 
         test_task_run.refresh_from_db()
-        assert SANDBOX_ID_STATE_KEY not in test_task_run.state
-        assert test_task_run.state == {"mode": "background"}
+        expected_state = {"mode": "background"}
+        if sandbox_id != "sb-123":
+            expected_state.update(connection)
+        if sandbox_id == "sb-replaced":
+            expected_state[SANDBOX_ID_STATE_KEY] = "sb-123"
+        assert test_task_run.state == expected_state
 
     def test_noop_when_key_absent(self, activity_environment, test_task_run):
         test_task_run.state = {"mode": "background"}

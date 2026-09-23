@@ -105,7 +105,7 @@ function ContextMenuItem({
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
             nativeButton={!('render' in props)}
-            render={<Button variant={variant} className="w-full font-normal" left />}
+            render={<Button variant={variant} size="row" left />}
             {...props}
         >
             {children}
@@ -137,7 +137,7 @@ function ContextMenuSubTrigger({
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
             nativeButton={!('render' in props)}
-            render={<Button className="w-full font-normal" left />}
+            render={<Button size="row" left />}
             {...props}
         >
             {children}
@@ -181,13 +181,13 @@ function ContextMenuCheckboxItem({
             data-slot="context-menu-checkbox-item"
             data-inset={inset}
             className={cn(
-                "quill-menu-item--inset relative flex cursor-default items-center pe-2 text-xs outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "quill-menu-item--inset relative flex cursor-default items-center pe-2 outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
             nativeButton={!('render' in props)}
-            render={<Button className="w-full font-normal" left />}
+            render={<Button size="row" left />}
             checked={checked}
             {...props}
         >
@@ -225,7 +225,7 @@ function ContextMenuRadioItem({
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
             nativeButton={!('render' in props)}
-            render={<Button className="w-full font-normal" left />}
+            render={<Button size="row" left />}
             {...props}
         >
             <span className="pointer-events-none absolute start-2 flex items-center justify-center">

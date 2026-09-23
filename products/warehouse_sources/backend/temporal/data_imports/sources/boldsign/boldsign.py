@@ -4,8 +4,10 @@ from typing import Any, Optional
 import structlog
 from requests import Request, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.fanout import boldsign_fanout_source
 from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.settings import (
     BOLDSIGN_ENDPOINTS,
+    PAGE_SIZE,
     BoldSignEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -28,8 +30,8 @@ BOLDSIGN_HOSTS = {
     "us": "https://api.boldsign.com",
     "eu": "https://api-eu.boldsign.com",
 }
-PAGE_SIZE = 100
-# Page-number access is capped at 10,000 records; document/list pages past it via NextCursor.
+# Page-number access is capped at 10,000 records; the document list endpoints page past it via
+# NextCursor.
 RECORD_CURSOR_THRESHOLD = 10_000
 
 
@@ -62,9 +64,9 @@ class BoldSignPaginator(BasePaginator):
     """Page-number pagination with BoldSign's 10,000-record page-number cap.
 
     Standard pages advance ``Page``; once the running record count crosses the cap, endpoints that
-    support it (document/list) switch to cursor paging via ``NextCursor`` (taken from the last
-    row's ``cursor`` field, with ``Page`` reset to 1). Endpoints without cursor support stop at
-    the cap rather than loop.
+    support it (the document list endpoints) switch to cursor paging via ``NextCursor`` (taken
+    from the last row's ``cursor`` field, with ``Page`` reset to 1). Endpoints without cursor
+    support stop at the cap rather than loop.
     """
 
     def __init__(self, endpoint: str, supports_cursor: bool) -> None:
@@ -170,6 +172,9 @@ def boldsign_source(
     resumable_source_manager: ResumableSourceManager[BoldSignResumeConfig],
 ) -> SourceResponse:
     config: BoldSignEndpointConfig = BOLDSIGN_ENDPOINTS[endpoint]
+
+    if config.fanout is not None:
+        return boldsign_fanout_source(_base_url(region), api_key, endpoint, team_id, job_id)
 
     paginator: BasePaginator
     if config.paginated:

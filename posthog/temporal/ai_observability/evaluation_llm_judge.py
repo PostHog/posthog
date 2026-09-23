@@ -1,12 +1,12 @@
 import json
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import structlog
 import temporalio
 import posthoganalytics
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, BeforeValidator
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
@@ -16,7 +16,11 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     terminal_user_error_result,
     terminal_user_error_result_from_application_error,
 )
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io, extract_event_tools
+from posthog.temporal.ai_observability.evaluation_event_io import (
+    extract_event_io,
+    extract_event_tools,
+    hydrate_event_reference,
+)
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
@@ -27,14 +31,16 @@ from posthog.temporal.ai_observability.metrics import (
     increment_user_errors,
 )
 from posthog.temporal.ai_observability.model_resolution import model_spec
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
-from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest, Usage
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputTokenLimitError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
@@ -57,6 +63,22 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
 )
 
 
+class TransientJudgeError(NonReportableError):
+    """A transient transport failure that reached the judge, wrapped to keep it out of error tracking.
+
+    A connection reset interrupts the judge at whatever line it reached, so each occurrence
+    fingerprints differently and error tracking files a new issue for it. The Temporal retry policy
+    already covers it. This class is a plain exception, not an `ApplicationError`, so the activity
+    failure stays retryable.
+
+    The marker class is what keeps it quiet. The worker interceptor wraps the activity from
+    outside its decorators and reports every exception it does not recognise, so opting the
+    activity out of automatic capture is not enough on its own. `NonReportableError` is one of the
+    types the interceptor re-raises untouched. A worker drain needs no marker, because the
+    interceptor skips cancellations already.
+    """
+
+
 class BooleanEvalResult(BaseModel):
     """Structured output for boolean evaluation results"""
 
@@ -64,24 +86,41 @@ class BooleanEvalResult(BaseModel):
     verdict: bool
 
 
-class BooleanWithNAEvalResult(BaseModel):
-    """Structured output for boolean with N/A evaluation results.
+_OUTCOME_ALIASES = {
+    "n/a": "not_applicable",
+    "na": "not_applicable",
+    "notapplicable": "not_applicable",
+}
 
-    When the evaluation criteria doesn't apply to the input/output,
-    applicable should be False and verdict should be None.
+
+def _normalize_outcome(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    cleaned = value.strip().strip(".").lower().replace("-", "_").replace(" ", "_")
+    return _OUTCOME_ALIASES.get(cleaned, cleaned)
+
+
+class BooleanWithNAEvalResult(BaseModel):
+    """Structured output for boolean evaluation results that allow N/A.
+
+    One enum rather than an `applicable` flag beside a nullable `verdict`, because no provider's
+    JSON Schema subset expresses "verdict is required when applicable is true", so the two-field
+    shape let a model return a combination a validator here then rejected. Anthropic does not
+    enforce the enum, which is what `_normalize_outcome` is for.
     """
 
     reasoning: str
-    applicable: bool
-    verdict: bool | None = None
+    outcome: Annotated[Literal["pass", "fail", "not_applicable"], BeforeValidator(_normalize_outcome)]
 
-    @model_validator(mode="after")
-    def validate_verdict_consistency(self) -> "BooleanWithNAEvalResult":
-        if self.applicable and self.verdict is None:
-            raise ValueError("verdict is required when applicable is true")
-        if not self.applicable and self.verdict is not None:
-            raise ValueError("verdict must be null when applicable is false")
-        return self
+    @property
+    def applicable(self) -> bool:
+        return self.outcome != "not_applicable"
+
+    @property
+    def verdict(self) -> bool | None:
+        if self.outcome == "not_applicable":
+            return None
+        return self.outcome == "pass"
 
 
 @dataclass
@@ -99,12 +138,11 @@ def get_output_type_config(allows_na: bool) -> OutputTypeConfig:
             response_format=BooleanWithNAEvalResult,
             instructions="""First, determine if this evaluation criteria is applicable to the given input/output. If the criteria doesn't apply to this case mark it as not applicable.
 
-Note: If the criteria above instructs you to return "N/A", "not applicable", or similar, treat that as applicable=false with verdict=null.
+Note: If the criteria above instructs you to return "N/A", "not applicable", or similar, return an outcome of "not_applicable".
 
 Return:
-- applicable: true if the criteria applies to this input/output, false if it doesn't apply
-- verdict: true if it passes, false if it fails, or null if not applicable
-- reasoning: a brief explanation (1 sentence)""",
+- reasoning: a brief explanation (1 sentence)
+- outcome: "pass" if the generation meets the criteria, "fail" if it does not, "not_applicable" if the criteria doesn't apply to this input/output""",
         )
     return OutputTypeConfig(
         response_format=BooleanEvalResult,
@@ -199,9 +237,69 @@ def _build_context_window_skip_result(
     return result
 
 
+def _build_output_limit_skip_result(
+    allows_na: bool, *, is_byok: bool, key_id: str | None, provider: str, model: str
+) -> EvaluationActivityResult:
+    """Per-item skip for a judge reply that hit the model's output limit.
+
+    Carries `model` and `provider` for the same reason the unparsable skip does: the model ran
+    and the call was billed. The provider reports no usage counts on this path, because the
+    failure reaches us as an exception.
+    """
+    result: EvaluationActivityResult = {
+        "result_type": "boolean",
+        "verdict": None if allows_na else False,
+        "reasoning": "Evaluation model hit its output limit before it finished; evaluation skipped.",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "is_byok": is_byok,
+        "key_id": key_id,
+        "allows_na": allows_na,
+        "model": model,
+        "provider": provider,
+        "skipped": True,
+        "skip_reason": "output_limit_exceeded",
+    }
+    if allows_na:
+        result["applicable"] = False
+    return result
+
+
+def _build_unparsable_response_skip_result(
+    allows_na: bool, *, is_byok: bool, key_id: str | None, provider: str, model: str, usage: Usage | None
+) -> EvaluationActivityResult:
+    """Per-item skip for a judge response that does not match the requested schema.
+
+    This skip carries `model` and `provider`, unlike the others, because the model did run and
+    the call was billed. `usage` is None when the failure reached us as an exception, which drops
+    the counts the provider reported.
+    """
+    result: EvaluationActivityResult = {
+        "result_type": "boolean",
+        "verdict": None if allows_na else False,
+        "reasoning": "Evaluation model returned an unreadable response; evaluation skipped.",
+        "input_tokens": usage.input_tokens if usage else 0,
+        "output_tokens": usage.output_tokens if usage else 0,
+        "total_tokens": usage.total_tokens if usage else 0,
+        "is_byok": is_byok,
+        "key_id": key_id,
+        "allows_na": allows_na,
+        "model": model,
+        "provider": provider,
+        "skipped": True,
+        "skip_reason": "unparsable_response",
+    }
+    if allows_na:
+        result["applicable"] = False
+    return result
+
+
 @temporalio.activity.defn
 @close_db_connections
-@posthoganalytics.scoped()
+# capture_exceptions=False: the worker interceptor reports judge failures, and its capture carries
+# the team and evaluation ids. A capture inside the activity wins the SDK's dedupe and loses them.
+@posthoganalytics.scoped(capture_exceptions=False)
 def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     """Execute LLM judge to evaluate the target event.
 
@@ -212,7 +310,7 @@ def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActiv
 
 def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     evaluation = inputs.evaluation
-    event_data = inputs.event_data
+    event_data = hydrate_event_reference(inputs.event_data)
 
     if evaluation["evaluation_type"] != "llm_judge":
         raise ApplicationError(
@@ -309,16 +407,7 @@ def call_llm_judge(
     client = Client(
         provider_key=provider_key,
         config=config,
-        privacy_mode=True,
-        distinct_id=f"team-{team_id}",
-        properties={
-            "ai_product": "aio_evaluations",
-            "ai_feature": "llm-judge",
-            "team_id": team_id,
-            "evaluation_id": evaluation["id"],
-            "$ai_billable": not is_byok,
-            "is_byok": is_byok,
-        },
+        capture_analytics=False,
     )
 
     try:
@@ -406,23 +495,52 @@ def call_llm_judge(
             non_retryable=True,
         )
     except StructuredOutputParseError as e:
+        # Skip rather than raise: non-conforming model output is not a PostHog defect, and raising
+        # files a new error tracking issue on each deploy, because the fingerprint follows the stack.
         increment_errors("parse_error", provider=provider)
-        raise ApplicationError(
-            str(e),
-            {"error_type": "parse_error"},
-            non_retryable=True,
-        ) from e
+        logger.warning(
+            "LLM judge returned unparsable structured output",
+            evaluation_id=evaluation["id"],
+            provider=provider,
+            model=model,
+            error=str(e),
+        )
+        return _build_unparsable_response_skip_result(
+            allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model, usage=None
+        )
 
     except ContextWindowExceededError:
         # Skip rather than raise: retrying can't fix an over-window prompt and just spams error tracking.
         increment_errors("context_window_exceeded", provider=provider)
         return _build_context_window_skip_result(allows_na, is_byok=is_byok, key_id=key_id)
 
-    except ProviderConnectionError:
+    except OutputTokenLimitError as e:
+        # Avoid automatic retries of a billed generation; a later backfill can retry it.
+        # Providers word this failure differently, so raising creates separate error tracking issues.
+        increment_errors("output_limit_exceeded", provider=provider)
+        logger.warning(
+            "LLM judge response hit the model output limit",
+            evaluation_id=evaluation["id"],
+            provider=provider,
+            model=model,
+            error=str(e),
+        )
+        return _build_output_limit_skip_result(
+            allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model
+        )
+
+    except ProviderConnectionError as e:
         # Transient transport failure (connection reset, read timeout). Retrying usually succeeds,
-        # so track it as a metric and re-raise for the retry policy — without the logger.exception
-        # that would clutter error tracking with a non-actionable issue.
+        # so track it as a metric and re-raise for the retry policy. `TransientJudgeError` keeps it
+        # out of error tracking, where a per-occurrence fingerprint files a new issue every time.
         increment_errors("connection_error", provider=provider)
+        raise TransientJudgeError(str(e)) from e
+
+    except temporalio.exceptions.CancelledError:
+        # A worker drain or a workflow cancel is not a judge failure, so track it as a metric and
+        # re-raise for the retry policy. The worker interceptor skips cancellations, so it stays
+        # out of error tracking.
+        increment_errors("cancelled", provider=provider)
         raise
 
     except Exception as e:
@@ -438,8 +556,16 @@ def call_llm_judge(
 
     parsed_result = response.parsed
     if parsed_result is None:
-        logger.exception("LLM judge returned empty structured response", evaluation_id=evaluation["id"])
-        raise ValueError(f"LLM judge returned empty structured response for evaluation {evaluation['id']}")
+        increment_errors("empty_structured_response", provider=provider)
+        logger.warning(
+            "LLM judge returned empty structured response",
+            evaluation_id=evaluation["id"],
+            provider=provider,
+            model=model,
+        )
+        return _build_unparsable_response_skip_result(
+            allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model, usage=response.usage
+        )
 
     assert isinstance(parsed_result, BooleanEvalResult | BooleanWithNAEvalResult)
 

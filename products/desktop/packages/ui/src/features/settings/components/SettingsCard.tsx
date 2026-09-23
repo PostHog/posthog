@@ -21,15 +21,15 @@ export function SettingsSection({
   return (
     <section className="flex flex-col gap-2">
       {(label || action) && (
-        <div className="flex items-end justify-between gap-3 px-0.5">
+        <div className="flex items-center justify-between gap-3 px-0.5">
           <div className="flex flex-col gap-0.5">
             {label && (
-              <h3 className="font-semibold text-[11px] text-gray-9 uppercase tracking-[0.08em]">
+              <h3 className="font-semibold text-[12px] text-foreground">
                 {label}
               </h3>
             )}
             {description && (
-              <p className="m-0 text-[12px] text-gray-10 leading-snug">
+              <p className="m-0 text-[12px] text-muted-foreground leading-snug">
                 {description}
               </p>
             )}
@@ -52,7 +52,7 @@ export function SettingsCard({
   return (
     <div
       className={cn(
-        "divide-y divide-(--gray-4) rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)",
+        "divide-y divide-border rounded-(--radius-3) border border-border bg-card",
         className,
       )}
     >
@@ -82,17 +82,24 @@ export function SettingsCardRow({
       )}
     >
       <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
-        <span className="font-medium text-[13px] text-gray-12 leading-5">
+        <span className="font-medium text-[13px] text-foreground leading-snug">
           {label}
         </span>
         {description && (
-          <span className="text-[12px] text-gray-10 leading-snug">
+          <span className="text-[12px] text-muted-foreground leading-snug">
             {description}
           </span>
         )}
       </div>
       {children && (
-        <div className={cn("min-w-0", !stacked && "shrink-0")}>{children}</div>
+        <div
+          className={cn(
+            "min-w-0",
+            !stacked && "flex shrink-0 items-center justify-end",
+          )}
+        >
+          {children}
+        </div>
       )}
     </div>
   );

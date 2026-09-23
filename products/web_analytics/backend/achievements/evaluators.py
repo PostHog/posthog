@@ -12,6 +12,7 @@ from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_WEEKLY
+from products.web_analytics.backend.achievements.query_concurrency import get_achievement_query_limiter
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import test_account_filter_expr
 from products.web_analytics.backend.models import WebAnalyticsInteraction, WebAnalyticsVisit
 
@@ -101,14 +102,15 @@ def _test_account_filter_expr(team: Team) -> ast.Expr:
 
 def evaluate_cumulative_pageviews(ctx: EvalContext) -> int:
     total = 0
-    for team in _project_environment_teams(ctx.team):
-        query = parse_select(
-            "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {test})",
-            placeholders={"test": _test_account_filter_expr(team)},
-        )
-        response = execute_hogql_query(query=query, team=team, query_type="web_achievements_pageviews")
-        if response.results:
-            total += int(response.results[0][0] or 0)
+    with get_achievement_query_limiter().run(team_id=ctx.team.id):
+        for team in _project_environment_teams(ctx.team):
+            query = parse_select(
+                "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {test})",
+                placeholders={"test": _test_account_filter_expr(team)},
+            )
+            response = execute_hogql_query(query=query, team=team, query_type="web_achievements_pageviews")
+            if response.results:
+                total += int(response.results[0][0] or 0)
     return total
 
 
@@ -125,21 +127,22 @@ def evaluate_conversions(ctx: EvalContext) -> int:
         return 0
 
     per_action_totals = [0] * len(actions)
-    for team in _project_environment_teams(ctx.team):
-        query = parse_select(
-            "SELECT 1 FROM events WHERE and(timestamp >= now() - toIntervalDay({days}), {test})",
-            placeholders={
-                "days": ast.Constant(value=CONVERSIONS_LOOKBACK_DAYS),
-                "test": _test_account_filter_expr(team),
-            },
-        )
-        if not isinstance(query, ast.SelectQuery):
-            raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
-        query.select = [ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions]
-        response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
-        if response.results:
-            for index, value in enumerate(response.results[0]):
-                per_action_totals[index] += int(value or 0)
+    with get_achievement_query_limiter().run(team_id=ctx.team.id):
+        for team in _project_environment_teams(ctx.team):
+            query = parse_select(
+                "SELECT 1 FROM events WHERE and(timestamp >= now() - toIntervalDay({days}), {test})",
+                placeholders={
+                    "days": ast.Constant(value=CONVERSIONS_LOOKBACK_DAYS),
+                    "test": _test_account_filter_expr(team),
+                },
+            )
+            if not isinstance(query, ast.SelectQuery):
+                raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
+            query.select = [ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions]
+            response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
+            if response.results:
+                for index, value in enumerate(response.results[0]):
+                    per_action_totals[index] += int(value or 0)
 
     return max(len(actions), max(per_action_totals, default=0))
 

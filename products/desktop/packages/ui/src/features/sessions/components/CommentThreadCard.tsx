@@ -22,6 +22,7 @@ import type { CommentEntry } from "@posthog/ui/features/canvas/components/taskCo
 import { githubCommentComponents } from "@posthog/ui/features/editor/components/githubCommentImages";
 import { githubRehypePlugins } from "@posthog/ui/features/editor/components/githubMarkdownPlugins";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { type ReactNode, useState } from "react";
 import { CommentComposer } from "./CommentComposer";
@@ -36,7 +37,7 @@ function CommentBody({ entry }: { entry: CommentEntry }) {
         <UserAvatar user={entry.user} size="sm" />
       ) : (
         <Avatar size="sm">
-          <AvatarImage src={entry.avatarUrl} alt="" />
+          <AvatarImage src={cachedImageUrl(entry.avatarUrl)} alt="" />
           <AvatarFallback>{entry.authorName.slice(0, 2)}</AvatarFallback>
         </Avatar>
       )}

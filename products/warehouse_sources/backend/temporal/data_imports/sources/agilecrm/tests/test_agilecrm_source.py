@@ -48,9 +48,19 @@ class TestValidateCredentials:
 
 
 class TestPipelinePlumbing:
-    def test_source_for_pipeline_passes_endpoint_and_primary_keys(self) -> None:
+    @parameterized.expand(
+        [
+            # Top-level list endpoints keyed on their own id.
+            ("contacts", "contacts", ["id"]),
+            ("tickets", "tickets", ["id"]),
+            # Fan-out children carry the parent id in their composite key so rows stay unique table-wide.
+            ("contact_notes", "contact_notes", ["contact_id", "id"]),
+            ("ticket_notes", "ticket_notes", ["ticket_id", "id"]),
+        ]
+    )
+    def test_source_for_pipeline_routes_endpoint(self, _name: str, endpoint: str, expected_keys: list[str]) -> None:
         inputs = MagicMock()
-        inputs.schema_name = "contacts"
+        inputs.schema_name = endpoint
         response = AgileCRMSource().source_for_pipeline(_config(), MagicMock(), inputs)
-        assert response.name == "contacts"
-        assert response.primary_keys == ["id"]
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys

@@ -42,9 +42,11 @@ function server(
         scope,
         name,
         description: `${name} workspace`,
+        url: `https://mcp.${name.toLowerCase()}.example.com/mcp`,
         icon_key: name.toLowerCase(),
         icon_domain: `${name.toLowerCase()}.com`,
         connection_state: connectionState,
+        reachable: true,
     }
 }
 

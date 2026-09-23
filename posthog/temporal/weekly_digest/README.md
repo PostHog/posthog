@@ -9,6 +9,14 @@ The digest is generated and sent via two Temporal workflows:
 1. **GenerateDigestDataWorkflow** - Generates all digest data and stores it in Redis
 2. **SendWeeklyDigestWorkflow** - Reads from Redis and sends personalized emails
 
+Team-level generation keeps at most 100 activities pending per workflow to stay below Temporal's pending-activity limit.
+Every team range and report generator must finish before organization aggregation starts.
+A Temporal patch marker preserves the activity scheduling behavior when replaying older histories.
+
+Generation has a 15-hour run timeout and a 15-hour execution timeout shared across its two allowed attempts.
+A healthy run can use the full generation budget without restarting and regenerating completed batches after six hours.
+Sending starts only after generation succeeds and has separate six-hour run and 15-hour execution timeouts.
+
 ## Redis Storage Structure
 
 Data is stored with keys prefixed by `{digest_key}` (e.g., `weekly-digest-2024-01`).
@@ -57,7 +65,7 @@ Generated via `user_data_key(digest_key, UserDataKey.*, user_id)`:
 │                        GenerateDigestDataWorkflow                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  1. Count teams & orgs for batching                                         │
+│  1. Cut teams into id-range batches, count orgs for batching                │
 │                                                                             │
 │  2. Generate team-level data (parallel per batch):                          │
 │     ├── generate_dashboard_lookup                                           │

@@ -155,11 +155,14 @@ export function captureSupportWidgetLoadFailed({
 }
 
 // Returns true when the message exceeds the cap the widget endpoint enforces, so callers can bail
-// before the network. Callers report it: the customer pressed send and has no ticket.
+// before the network. Callers report it: the customer pressed send and has no ticket. The toast
+// offers the email fallback like the other send-failure paths, because a customer stuck at the cap
+// otherwise has no way to find the support address.
 export function warnIfMessageTooLong(message: string): boolean {
     if (message.length > CONVERSATIONS_MESSAGE_MAX_LENGTH) {
         lemonToast.error(
-            `Your message is too long (max ${CONVERSATIONS_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it or send it in multiple messages.`
+            `Your message is too long (max ${CONVERSATIONS_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it or send it in multiple messages.`,
+            { button: EMAIL_SUPPORT_BUTTON }
         )
         return true
     }

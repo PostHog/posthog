@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class TeamFeatureFlagDefaultsConfig(models.Model):
-    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True, related_name="+")
 
     enabled = models.BooleanField(default=False)
 

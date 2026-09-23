@@ -3,9 +3,10 @@ import { Form } from 'kea-forms'
 
 import { LemonBanner, LemonModal } from '@posthog/lemon-ui'
 
+import { WizardReview } from 'lib/components/WizardReview'
+
 import { AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
-import { AlertWizardReview } from 'products/alerts/frontend/components/AlertWizardReview'
 
 import { LogsAlertFilters, LogsAlertTrigger } from './LogsAlertForm'
 import { logsAlertFormLogic, LogsAlertFormType } from './logsAlertFormLogic'
@@ -142,7 +143,7 @@ function LogsAlertReview({
         : 'No notification destinations'
 
     return (
-        <AlertWizardReview
+        <WizardReview
             notice={
                 pendingNotifications.length === 0 ? (
                     <LemonBanner type="warning">

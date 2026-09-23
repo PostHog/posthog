@@ -48,7 +48,8 @@ code and its README are authoritative.
    reads. Reconcile-failure tolerance bounds staleness at one tick per
    count and must not be exempt from escalation via its own detection
    duration.
-10. **Known residuals are documented, not denied.** The double-zombie
-    write-loss path (pending epoch fencing), the pre-detection window of
-    at most one keepalive round, and the in-flight-at-dead-owner-warm
-    race are accepted, stated in the README, and must not silently widen.
+10. **Known residuals are documented, not denied.** The pre-detection
+    window of at most one keepalive round and the
+    in-flight-at-dead-owner-warm race are accepted, stated in the README,
+    and must not silently widen. The double-zombie write-loss path is
+    closed by epoch fencing, which every build now runs.

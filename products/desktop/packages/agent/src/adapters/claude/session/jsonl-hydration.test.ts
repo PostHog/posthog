@@ -433,6 +433,36 @@ describe("rebuildConversation", () => {
     expect(input.preview.length).toBeLessThan(11_000);
     expect(input.originalSize).toBeGreaterThan(50_000);
   });
+
+  it.each(["tool_call_update", "tool_result"])(
+    "excludes MCP metadata from rebuilt model history for %s",
+    (sessionUpdate) => {
+      const rawOutput = {
+        content: [{ type: "text", text: "3 rows" }],
+        _meta: { "com.posthog.mcp/app_data": { rows: "UI_ONLY".repeat(5000) } },
+      };
+      const turns = rebuildConversation([
+        entry("user_message", { content: { type: "text", text: "run query" } }),
+        entry("tool_call", {
+          toolCallId: "toolu_query",
+          _meta: { claudeCode: { toolName: "mcp__posthog__exec" } },
+          rawInput: { command: "call insight-query {}" },
+        }),
+        entry(sessionUpdate, { toolCallId: "toolu_query", rawOutput }),
+      ]);
+
+      expect(turns[1].toolCalls?.[0].result).toEqual({
+        content: rawOutput.content,
+      });
+      const transcript = conversationTurnsToJsonlEntries(turns, {
+        sessionId: "test-session",
+        cwd: "/test",
+      }).join("\n");
+      expect(transcript).toContain("3 rows");
+      expect(transcript).not.toContain("UI_ONLY");
+      expect(rawOutput._meta).toBeDefined();
+    },
+  );
 });
 
 describe("selectRecentTurns", () => {
@@ -592,7 +622,7 @@ describe("conversationTurnsToJsonlEntries", () => {
       { type: "text", text: "running" },
     ]);
     expect(conv[0].message.stop_reason).toBeNull();
-    expect(conv[0].message.model).toBe("claude-opus-4-8");
+    expect(conv[0].message.model).toBe("claude-opus-5-5");
     expect(conv[0].message.id).toMatch(/^msg_01[A-Za-z0-9]{24}$/);
 
     expect(conv[1].type).toBe("assistant");
@@ -1052,7 +1082,7 @@ describe("end-to-end: S3 log entries -> JSONL output", () => {
     // All assistant blocks in same turn share message.id
     expect(msg1.id).toBe(msg2.id);
     expect(msg2.id).toBe(msg3.id);
-    expect(msg3.model).toBe("claude-opus-4-8");
+    expect(msg3.model).toBe("claude-opus-5-5");
     expect(msg3.id).toMatch(/^msg_01[A-Za-z0-9]{24}$/);
 
     // Verify Bash tool_result entry

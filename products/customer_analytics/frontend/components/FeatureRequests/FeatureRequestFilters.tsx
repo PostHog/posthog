@@ -7,7 +7,6 @@ import {
     IconFlag,
     IconFolder,
     IconRefresh,
-    IconSort,
     IconTarget,
 } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInputSelect, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
@@ -16,7 +15,6 @@ import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiple
 
 import {
     FEATURE_REQUEST_ARCHIVE_OPTIONS,
-    FEATURE_REQUEST_ORDERING_OPTIONS,
     FEATURE_REQUEST_PRIORITY_FILTER_OPTIONS,
     FEATURE_REQUEST_STATUS_OPTIONS,
 } from './featureRequestOptions'
@@ -30,7 +28,6 @@ export function FeatureRequestFilters(): JSX.Element {
         accountFilter,
         createdByFilter,
         archiveState,
-        requestOrdering,
         productAreas,
         accountOptions,
         accountsLoading,
@@ -45,7 +42,6 @@ export function FeatureRequestFilters(): JSX.Element {
         setAccountSearch,
         setCreatedByFilter,
         setArchiveState,
-        setRequestOrdering,
         clearFilters,
         loadFeatureRequests,
     } = useActions(featureRequestsLogic)
@@ -81,24 +77,9 @@ export function FeatureRequestFilters(): JSX.Element {
             })),
         },
     ]
-    const orderingItems: LemonMenuItems = [
-        {
-            items: FEATURE_REQUEST_ORDERING_OPTIONS.map((option) => ({
-                label: option.label,
-                active: requestOrdering === option.value,
-                onClick: () => setRequestOrdering(option.value),
-            })),
-        },
-    ]
-
     return (
         <div className="flex items-start gap-2 w-full">
             <div className="flex flex-1 flex-wrap items-center gap-2 min-w-0">
-                <LemonMenu items={orderingItems} closeOnClickInside>
-                    <LemonButton type="secondary" size="small" icon={<IconSort />} sideIcon={<IconChevronDown />}>
-                        {FEATURE_REQUEST_ORDERING_OPTIONS.find((option) => option.value === requestOrdering)?.label}
-                    </LemonButton>
-                </LemonMenu>
                 <LemonMenu items={statusItems} closeOnClickInside={false}>
                     <LemonButton
                         type="secondary"

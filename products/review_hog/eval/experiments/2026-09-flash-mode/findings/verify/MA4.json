@@ -1,0 +1,27 @@
+{
+    "letter": "MA",
+    "id": "MA4",
+    "cluster": 74,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The finding names a call the hosted path deliberately does not make. /tmp/frozen-75215/tools/pr-approval-agent/review_local.py:328-331 invokes _run_gates_offline, whose implementation at :224-242 runs four gate checks and sets ownership_summary with _ownership_summary. That helper at :214-221 only lists owning teams/individuals; it never includes author membership. The only assignment to classification['author_on_owning_team'] is in the unused networked _summarize_ownership at /tmp/frozen-75215/tools/pr-approval-agent/review_pr.py:650. The renderer defaults a missing value to True at /tmp/frozen-75215/tools/pr-approval-agent/reviewer.py:711, so its negative membership note at :718-719 is absent in the hosted path. Self-driving is supplied through that hosted entrypoint (/tmp/frozen-75215/products/stamphog/backend/logic/reviewer.py:131-133); the Action CLI never enables it (/tmp/frozen-75215/tools/pr-approval-agent/review_pr.py:973-984).",
+            "refutation": "I first checked which gate runner the hosted caller actually invokes, rather than assuming it calls Pipeline.run or _summarize_ownership. It uses _run_gates_offline specifically to omit the networked membership lookup, creates only a file-owner summary, and leaves author_on_owning_team absent. Following that missing field into _format_ownership proves the alleged 'NOT on the owning team' note does not render. The purported contradictory membership guidance is therefore unreachable in the named hosted path; the proposed omission already exists."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The cited premise is contradicted by the hosted caller. tools/pr-approval-agent/review_local.py:329-330 invokes _run_gates_offline, not Pipeline._run_gates. Its implementation at :224-242 never calls _summarize_ownership and sets ownership_summary using :214-221, which renders only the file owners. It never sets author_on_owning_team. tools/pr-approval-agent/reviewer.py:711 defaults that missing key to True, and :718-719 emits the negative membership note only when it is explicitly false. Therefore the hosted self-driving prompt carries owners and cross-team information, without the alleged machine-author membership warning. The Action CLI at review_pr.py:984 never enables self_driving.",
+            "refutation": "I followed the actual hosted call chain rather than assuming Pipeline.run() handles both runtimes. The offline adapter already omits the author membership lookup and replaces the ownership summary, exactly the safeguard requested by the finding. tools/pr-approval-agent/test_review_local.py:66-74 asserts the offline owner-only summaries. The direct _summarize_ownership implementation could produce a negative note for an invented Pipeline(self_driving=True).run() caller, but the shipping self-driving path does not call it. The claimed contradictory guidance is not reachable."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The alleged hosted call to _summarize_ownership does not occur. tools/pr-approval-agent/review_local.py:329-330 invokes _run_gates_offline, whose :232-242 runs the four gates and sets ownership_summary using its own _ownership_summary. That helper at :214-221 emits only owner names or 'no owned paths touched'; it does not look up or describe author membership. The negative membership text and author_on_owning_team assignment exist only in review_pr.py:631-650, called by the different _run_gates path at :578. reviewer.py:711 defaults the absent author_on_owning_team key to True, so its negative note at :718-719 is also omitted in the hosted path. products/stamphog/backend/logic/reviewer.py:133 explicitly launches review_local.py for hosted reviews.",
+            "refutation": "I first checked the actual hosted entrypoint instead of assuming it reuses Pipeline.run and every Action-side helper. It deliberately substitutes _run_gates_offline for _run_gates; the source at review_local.py:227-230 explicitly documents the omission of the gh membership lookup. Its actual statements confirm that omission. Thus the suggested fix is already implemented for the runtime that enables self-driving reviews, and the claimed contradictory membership guidance is unreachable there. The Action path can emit membership context but defaults self_driving off, so it does not establish the alleged production combination."
+        }
+    ]
+}

@@ -1,0 +1,6 @@
+{
+    "id": "VB1",
+    "real": false,
+    "source": "reused-KA13",
+    "reasoning": "Identical claim to prior verdict KA13 (is_real=false, high confidence), confirmed against the frozen tree. The publish is not unrecoverable: Celery's default task_publish_retry retries the broker publish under queue_inbox_pr_review's .delay() (products/stamphog/backend/facade/api.py:149-155). The receiver deliberately re-fires on every later output-touching TaskRun save (products/review_hog/backend/receivers.py:76-79 docstring; 84-88), and such saves are routine agent-server syncs, with the queued task deduping on head SHA - so a missed initial dispatch is re-dispatched without any manual step. Later bot/draft re-reviews recompute provenance via the tasks facade, not the initial ReviewRun. The log-only catch (receivers.py:233-235) is a tested must-never-raise contract; residual exposure equals every .delay() in the codebase."
+}

@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import models, transaction
+from django.db.models.functions import Upper
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -92,6 +93,12 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             "Downstream logic routes the delegate through full onboarding on accept."
         ),
     )
+
+    class Meta:
+        indexes = [
+            # Serves `target_email__iexact`, which Django compiles to `UPPER(target_email::text)`.
+            models.Index(Upper("target_email"), name="orginvite_upper_email_idx"),
+        ]
 
     def validate(
         self,

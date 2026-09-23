@@ -1,16 +1,18 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    ValidateDatabaseHostMixin,
+    unbracket_host,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -33,7 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeConfig]):
+class TemporalIOSource(ValidateDatabaseHostMixin, ResumableSource[TemporalIOSourceConfig, TemporalIOResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.temporal.io"
 
@@ -93,6 +95,16 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TemporalIOResumeConfig]:
         return ResumableSourceManager[TemporalIOResumeConfig](inputs, TemporalIOResumeConfig)
 
+    def validate_credentials(
+        self,
+        config: TemporalIOSourceConfig,
+        team_id: int,
+        schema_name: str | None = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        # An IPv6 host is entered in brackets because `connect()` joins host and port with a colon.
+        return self.is_database_host_valid(unbracket_host(config.host), team_id)
+
     def source_for_pipeline(
         self,
         config: TemporalIOSourceConfig,
@@ -107,13 +119,14 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
             else None,
             resumable_source_manager=resumable_source_manager,
             logger=inputs.logger,
+            team_id=inputs.team_id,
             should_use_incremental_field=inputs.should_use_incremental_field,
         )
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TEMPORAL_IO,
+            name=ExternalDataSourceType.TEMPORALIO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["temporal"],
             label="Temporal.io",
@@ -133,7 +146,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                     SourceFieldInputConfig(
                         name="port",
                         label="Port",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="",
                         secret=False,

@@ -7,11 +7,14 @@
  * which prefer this channel and fall back to the legacy `_meta.claudeCode.toolName`
  * the Claude adapter still writes. New adapters should only populate `posthog`.
  */
+import { type PiMcpCallDetails, readPiMcpCallDetails } from "./pi-tool-call";
+
 export interface PosthogToolMeta {
   /** Agent-facing tool name, e.g. "Bash" or "mcp__posthog__exec". */
   toolName: string;
   /** Set only for MCP tool calls — the originating server + tool. */
-  mcp?: { server: string; tool: string };
+  mcp?: { server: string; tool: string; title?: string };
+  mcpProxy?: PiMcpCallDetails;
   mcpInstallationId?: string;
   /** Parent subagent tool call for nested activity. */
   parentToolCallId?: string;
@@ -77,7 +80,7 @@ export function readParentToolCallId(meta: unknown): string | undefined {
  */
 export function readMcpToolDescriptor(
   meta: unknown,
-): { server: string; tool: string } | undefined {
+): { server: string; tool: string; title?: string } | undefined {
   const m = asToolCallMeta(meta);
   if (m?.posthog?.mcp) return m.posthog.mcp;
   const name = m?.posthog?.toolName ?? m?.claudeCode?.toolName;
@@ -91,6 +94,12 @@ export function readMcpToolDescriptor(
 export function readMcpToolName(meta: unknown): string | undefined {
   const mcp = readMcpToolDescriptor(meta);
   return mcp ? mcpToolKey(mcp) : undefined;
+}
+
+export function readMcpProxyCallDetails(
+  meta: unknown,
+): PiMcpCallDetails | undefined {
+  return readPiMcpCallDetails(asToolCallMeta(meta)?.posthog?.mcpProxy);
 }
 
 export function readMcpInstallationId(meta: unknown): string | undefined {

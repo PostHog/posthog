@@ -53,7 +53,7 @@ FROM eu_postgres_posthog_user u WHERE u.email = '{email}'
 Also useful: `postgres.posthog_organizationdomain` (verified domains only — often empty for smaller orgs), `postgres.posthog_organization` by name, `all_posthog_team`.
 
 EU customer data is not queryable from the US MCP project.
-For per-team event data on either region, use the `query-clickhouse-via-metabase` skill.
+For per-team event data on either region, use the `querying-production-databases-via-metabase` skill.
 
 ## Error tracking cross-reference
 

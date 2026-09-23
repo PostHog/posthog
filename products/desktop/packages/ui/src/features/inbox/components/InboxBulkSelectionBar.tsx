@@ -56,7 +56,7 @@ export function InboxBulkSelectionBar({
     async (result: DismissReportDialogResult) => {
       const isSnooze = isDismissalReasonSnooze(result.reason);
       const ok = isSnooze
-        ? await bulkActions.snoozeSelected()
+        ? await bulkActions.snoozeSelected(result)
         : await bulkActions.suppressSelected(result);
       if (ok) setShowDismissDialog(false);
     },

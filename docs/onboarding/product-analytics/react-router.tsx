@@ -38,6 +38,13 @@ export const getReactRouterInstallSteps = (ctx: OnboardingComponentsContext): St
                                     pnpm add posthog-js @posthog/react
                                 `,
                             },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-js @posthog/react
+                                `,
+                            },
                         ]}
                     />
                 </>

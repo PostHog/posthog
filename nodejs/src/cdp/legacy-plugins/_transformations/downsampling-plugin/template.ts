@@ -7,7 +7,7 @@ export const downsamplingPlugin: LegacyTransformationPlugin = {
     setupPlugin: setupPlugin as any,
     template: {
         free: true,
-        status: 'stable',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-downsampling-plugin',
         name: 'Downsample',

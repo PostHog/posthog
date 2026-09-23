@@ -9,8 +9,8 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout import (
     FilloutSubmissionsPaginator,
-    _fillout_incremental_window,
     _format_fillout_datetime,
+    _incremental_window_factory,
     _validated_api_base_url,
     fillout_source,
     get_resource,
@@ -32,19 +32,20 @@ class _FakeDltResource:
 
 
 class TestFilloutTransport:
-    def test_submissions_paginator_init_sets_offset_limit_sort_status(self) -> None:
+    def test_submissions_paginator_init_sets_offset_limit_sort(self) -> None:
         paginator = FilloutSubmissionsPaginator(limit=150)
         request = Mock()
-        request.params = {"afterDate": "2026-01-01T00:00:00Z"}
+        request.params = {"afterDate": "2026-01-01T00:00:00.000Z"}
 
         paginator.init_request(request)
 
         assert request.params["offset"] == 0
         assert request.params["limit"] == 150
         assert request.params["sort"] == "asc"
-        assert request.params["status"] == "finished"
+        # `finished` is Fillout's default, so the request carries no `status` of its own.
+        assert "status" not in request.params
         # The incremental window filter is left untouched.
-        assert request.params["afterDate"] == "2026-01-01T00:00:00Z"
+        assert request.params["afterDate"] == "2026-01-01T00:00:00.000Z"
 
     @parameterized.expand(
         [
@@ -85,19 +86,29 @@ class TestFilloutTransport:
 
     @parameterized.expand(
         [
-            ("naive_datetime", datetime(2026, 3, 1, 12, 30, 45), "2026-03-01T12:30:45Z"),
-            ("aware_datetime", datetime(2026, 3, 1, 12, 30, 45, tzinfo=UTC), "2026-03-01T12:30:45Z"),
+            ("naive_datetime", datetime(2026, 3, 1, 12, 30, 45), "2026-03-01T12:30:45.000Z"),
+            ("aware_datetime", datetime(2026, 3, 1, 12, 30, 45, tzinfo=UTC), "2026-03-01T12:30:45.000Z"),
+            # Sub-millisecond precision truncates down, so the window never skips a row.
+            ("microseconds", datetime(2026, 3, 1, 12, 30, 45, 123_999, tzinfo=UTC), "2026-03-01T12:30:45.123Z"),
             ("passthrough_string", "1970-01-01T00:00:00Z", "1970-01-01T00:00:00Z"),
         ]
     )
     def test_format_fillout_datetime(self, _name, value, expected) -> None:
         assert _format_fillout_datetime(value) == expected
 
-    def test_fillout_incremental_window_initial_value_is_not_unix_epoch(self) -> None:
-        # Fillout's API 400s on an `afterDate` of exactly 1970-01-01T00:00:00Z (any
-        # millisecond precision), so the pre-watermark sentinel must land elsewhere.
-        config = _fillout_incremental_window("submissionTime")
-        assert config["initial_value"] not in ("1970-01-01T00:00:00Z", "1970-01-01T00:00:00.000Z")
+    def test_incremental_window_omitted_without_a_watermark(self) -> None:
+        # Fillout 400s the submissions request when `afterDate` carries a sentinel date, so a
+        # sync with no watermark yet must send no `afterDate` at all.
+        assert _incremental_window_factory(None)("submissionTime") is None
+
+    def test_incremental_window_binds_afterDate_to_the_watermark(self) -> None:
+        config = _incremental_window_factory(datetime(2026, 3, 1, tzinfo=UTC))("submissionTime")
+
+        assert config is not None
+        assert config["start_param"] == "afterDate"
+        assert config["cursor_path"] == "submissionTime"
+        # No fallback date: the watermark is the only value `afterDate` is ever given.
+        assert "initial_value" not in config
 
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(
@@ -256,14 +267,14 @@ class TestFilloutTransport:
 
     @parameterized.expand(
         [
-            ("incremental", True, datetime(2026, 3, 1, tzinfo=UTC)),
-            ("first_sync", True, None),
-            ("non_incremental", False, datetime(2026, 3, 1, tzinfo=UTC)),
+            ("incremental", True, datetime(2026, 3, 1, tzinfo=UTC), True),
+            ("first_sync", True, None, False),
+            ("non_incremental", False, datetime(2026, 3, 1, tzinfo=UTC), True),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.build_dependent_resource")
     def test_fillout_source_submissions_passes_watermark(
-        self, _name, should_use_incremental_field, last_value, mock_build_dependent_resource
+        self, _name, should_use_incremental_field, last_value, expects_after_date, mock_build_dependent_resource
     ) -> None:
         mock_build_dependent_resource.return_value = iter([])
 
@@ -280,6 +291,11 @@ class TestFilloutTransport:
         kwargs = mock_build_dependent_resource.call_args.kwargs
         assert kwargs["should_use_incremental_field"] is should_use_incremental_field
         assert kwargs["db_incremental_field_last_value"] == last_value
+
+        # Without a watermark the factory yields no incremental config, so the request carries
+        # no `afterDate` rather than a sentinel date Fillout rejects.
+        window = kwargs["incremental_config_factory"]("submissionTime")
+        assert (window is not None) is expects_after_date
 
     def test_fillout_source_rejects_unknown_api_base_url(self) -> None:
         with pytest.raises(

@@ -139,7 +139,7 @@ impl FromStr for TeamIdCollection {
         let s = s.trim();
         if s.eq_ignore_ascii_case("all") || s == "*" {
             Ok(TeamIdCollection::All)
-        } else if s.eq_ignore_ascii_case("none") {
+        } else if s.is_empty() || s.eq_ignore_ascii_case("none") {
             Ok(TeamIdCollection::None)
         } else {
             let mut team_ids = Vec::new();
@@ -476,9 +476,7 @@ pub struct Config {
     #[envconfig(default = "")]
     pub flags_redis_reader_url: String,
 
-    // Controls whether to read from dedicated Redis cache
-    // false = Mode 2: dual-write to both caches, read from shared (warming phase)
-    // true = Mode 3: read and write dedicated Redis only (cutover complete)
+    // Nothing reads this. Flipping it moves no read path and emits no warning.
     #[envconfig(default = "false")]
     pub flags_redis_enabled: FlexBool,
 
@@ -488,6 +486,15 @@ pub struct Config {
     // stop enqueuing if it ever misbehaves in prod.
     #[envconfig(from = "FLAG_DEFINITIONS_SELF_HEAL_ENABLED", default = "true")]
     pub flag_definitions_self_heal_enabled: FlexBool,
+
+    // Cluster switch for the /flags/definitions reader. When enabled, the flags-with-cohorts
+    // payload and its ETag both come from the dedicated flags Redis instead of the shared one.
+    //
+    // Deliberately a new variable rather than FLAGS_REDIS_ENABLED, which deployed environments
+    // already set. Reusing it would tie the cutover to a deploy instead of a config change, and
+    // remove the ability to flip the read path back without a rollout.
+    #[envconfig(from = "FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED", default = "false")]
+    pub flag_definitions_dedicated_redis_enabled: FlexBool,
 
     // S3 configuration for HyperCache fallback
     #[envconfig(default = "posthog")]
@@ -921,6 +928,19 @@ pub struct Config {
     // comfortably within the pod's `terminationGracePeriodSeconds`.
     #[envconfig(from = "FLAGS_BILLING_SHUTDOWN_FLUSH_TIMEOUT_MS", default = "15000")]
     pub billing_shutdown_flush_timeout_ms: u64,
+
+    // Usage-ingestion mirror. Empty address or empty teams disables it, so it
+    // rolls out per team independently of the Redis billing keyspace. These carry
+    // the names every usage producer reads, because each producer is its own
+    // deployment and sets them in its own config.
+    #[envconfig(from = "USAGE_INGESTION_ADDR", default = "")]
+    pub usage_ingestion_addr: String,
+    #[envconfig(from = "USAGE_INGESTION_TLS", default = "false")]
+    pub usage_ingestion_tls: bool,
+    #[envconfig(from = "USAGE_INGESTION_REPORT_TEAMS", default = "")]
+    pub usage_ingestion_teams: TeamIdCollection,
+    #[envconfig(from = "USAGE_INGESTION_TIMEOUT_MS", default = "5000")]
+    pub usage_ingestion_timeout_ms: u64,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -1055,6 +1075,7 @@ impl Config {
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
             flag_definitions_self_heal_enabled: FlexBool(false),
+            flag_definitions_dedicated_redis_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
@@ -1159,6 +1180,10 @@ impl Config {
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
             billing_shutdown_flush_timeout_ms: 15_000,
+            usage_ingestion_addr: "".to_string(),
+            usage_ingestion_tls: false,
+            usage_ingestion_teams: TeamIdCollection::None,
+            usage_ingestion_timeout_ms: 5_000,
         }
     }
 
@@ -1388,6 +1413,12 @@ mod tests {
     #[test]
     fn test_team_ids_to_track_none() {
         let team_ids: TeamIdCollection = "none".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::None);
+    }
+
+    #[test]
+    fn test_team_ids_to_track_empty() {
+        let team_ids: TeamIdCollection = "".parse().unwrap();
         assert_eq!(team_ids, TeamIdCollection::None);
     }
 

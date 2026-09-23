@@ -76,4 +76,4 @@ Rows in these tables are customer data: team names, insight names, descriptions,
 
 ## Related
 
-- For cross-team **event/analytics** data (not entity metadata), see the `query-clickhouse-via-metabase` skill instead.
+- For cross-team **event/analytics** data (not entity metadata), see the `querying-production-databases-via-metabase` skill instead.

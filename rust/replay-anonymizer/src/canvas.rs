@@ -441,7 +441,7 @@ mod tests {
         let ctx = Ctx::with_image_collection(
             &allow,
             Some(ImageCollection {
-                pseudo_team: "0".repeat(32),
+                team_id: "0".repeat(32),
                 content_key: "k".repeat(32),
             }),
         );

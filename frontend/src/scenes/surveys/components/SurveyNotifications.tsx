@@ -1,16 +1,19 @@
 import { useActions, useValues } from 'kea'
 
+import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
 import { IconCopy, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ConfirmDeleteButton } from 'lib/components/ConfirmDeleteButton'
-import { MailHog } from 'lib/components/hedgehogs'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 import { getNotificationDescription } from 'scenes/hog-functions/list/notificationDescription'
 import { NEW_SURVEY } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveyNotificationModalLogic } from 'scenes/surveys/surveyNotificationModalLogic'
+
+const HedgehogMailbox = pngHoggie(mailboxPng)
 
 interface SurveyNotificationsProps {
     surveyId: string
@@ -119,7 +122,7 @@ export function SurveyNotifications({
     if (surveyNotifications.length === 0) {
         return (
             <section className="flex flex-col items-center gap-5 px-6 py-12 text-center">
-                <MailHog className="h-32 w-auto" />
+                <HedgehogMailbox className="h-32 w-auto" />
                 <div className="flex flex-col gap-1.5 max-w-md">
                     <h3 className="m-0 text-base font-semibold">Get notified when responses land</h3>
                     <p className="m-0 text-sm text-muted">

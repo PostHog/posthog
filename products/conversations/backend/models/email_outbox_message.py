@@ -21,10 +21,10 @@ class EmailOutboxMessage(UUIDModel):
         SENT = "sent", "Sent"
         FAILED_PERMANENT = "failed_permanent", "Failed (permanent)"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE)
     # One outbox row per agent reply comment — the idempotency key across retries.
-    comment = models.OneToOneField("posthog.Comment", on_delete=models.CASCADE)
+    comment = models.OneToOneField("posthog.Comment", on_delete=models.CASCADE, related_name="+")
 
     # Stable Message-ID for the outbound email, generated once and reused on every
     # attempt so threading headers and dedup stay consistent across resends.

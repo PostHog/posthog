@@ -114,11 +114,16 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
     # ------------------------------------------------------------------
 
     @abstractmethod
-    def connect(self, config: ConfigT) -> AbstractContextManager[ConnT]:
+    def connect(self, config: ConfigT, *, team_id: int | None = None) -> AbstractContextManager[ConnT]:
         """Open a driver connection for the duration of schema discovery.
 
         Implementations own the full lifecycle — SSH tunnel (if any),
         TLS, auth, cursor setup — and clean it up on exit.
+
+        `team_id` feeds the host policy that decides where the connection may go. The
+        internal-analytics teams are exempt from it, so a connect that drops the team fails
+        closed for them; every caller that has a team must pass it. Drivers that reach the
+        vendor over HTTPS through the egress proxy accept it and ignore it.
         """
 
     @abstractmethod

@@ -195,6 +195,32 @@ describe('sourceSettingsLogic', () => {
         expect(logic.values.source?.schemas[0].enabled_columns).toEqual(['id', 'name'])
     })
 
+    it('bulk sync method edit batches every selected table into one request', async () => {
+        jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(
+            makeSource([
+                makeSchema({ id: 'schema-1', sync_type: 'incremental', incremental_field: 'updated_at' }),
+                makeSchema({ id: 'schema-2', sync_type: 'incremental', incremental_field: 'created_at' }),
+            ])
+        )
+        const bulkUpdateSchemasSpy = jest
+            .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
+            .mockImplementation(async (_id, schemas) => schemas.map((partial) => ({ ...makeSchema(), ...partial })))
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        logic.actions.bulkSetSyncMethod(logic.values.source!.schemas, 'full_refresh')
+        await jest.advanceTimersByTimeAsync(500)
+
+        expect(bulkUpdateSchemasSpy).toHaveBeenCalledTimes(1)
+        expect(bulkUpdateSchemasSpy).toHaveBeenLastCalledWith('source-1', [
+            { id: 'schema-1', sync_type: 'full_refresh' },
+            { id: 'schema-2', sync_type: 'full_refresh' },
+        ])
+    })
+
     it('sends a changed writable field discovered by diff, not a fixed allowlist', async () => {
         // row_filters isn't in any hardcoded list — guards against regressing to an allowlist that drops it.
         jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(

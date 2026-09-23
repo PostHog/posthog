@@ -300,6 +300,18 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
+        it('records the polarity on the boolean output config', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadEvaluationSuccess({ ...mockEvaluation })
+                logic.actions.setTrueIsFailure(true)
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    output_config: { allows_na: false, true_is_failure: true },
+                }),
+                hasUnsavedChanges: true,
+            })
+        })
+
         it('setTriggerConditions updates conditions', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
@@ -739,7 +751,7 @@ return result`,
             })
 
             it('calculates summary from server-side aggregate counts', async () => {
-                logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, passed: 1 })
+                logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, trueCount: 1 })
 
                 await expectLogic(logic).toMatchValues({
                     runsSummary: {
@@ -992,6 +1004,19 @@ return result`,
                 })
             })
 
+            it('treats a false result as a pass for a detector', async () => {
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_config: { allows_na: false, true_is_failure: true },
+                })
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2', result: false })],
+                })
+            })
+
             it('returns only failing runs when filter is fail', async () => {
                 logic.actions.loadEvaluationRunsSuccess(mockRuns)
                 logic.actions.setEvaluationRunsFilter('fail', 'all')
@@ -1077,6 +1102,27 @@ return result`,
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: mockSentimentRuns,
+                })
+            })
+        })
+
+        // Without this the failed query keeps the default empty list, and the table shows "no runs
+        // yet" instead of a failure state — the bug this fix addresses.
+        describe('evaluationRunsError', () => {
+            it('records the failure so the table can show an error state', async () => {
+                logic.actions.loadEvaluationRunsFailure('boom')
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationRunsError: true,
+                })
+            })
+
+            it('clears the error on the next successful load', async () => {
+                logic.actions.loadEvaluationRunsFailure('boom')
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationRunsError: false,
                 })
             })
         })

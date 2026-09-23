@@ -1,3 +1,5 @@
+use serde_json::Value;
+
 /// Estimates the serialized size of a JSON value with minimal allocation.
 ///
 /// Walks the JSON tree and approximates the byte length of the serialized
@@ -40,6 +42,30 @@ pub fn estimate_json_size(value: &serde_json::Value) -> usize {
                     .sum::<usize>()
                     + map.len().saturating_sub(1)
             }
+        }
+    }
+}
+
+/// Estimates heap allocations, rather than serialized bytes, for retained v2 predicate values.
+pub fn estimate_json_heap_size(value: &Value) -> usize {
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) => 0,
+        Value::String(value) => value.capacity(),
+        Value::Array(values) => {
+            values.capacity() * std::mem::size_of::<Value>()
+                + values.iter().map(estimate_json_heap_size).sum::<usize>()
+        }
+        Value::Object(values) => {
+            // BTreeMap exposes no allocation capacity. Budget a root node and
+            // spare entry/child slots conservatively instead of weighing JSON text.
+            let entries = values.len()
+                * (3 * std::mem::size_of::<(String, Value)>() + 4 * std::mem::size_of::<usize>());
+            let root = if values.is_empty() { 0 } else { 1024 };
+            root + entries
+                + values
+                    .iter()
+                    .map(|(key, value)| key.capacity() + estimate_json_heap_size(value))
+                    .sum::<usize>()
         }
     }
 }

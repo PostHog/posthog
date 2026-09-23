@@ -1,6 +1,9 @@
 import { deriveSessionViewState } from "@posthog/core/sessions/sessionViewState";
 import type { Task } from "@posthog/shared/domain-types";
-import { useSessionForTask } from "@posthog/ui/features/sessions/sessionStore";
+import {
+  useSessionForTask,
+  useSessionStore,
+} from "@posthog/ui/features/sessions/sessionStore";
 import { useCwd } from "@posthog/ui/features/sidebar/useCwd";
 import { useIsCloudTask } from "@posthog/ui/features/workspace/useIsCloudTask";
 import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
@@ -10,8 +13,17 @@ export function useSessionViewState(taskId: string, task: Task) {
   const repoPath = useCwd(taskId) ?? null;
   const workspace = useWorkspace(taskId);
   const taskIsCloud = useIsCloudTask(taskId, task);
+  const isTaskStarting = useSessionStore(
+    (state) => state.startingTaskIds[taskId] !== undefined,
+  );
 
-  const derived = deriveSessionViewState(session, task, workspace, taskIsCloud);
+  const derived = deriveSessionViewState(
+    session,
+    task,
+    workspace,
+    taskIsCloud,
+    isTaskStarting,
+  );
 
   return {
     session,

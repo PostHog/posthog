@@ -50,8 +50,10 @@ class TestSeedTeachingCanvas(TestCase):
             created_by=self.user,
         )
 
-    def _seed(self) -> object:
-        return teaching.seed_teaching_canvas(team_id=self.team.id, channel_id=self.channel.id, user=self.user)
+    def _seed(self, *, refresh: bool = False) -> object:
+        return teaching.seed_teaching_canvas(
+            team_id=self.team.id, channel_id=self.channel.id, user=self.user, refresh=refresh
+        )
 
     def _tours(self):
         return Canvas.objects.for_team(self.team.id).filter(
@@ -80,6 +82,16 @@ class TestSeedTeachingCanvas(TestCase):
 
         self.assertIsNone(self._seed())
         self.assertEqual(self._tours().count(), 1)
+
+    def test_a_refreshing_seed_revives_a_deleted_tour_and_republishes_it(self):
+        first = self._seed()
+        self._tours().update(deleted=True)
+
+        self.assertEqual(self._seed(refresh=True), first)
+        canvas = self._tours().get()
+        self.assertFalse(canvas.deleted)
+        self.assertIsNotNone(canvas.pinned_at)
+        self.assertIsNotNone(canvas.current_source_version_id)
 
     def test_a_tour_whose_publish_failed_heals_on_the_next_seed(self):
         canvas_id = self._seed()

@@ -159,6 +159,7 @@ pub fn start_coordinator_with_deadline(
             // explicitly.
             handoff_deadline,
             warming_deadline: Duration::from_secs(86_400),
+            max_txn_ops: 128,
         },
         strategy,
         None,

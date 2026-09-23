@@ -1,6 +1,7 @@
 import asyncio
 
 from django.conf import settings
+from django.utils import timezone
 
 from temporalio import activity
 
@@ -79,7 +80,10 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> SyncEventsRe
                     teams_to_update.append(team)
 
             if teams_to_update and not input.dry_run:
-                await Team.objects.abulk_update(teams_to_update, ["event_retention_months"])
+                updated_at = timezone.now()
+                for team in teams_to_update:
+                    team.updated_at = updated_at
+                await Team.objects.abulk_update(teams_to_update, ["event_retention_months", "updated_at"])
                 # Per batch and off-thread so a mass change can't stall heartbeats or overflow the client queue.
                 await asyncio.to_thread(_capture_retention_changes, changes)
 

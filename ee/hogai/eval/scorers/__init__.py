@@ -5,6 +5,7 @@ from autoevals.llm import LLMClassifier
 from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
 from braintrust import Score
+from pydantic import BaseModel
 
 from posthog.schema import AssistantMessage, AssistantToolCall, NodeKind
 
@@ -28,6 +29,7 @@ __all__ = [
 
 class ToolRelevance(ScorerWithPartial):
     semantic_similarity_args: set[str]
+    _tool_match_score = 0.5
 
     def __init__(self, *, semantic_similarity_args: set[str]):
         self.semantic_similarity_args = semantic_similarity_args
@@ -42,28 +44,29 @@ class ToolRelevance(ScorerWithPartial):
         if not isinstance(output, AssistantMessage):
             raise TypeError(f"Eval case output must be an AssistantMessage, not {type(output)}")
 
-        best_score = 0.0  # 0.0 to 1.0
-        if output.tool_calls:
-            # Check all tool calls and return the best match
-            for tool_call in output.tool_calls:
-                score = 0.0
-                # 0.5 point for getting the tool right
-                if tool_call.name == expected.name:
-                    score += 0.5
-                    if not expected.args:
-                        score += 0.5 if not tool_call.args else 0  # If no args expected, only score for lack of args
-                    else:
-                        score_per_arg = 0.5 / len(expected.args)
-                        for arg_name, expected_arg_value in expected.args.items():
-                            if arg_name in self.semantic_similarity_args:
-                                arg_similarity = AnswerSimilarity(model="text-embedding-3-small").eval(
-                                    output=tool_call.args.get(arg_name), expected=expected_arg_value
-                                )
-                                score += arg_similarity.score * score_per_arg
-                            elif tool_call.args.get(arg_name) == expected_arg_value:
-                                score += score_per_arg
-                best_score = max(best_score, score)
-        return Score(name=self._name(), score=best_score)
+        score = max((self._score_tool_call(tool_call, expected) for tool_call in output.tool_calls or []), default=0.0)
+        return Score(name=self._name(), score=score)
+
+    def _score_tool_call(self, tool_call: AssistantToolCall, expected: AssistantToolCall) -> float:
+        if tool_call.name != expected.name:
+            return 0.0
+        if not expected.args:
+            return 1.0 if not tool_call.args else self._tool_match_score
+
+        score_per_arg = self._tool_match_score / len(expected.args)
+        argument_score = sum(
+            self._score_argument(arg_name, tool_call.args.get(arg_name), expected_arg_value)
+            for arg_name, expected_arg_value in expected.args.items()
+        )
+        return self._tool_match_score + argument_score * score_per_arg
+
+    def _score_argument(self, name: str, actual_value: Any, expected_value: Any) -> float:
+        if name in self.semantic_similarity_args:
+            similarity = AnswerSimilarity(model="text-embedding-3-small").eval(
+                output=actual_value, expected=expected_value
+            )
+            return float(similarity.score or 0.0)
+        return float(actual_value == expected_value)
 
 
 class PlanAndQueryOutput(TypedDict, Generic[AnyPydanticModelQuery], total=False):
@@ -184,6 +187,25 @@ Details matter greatly here - including math types or property types - so be har
         )
 
 
+MAX_JUDGE_JSON_SCHEMA_CHARS = 100_000
+
+
+def build_judge_json_schema(query_kind: NodeKind, query_model: type[BaseModel]) -> str:
+    """Serialize a query schema for an LLM judge, keeping `$ref`s instead of inlining shared definitions.
+
+    Insight toolkits dereference their schemas because the query generator's tool call needs a flat one.
+    That repeats the property filter unions inside every series node and roughly doubles the size, while
+    a judge reads references just as well.
+    """
+    json_schema_str = json.dumps(query_model.model_json_schema())
+    if len(json_schema_str) > MAX_JUDGE_JSON_SCHEMA_CHARS:
+        raise ValueError(
+            f"JSON schema of {query_kind} has blown up in size, are you sure you want to put this into an LLM? "
+            "You CAN increase this limit if you're sure"
+        )
+    return json_schema_str
+
+
 class QueryAndPlanAlignment(LLMClassifier):
     """Evaluate if the generated SQL query aligns with the plan generated in the previous step."""
 
@@ -213,13 +235,8 @@ class QueryAndPlanAlignment(LLMClassifier):
             return Score(name=self._name(), score=0.0, metadata={"reason": "Query failed to be generated"})
         return super()._run_eval_sync(serialize_output(output), serialize_output(expected), **kwargs)
 
-    def __init__(self, query_kind: NodeKind, json_schema: dict, evaluation_criteria: str, **kwargs):
-        json_schema_str = json.dumps(json_schema)
-        if len(json_schema_str) > 100_000:
-            raise ValueError(
-                f"JSON schema of {query_kind} has blown up in size, are you sure you want to put this into an LLM? "
-                "You CAN increase this limit if you're sure"
-            )
+    def __init__(self, query_kind: NodeKind, query_model: type[BaseModel], evaluation_criteria: str, **kwargs):
+        json_schema_str = build_judge_json_schema(query_kind, query_model)
         super().__init__(
             name="query_and_plan_alignment",
             prompt_template="""

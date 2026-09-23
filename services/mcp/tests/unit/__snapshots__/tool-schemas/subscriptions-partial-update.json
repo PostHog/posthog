@@ -105,6 +105,33 @@
             },
             "type": "array"
         },
+        "delivery_config": {
+            "description": "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options.",
+            "properties": {
+                "include_feedback": {
+                    "description": "Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+                    "type": "boolean"
+                },
+                "include_images": {
+                    "description": "Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+                    "type": "boolean"
+                },
+                "include_manage_link": {
+                    "description": "Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+                    "type": "boolean"
+                },
+                "include_posthog_hint": {
+                    "description": "Prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it out and accept the option without an error, unlike post_all_insights_in_main_message. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+                    "type": "boolean"
+                },
+                "post_all_insights_in_main_message": {
+                    "default": false,
+                    "description": "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "enabled": {
             "description": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.",
             "type": "boolean"
@@ -158,7 +185,7 @@
             "description": "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
         },
         "start_date": {
-            "description": "When to start delivering (ISO 8601 datetime).",
+            "description": "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
@@ -173,12 +200,12 @@
             "type": "string"
         },
         "target_type": {
-            "description": "Delivery channel: email or slack.\n\n* `email` - Email\n* `slack` - Slack",
-            "enum": ["email", "slack"],
+            "description": "Delivery channel: email, slack, or teams.\n\n* `email` - Email\n* `slack` - Slack\n* `teams` - Microsoft Teams",
+            "enum": ["email", "slack", "teams"],
             "type": "string"
         },
         "target_value": {
-            "description": "Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack.",
+            "description": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.",
             "type": "string"
         },
         "title": {

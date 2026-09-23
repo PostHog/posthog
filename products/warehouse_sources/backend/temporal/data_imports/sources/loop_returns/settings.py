@@ -3,9 +3,14 @@ from dataclasses import dataclass
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
 
-# Loop rejects a list request whose `from`/`to` range is wider than 120 days, so backfills walk
-# the history in windows of at most this size.
-MAX_WINDOW_DAYS = 120
+# Loop documents a 120-day maximum for a list request's `from`/`to` range.
+API_MAX_RANGE_DAYS = 120
+
+# How wide a window actually asks for. A range whose bounds sit exactly the documented maximum
+# apart is rejected with a 422, and Loop doesn't say where its off-by-one is, so a window keeps a
+# margin under the cap. A quarter matches the range in Loop's own example request and costs a
+# couple of extra requests per backfill.
+MAX_WINDOW_DAYS = 90
 
 # `pageSize` accepts up to 750. Return rows carry nested line items, exchanges and labels, so we
 # stay well under the cap to keep a single page's payload modest.
@@ -15,8 +20,8 @@ DEFAULT_PAGE_SIZE = 250
 # Loop only returns the previous 24 hours, so a default is required for a usable backfill.
 DEFAULT_BACKFILL_DAYS = 730
 
-# The furthest back a configured start date may reach. A backfill walks history one 120-day window
-# per state pass, so an unbounded start date turns a single sync into thousands of empty-window
+# The furthest back a configured start date may reach. A backfill walks history one window per
+# state pass, so an unbounded start date turns a single sync into thousands of empty-window
 # requests that tie up a worker. Cap the lookback at validation time instead.
 MAX_BACKFILL_DAYS = 5 * 365
 

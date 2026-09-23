@@ -1,6 +1,6 @@
 import { TypedEventEmitter } from "@posthog/shared";
 import type { FocusBranchRenamedEvent } from "@posthog/workspace-client/types";
-import { inject, injectable } from "inversify";
+import { inject, injectable, preDestroy } from "inversify";
 import {
   FOCUS_SESSION_STORE,
   FOCUS_WORKSPACE_CLIENT,
@@ -23,6 +23,11 @@ export class FocusHostService
   extends TypedEventEmitter<FocusServiceEvents>
   implements IFocusService
 {
+  private branchRenamedSubscription: { unsubscribe(): void } | null = null;
+  private foreignBranchCheckoutSubscription: {
+    unsubscribe(): void;
+  } | null = null;
+
   constructor(
     @inject(FOCUS_WORKSPACE_CLIENT)
     private readonly workspaceClient: FocusWorkspaceClient,
@@ -32,18 +37,34 @@ export class FocusHostService
     private readonly paths: FocusWorktreePaths,
   ) {
     super();
-    this.focus.onBranchRenamed.subscribe(undefined, {
-      onData: (event) => {
-        void this.handleBranchRenamed(event);
+  }
+
+  resubscribeEvents(): void {
+    this.unsubscribeEvents();
+    this.branchRenamedSubscription = this.focus.onBranchRenamed.subscribe(
+      undefined,
+      {
+        onData: (event) => {
+          void this.handleBranchRenamed(event);
+        },
+        onError: () => {},
       },
-      onError: () => {},
-    });
-    this.focus.onForeignBranchCheckout.subscribe(undefined, {
-      onData: (event) => {
-        this.emit(FocusServiceEvent.ForeignBranchCheckout, event);
-      },
-      onError: () => {},
-    });
+    );
+    this.foreignBranchCheckoutSubscription =
+      this.focus.onForeignBranchCheckout.subscribe(undefined, {
+        onData: (event) => {
+          this.emit(FocusServiceEvent.ForeignBranchCheckout, event);
+        },
+        onError: () => {},
+      });
+  }
+
+  @preDestroy()
+  unsubscribeEvents(): void {
+    this.branchRenamedSubscription?.unsubscribe();
+    this.branchRenamedSubscription = null;
+    this.foreignBranchCheckoutSubscription?.unsubscribe();
+    this.foreignBranchCheckoutSubscription = null;
   }
 
   private get focus() {

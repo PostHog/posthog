@@ -6,6 +6,8 @@ Before designing or changing anything here, read both in full; don't re-derive w
 @SPEC.md
 @README.md
 
+For any frontend change in this product, also read [frontend/AGENTS.md](./frontend/AGENTS.md): the scope-panel rule (picker-bound content inside the outlined panel, current-state content outside), the single comparison vocabulary, and the table conventions.
+
 The decision most often re-derived wrong: **CI ↔ PR linkage is by PR number (the run's `pull_requests` association), never head SHA**.
 A head-SHA join silently drops every push but the latest, because the `github_pull_requests` snapshot keeps only the current head.
 See SPEC §6 (Locked decisions).

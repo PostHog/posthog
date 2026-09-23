@@ -20,9 +20,11 @@ const ISSUE_METADATA_MUTATIONS = new Set(['updateIssueStatus', 'updateIssueAssig
 export interface errorTrackingWidgetLogicActions {
     mutationFailure: (
         mutationName: string,
-        error: unknown
+        error: unknown,
+        issueId?: string | undefined
     ) => {
         error: unknown
+        issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
     updateIssueAssignee: (

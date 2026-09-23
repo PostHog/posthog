@@ -80,6 +80,18 @@ export const deepLinkRouter = router({
       );
     }),
 
+  openInboxReport: publicProcedure
+    .input(z.strictObject({ reportId: z.string().trim().min(1) }))
+    .mutation(({ ctx, input }) => {
+      const deepLinks = ctx.container.get<IDeepLinkRegistry>(DEEP_LINK_SERVICE);
+      return deepLinks.handleUrl(
+        buildActionUrl(
+          { kind: "open_inbox", report_id: input.reportId },
+          deepLinks.getProtocol(),
+        ),
+      );
+    }),
+
   onOpenTask: publicProcedure.subscription(async function* (opts) {
     const service = opts.ctx.container.get<TaskLinkService>(TASK_LINK_SERVICE);
     const iterable = service.toIterable(TaskLinkEvent.OpenTask, {

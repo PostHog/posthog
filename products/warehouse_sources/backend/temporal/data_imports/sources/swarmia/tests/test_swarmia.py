@@ -2,7 +2,7 @@ from collections.abc import Callable
 from datetime import date
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -111,7 +111,6 @@ class TestColumnHandling:
         ]
 
 
-@freeze_time("2026-07-15T12:00:00Z")  # a Wednesday
 class TestBuildWindows:
     @parameterized.expand(
         [
@@ -188,8 +187,12 @@ class TestFetchCsv:
         assert "startDate=2026-06-29" in session.get.call_args[0][0]
 
 
-@freeze_time("2026-07-15T12:00:00Z")
 class TestGetRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
+            yield
+
     @patch(_TRACKED_SESSION_PATH)
     def test_incremental_sync_fetches_complete_windows_after_watermark(self, mock_make_session: MagicMock) -> None:
         session = mock_make_session.return_value
@@ -322,7 +325,7 @@ class TestCredentialChecks:
 
         assert check_credentials("token") is None
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     @patch(_TRACKED_SESSION_PATH)
     def test_check_endpoint_access_flags_denied_reports(self, mock_make_session: MagicMock) -> None:
         session = mock_make_session.return_value
@@ -368,7 +371,7 @@ class TestHttpSampleCaptureDisabled:
             ("check_endpoint_access", lambda: check_endpoint_access("token", ["pull_requests"])),
         ]
     )
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     @patch(_TRACKED_SESSION_PATH)
     def test_every_request_path_disables_capture_and_redacts_token(
         self, _name: str, invoke: Callable[[], object], mock_make_session: MagicMock

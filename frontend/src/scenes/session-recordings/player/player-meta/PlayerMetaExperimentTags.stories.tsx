@@ -1,8 +1,6 @@
 import { Meta } from '@storybook/react'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator } from '~/mocks/browser'
 
 import { makeExperimentSessionContextItem } from '../../__mocks__/experiment_session_context'
@@ -15,7 +13,6 @@ const meta: Meta = {
     title: 'Replay/Player Meta/Experiment Tags',
     component: PlayerMetaExperimentTags,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT],
         testOptions: {
             waitForLoadersToDisappear: true,
             waitForSelector: '[data-attr=replay-experiment-context-chip]',

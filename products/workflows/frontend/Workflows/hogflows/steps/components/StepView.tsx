@@ -83,7 +83,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
             color: Step?.color || 'var(--text-secondary)',
             icon: Step?.icon,
         }
-    }, [action, isSelected, Step])
+    }, [isSelected, Step])
 
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
     const hasValidationWarning = Object.keys(actionValidationErrorsById[action.id]?.warnings ?? {}).length > 0

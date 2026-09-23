@@ -47,6 +47,7 @@ export class CdpEventsConsumer<
             hogWatcherMirror: this.hogWatcherMirror,
             hogMasker: this.hogMasker,
             hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+            cdpUsageReporter: this.cdpUsageReporter,
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,
             valkeyShadow: this.valkeyShadow,
@@ -181,6 +182,12 @@ export class CdpEventsConsumer<
 
                     events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL))
                 } catch (e) {
+                    // A dependency outage is not a poison message. Rethrowing fails the batch, so the
+                    // offsets stay put and the consumer retries, instead of dropping every event of a
+                    // team for the length of a Postgres blip.
+                    if (e?.isRetriable === true) {
+                        throw e
+                    }
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()
                 }

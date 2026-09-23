@@ -19,6 +19,9 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.schema.information_schema import references_denied_table
+
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
@@ -28,6 +31,7 @@ from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
+from ..tasks.tasks import sync_metric_lineage_task
 from .analytics import (
     METRIC_APPROVAL_BLOCKED_EVENT,
     METRIC_APPROVED_EVENT,
@@ -36,8 +40,9 @@ from .analytics import (
     METRIC_UPDATED_EVENT,
     capture_metric_event,
 )
-from .drift import canonical_query_hash, compute_drift, effective_insight_query, fetch_insight
+from .drift import canonical_query_hash, compute_drift, fetch_insight
 from .exceptions import MetricDrifted, SourceInsightUnavailable
+from .lineage import remove_metric_lineage
 from .validation import validate_description, validate_metric_definition
 
 if TYPE_CHECKING:
@@ -56,6 +61,7 @@ _UNSET = _Unset()
 
 # The columns _reset_to_proposed touches, so a lifecycle reset can be scoped into update_fields.
 _APPROVAL_FIELDS = frozenset({"status", "approved_by", "approved_at"})
+_LINEAGE_FIELDS = frozenset({"definition", "referenced_table_names"})
 
 # Fields that carry the metric's reviewed meaning: editing any of them invalidates a prior approval.
 # The definition is compared by canonical hash separately; these are compared by value. display_name
@@ -108,11 +114,9 @@ def _snapshot_from_insight(team: Team, short_id: str, user: Optional[User]) -> t
     if insight is None:
         raise ValidationError({"source_insight_short_id": "Insight not found."})
     _require_insight_viewer_access(insight, team, user)
-    query = effective_insight_query(insight)
+    query = insight.query
     if not query:
-        raise ValidationError(
-            {"source_insight_short_id": "Could not convert this insight's query. Define the metric manually."}
-        )
+        raise ValidationError({"source_insight_short_id": "This insight has no query. Define the metric manually."})
     return query, canonical_query_hash(query)
 
 
@@ -199,6 +203,19 @@ def _refine(metric: Metric, fields: dict) -> None:
     metric.save()
 
 
+def _schedule_lineage_sync(metric: Metric) -> None:
+    """Refresh the metric's lineage node after the write it belongs to commits.
+
+    Dispatched rather than run inline: resolving dependency names builds the team's HogQL schema,
+    which is far more work than the write itself and must not sit in the caller's request.
+
+    `robust=True` so a broker that refuses the message does not turn a committed metric write into
+    an error for the person who made it. The backfill is the repair for a message that never went.
+    """
+    metric_id, team_id = str(metric.id), metric.team_id
+    transaction.on_commit(lambda: sync_metric_lineage_task.delay(metric_id, team_id), robust=True)
+
+
 def upsert_metric(
     *,
     team: Team,
@@ -245,6 +262,7 @@ def upsert_metric(
             fields[key] = value
 
     fields.update(_resolve_definition_fields(definition, source_insight_short_id, team, user))
+    written_fields = set(fields)
 
     # team_scope so the ModelActivityMixin's before-update lookup (via the fail-closed manager)
     # works regardless of caller context (viewset, Celery, MCP, tests).
@@ -273,6 +291,8 @@ def upsert_metric(
                 _refine(existing, fields)
                 metric, created = existing, False
 
+    if created or written_fields & _LINEAGE_FIELDS:
+        _schedule_lineage_sync(metric)
     capture_metric_event(
         METRIC_CREATED_EVENT if created else METRIC_UPDATED_EVENT, metric, team=team, user=user, request=request
     )
@@ -323,6 +343,8 @@ def update_metric(
         if renamed_from is None:
             raise
         raise ValidationError({"name": "A metric with this name already exists."})
+    if renamed_from is not None or changed_fields & _LINEAGE_FIELDS:
+        _schedule_lineage_sync(metric)
     capture_metric_event(
         METRIC_UPDATED_EVENT,
         metric,
@@ -373,11 +395,9 @@ def refresh_metric_from_insight(metric: Metric, user: Optional[User], request: "
         if insight is None or insight.deleted:
             raise SourceInsightUnavailable()
         _require_insight_viewer_access(insight, metric.team, user)
-        query = effective_insight_query(insight)
+        query = insight.query
         if not query:
-            raise SourceInsightUnavailable(
-                "Could not convert the source insight's query. Edit the definition or unlink."
-            )
+            raise SourceInsightUnavailable("The source insight has no query. Edit the definition or unlink.")
 
         canonical_def, referenced = _canonical_definition(query, metric.team, user)
         new_hash = canonical_query_hash(query)
@@ -392,6 +412,7 @@ def refresh_metric_from_insight(metric: Metric, user: Optional[User], request: "
             changed_fields |= _APPROVAL_FIELDS
 
         metric.save(update_fields=[*changed_fields, "updated_at"])
+    _schedule_lineage_sync(metric)
     capture_metric_event(METRIC_UPDATED_EVENT, metric, team=metric.team, user=user, request=request)
     return metric
 
@@ -405,6 +426,7 @@ def _apply_soft_delete(metric: Metric) -> None:
 def soft_delete_metric(metric: Metric, user: Optional[User] = None, request: "Request | None" = None) -> None:
     with team_scope(metric.team_id):
         _apply_soft_delete(metric)
+    remove_metric_lineage(metric)
     capture_metric_event(METRIC_DELETED_EVENT, metric, team=metric.team, user=user, request=request)
 
 
@@ -515,6 +537,9 @@ def bulk_soft_delete_metrics(
             deleted.append(metric)
         _capture_after_commit(METRIC_DELETED_EVENT, deleted, team=team, user=user, request=request)
 
+    for metric in deleted:
+        remove_metric_lineage(metric)
+
     return deleted, skipped
 
 
@@ -527,6 +552,24 @@ def _reset_to_proposed(metric: Metric) -> None:
 def metrics_for_team(team: Team) -> QuerySet[Metric]:
     """Live (non-deleted) metrics for a team, newest first."""
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
+
+
+def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
+    """Live metrics whose definitions do not disclose a warehouse table the caller cannot read."""
+    metrics = metrics_for_team(team)
+    denied_tables = Database.create_for(
+        team=team,
+        user=user,
+        user_access_control=user_access_control,
+    )._denied_tables
+    if not denied_tables:
+        return metrics
+    visible_metric_ids = [
+        metric.id
+        for metric in metrics.only("id", "referenced_table_names")
+        if not references_denied_table(metric.referenced_table_names, denied_tables)
+    ]
+    return metrics.filter(id__in=visible_metric_ids)
 
 
 def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:

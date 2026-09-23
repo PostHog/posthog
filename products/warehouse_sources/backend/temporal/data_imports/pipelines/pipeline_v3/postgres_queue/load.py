@@ -29,6 +29,8 @@ async def process_batch(batch: PendingBatch, verify_ownership: Callable[[], None
     """Load a single batch into Delta Lake, reusing the existing processor."""
     # thread_sensitive=False: the default single-thread executor would cap the pod's
     # real parallelism at 1; process_message is self-contained, so cross-thread is safe.
+    # `latest_attempt` counts attempts already recorded, so the delivery starting now is the next
+    # one — same arithmetic the consumer uses when it stamps the status row.
     await sync_to_async(process_message, thread_sensitive=False)(
-        batch.to_export_signal(), verify_ownership=verify_ownership
+        batch.to_export_signal(), verify_ownership=verify_ownership, attempt=batch.latest_attempt + 1
     )

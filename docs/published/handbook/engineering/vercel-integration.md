@@ -509,7 +509,7 @@ For connectable integrations (linked existing accounts), the webhook handler sim
 
 **Key files:**
 
-- `ee/api/vercel/vercel_webhooks.py` - Webhook handler
+- `ee/api/vercel/webhook_events.py` - Webhook event handling
 - `ee/vercel/integration.py` - `VercelIntegration.delete_installation()`
 - `billing/api/billing.py` - Uninstall endpoint
 - `billing/models/customer.py` - `cancel_billing_provider_subscription()`
@@ -532,19 +532,19 @@ For integration or billing issues that need Vercel's involvement, post in the sh
 
 ### PostHog repo (`posthog/`)
 
-| File                                         | Purpose                                                                |
-| -------------------------------------------- | ---------------------------------------------------------------------- |
-| `ee/api/vercel/vercel_installation.py`       | Installation CRUD (`PUT /api/vercel/v1/installations/{id}`)            |
-| `ee/api/vercel/vercel_connect.py`            | Connectable account OAuth flow                                         |
-| `ee/api/vercel/vercel_sso.py`                | SSO endpoints (`/login/vercel`)                                        |
-| `ee/api/vercel/vercel_webhooks.py`           | Webhook handler (`/webhooks/vercel`)                                   |
-| `ee/api/vercel/vercel_resource.py`           | Resource management (Vercel projects)                                  |
-| `ee/api/vercel/vercel_product.py`            | Product plans                                                          |
-| `ee/vercel/client.py`                        | `VercelAPIClient` - HTTP client for Vercel APIs                        |
-| `ee/vercel/integration.py`                   | `VercelIntegration` class - core logic (upsert, delete, sync flags)    |
-| `ee/billing/billing_manager.py`              | `BillingManager` - intermediary for all billing service calls          |
-| `posthog/models/organization_integration.py` | `OrganizationIntegration` model (org-level, stores Vercel credentials) |
-| `posthog/models/integration/model.py`        | `Integration` model (team/project-level resource record)               |
+| File                                         | Purpose                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------ |
+| `ee/api/vercel/vercel_installation.py`       | Installation CRUD (`PUT /api/vercel/v1/installations/{id}`)              |
+| `ee/api/vercel/vercel_connect.py`            | Connectable account OAuth flow                                           |
+| `ee/api/vercel/vercel_sso.py`                | SSO endpoints (`/login/vercel`)                                          |
+| `ee/api/vercel/webhook_events.py`            | Webhook event handling (`/webhooks/vercel`, served by `posthog/ingress`) |
+| `ee/api/vercel/vercel_resource.py`           | Resource management (Vercel projects)                                    |
+| `ee/api/vercel/vercel_product.py`            | Product plans                                                            |
+| `ee/vercel/client.py`                        | `VercelAPIClient` - HTTP client for Vercel APIs                          |
+| `ee/vercel/integration.py`                   | `VercelIntegration` class - core logic (upsert, delete, sync flags)      |
+| `ee/billing/billing_manager.py`              | `BillingManager` - intermediary for all billing service calls            |
+| `posthog/models/organization_integration.py` | `OrganizationIntegration` model (org-level, stores Vercel credentials)   |
+| `posthog/models/integration/model.py`        | `Integration` model (team/project-level resource record)                 |
 
 ### Billing repo (`billing/`)
 

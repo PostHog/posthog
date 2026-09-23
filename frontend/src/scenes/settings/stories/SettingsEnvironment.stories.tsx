@@ -1,13 +1,17 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
 
 import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { SettingSectionId } from '../types'
@@ -35,6 +39,11 @@ const meta: Meta<StoryProps> = {
                 },
                 '/api/billing/': { products: [] },
                 '/api/projects/:id/integrations': { results: [] },
+                '/api/projects/:id/heatmap_screenshot/settings/': {
+                    allowed_hostnames: [],
+                    has_secret: false,
+                    cookie_delivery_enabled: true,
+                },
                 // The GitHub section fetches both on mount; unmocked, their error toasts land in the snapshot.
                 '/api/projects/:id/integrations/github/available_installations/': {
                     installations: [],
@@ -42,6 +51,7 @@ const meta: Meta<StoryProps> = {
                 },
                 '/api/users/@me/integrations/github/install_requests/': { results: [], install_url: null },
                 '/api/projects/:id/core_memory': { results: [] },
+                '/api/projects/:id/data_warehouse/data_quality_gate/': { gate_materialization_on_checks: true },
                 '/api/projects/:id/hog_functions': { results: [] },
                 '/api/projects/:id/pipeline_destination_configs': { results: [] },
                 '/api/organizations/:id/pipeline_destinations': { results: [] },
@@ -82,6 +92,31 @@ export const SettingsEnvironmentAutocapture: Story = { args: { sectionId: 'envir
 
 export const SettingsEnvironmentHeatmaps: Story = { args: { sectionId: 'environment-heatmaps' } }
 
+export const SettingsEnvironmentHeatmapsScreenshotCookie: Story = {
+    args: { sectionId: 'environment-heatmaps' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/heatmap_screenshot/settings/': {
+                    allowed_hostnames: ['example.com'],
+                    has_secret: true,
+                    cookie_delivery_enabled: true,
+                },
+            },
+        }),
+    ],
+    render: ({ sectionId }: StoryProps) => {
+        const { loadCurrentTeamSuccess } = useActions(teamLogic)
+        const [initializedSection, setInitializedSection] = useState<SettingSectionId | null>(null)
+        useEffect(() => {
+            loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, heatmaps_screenshot_secret: 'phh_example1234abcd' })
+            router.actions.push(urls.settings(sectionId))
+            setInitializedSection(sectionId)
+        }, [loadCurrentTeamSuccess, sectionId])
+        return <>{initializedSection === sectionId && <App />}</>
+    },
+}
+
 export const SettingsEnvironmentProductAnalytics: Story = { args: { sectionId: 'environment-product-analytics' } }
 
 export const SettingsEnvironmentRevenueAnalytics: Story = { args: { sectionId: 'environment-revenue-analytics' } }
@@ -109,6 +144,8 @@ export const SettingsEnvironmentErrorTrackingConfiguration: Story = {
 
 export const SettingsEnvironmentCSPReporting: Story = { args: { sectionId: 'environment-csp-reporting' } }
 
+export const SettingsEnvironmentDataQuality: Story = { args: { sectionId: 'environment-data-quality' } }
+
 export const SettingsEnvironmentPrivacy: Story = { args: { sectionId: 'environment-privacy' } }
 
 export const SettingsEnvironmentMax: Story = { args: { sectionId: 'environment-max' } }
@@ -117,4 +154,53 @@ export const SettingsEnvironmentIntegrations: Story = { args: { sectionId: 'envi
 
 export const SettingsEnvironmentAccessControl: Story = { args: { sectionId: 'environment-access-control' } }
 
+export const SettingsEnvironmentActivityLogs: Story = {
+    args: { sectionId: 'environment-activity-logs' },
+    // The mock organization holds no product features, so this section renders its pay gate.
+    // Billing must list the audit logs feature, otherwise the gate falls through to the settings.
+    decorators: [mswDecorator({ get: { '/api/billing/': billingJson } })],
+}
+
 export const SettingsEnvironmentDangerZone: Story = { args: { sectionId: 'environment-danger-zone' } }
+
+export const SettingsEnvironmentBusinessKnowledge: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: false,
+                    support_enabled: true,
+                },
+            },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentBusinessKnowledgeSupportOff: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: false,
+                    support_enabled: false,
+                },
+            },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentBusinessKnowledgeLearningOnSupportOff: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: true,
+                    support_enabled: false,
+                },
+            },
+        }),
+    ],
+}

@@ -40,7 +40,6 @@ def reverse_content_types(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1187_migrate_hog_flow_models"),
-        ("cdp", "0001_migrate_cdp_models"),
     ]
 
     operations = [

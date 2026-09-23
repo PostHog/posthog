@@ -105,7 +105,7 @@ Put the date in a comment above the component, and repeat it in the flag's descr
 
 Be aware of what this does and does not buy you. Turning the flag off kills the notice immediately and without a deploy, so the user-visible half of removal is solved. Deleting the code is not: **nothing in CI or in any scheduled job currently checks these dates**, and the repo has no automated stale-flag sweep. The date is a note to a human.
 
-So take the last step yourself. When you turn the flag off, open the follow-up in the same sitting and delete the component, its test, the flag constant, and the render site together. `/cleaning-up-stale-feature-flags` helps find the flag once it has gone quiet, but it works against a PostHog project's flags, not against this repo's code — it will not tell you the component is still there.
+So take the last step yourself. When you turn the flag off, open the follow-up in the same sitting and delete the component, its test, the flag constant, and the render site together. Do not point `/cleaning-up-stale-feature-flags` at a notice flag: that skill removes the flag check and keeps the enabled path, and here the enabled path is the banner, so the notice would render for everyone permanently. Delete the code yourself, and check that the component, its test, the flag constant, and the render site all go.
 
 If you are reading this because notices have piled up, that is the gap to close, and it is a better investment than adding features to the notices themselves.
 

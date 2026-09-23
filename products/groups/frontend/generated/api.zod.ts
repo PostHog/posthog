@@ -20,30 +20,13 @@ export const GroupsCreateBody = /* @__PURE__ */ zod.object({
     group_properties: zod.unknown().optional(),
 })
 
-export const groupsDeletePropertyCreateBodyGroupTypeIndexMin = -2147483648
-export const groupsDeletePropertyCreateBodyGroupTypeIndexMax = 2147483647
-
-export const groupsDeletePropertyCreateBodyGroupKeyMax = 400
-
 export const GroupsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
-    group_type_index: zod
-        .number()
-        .min(groupsDeletePropertyCreateBodyGroupTypeIndexMin)
-        .max(groupsDeletePropertyCreateBodyGroupTypeIndexMax),
-    group_key: zod.string().max(groupsDeletePropertyCreateBodyGroupKeyMax),
-    group_properties: zod.unknown().optional(),
+    $unset: zod.string().describe('Name of the property to delete.'),
 })
 
-export const groupsUpdatePropertyCreateBodyGroupTypeIndexMin = -2147483648
-export const groupsUpdatePropertyCreateBodyGroupTypeIndexMax = 2147483647
-
-export const groupsUpdatePropertyCreateBodyGroupKeyMax = 400
-
 export const GroupsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
-    group_type_index: zod
-        .number()
-        .min(groupsUpdatePropertyCreateBodyGroupTypeIndexMin)
-        .max(groupsUpdatePropertyCreateBodyGroupTypeIndexMax),
-    group_key: zod.string().max(groupsUpdatePropertyCreateBodyGroupKeyMax),
-    group_properties: zod.unknown().optional(),
+    key: zod.string().describe('Name of the property to set.'),
+    value: zod
+        .union([zod.string(), zod.number(), zod.boolean(), zod.looseObject({}), zod.array(zod.unknown())])
+        .describe('Value to set. Any JSON value other than null.'),
 })

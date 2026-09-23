@@ -4,13 +4,19 @@ from typing import Literal, Optional
 from products.warehouse_sources.backend.types import IncrementalField
 
 # How an endpoint paginates. Codefresh is inconsistent across resources:
-#   - "offset": limit/offset query params, terminate when a page is short (projects, pipelines, images, step_types)
+#   - "offset": limit/offset query params, terminate when a page is short (projects, pipelines,
+#               images, step_types, environments)
 #   - "page":   1-indexed `page` param plus a `pagination.nextPage` flag and a stable `sessionId` cursor (builds)
-#   - "none":   single request, no pagination params (triggers)
+#   - "none":   single request, no pagination params (triggers, teams, users)
 PaginationMode = Literal["offset", "page", "none"]
 
+# Placeholder substituted with the account id before an endpoint path is requested. Codefresh
+# publishes no endpoint that reports the account a key belongs to, so the id is resolved at sync
+# time (see ``_resolve_account_id``).
+ACCOUNT_ID_PLACEHOLDER = "{account_id}"
 
-@dataclass
+
+@dataclass(frozen=True)
 class CodefreshEndpointConfig:
     name: str
     path: str
@@ -28,6 +34,10 @@ class CodefreshEndpointConfig:
     page_size: int = 100
     should_sync_default: bool = True
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    # Fail loud when the configured ``data_key`` is absent from a 200 body, instead of syncing zero
+    # rows. Set it where the vendor does not document the response envelope, so a wrong guess or a
+    # later shape change is visible. Bare-array endpoints (``data_key`` is ``None``) always fail loud.
+    require_data_key: bool = False
     # Fields to strip from every row before it's emitted, to keep secret-bearing fields (e.g. a
     # project's `variables` or a pipeline's `spec.variables`, which can hold plaintext config values)
     # out of the warehouse, where any table reader could see them. Each entry is a dotted path, so
@@ -89,6 +99,34 @@ CODEFRESH_ENDPOINTS: dict[str, CodefreshEndpointConfig] = {
         pagination="offset",
         data_key=None,  # bare array
         primary_keys=["id"],
+    ),
+    "environments": CodefreshEndpointConfig(
+        name="environments",
+        path="/environments-v2",
+        pagination="offset",
+        # Codefresh does not document this response body. Its other undocumented list endpoints
+        # wrap rows in a ``docs`` envelope, so that is what we read, and ``require_data_key`` turns
+        # a wrong envelope into a loud failure instead of a table that syncs zero rows every run.
+        data_key=["docs"],
+        require_data_key=True,
+        primary_keys=["_id"],
+    ),
+    "teams": CodefreshEndpointConfig(
+        name="teams",
+        path="/team",
+        pagination="none",
+        data_key=None,  # bare array, no pagination params
+        primary_keys=["_id"],
+    ),
+    "users": CodefreshEndpointConfig(
+        name="users",
+        path=f"/accounts/{ACCOUNT_ID_PLACEHOLDER}/users",
+        pagination="none",
+        data_key=None,  # bare array, no pagination params
+        primary_keys=["_id"],
+        # An invite URL lets whoever holds it join the account, so it must stay out of the
+        # warehouse where any table reader could recover it.
+        redact_keys=["inviteUrl"],
     ),
 }
 

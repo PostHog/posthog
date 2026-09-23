@@ -1,15 +1,23 @@
+import { env } from '@/lib/env'
 import type { CloudRegion } from '@/tools/types'
 
-// Resolve the public-facing URL for a request, honoring reverse-proxy headers.
-// Needed for local dev with ngrok/cloudflared, and for k8s deployments behind an ingress
-// where `request.url` is the in-cluster URL but the well-known/RFC-9728 metadata must
-// advertise the externally reachable origin.
+// In production `request.url` already names the host the client connected to, and nothing in front
+// of the worker or the Node server sets X-Forwarded-Host, so any value comes from the client. Only a
+// local tunnel (ngrok, cloudflared) needs the header, so it is read only when MCP_TRUST_FORWARDED_HOST
+// is set. X-Forwarded-Proto always applies, because the Node server sees http behind a TLS-terminating
+// load balancer, and Cloudflare and the load balancer replace any value the client sends.
 export function getPublicUrl(request: Request): URL {
     const url = new URL(request.url)
 
-    const forwardedHost = request.headers.get('X-Forwarded-Host')
+    const forwardedHost = trustForwardedHost() ? request.headers.get('X-Forwarded-Host') : null
     if (forwardedHost) {
-        url.host = forwardedHost
+        // Parse the value, so a header that is not a host leaves the URL alone. Assigning `host`
+        // on its own would keep the local port, which the public host does not serve.
+        const parsed = parseHost(url.protocol, forwardedHost)
+        if (parsed) {
+            url.host = parsed.host
+            url.port = parsed.port
+        }
     }
 
     const forwardedProto = request.headers.get('X-Forwarded-Proto')
@@ -18,6 +26,19 @@ export function getPublicUrl(request: Request): URL {
     }
 
     return url
+}
+
+function trustForwardedHost(): boolean {
+    const value = env.MCP_TRUST_FORWARDED_HOST
+    return value === 'true' || value === '1'
+}
+
+function parseHost(protocol: string, host: string): URL | null {
+    try {
+        return new URL(`${protocol}//${host}`)
+    } catch {
+        return null
+    }
 }
 
 // Detect region from the request hostname.

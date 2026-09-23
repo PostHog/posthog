@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 from unittest.mock import MagicMock
 
@@ -125,7 +125,7 @@ class TestInitialStartTime:
         ]
     )
     def test_initial_start_time(self, _name: str, use_incremental: bool, watermark: Any, expected: str) -> None:
-        with freeze_time("2026-07-15T12:00:00Z"):
+        with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
             assert _initial_start_time(use_incremental, watermark) == expected
 
 

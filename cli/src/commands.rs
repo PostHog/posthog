@@ -359,8 +359,8 @@ impl Cli {
             Err(e) => {
                 if no_fail {
                     match &e.exception_id {
-                        Some(id) => eprintln!("Oops! {} (ID: {})", e.inner, id),
-                        None => eprintln!("Oops! {:?}", e.inner),
+                        Some(id) => crate::safe_eprintln!("Oops! {} (ID: {})", e.inner, id),
+                        None => crate::safe_eprintln!("Oops! {:?}", e.inner),
                     };
                     Ok(None)
                 } else {
@@ -421,8 +421,20 @@ impl Cli {
                         inject_args.release.clone(),
                         std::iter::empty(),
                     )?;
-                    crate::sourcemaps::plain::inject::inject(&inject_args, release.as_ref())?;
-                    crate::sourcemaps::plain::upload::upload(&upload_args, release.as_ref())?;
+                    // Hand the pairs inject wrote straight to upload, instead of letting
+                    // upload re-walk the directory: a bundler writing into it mid-run
+                    // (e.g. Turbopack's background filesystem-cache flush on Next.js
+                    // 16.3+) would otherwise give upload files inject never stamped,
+                    // aborting the build with "Chunk ID not found" (posthog-js#4667).
+                    let pairs =
+                        crate::sourcemaps::plain::inject::inject(&inject_args, release.as_ref())?;
+                    let file_selection = upload_args.file_selection.clone();
+                    crate::sourcemaps::plain::upload::upload_pairs(
+                        &upload_args,
+                        pairs,
+                        release.as_ref(),
+                        file_selection,
+                    )?;
                 }
             },
             Commands::Dsym { cmd } => match cmd {

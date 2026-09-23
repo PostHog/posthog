@@ -1,25 +1,7 @@
-import { hoggiePngUrl } from "@posthog/shared/announcements";
+import { hoggiePng } from "@posthog/shared/hoggies";
 import { useEffect, useMemo, useState } from "react";
-import builderHog from "./assets/hedgehogs/builder-hog-03.png";
-import explorerHog from "./assets/hedgehogs/explorer-hog.png";
-import happyHog from "./assets/hedgehogs/happy-hog.png";
-import loopHog from "./assets/hedgehogs/loop-hog.svg";
 import { BAND_COLORS, hoggieCatalog } from "./hoggies";
 import { type EditableItem, kindDefaultHedgehog } from "./items";
-
-// The app-bundled default hedgehogs are not in the brand catalog; render them
-// from the same local copies the app uses.
-const APP_BUNDLED_SRC: Record<string, string> = {
-  builder: builderHog,
-  explorer: explorerHog,
-  happy: happyHog,
-  loop: loopHog,
-};
-
-/** App-bundled defaults render locally; everything else comes off the CDN. */
-function hoggieSrc(slug: string): string {
-  return APP_BUNDLED_SRC[slug] ?? hoggiePngUrl(slug);
-}
 
 type Patch = Partial<EditableItem>;
 type OnChange = (patch: Patch) => void;
@@ -144,7 +126,7 @@ function HeroBand({ item }: { item: EditableItem }) {
       style={{ backgroundColor: item.heroColor || defaultColor(item.kind) }}
     >
       <GeometricPattern />
-      <img className="st-hero-hog" src={hoggieSrc(item.heroHedgehog)} alt="" />
+      <img className="st-hero-hog" src={hoggiePng(item.heroHedgehog)} alt="" />
       <div className="st-hero-fade" />
     </div>
   );
@@ -184,7 +166,7 @@ function HoggiePicker({
           setOpen((o) => !o);
         }}
       >
-        <img src={hoggieSrc(item.heroHedgehog)} alt="" />
+        <img src={hoggiePng(item.heroHedgehog)} alt="" />
         <span>{item.heroHedgehog}</span>
         <span aria-hidden>▾</span>
       </button>
@@ -213,7 +195,7 @@ function HoggiePicker({
                 }}
               >
                 <img
-                  src={hoggieSrc(defaultSlug)}
+                  src={hoggiePng(defaultSlug)}
                   alt=""
                   loading="lazy"
                   decoding="async"

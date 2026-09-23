@@ -46,12 +46,16 @@ export async function dispatchRun(
         code: string
         output_name: string
         refs: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
+        variables?: Schemas.NotebookVariable[]
     }
 ): Promise<string> {
+    // Variables ride the run body, as they do from the editor: a SQL cell reading a `{name}`
+    // absent from the body fails the dispatch, so the saved declarations go along every time.
+    const { variables, ...rest } = run
     const response = await context.api.request<Schemas.NotebookSQLV2RunResponse>({
         method: 'POST',
         path: `${notebookPath}sql_v2/run/`,
-        body: run,
+        body: variables?.length ? { ...rest, variables } : rest,
     })
     return response.run_id
 }
@@ -152,14 +156,6 @@ export function wrapRunResultAsInformational<T extends object>(result: T): WithI
  * identically to cells run in the editor.
  */
 export function buildResultProp(envelope: Schemas.NotebookSQLV2Envelope): Record<string, unknown> {
-    return {
-        columns: envelope.columns ?? [],
-        types: envelope.types ?? [],
-        row_count: envelope.row_count ?? 0,
-        first_page: envelope.first_page ?? [],
-        has_more: envelope.has_more ?? false,
-        stdout: envelope.stdout ?? '',
-        stderr: envelope.stderr ?? '',
-        media: envelope.media ?? [],
-    }
+    return notebookResultPreview(envelope)
 }
+import { notebookResultPreview } from 'products/notebooks/notebookResultPreview'

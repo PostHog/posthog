@@ -95,6 +95,7 @@ function templateAsGatewayServer(template: MCPServerTemplateApi, enabled: boolea
         description: template.description ?? '',
         category: template.category ?? 'dev',
         template_auth_type: template.auth_type ?? 'oauth',
+        auth_type: template.auth_type ?? 'oauth',
         is_team_enabled: enabled,
         icon_key: template.icon_key,
         icon_domain: template.icon_domain,
@@ -437,7 +438,7 @@ export interface mcpGatewayLogicActions {
         value: GatewayAddServerValues[keyof GatewayAddServerValues]
     ) => {
         field: keyof GatewayAddServerValues
-        value: boolean | string | string[]
+        value: boolean | string
     }
     setAgentServerAccess: (
         accountId: string,
@@ -1392,7 +1393,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 return
             }
 
-            actions.openConnectionModal(serverId, server.template_auth_type ?? 'oauth')
+            actions.openConnectionModal(serverId, server.auth_type ?? server.template_auth_type ?? 'oauth')
         },
         reconnectServer: ({ installationId }) => {
             window.location.href = getMcpServerInstallationsAuthorizeRetrieveUrl(currentProjectId(), {
@@ -1446,6 +1447,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 }
                 actions.closeConnectionModal()
                 actions.refreshServersAfterConnection()
+                actions.loadServiceAccounts()
                 lemonToast.success(`Connected to ${server.name}`)
             } catch (error: unknown) {
                 actions.loadServers()

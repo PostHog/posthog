@@ -120,3 +120,18 @@ export const StamphogRepoConfigsSyncInstallationCreateBody = /* @__PURE__ */ zod
     .describe(
         "Request body for binding a GitHub App installation to the current team.\n\nAlways requires the user-to-server OAuth ``code`` (the ownership proof) and the ``state`` token.\n``installation_id`` is optional: when present (the fresh-install redirect) exactly that installation\nis verified and synced; when absent or blank (the authorize-first redirect) the caller's accessible\ninstallations are discovered server-side from the code, so the client never has to supply a\nforgeable id."
     )
+
+/**
+ * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
+ */
+
+export const StamphogReviewRunsCreateBody = /* @__PURE__ */ zod
+    .object({
+        repository: zod
+            .string()
+            .describe(
+                "Full name of the GitHub repository, e.g. 'PostHog\/posthog'. It must be connected and enabled in Stamphog."
+            ),
+        pr_number: zod.number().min(1).describe('Pull request number on GitHub.'),
+    })
+    .describe('Request body for asking stamphog to review one pull request.')

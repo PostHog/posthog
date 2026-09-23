@@ -3,11 +3,14 @@ import { Message } from 'node-rdkafka'
 
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat } from '~/common/utils/utils'
+import { isAiEventName } from '~/ingestion/common/ai-event-types'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { eventProcessedAndIngestedCounter } from '~/ingestion/common/metrics'
+import { EventUsageRecord } from '~/ingestion/common/steps/usage-records-steps'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '~/types'
@@ -26,6 +29,8 @@ export interface EmitEventStepInput<O extends string> {
     teamId: number
     headers: EventHeaders
     message: Message
+    eventUsageRecords?: EventUsageRecord[]
+    eventUsageBatch?: UsageRecordBatch
 }
 
 /**
@@ -50,6 +55,8 @@ export interface EmitEventStepOutput {
      * been ingested. Empty when nothing was emitted.
      */
     ingested: Promise<IngestedEventInfo | null>[]
+    eventUsageRecords?: EventUsageRecord[]
+    eventUsageBatch?: UsageRecordBatch
 }
 
 export function createEmitEventStep<O extends string, T extends EmitEventStepInput<O>>(
@@ -109,7 +116,16 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
             ingested.push(emitPromise)
         }
 
-        return Promise.resolve(ok({ ingested }, ingested))
+        return Promise.resolve(
+            ok(
+                {
+                    ingested,
+                    eventUsageRecords: input.eventUsageRecords,
+                    eventUsageBatch: input.eventUsageBatch,
+                },
+                ingested
+            )
+        )
     }
 }
 
@@ -123,7 +139,7 @@ export function serializeEvent(event: ProcessedEvent): RawKafkaEvent {
         project_id: event.project_id,
         distinct_id: safeClickhouseString(event.distinct_id),
         elements_chain: safeClickhouseString(event.elements_chain),
-        created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+        created_at: castTimestampOrNow(event.created_at, TimestampFormat.ClickHouse),
         captured_at:
             event.captured_at !== null
                 ? castTimestampToClickhouseFormat(DateTime.fromJSDate(event.captured_at), TimestampFormat.ClickHouse)
@@ -137,5 +153,5 @@ export function serializeEvent(event: ProcessedEvent): RawKafkaEvent {
 }
 
 export function productTrackHeader(event: ProcessedEvent): string {
-    return event.event.startsWith('$ai_') ? 'llma' : 'general'
+    return isAiEventName(event.event) ? 'llma' : 'general'
 }

@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -108,12 +108,12 @@ class TestFormatIncrementalValue:
 
 
 class TestClampFutureValue:
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_datetime_clamped_to_now(self) -> None:
         clamped = _clamp_future_value_to_now(datetime(2027, 1, 1, tzinfo=UTC))
         assert clamped == datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_datetime_untouched(self) -> None:
         past = datetime(2026, 1, 1, tzinfo=UTC)
         assert _clamp_future_value_to_now(past) == past
@@ -259,7 +259,7 @@ class TestIncrementalFilter:
 
         assert params[0] == {"page": 1, "limit": PAGE_SIZE}
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     @patch(CLIENT_SESSION_PATCH)
     def test_future_cursor_clamped(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value

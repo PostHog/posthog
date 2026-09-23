@@ -5,9 +5,14 @@
 # tools/infra-scripts/clitools/toolbox.py with --pool flags-cache-jumphost
 # and --auto-delete; all the orphan-relabel-claim logic lives there.
 #
+# The namespace follows the environment while the migration to the posthog-app
+# golden chart is only partly done (PostHog/charts#14843): dev serves the pool
+# from `flags-cache-jumphost`, prod-us and prod-eu still from `posthog`.
+# KUBE_NAMESPACE overrides both.
+#
 # Prerequisites:
 #   - kubectl context pointing at the target cluster, or pass
-#     KUBE_CONTEXT=… (e.g. KUBE_CONTEXT=posthog-dev).
+#     KUBE_CONTEXT=… (e.g. KUBE_CONTEXT=dev-eks).
 #
 # Usage:
 #   bin/rust-jumphost                       # claim + connect

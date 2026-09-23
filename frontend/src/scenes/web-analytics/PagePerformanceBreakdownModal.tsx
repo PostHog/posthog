@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { Query } from '~/queries/Query/Query'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
+
+import { SearchAndAiLoading } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiLoading'
+import { SearchAndAiQuery } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiQuery'
 
 import { TileId, WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from './common'
 import {
@@ -22,8 +24,8 @@ const GSC_DOCS_URL = 'https://posthog.com/docs/cdp/sources/google-search-console
 const GSC_TABLE_NAME = 'search_analytics_by_query_page'
 
 const MODAL_TITLE: Record<PagePerformanceMetric, string> = {
-    llm_referrals: 'LLM referrals',
-    agent_crawls: 'Agent crawls',
+    llm_referrals: 'AI referrals',
+    agent_crawls: 'AI crawls',
     google_search: 'Google search',
 }
 
@@ -47,22 +49,22 @@ const GoogleBreakdown = ({ page, insightProps }: { page: string; insightProps: I
     const gscTable = dataWarehouseTables.find((t) => t.name.includes(GSC_TABLE_NAME))
 
     if (!gscTable) {
-        if (databaseLoadError) {
+        if (databaseLoadError && !databaseLoading) {
             return (
                 <LemonBanner
                     type="error"
-                    action={{ children: 'Try again', onClick: () => loadDatabase({ force: true }) }}
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadDatabase({ force: true }),
+                        loading: databaseLoading,
+                    }}
                 >
                     Could not load data warehouse tables. Try again to check for your Google Search Console source.
                 </LemonBanner>
             )
         }
         if (databaseLoading || !database) {
-            return (
-                <div className="flex items-center justify-center py-8">
-                    <Spinner className="text-2xl" />
-                </div>
-            )
+            return <SearchAndAiLoading loading label="Checking Google Search Console" className="min-h-64" />
         }
         return (
             <div className="flex flex-col items-center gap-3 py-8 text-center">
@@ -93,7 +95,7 @@ const GoogleBreakdown = ({ page, insightProps }: { page: string; insightProps: I
         embedded: true,
         showActions: false,
     }
-    return <Query uniqueKey="page-performance-gsc-breakdown" query={query} readOnly context={{ insightProps }} />
+    return <SearchAndAiQuery uniqueKey="page-performance-gsc-breakdown" query={query} insightProps={insightProps} />
 }
 
 export const PagePerformanceBreakdownModal = (): JSX.Element => {
@@ -110,11 +112,10 @@ export const PagePerformanceBreakdownModal = (): JSX.Element => {
         body = <GoogleBreakdown page={page} insightProps={insightProps} />
     } else if (breakdownQuery) {
         body = (
-            <Query
+            <SearchAndAiQuery
                 uniqueKey={`page-performance-${metric}-breakdown`}
                 query={breakdownQuery}
-                readOnly
-                context={{ insightProps }}
+                insightProps={insightProps}
             />
         )
     }
@@ -123,14 +124,14 @@ export const PagePerformanceBreakdownModal = (): JSX.Element => {
         <LemonModal
             isOpen={isOpen}
             onClose={closeBreakdown}
-            title={`${MODAL_TITLE[metric]}: ${page || 'this page'}`}
+            title={<span className="break-words">{`${MODAL_TITLE[metric]}: ${page || 'this page'}`}</span>}
             description={MODAL_SUBTITLE[metric]}
             width={640}
         >
             {metric === 'llm_referrals' && (
                 <LemonBanner type="info" className="mb-3">
                     These are people who arrived from an AI assistant, not the assistants' crawlers. Open{' '}
-                    <strong>Agent crawls</strong> for the machines reading this page.
+                    <strong>AI crawls</strong> for the machines reading this page.
                 </LemonBanner>
             )}
             {body}

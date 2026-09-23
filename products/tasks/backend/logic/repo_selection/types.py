@@ -29,3 +29,10 @@ class RepoSelectionResult(BaseModel):
         default=None,
         description="UUID of the sandbox task that performed the selection, when an agent ran.",
     )
+    # Inferring a repo from content is weaker evidence than a caller naming one: it says "this is the
+    # repo a person would target", not "open a PR here". Autostart needs the second, so an inferred
+    # selection is a target for a human-triggered run only.
+    autostart_eligible: bool = Field(
+        default=True,
+        description="Whether this selection may start an implementation task without a person asking for one.",
+    )

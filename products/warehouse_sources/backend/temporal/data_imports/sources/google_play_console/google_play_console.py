@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     AGGREGATION_PERIOD,
     ERROR_HISTORY_DAYS,
     LIST_ENDPOINTS,
-    METRIC_SET_HISTORY_DAYS,
     METRIC_SET_WINDOW_DAYS,
     METRIC_SETS,
     PRIMARY_KEYS,
@@ -404,6 +403,17 @@ def _query_metric_set(
             return
 
 
+def _is_games_only_denial(error: requests.HTTPError) -> bool:
+    """True when Play denied a metric set that is only served for games.
+
+    Google returns `403 PERMISSION_DENIED` with a body like "slowRenderingRateMetricSet
+    resource is only accessible to games" when the app is not a game. The status code alone
+    cannot distinguish this from a real permission problem, so match the message.
+    """
+    response = error.response
+    return response is not None and response.status_code == 403 and "only accessible to games" in response.text
+
+
 def _batch_by_date(rows: Iterable[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     """Group a window's rows into one batch per day, oldest first.
 
@@ -446,7 +456,22 @@ def _iter_metric_set_rows(
             window_start = _parse_date(resume_date) or history_start
             resume_app = None
 
-        latest = client.latest_available_date(package_name, endpoint.resource)
+        try:
+            latest = client.latest_available_date(package_name, endpoint.resource)
+        except requests.HTTPError as e:
+            if _is_games_only_denial(e):
+                # Play restricts some metric sets (slow rendering) to games. For every other app
+                # category the freshness read fails with 403, which the source's error classifier
+                # would read as missing account permissions and pause the schema with advice the
+                # user cannot act on. The app can never have this data, so skip it and let any
+                # games in the same account still sync.
+                logger.info(
+                    "Skipping app: metric set is only available to games",
+                    app=package_name,
+                    resource=endpoint.resource,
+                )
+                continue
+            raise
         if latest is None:
             # No freshness for this metric set means the app has no data we can query for it — a metric
             # set the app isn't eligible for, or one with too little volume to report. Querying a guessed
@@ -644,7 +669,7 @@ def _metric_set_response(
             client=client,
             endpoint=endpoint,
             package_names=resolve_package_names(client, package_names),
-            history_start=resolve_history_start(_today(), watermark, METRIC_SET_HISTORY_DAYS),
+            history_start=resolve_history_start(_today(), watermark, endpoint.history_days),
             manager=manager,
             resume=_load_resume_state(manager),
         )

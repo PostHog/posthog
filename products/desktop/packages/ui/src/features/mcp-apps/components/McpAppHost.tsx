@@ -15,9 +15,9 @@ import type { ToolViewProps } from "@posthog/ui/features/sessions/components/ses
 import { logger } from "@posthog/ui/shell/logger";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { Box, Flex, IconButton, Text } from "@radix-ui/themes";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { type Phase, useAppBridge } from "../hooks/useAppBridge";
 import {
@@ -54,12 +54,37 @@ export function McpAppHost({
   const [iframeHeight, setIframeHeight] = useState(300);
   const [containerWidth, setContainerWidth] = useState(640);
   const [iframeEl, setIframeEl] = useState<HTMLIFrameElement | null>(null);
+  // Block an app that was loaded with an old server configuration.
+  const [staleConfig, setStaleConfig] = useState(false);
   const isDarkMode = useThemeStore((s) => s.isDarkMode);
 
   const isExec = mcpToolName === POSTHOG_EXEC_TOOL_KEY;
   const execResourceUri = isExec
     ? resolveResultResourceUri(toolCall.rawOutput)
     : undefined;
+
+  const queryClient = useQueryClient();
+
+  useSubscription(
+    trpc.mcpApps.onServerConfigChanged.subscriptionOptions(
+      { serverName },
+      {
+        onData: () => {
+          log.warn("MCP server config changed; tearing down live app", {
+            serverName,
+            toolName,
+          });
+          setStaleConfig(true);
+          void queryClient.invalidateQueries(
+            trpc.mcpApps.getUiResourceByUri.pathFilter(),
+          );
+          void queryClient.invalidateQueries(
+            trpc.mcpApps.getUiResource.pathFilter(),
+          );
+        },
+      },
+    ),
+  );
 
   const { data: uiResource, isLoading: resourceLoading } = useQuery(
     isExec
@@ -108,7 +133,18 @@ export function McpAppHost({
   );
   const openLinkMut = useMutation(trpc.mcpApps.openLink.mutationOptions());
 
-  const { sendWhenReady } = useAppBridge({
+  const staleConfigError = useMemo(
+    () =>
+      ({
+        contents: [],
+        _meta: {
+          "io.modelcontextprotocol/error": `The "${serverName}" server configuration changed, so this app is no longer connected. Rerun the tool to load it again.`,
+        },
+      }) as ReadResourceResult,
+    [serverName],
+  );
+
+  const { sendWhenReady, sendResultOnce } = useAppBridge({
     iframeEl,
     uiResource: uiResource,
     serverName,
@@ -121,29 +157,22 @@ export function McpAppHost({
     onPhaseChange: setPhase,
     onSizeChange: setIframeHeight,
     onDisplayModeChange: setDisplayMode,
-    proxyToolCall: proxyToolCallMut.mutateAsync as (args: {
-      serverName: string;
-      toolName: string;
-      args?: Record<string, unknown>;
-    }) => Promise<CallToolResult>,
-    proxyResourceRead: proxyResourceReadMut.mutateAsync as (args: {
-      serverName: string;
-      uri: string;
-    }) => Promise<ReadResourceResult>,
+    proxyToolCall: (callArgs) =>
+      staleConfig
+        ? Promise.reject(
+            new Error(
+              `The "${serverName}" server configuration changed, so this app is no longer connected`,
+            ),
+          )
+        : (proxyToolCallMut.mutateAsync(callArgs) as Promise<CallToolResult>),
+    proxyResourceRead: (readArgs) =>
+      staleConfig
+        ? Promise.resolve(staleConfigError)
+        : (proxyResourceReadMut.mutateAsync(
+            readArgs,
+          ) as Promise<ReadResourceResult>),
     openLink: openLinkMut.mutateAsync,
   });
-
-  const sentResultForCallRef = useRef<string | null>(null);
-  const sendResultOnce = useCallback(
-    (raw: unknown) => {
-      if (sentResultForCallRef.current === toolCall.toolCallId) return;
-      sentResultForCallRef.current = toolCall.toolCallId;
-      const toolResult = toCallToolResult(raw);
-      log.info("Sending tool result to app", { mcpToolName, toolResult });
-      sendWhenReady((bridge) => bridge.sendToolResult(toolResult));
-    },
-    [toolCall.toolCallId, sendWhenReady, mcpToolName],
-  );
 
   // Forward tool results from subscriptions
   useSubscription(
@@ -153,7 +182,8 @@ export function McpAppHost({
         onData: (event) => {
           if (isExec) {
             if (event.toolCallId !== toolCall.toolCallId) return;
-            sendResultOnce(event.result);
+            log.info("Sending tool result to app", { mcpToolName });
+            sendResultOnce(toolCall.toolCallId, event.result);
             return;
           }
           const toolResult = toCallToolResult(event.result);
@@ -181,7 +211,7 @@ export function McpAppHost({
     log.info("exec replay: sending result from toolCall prop", {
       toolCallId: toolCall.toolCallId,
     });
-    sendResultOnce(toolCall.rawOutput);
+    sendResultOnce(toolCall.toolCallId, toolCall.rawOutput);
   }, [
     isExec,
     toolCall.status,

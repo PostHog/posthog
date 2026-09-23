@@ -216,7 +216,8 @@ class TestAgenticLogin(ProvisioningTestBase):
             ("null_legacy", None),
         ]
     )
-    def test_unverified_user_redirects_to_verify_email(self, _name, verified_value):
+    @patch("ee.api.agentic_provisioning.views.deep_links.email_verification_code_verifier.send_code")
+    def test_unverified_user_redirects_to_verify_email(self, _name, verified_value, _mock_send_code):
         # Both False (new partner account) and None (legacy NULL passthrough) must be
         # blocked - deep-link login has no password challenge.
         self.user.is_email_verified = verified_value
@@ -224,7 +225,19 @@ class TestAgenticLogin(ProvisioningTestBase):
         token = self._create_deep_link_token()
         res = self.client.get(f"/agentic/login?token={token}")
         assert res.status_code == 302
-        assert res["Location"] == f"/verify_email/{self.user.uuid}"
+        assert res["Location"] == f"/verify_email/{self.user.uuid}?reason=partner_deep_link"
+
+    @patch(
+        "ee.api.agentic_provisioning.views.deep_links.email_verification_code_verifier.send_code",
+        side_effect=Exception("smtp down"),
+    )
+    def test_failed_verification_email_is_flagged_to_the_page(self, _mock_send_code):
+        self.user.is_email_verified = False
+        self.user.save(update_fields=["is_email_verified"])
+        token = self._create_deep_link_token()
+        res = self.client.get(f"/agentic/login?token={token}")
+        assert res.status_code == 302
+        assert res["Location"] == f"/verify_email/{self.user.uuid}?reason=partner_deep_link&email_sent=false"
 
     def test_unverified_user_does_not_create_session(self):
         self.user.is_email_verified = False

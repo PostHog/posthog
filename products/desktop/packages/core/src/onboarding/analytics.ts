@@ -35,12 +35,10 @@ export function buildCompletedProps(opts: {
   flowStartedAtMs: number;
   nowMs: number;
   githubConnected: boolean;
-  repoSkipped: boolean;
 }): OnboardingCompletedProperties {
   return {
     duration_seconds: durationSeconds(opts.flowStartedAtMs, opts.nowMs),
     github_connected: opts.githubConnected,
-    repo_skipped: opts.repoSkipped,
   };
 }
 

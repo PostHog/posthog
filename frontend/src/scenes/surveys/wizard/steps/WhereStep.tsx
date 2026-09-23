@@ -6,6 +6,8 @@ import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
+import { GuidedWizardStepLayout } from 'lib/components/GuidedWizard/GuidedWizardStepLayout'
 import { ANY_VARIANT, variantOptions } from 'lib/components/IngestionControls/triggers/FlagTrigger/VariantSelector'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { formatRE2Error } from 'lib/utils/regexp'
@@ -17,7 +19,6 @@ import { PropertyDefinitionType, SurveyDisplayConditions, SurveyMatchType } from
 import { SurveyUrlAudienceEstimate } from '../../components/SurveyUrlAudienceEstimate'
 import { surveyLogic } from '../../surveyLogic'
 import { SurveyAudienceFilters } from '../SurveyAudienceFilters'
-import { WizardSection, WizardStepLayout } from '../WizardLayout'
 
 const DEVICE_OPTIONS = ['Desktop', 'Mobile', 'Tablet']
 
@@ -156,8 +157,11 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
     }
 
     return (
-        <WizardStepLayout className="space-y-6">
-            <WizardSection title="Where should this appear?" description="Choose which pages will show this survey">
+        <GuidedWizardStepLayout className="space-y-6">
+            <GuidedWizardSection
+                title="Where should this appear?"
+                description="Choose which pages will show this survey"
+            >
                 <LemonRadio
                     value={targetingMode}
                     onChange={setTargetingMode}
@@ -234,11 +238,11 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                         )}
                     </div>
                 )}
-            </WizardSection>
+            </GuidedWizardSection>
 
             <SurveyAudienceFilters onOpenFullEditor={onOpenFullEditor} />
 
-            <WizardSection
+            <GuidedWizardSection
                 title="Which devices should this appear on?"
                 description="Choose whether this survey should show on desktop, mobile, tablet, or any combination."
             >
@@ -261,9 +265,9 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                 <p className="text-xs text-muted mt-1.5">
                     Leave all unselected to show the survey on every device type.
                 </p>
-            </WizardSection>
+            </GuidedWizardSection>
 
-            <WizardSection
+            <GuidedWizardSection
                 title="Feature flag targeting"
                 description="Optionally limit this survey to users who have a specific feature flag enabled."
             >
@@ -307,7 +311,7 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                         </div>
                     )}
                 </div>
-            </WizardSection>
-        </WizardStepLayout>
+            </GuidedWizardSection>
+        </GuidedWizardStepLayout>
     )
 }

@@ -14,6 +14,10 @@ rules:
           the maturity tooling continues to track tagged sites.
       severity: ERROR
       languages: [typescript, javascript]
+      # Namespaced calls (api.signalReports.list()) are a different AST shape and
+      # have a backlog in the hundreds, so they live in the WARNING-severity
+      # .semgrep/rules/devex/prefer-codegen-api-namespaced.yaml, where the devex
+      # job's --baseline-commit pass blocks only the ones a pull request adds.
       pattern-either:
           - pattern: api.get(...)
           - pattern: api.post(...)

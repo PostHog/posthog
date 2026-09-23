@@ -5,15 +5,14 @@ import { Suspense, useEffect } from 'react'
 import { LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlResourceType } from '~/types'
 
 import { AlertType } from '../types'
-import { AlertsTab, getActiveAlertsTab, getAlertsTabs } from '../utils'
+import { AlertsTab, getActiveAlertsTab, getAlertsTabs, hasEffectiveResourceAccess } from '../utils'
 
 const loadInsightAlerts = (): Promise<{ default: typeof import('./InsightAlerts').InsightAlerts }> =>
     import('./InsightAlerts').then((module) => ({ default: module.InsightAlerts }))
@@ -34,10 +33,6 @@ interface AlertsProps {
 const ALERTS_DESCRIPTION: Record<AlertsTab, string> = {
     [AlertsTab.INSIGHTS]: 'Monitor insight metrics and get notified when conditions are met.',
     [AlertsTab.LOGS]: 'Monitor matching logs and get notified when they cross a threshold.',
-}
-
-function hasEffectiveResourceAccess(resourceType: AccessControlResourceType): boolean {
-    return getAppContext()?.effective_resource_access_control?.[resourceType] !== AccessControlLevel.None
 }
 
 function AlertsPanelSkeleton(): JSX.Element {

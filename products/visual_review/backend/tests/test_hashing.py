@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from products.visual_review.backend.hashing import ImageTooLargeError, hash_image
 
@@ -34,6 +34,13 @@ class TestHashImage:
         rgb.save(buf, format="PNG")
 
         assert hash_image(buf.getvalue()) == hash_image(_png_bytes((10, 20, 30, 255)))
+
+    @pytest.mark.parametrize("image_format", ["JPEG", "TIFF"])
+    def test_rejects_formats_other_than_png(self, image_format: str):
+        buf = io.BytesIO()
+        Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, format=image_format)
+        with pytest.raises(UnidentifiedImageError):
+            hash_image(buf.getvalue())
 
     def test_rejects_payload_over_byte_limit(self):
         with pytest.raises(ImageTooLargeError):

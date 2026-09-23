@@ -109,7 +109,7 @@ export const coreEventsLogic = kea<coreEventsLogicType>([
                     return []
                 }
                 try {
-                    const response = await api.get(`api/environments/${values.currentTeamId}/core_events/`)
+                    const response = await api.get(`api/projects/${values.currentTeamId}/core_events/`)
                     const events = (response.results || []).map(toCoreEvent)
                     actions.setCoreEvents(events)
                     return events
@@ -128,7 +128,7 @@ export const coreEventsLogic = kea<coreEventsLogicType>([
                 return
             }
             try {
-                await api.create(`api/environments/${values.currentTeamId}/core_events/`, event)
+                await api.create(`api/projects/${values.currentTeamId}/core_events/`, event)
                 actions.loadCoreEvents()
                 lemonToast.success('Core event added')
             } catch {
@@ -140,7 +140,7 @@ export const coreEventsLogic = kea<coreEventsLogicType>([
                 return
             }
             try {
-                await api.update(`api/environments/${values.currentTeamId}/core_events/${event.id}/`, event)
+                await api.update(`api/projects/${values.currentTeamId}/core_events/${event.id}/`, event)
                 actions.loadCoreEvents()
                 lemonToast.success('Core event updated')
             } catch {
@@ -152,7 +152,7 @@ export const coreEventsLogic = kea<coreEventsLogicType>([
                 return
             }
             try {
-                await api.delete(`api/environments/${values.currentTeamId}/core_events/${eventId}/`)
+                await api.delete(`api/projects/${values.currentTeamId}/core_events/${eventId}/`)
                 actions.loadCoreEvents()
                 lemonToast.success('Core event removed')
             } catch {

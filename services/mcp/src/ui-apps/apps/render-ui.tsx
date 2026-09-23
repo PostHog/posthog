@@ -5,7 +5,9 @@ import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
-import { AppErrorState, AppLoadingState, AppWrapper } from '../components/AppWrapper'
+import { AppErrorState } from '../components/AppErrorState'
+import { AppLoadingState } from '../components/AppLoadingState'
+import { AppWrapper } from '../components/AppWrapper'
 import { RENDER_DISPATCH } from '../generated/render-dispatch.generated'
 
 /**

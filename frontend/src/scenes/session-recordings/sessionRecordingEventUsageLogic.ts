@@ -114,11 +114,21 @@ export interface sessionRecordingEventUsageLogicActions {
         loadTime: number,
         filters: RecordingUniversalFilters,
         defaultDurationFilter: RecordingDurationFilter,
+        page: {
+            hasNext: boolean
+            isFirstPage: boolean
+            resultCount: number
+        },
         source?: string
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
         loadTime: number
+        page: {
+            hasNext: boolean
+            isFirstPage: boolean
+            resultCount: number
+        }
         source: string | undefined
     }
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
@@ -148,12 +158,15 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
             loadTime: number,
             filters: RecordingUniversalFilters,
             defaultDurationFilter: RecordingDurationFilter,
+            /** What the response held, so an empty list can be told from a full page of results. */
+            page: { resultCount: number; hasNext: boolean; isFirstPage: boolean },
             /** Which surface embeds the playlist, so a list load can be read per host page. */
             source?: string
         ) => ({
             loadTime,
             filters,
             defaultDurationFilter,
+            page,
             source,
         }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
@@ -194,7 +207,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
-        reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter, source }) => {
+        reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter, page, source }) => {
             metricHistogram('replay_list_load_ms', loadTime, 'ms')
             try {
                 const filterValues = filtersFromUniversalFilterGroups(filters)
@@ -223,6 +236,11 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
                     listing_version: '3',
                     filters,
                     source,
+                    result_count: page.resultCount,
+                    has_next: page.hasNext,
+                    // False for the pages scrolling adds, which say nothing about what the list
+                    // first showed.
+                    is_first_page: page.isFirstPage,
                     ...filterBreakdown,
                 })
             } catch (e) {

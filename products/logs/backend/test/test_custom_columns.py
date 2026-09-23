@@ -51,13 +51,18 @@ class TestLogsCustomColumns(ClickhouseTestMixin, APIBaseTest):
         # drifts off the fixed column count, or if either resolution tier breaks.
         shorthand = "resource_attributes.k8s.container.name"
         expression = "upper(service_name)"
-        response = self._run([shorthand, expression])
+        # `pattern` backs the built-in Pattern column, which rides this same wire mechanism.
+        response = self._run([shorthand, expression, "pattern"])
 
-        self.assertEqual(response.columns, [canonical_key(shorthand), canonical_key(expression)])
+        self.assertEqual(
+            response.columns, [canonical_key(shorthand), canonical_key(expression), canonical_key("pattern")]
+        )
         self.assertEqual(len(response.results), 1)
         row = response.results[0]
         self.assertEqual(row[canonical_key(shorthand)], "argo-rollouts-dashboard")
         self.assertEqual(row[canonical_key(expression)], "ARGO-ROLLOUTS")
+        # Empty rather than absent: the fixture predates pattern mining, but the field must resolve.
+        self.assertEqual(row[canonical_key("pattern")], "")
 
     def test_no_custom_columns_leaves_columns_null(self):
         # The frontend keys off a null `columns` to decide there are no custom columns to render.

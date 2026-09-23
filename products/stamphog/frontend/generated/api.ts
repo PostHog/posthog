@@ -15,6 +15,8 @@ import type {
     PaginatedStamphogPullRequestListApi,
     PaginatedStamphogRepoConfigListApi,
     PatchedStamphogRepoConfigWriteApi,
+    ReviewRequestApi,
+    ReviewRequestResponseApi,
     ReviewRunApi,
     StamphogDigestRunsListParams,
     StamphogInstallInfoApi,
@@ -306,7 +308,7 @@ export const getStamphogReviewRunsListUrl = (projectId: string, params?: Stampho
 }
 
 /**
- * Read-only history of stamphog review runs, filterable by repository, PR number, and status.
+ * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
  */
 export const stamphogReviewRunsList = async (
     projectId: string,
@@ -319,12 +321,32 @@ export const stamphogReviewRunsList = async (
     })
 }
 
+export const getStamphogReviewRunsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/stamphog/review_runs/`
+}
+
+/**
+ * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
+ */
+export const stamphogReviewRunsCreate = async (
+    projectId: string,
+    reviewRequestApi: ReviewRequestApi,
+    options?: RequestInit
+): Promise<ReviewRequestResponseApi> => {
+    return apiMutator<ReviewRequestResponseApi>(getStamphogReviewRunsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewRequestApi),
+    })
+}
+
 export const getStamphogReviewRunsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/stamphog/review_runs/${id}/`
 }
 
 /**
- * Read-only history of stamphog review runs, filterable by repository, PR number, and status.
+ * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
  */
 export const stamphogReviewRunsRetrieve = async (
     projectId: string,

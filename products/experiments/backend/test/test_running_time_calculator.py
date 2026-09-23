@@ -5,7 +5,6 @@ from parameterized import parameterized
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
     calculate_baseline_value,
-    calculate_recommended_sample_size,
     calculate_running_time_days,
     calculate_sample_size,
     calculate_variance,
@@ -172,40 +171,6 @@ class TestCalculateSampleSize:
     def test_returns_none_for_negative_variance(self):
         # The delta method can return a negative variance, which yields a negative sample size.
         assert calculate_sample_size("ratio", 10, 10, 2, variance=-32) is None
-
-
-class TestCalculateRecommendedSampleSize:
-    @parameterized.expand(
-        [
-            ("mean_count", 4, 5, 2, None, 6400),
-            ("mean_sum_or_avg", 50, 5, 2, None, 3200),
-            ("funnel", 0.1, 50, 2, None, 1152),
-        ]
-    )
-    def test_simple_metrics(self, metric_type, baseline_value, mde, variants, baseline, expected):
-        assert calculate_recommended_sample_size(metric_type, mde, baseline_value, variants, baseline) == expected
-
-    def test_ratio(self):
-        baseline = BaselineStats(
-            number_of_samples=10000,
-            sum=500000,
-            sum_squares=30000000,
-            denominator_sum=50000,
-            denominator_sum_squares=300000,
-            numerator_denominator_sum_product=2600000,
-        )
-        assert calculate_recommended_sample_size("ratio", 10, 10, 2, baseline) == 1024
-
-    def test_retention(self):
-        baseline = BaselineStats(
-            number_of_samples=10000,
-            sum=7000,
-            sum_squares=7000,
-            denominator_sum=10000,
-            denominator_sum_squares=10000,
-            numerator_denominator_sum_product=7000,
-        )
-        assert calculate_recommended_sample_size("retention", 10, 0.7, 2, baseline) == 1372
 
 
 class TestCalculateRunningTimeDays:

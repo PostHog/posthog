@@ -23,7 +23,8 @@ export default function ExporterRecordingScene({
             playerKey="exporter"
             sessionRecordingId={recording.id}
             mode={mode ?? SessionRecordingPlayerMode.Sharing}
-            autoPlay={autoplay ?? false}
+            // A shared recording link carries no autoplay field, and those pages play on open.
+            autoPlay={autoplay ?? true}
             withSidebar={showInspector ?? false}
             noBorder={noBorder ?? false}
             accessToken={exportToken}

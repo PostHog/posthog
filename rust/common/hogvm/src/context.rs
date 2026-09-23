@@ -1,4 +1,3 @@
-use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
 use std::collections::{HashMap, HashSet};
@@ -6,7 +5,7 @@ use std::sync::Arc;
 
 use crate::{
     error::VmError,
-    program::{ExportedFunction, Module, Program},
+    program::{ExportedFunction, Module, Program, Token},
     stl::{hog_stl_map, stl_map, NativeFunction},
     vm::HogVM,
     HogLiteral, HogValue,
@@ -223,7 +222,7 @@ impl ExecutionContext {
     pub fn get_symbol(&self, symbol: &Symbol) -> Result<&ExportedFunction, VmError> {
         self.symbol_table
             .get(symbol)
-            .ok_or(VmError::UnknownSymbol(symbol.to_string()))
+            .ok_or_else(|| VmError::UnknownSymbol(symbol.to_string()))
     }
 
     // Whether `name` is a registered native (STL/ext) function — used to resolve first-class
@@ -255,7 +254,20 @@ impl ExecutionContext {
             None => self.program.get(ip),
         };
 
-        res.ok_or(VmError::EndOfProgram(ip))
+        res.ok_or_else(|| VmError::EndOfProgram(ip))
+    }
+
+    /// The full decoded token slice for a chunk (root program or module function) — cached by
+    /// the VM per chunk so per-step fetches skip the symbol match and table lookup entirely.
+    pub fn chunk_tokens(&self, symbol: &Option<Symbol>) -> Result<&[Token], VmError> {
+        match symbol {
+            Some(symbol) => Ok(self
+                .symbol_table
+                .get(symbol)
+                .ok_or_else(|| VmError::UnknownSymbol(symbol.to_string()))?
+                .body_tokens()),
+            None => Ok(self.program.body_tokens()),
+        }
     }
 
     pub fn version(&self) -> u64 {
@@ -340,12 +352,16 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
                 vm.heap.emplace(emplaced_arr).map(|ptr| ptr.into())
             }
         }
-        HogLiteral::Object(obj) => {
-            let emplaced_obj: Result<IndexMap<String, HogValue>, _> = obj
-                .into_iter()
-                .map(|(k, v)| Ok((k, walk_emplacing(vm, v)?)))
-                .collect();
-            let emplaced_obj = HogLiteral::Object(emplaced_obj?);
+        HogLiteral::Object(mut obj) => {
+            // Emplace children in place — no fresh map, so keys are neither re-hashed nor
+            // re-inserted (the collect-based rebuild here was a measured allocation hot spot for
+            // native fns returning nested objects, e.g. the geoip record).
+            // Flat children take the `_` arm of the recursive call and come straight back.
+            for v in obj.values_mut() {
+                let taken = std::mem::replace(v, HogValue::Lit(HogLiteral::Null));
+                *v = walk_emplacing(vm, taken)?;
+            }
+            let emplaced_obj = HogLiteral::Object(obj);
 
             if let Some(ptr) = existing_location {
                 // As above, if this was already heap allocated, replace it with the new one

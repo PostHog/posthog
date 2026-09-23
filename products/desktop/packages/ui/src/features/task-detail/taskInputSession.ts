@@ -1,4 +1,4 @@
-export const DEFAULT_TASK_INPUT_SESSION_ID = "task-input";
+const DEFAULT_TASK_INPUT_SESSION_ID = "task-input";
 
 export function getTaskInputSessionId(
   tabId: string | null | undefined,

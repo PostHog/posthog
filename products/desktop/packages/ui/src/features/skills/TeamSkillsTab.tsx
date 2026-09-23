@@ -1,8 +1,9 @@
-import { MagnifyingGlass, UsersThree } from "@phosphor-icons/react";
+import { UsersThreeIcon } from "@phosphor-icons/react";
 import type { TeamSkillInfo } from "@posthog/core/skills/teamSkillsService";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
-import { Box, Flex, ScrollArea, Text, TextField } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
+import { SkillListSkeleton } from "./SkillSkeletons";
+import { SkillsToolbar } from "./SkillsToolbar";
 import { useSkillsSidebarStore } from "./skillsSidebarStore";
 import { TeamSkillDetailPanel } from "./TeamSkillDetailPanel";
 import { TeamSkillsSection } from "./TeamSkillsSection";
@@ -10,10 +11,11 @@ import { TeamSkillsSection } from "./TeamSkillsSection";
 interface TeamSkillsTabProps {
   /** Latest team skills, already merged with the local listing. */
   skills: TeamSkillInfo[];
+  loading?: boolean;
 }
 
 /** Skills your team published to PostHog cloud; install to use locally. */
-export function TeamSkillsTab({ skills }: TeamSkillsTabProps) {
+export function TeamSkillsTab({ skills, loading }: TeamSkillsTabProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selected, setSelected] = useState<TeamSkillInfo | null>(null);
 
@@ -35,41 +37,29 @@ export function TeamSkillsTab({ skills }: TeamSkillsTabProps) {
   }, [skills, searchQuery]);
 
   return (
-    <Flex className="min-h-0 flex-1">
-      <Box flexGrow="1" className="min-w-0">
-        <ScrollArea type="auto" className="scroll-area-constrain-width h-full">
-          <Box px="4" py="3">
-            <Box pb="3">
-              <TextField.Root
-                size="2"
-                placeholder="Search team skills..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="text-[13px]"
-              >
-                <TextField.Slot>
-                  <MagnifyingGlass size={14} />
-                </TextField.Slot>
-              </TextField.Root>
-            </Box>
+    <div className="flex min-h-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <SkillsToolbar
+          placeholder="Search team skills"
+          value={searchQuery}
+          onChange={setSearchQuery}
+        />
 
-            {filtered.length === 0 ? (
-              <Flex
-                align="center"
-                justify="center"
-                direction="column"
-                gap="3"
-                className="py-12"
-              >
-                <Box className="rounded-lg border border-gray-6 border-dashed p-4">
-                  <UsersThree size={24} className="text-gray-8" />
-                </Box>
-                <Text className="max-w-[360px] text-center text-[13px] text-gray-10">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-5xl px-4 py-3">
+            {loading && skills.length === 0 ? (
+              <SkillListSkeleton rows={5} />
+            ) : filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-12">
+                <div className="rounded-lg border border-gray-6 border-dashed p-4">
+                  <UsersThreeIcon size={24} className="text-gray-8" />
+                </div>
+                <p className="max-w-[360px] text-center text-[13px] text-gray-10">
                   {skills.length === 0
                     ? "No team skills yet. Publish one of your skills to share it with your team."
                     : "No team skills match your search"}
-                </Text>
-              </Flex>
+                </p>
+              </div>
             ) : (
               <TeamSkillsSection
                 skills={filtered}
@@ -79,9 +69,9 @@ export function TeamSkillsTab({ skills }: TeamSkillsTabProps) {
                 }
               />
             )}
-          </Box>
-        </ScrollArea>
-      </Box>
+          </div>
+        </div>
+      </div>
 
       <ResizableSidebar
         open={!!selected}
@@ -99,6 +89,6 @@ export function TeamSkillsTab({ skills }: TeamSkillsTabProps) {
           />
         )}
       </ResizableSidebar>
-    </Flex>
+    </div>
   );
 }

@@ -101,6 +101,17 @@ case "$RS_SVC" in
     export LOG_LEVEL=debug
     export DEBUG=1
     export DEV_RUST_SVC_OVERRIDE=capture # we want to run the same "capture" binary in a separate mode
+    # v1 sink for `/i/v1/ai/events` (Django's capture_ai_internal). The sink config
+    # requires every topic var; `ai` mode only produces to the AI topic.
+    export CAPTURE_V1_SINKS=${CAPTURE_V1_SINKS:-msk}
+    export CAPTURE_V1_SINK_MSK_KAFKA_HOSTS=${CAPTURE_V1_SINK_MSK_KAFKA_HOSTS:-$DEFAULT_KAFKA}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN:-events_plugin_ingestion_ai}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL:-events_plugin_ingestion_ai}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW:-events_plugin_ingestion_ai}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ:-events_plugin_ingestion_dlq}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION:-ingestion-errortracking-main}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP:-heatmaps_ingestion}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING:-ingestion-clientwarnings-main-1}
     ;;
 
   capture-logs)
@@ -109,6 +120,17 @@ case "$RS_SVC" in
     export BIND_HOST=0.0.0.0
     export BIND_PORT=4320 # Offset from 4318 to avoid conflict with otel-collector host port mapping
     export MANAGEMENT_BIND_PORT=3304 # Park alongside the other Rust services (3301-3309); 8080/8081 clash with local infra (temporal-ui)
+    export KAFKA_HOSTS=localhost:9092
+    export KAFKA_TOPIC=logs_ingestion
+    export KAFKA_METRICS_TOPIC=metrics_ingestion
+    ;;
+
+  capture-apm-metrics)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export BIND_HOST=0.0.0.0
+    export BIND_PORT=4321 # Next to capture-logs (4320)
+    export MANAGEMENT_BIND_PORT=3312
     export KAFKA_HOSTS=localhost:9092
     export KAFKA_TOPIC=logs_ingestion
     export KAFKA_METRICS_TOPIC=metrics_ingestion
@@ -294,6 +316,8 @@ case "$RS_SVC" in
     export GRPC_ADDRESS=127.0.0.1:50055
     export PRIMARY_DATABASE_URL="${PRIMARY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}"
     export ROUTER_URL=http://127.0.0.1:50054
+    export ETCD_ENDPOINTS=http://localhost:2379
+    export ETCD_PREFIX=/personhog/
     export METRICS_PORT=9108
     ;;
 
@@ -363,6 +387,9 @@ case "$RS_SVC" in
     export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
     export KAFKA_PERSON_STATE_TOPIC=personhog_updates
     export FALLBACK_DATABASE_URL="postgres://posthog:posthog@${PGHOST:-localhost}:${PGPORT:-5432}/posthog_persons"
+    # Pair with the identity service's and the writer's default table, or
+    # leader cache misses read a table the identity never wrote.
+    export FALLBACK_TABLE="${FALLBACK_TABLE:-personhog_person_tmp}"
     export METRICS_PORT=9102
     ;;
 

@@ -5,7 +5,7 @@
 //! The hot path reuses one [`CohortEvaluator`] per event: the STL context and globals are set once
 //! and only the program is swapped per condition, amortizing the context build across all conditions.
 
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use dashmap::DashSet;
 use hogvm::{sync_execute, ExecutionContext, Program, VmError};
@@ -13,6 +13,7 @@ use metrics::counter;
 use serde_json::Value;
 use tracing::info;
 
+use crate::hogvm::ConditionProgram;
 use crate::metrics::{STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION};
 
 /// Unknown-native function names already logged once. Bounded by the HogQL native surface
@@ -126,24 +127,20 @@ impl CohortEvaluator {
         self.context.set_globals(globals);
     }
 
-    /// Evaluate one condition's bytecode against the current globals, coercing failures and non-bool
-    /// results to `false`. Self-counting (the processor's hot path): a VM error or unknown-function
-    /// call increments a per-class `STAGE1_HOGVM_*` metric (keeping a genuinely failing cohort
-    /// observable); a non-bool result is coerced to `false` with no metric. `bytecode` must be
-    /// `RETURN`-terminated (the loader appends it).
-    pub fn evaluate(&mut self, bytecode: Arc<Vec<Value>>) -> bool {
-        outcome_to_bool(self.evaluate_detailed(bytecode))
+    /// Evaluate one condition against the current globals, coercing failures and non-bool results
+    /// to `false`. Self-counting (the processor's hot path): a VM error or unknown-function call
+    /// increments a per-class `STAGE1_HOGVM_*` metric (keeping a genuinely failing cohort
+    /// observable); a non-bool result is coerced to `false` with no metric.
+    pub fn evaluate(&mut self, condition: &ConditionProgram) -> bool {
+        outcome_to_bool(self.evaluate_detailed(condition))
     }
 
     /// As [`Self::evaluate`] but returns the detailed [`EvalOutcome`] and emits no metric — the
     /// caller owns classification (the seeder's bring-your-own-metrics path).
-    pub fn evaluate_detailed(&mut self, bytecode: Arc<Vec<Value>>) -> EvalOutcome {
-        // `from_shared` clones the `Arc`, not the opcode vector, so swapping programs is just a refcount bump.
-        let program = match Program::from_shared(bytecode) {
-            Ok(program) => program,
-            Err(error) => return classify_failure(error),
-        };
-        self.context.set_program(program);
+    pub fn evaluate_detailed(&mut self, condition: &ConditionProgram) -> EvalOutcome {
+        // Cloning a loaded program is two refcount bumps: the header is already validated and the
+        // tokens already decoded, so swapping conditions never re-decodes.
+        self.context.set_program(condition.program().clone());
         run(&self.context)
     }
 }
@@ -408,6 +405,47 @@ mod tests {
         assert!(!evaluate(&bc, json!({ "person": { "properties": {} } })));
     }
 
+    /// Real compiled bytecode from the `isnull_numeric_gte_match` parity fixture, whose Python
+    /// oracle recorded `true`. Stored as compiled, without the loader's trailing `RETURN`, and
+    /// branch-lowered — the compiler rewrites `>=` into an `if`, so it exercises jumps the
+    /// hand-built fixtures above do not.
+    fn corpus_isnull_numeric_gte() -> Vec<Value> {
+        vec![
+            json!("_H"),
+            json!(1),
+            json!(32),
+            json!("$screen_height"),
+            json!(32),
+            json!("properties"),
+            json!(1),
+            json!(2),
+            json!(2),
+            json!("isNull"),
+            json!(1),
+            json!(33),
+            json!(500),
+            json!(2),
+            json!("isNull"),
+            json!(1),
+            json!(4),
+            json!(2),
+            json!(40),
+            json!(3),
+            json!(30),
+            json!(39),
+            json!(9),
+            json!(33),
+            json!(500),
+            json!(32),
+            json!("$screen_height"),
+            json!(32),
+            json!("properties"),
+            json!(1),
+            json!(2),
+            json!(14),
+        ]
+    }
+
     #[test]
     fn reused_evaluator_matches_a_fresh_context_per_eval() {
         // Interleave programs and globals so a stale-globals or un-swapped-program leak would diverge
@@ -426,27 +464,63 @@ mod tests {
             bc.extend_from_slice(&[json!(OP_GT), json!(OP_RETURN)]);
             bc
         };
+        let corpus = corpus_isnull_numeric_gte();
         let g_match = json!({ "person": { "properties": { "email": "a@b.com", "bc_num": 20 } } });
         let g_miss = json!({ "person": { "properties": { "email": "x@y.com", "bc_num": 5 } } });
+        let g_screen = json!({ "properties": { "$screen_height": 800 } });
 
-        let cases: [(&Vec<Value>, &Value); 5] = [
+        let cases: [(&Vec<Value>, &Value); 6] = [
             (&email_eq, &g_match),
             (&num_gt, &g_match),
             (&email_eq, &g_miss),
             (&num_gt, &g_miss),
             (&email_eq, &g_match),
+            (&corpus, &g_screen),
         ];
 
         let mut evaluator = CohortEvaluator::new();
-        for (bytecode, globals) in cases {
+        for (stored, globals) in cases {
+            let condition = ConditionProgram::from_stored(stored).expect("a valid header loads");
             evaluator.set_globals(globals.clone());
-            let reused = evaluator.evaluate(Arc::new(bytecode.clone()));
-            let fresh = evaluate(bytecode, globals.clone());
+            let reused = evaluator.evaluate(&condition);
+            let fresh = evaluate(condition.tokens(), globals.clone());
             assert_eq!(
                 reused, fresh,
                 "reused evaluator diverged from a fresh per-eval context",
             );
         }
+
+        // The corpus case also carries an oracle verdict, so the reused path is pinned to an answer
+        // rather than only to the free function agreeing with it.
+        evaluator.set_globals(g_screen.clone());
+        assert!(
+            evaluator
+                .evaluate(&ConditionProgram::from_stored(&corpus).expect("a valid header loads")),
+            "the `isnull_numeric_gte_match` fixture's oracle verdict is true",
+        );
+    }
+
+    #[test]
+    fn evaluate_runs_the_conditions_own_decoded_tokens() {
+        // The context must borrow the condition's already-decoded token vector, not a fresh decode
+        // of its JSON. With `Program`'s fields private, slice identity is the only public probe.
+        let stored = [header(), vec![json!(OP_TRUE), json!(OP_RETURN)]].concat();
+        let condition = ConditionProgram::from_stored(&stored).expect("a valid header loads");
+
+        let mut evaluator = CohortEvaluator::new();
+        evaluator.set_globals(json!({}));
+        assert!(evaluator.evaluate(&condition));
+
+        let running = evaluator
+            .context
+            .chunk_tokens(&None)
+            .expect("the root chunk is always resolvable");
+        // Two empty slices can compare pointer-equal, so prove the comparison has something to bite on.
+        assert!(!running.is_empty());
+        assert!(
+            std::ptr::eq(running, condition.program().body_tokens()),
+            "the evaluator re-decoded the condition instead of reusing its tokens",
+        );
     }
 
     #[test]
@@ -502,8 +576,9 @@ mod tests {
         // Fix, reused-evaluator site (production hot path): likewise no overflow.
         let mut evaluator = CohortEvaluator::new();
         evaluator.set_globals(json!({}));
+        let condition = ConditionProgram::from_stored(&prog).expect("a valid header loads");
         assert!(matches!(
-            evaluator.evaluate_detailed(Arc::new(prog)),
+            evaluator.evaluate_detailed(&condition),
             EvalOutcome::Matched(_)
         ));
     }

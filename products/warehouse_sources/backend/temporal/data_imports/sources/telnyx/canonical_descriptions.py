@@ -9,7 +9,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Per-message detail records (MDRs) for SMS/MMS sent or received through Telnyx Messaging.",
         "docs_url": DETAIL_RECORD_SEARCH_DOCS_URL,
         "columns": {
-            "uuid": "Unique identifier of the message.",
+            "uuid": "Unique identifier of the message. Not present on RCS messages; use `id` for those.",
+            "id": "Unique identifier of the message, used for RCS messages instead of `uuid`.",
             "user_id": "Identifier of the Telnyx account who owns the message.",
             "completed_at": "Message completion time.",
             "created_at": "Message creation time.",

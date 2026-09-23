@@ -42,7 +42,6 @@ class TestBatchReconcileTeams(BaseTest):
     def _run(self, team_ids: str, *extra_args, existing=(), verify_listing=None):
         out = StringIO()
         with (
-            mock.patch(f"{BATCH}.tiered_schedules_enabled", return_value=True),
             mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.delete_schedule"),
             mock.patch(
@@ -147,7 +146,6 @@ class TestBatchReconcileTeams(BaseTest):
 
         out = StringIO()
         with (
-            mock.patch(f"{BATCH}.tiered_schedules_enabled", return_value=True),
             mock.patch(f"{BATCH}.time.sleep") as sleep,
             mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.delete_schedule"),

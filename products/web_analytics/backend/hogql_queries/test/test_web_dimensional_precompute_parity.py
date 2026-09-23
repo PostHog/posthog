@@ -14,7 +14,7 @@ tables exist to provide.
 
 from datetime import UTC, datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person
 
 from posthog.clickhouse.client import sync_execute
@@ -68,7 +68,7 @@ class TestWebDimensionalPrecomputeParity(WebAnalyticsPreAggregatedTestBase):
 
     def _setup_test_data(self):
         sa, sb, sc = (str(uuid7(DATE_START)) for _ in range(3))
-        with freeze_time("2024-01-01T09:00:00Z"):
+        with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
             # Create persons so events resolve to a stable person_id per distinct_id
             # (without this, _create_event assigns a fresh random person_id per row).
             for did in ("user_a", "user_b", "user_c"):
@@ -141,7 +141,7 @@ class TestWebDimensionalPrecomputeParity(WebAnalyticsPreAggregatedTestBase):
         n = len(dims)
         return {tuple(row[:n]): tuple(int(v) for v in row[n:]) for row in rows}
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_stats_parity_with_v2(self):
         # v2 path: populate web_pre_aggregated_stats directly.
         sync_execute(
@@ -178,7 +178,7 @@ class TestWebDimensionalPrecomputeParity(WebAnalyticsPreAggregatedTestBase):
         )
         assert by_path == {("/",): (2,), ("/pricing",): (1,), ("/blog",): (1,)}, by_path
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_bounces_parity_with_v2(self):
         sync_execute(
             WEB_BOUNCES_INSERT_SQL(

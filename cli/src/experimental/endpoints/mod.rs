@@ -32,7 +32,7 @@ use crate::invocation_context::context;
 #[inline]
 pub fn debug_request(debug: bool, method: &str, path: &str) {
     if debug {
-        eprintln!("  {} {} {}", "DEBUG".cyan().bold(), method, path);
+        crate::safe_eprintln!("  {} {} {}", "DEBUG".cyan().bold(), method, path);
     }
 }
 
@@ -41,7 +41,7 @@ pub fn debug_request(debug: bool, method: &str, path: &str) {
 pub fn debug_response_body<T: serde::Serialize>(debug: bool, body: &T) {
     if debug {
         if let Ok(json) = serde_json::to_string_pretty(body) {
-            eprintln!("  Response:\n{}", json.dimmed());
+            crate::safe_eprintln!("  Response:\n{}", json.dimmed());
         }
     }
 }
@@ -50,7 +50,7 @@ pub fn debug_response_body<T: serde::Serialize>(debug: bool, body: &T) {
 #[inline]
 pub fn debug_error<E: std::fmt::Display>(debug: bool, error: &E) {
     if debug {
-        eprintln!("  {} {}", "Error:".red(), error);
+        crate::safe_eprintln!("  {} {}", "Error:".red(), error);
     }
 }
 
@@ -615,7 +615,7 @@ pub fn print_diff(from: &str, to: &str, indent: &str) {
         };
         let line = change.to_string_lossy();
         let line_trimmed = line.trim_end_matches('\n');
-        println!("{indent}{} {}", color_fn(sign), color_fn(line_trimmed));
+        crate::safe_println!("{indent}{} {}", color_fn(sign), color_fn(line_trimmed));
     }
 }
 
@@ -789,7 +789,7 @@ pub fn fetch_insight_variables(debug: bool) -> Result<Vec<InsightVariable>> {
                 .json()
                 .context("Failed to parse insight variables response")?;
             if debug {
-                eprintln!(
+                crate::safe_eprintln!(
                     "  Response: {} variable{}",
                     list.results.len(),
                     if list.results.len() == 1 { "" } else { "s" }
@@ -813,9 +813,9 @@ pub fn create_insight_variable(
     let client = &context().client;
 
     if debug {
-        eprintln!("  {} POST insight_variables/", "DEBUG".cyan().bold());
+        crate::safe_eprintln!("  {} POST insight_variables/", "DEBUG".cyan().bold());
         if let Ok(json) = serde_json::to_string_pretty(request) {
-            eprintln!("  Request body:\n{}", json.dimmed());
+            crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
         }
     }
 
@@ -827,7 +827,7 @@ pub fn create_insight_variable(
         Ok(response) => response.json().context("Failed to parse variable response"),
         Err(e) => {
             if debug {
-                eprintln!("  {} {}", "Error:".red(), e);
+                crate::safe_eprintln!("  {} {}", "Error:".red(), e);
             }
             Err(e).with_context(|| format!("Failed to create variable '{}'", request.code_name))
         }
@@ -871,7 +871,7 @@ pub fn fetch_all_endpoints(debug: bool) -> Result<EndpointListResponse> {
                 .json()
                 .context("Failed to parse endpoints response")?;
             if debug {
-                eprintln!(
+                crate::safe_eprintln!(
                     "  Response: {} endpoint{}",
                     list.results.len(),
                     if list.results.len() == 1 { "" } else { "s" }

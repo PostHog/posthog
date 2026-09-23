@@ -6,6 +6,8 @@ from unittest import mock
 from django.core.management import call_command
 from django.test import override_settings
 
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.skills.backend.api.skill_services import create_skill, resolve_skill_owners, set_skill_owners
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 _SERVICE = "products.data_warehouse.backend.logic.data_load.service"
@@ -153,3 +155,18 @@ class TestResetSignalsSelfDrivingProductToggles(BaseTest):
         assert "should have enabled, but didn't" in output
         for label in ("Session Replay", "Error Tracking", "Support / Conversations"):
             assert label in output
+
+
+@override_settings(DEBUG=True)
+class TestResetSignalsSelfDrivingCustomScouts(BaseTest):
+    def test_deleting_custom_scouts_also_drops_their_owner_rows(self) -> None:
+        # Owner rows key on (team, name) rather than the version row, so the hard delete does not
+        # cascade to them. A scout recreated under the same name would inherit the old owners and
+        # let a stale owner publish it.
+        name = f"{SIGNALS_SCOUT_SKILL_PREFIX}custom-checkout"
+        create_skill(self.team, user=self.user, name=name, description="d", body="# b")
+        set_skill_owners(self.team, name, [self.user])
+
+        call_command("reset_signals_self_driving", team_id=self.team.id, yes=True, keep_findings=True, keep_log=True)
+
+        assert resolve_skill_owners(self.team, name) == []

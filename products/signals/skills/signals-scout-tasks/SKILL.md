@@ -1,10 +1,10 @@
 ---
 name: signals-scout-tasks
+scout-display-name: Tasks
 description: >
-  Signals scout for PostHog Tasks, the agent work items a project runs. Two lenses: delivery health
-  (runs failing, clustered by repository and error class, and retry storms) every run, and on a slower
-  rotation demand (recurring asks across human-authored tasks that point at a product gap). Skips the
-  scout fleet's own run rows.
+  Signals scout for PostHog Tasks. Watches delivery health — failing runs clustered by
+  repository and error class, retry storms — and, on a slower rotation, recurring demand across
+  human-authored tasks. Skips the scout fleet's own runs.
 allowed_tools:
   - emit_report
   - edit_report
@@ -61,7 +61,7 @@ Field population is **not** uniform, and two of the traps below are verified, no
 | `tasks.created_by_id`          | always                       | reach; an **integer** id, see routing below                                                   |
 | `tasks.title` / `.description` | usually                      | the demand lens                                                                               |
 | `task_runs.branch`             | ~60%                         | weak; don't build detection on it                                                             |
-| **`task_runs.stage`**          | **unpopulated in practice**  | **never build a lens on it — it reads as null**                                               |
+| **`task_runs.stage`**          | **check before use**         | **probe `countIf(stage != '')` first; a column that reads null carries no lens**              |
 
 Two consequences worth carrying:
 
@@ -76,8 +76,8 @@ It encodes the exclusions below.
 
 ## The exclusion that matters most
 
-**Always exclude `origin_product = 'signals_scout'`.**
-Those rows are the scout fleet's own run containers, not project work: they carry no repository and a single creator, and on an active project they can be the _largest_ origin by volume.
+**Always exclude `origin_product` in (`signals_scout`, `scout_suggestions`).**
+Those rows are the scout fleet's own run containers, the second being the scans that pre-compute a project's suggested scouts, not project work: they carry no repository and a single creator, and on an active project they can be the _largest_ origin by volume.
 They are not filtered out for you — the `internal` flag does not cover them.
 A run that forgets this exclusion is mostly measuring the scout fleet, and the demand lens would be reading the inbox's own output back as if it were user demand.
 
@@ -85,7 +85,7 @@ A run that forgets this exclusion is mostly measuring the scout fleet, and the d
 
 Close out on **runs, not task creation**.
 A project that creates no new tasks can still be running old ones daily, and those runs are exactly what lens A exists to watch — closing out on a task-creation count would skip today's failures entirely.
-So: if a 14-day count of non-`signals_scout` _runs_ is ~0, this project isn't using Tasks.
+So: if a 14-day count of _runs_ outside those two origins is ~0, this project isn't using Tasks.
 Write one scratchpad entry and stop:
 
 - key `not-in-use:tasks` — _"checked {timestamp}, no non-scout task runs in 14d"_
@@ -114,14 +114,14 @@ Both read the same tables and ask different questions.
 
 | Lens                    | Cadence                                        | Origins                                                      | Unit     | Question                        |
 | ----------------------- | ---------------------------------------------- | ------------------------------------------------------------ | -------- | ------------------------------- |
-| **A — delivery health** | every run                                      | non-internal, all except `signals_scout`                     | the run  | does agent work actually land?  |
+| **A — delivery health** | every run                                      | non-internal, all except the fleet's own origins             | the run  | does agent work actually land?  |
 | **B — demand**          | when `pattern:tasks:last-demand-pass` > 7d old | human only: `user_created`, `slack`, `posthog_ai`, `hogdesk` | the task | what do people keep asking for? |
 
 `onboarding` is deliberately absent: those tasks are generated server-side with a fixed title and a templated prompt, and only _attributed_ to the user who onboarded.
 Several of them clear the distinct-creator repetition test on their own and would manufacture a demand theme out of product-generated work.
 
 Lens B's origin filter is load-bearing, not tidiness.
-Machine origins (`signal_report`, `review_hog`, `loops`, `automation`, and the excluded `signals_scout`) are work the platform generated for itself.
+Machine origins (`signal_report`, `review_hog`, `loops`, `automation`, and the excluded `signals_scout` and `scout_suggestions`) are work the platform generated for itself.
 Counting them as demand manufactures a trend out of the inbox's own throughput.
 Read them in lens A, where "did it land" is exactly the right question for them, and never in lens B.
 
@@ -203,7 +203,7 @@ Author / edit / remember / skip, against the four-states classifier:
 
 - **Search the inbox first.**
   The `report:tasks:<cluster>` pointer is the reliable path (retrieve the id directly); with no pointer, `inbox-reports-list` by repository name _and_ by the failure class.
-- **Edit** (`scout-edit-report`) when a live report covers the cluster and it's still failing — `append_note` the fresh rate, volume, and any newly-affected repos.
+- **Edit** (`scout-edit-report`) when a live report covers the cluster and it is still failing — add the fresh rate, volume, and newly affected repositories with `append_evidence`.
   This is the default when a match exists.
   `edit-report` can't change status, so a `resolved` / `suppressed` match means authoring fresh for the relapse and repointing the key.
 - **Cite a concrete run.** The lens-A queries aggregate, so they return no ids to quote. Before filing, run cookbook query 9 narrowed to the cluster for a representative `task_id` + `run_id` pair, and use those in the `evidence` (and for `tasks-runs-retrieve` if you want one worked example).
@@ -215,7 +215,8 @@ Author / edit / remember / skip, against the four-states classifier:
   Cite task and run ids inline.
 - **Actionability and repo.**
   A failure localized to a component the project owns, with a concrete fix, is `immediately_actionable` with `repository="owner/repo"`.
-  A break in the task platform itself, or one whose cause you could only name as a hypothesis, is `requires_human_input` with `repository=NO_REPO` — `NO_REPO` is what stops a pointless repo-selection sandbox from spawning.
+  A cause you could only name as a hypothesis keeps the same call, as long as the failing component sits in a repo the project owns: checking the hypothesis is the work.
+  A break in the task platform itself, or a cluster whose next step is a call only a person can make, is `requires_human_input` with `repository=NO_REPO` — `NO_REPO` is what stops a pointless repo-selection sandbox from spawning.
 - **Routing.**
   Resolve a reviewer from the `reviewer:tasks:<repo>` cache, then inbox precedent (`inbox-report-artefacts-list` on a comparable report), then `tasks-retrieve` on a representative task in the cluster for its `created_by.uuid`, then `scout-members-list`.
   Pass reviewer objects (`{github_login}` or `{user_uuid}`), never bare strings.
@@ -229,7 +230,7 @@ Author / edit / remember / skip, against the four-states classifier:
 
 ## Disqualifiers (skip these)
 
-- **The scout fleet's own rows** — `origin_product = 'signals_scout'`, always excluded, both lenses.
+- **The scout fleet's own rows** — `origin_product` in (`signals_scout`, `scout_suggestions`), always excluded, both lenses.
 - **Low absolute volume** — below this project's floor, a rate is noise.
   A handful of runs failing proves nothing.
 - **Retry storms read as systemic** — always compute runs ÷ distinct tasks before believing a big number.
@@ -239,7 +240,7 @@ Author / edit / remember / skip, against the four-states classifier:
   Only a rate well above baseline is interesting, and even then as a prompt, not a finding.
 - **Known upstream provider errors** — model provider rate limits and third-party outages, already covered by memory.
   Don't re-file unless the shape changes.
-- **`stage`-based findings** — the column is unpopulated; anything derived from it is an artifact.
+- **`stage`-based findings** — when the column reads null across runs, anything derived from it is an artifact.
 - **In-flight runs** — `queued` / `in_progress` rows are not failures.
   Only an aging backlog is a signal.
 

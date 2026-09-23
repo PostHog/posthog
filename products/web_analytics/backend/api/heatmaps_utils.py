@@ -10,6 +10,10 @@ MAX_TARGET_WIDTHS = 16
 PREWARM_PREVIEW_WIDTH = 1024
 PREWARM_TTL = timedelta(minutes=15)
 
+# The Pillow formats a stored snapshot can hold: Browserless renders JPEG, and the toolbar capture
+# endpoint accepts JPEG or PNG. Image.open without formats= tries every format Pillow can parse.
+HEATMAP_SNAPSHOT_IMAGE_FORMATS = ("JPEG", "PNG")
+
 
 def heatmaps_flag_enabled(flag: str, distinct_id: str, *, team_id: int, organization_id: str) -> bool:
     """Evaluate a flag with the org/project group context, failing closed when it can't be read."""

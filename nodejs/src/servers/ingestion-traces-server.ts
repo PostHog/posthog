@@ -2,6 +2,8 @@ import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
@@ -12,6 +14,8 @@ import {
     TracesIngestionConsumerConfig,
     getDefaultLogsIngestionOutputsConfig,
 } from '~/logs/config'
+import { MetricRulesCache } from '~/logs/metrics-rules/metric-rules-cache'
+import { LogsMetricsEmitter } from '~/logs/metrics-rules/metrics-emitter'
 import { createProducerRegistry } from '~/logs/outputs/producer-registry'
 import {
     KafkaWarpstreamIngestionProducerEnvConfig,
@@ -49,6 +53,7 @@ export type IngestionTracesServerConfig = BaseServerConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
+    UsageIngestionConfig &
     Pick<CommonConfig, 'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'CLOUD_DEPLOYMENT' | 'HEALTHCHECK_MAX_STALE_SECONDS'>
 
 export class IngestionTracesServer implements NodeServer {
@@ -103,6 +108,15 @@ export class IngestionTracesServer implements NodeServer {
         const teamManager = new TeamManager(this.postgres)
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
 
+        // Span-based metric rules share the log rules table + OTLP emitter; the traces
+        // consumer filters to `source=spans`. Inert without a traces export URL.
+        const metricRulesCache = this.config.TRACES_METRICS_RULES_EXPORT_URL
+            ? new MetricRulesCache(this.postgres)
+            : undefined
+        const metricsEmitter = this.config.TRACES_METRICS_RULES_EXPORT_URL
+            ? new LogsMetricsEmitter(this.config.TRACES_METRICS_RULES_EXPORT_URL)
+            : undefined
+
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createTracesOutputsRegistry().build(this.producerRegistry, this.config)
 
@@ -110,10 +124,17 @@ export class IngestionTracesServer implements NodeServer {
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
         serviceLoaders.push(async () => {
+            const usageBatch = new UsageRecordBatch(createUsageIngestionClient(this.config, 'apm_traces'), {
+                unit: 'bytes',
+                isTeamEnabled: usageReportTeamMatcher(this.config),
+            })
             const consumer = new TracesIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
                 outputs,
+                usageBatch,
+                metricRulesCache,
+                metricsEmitter,
             })
             await consumer.start()
             return consumer.service

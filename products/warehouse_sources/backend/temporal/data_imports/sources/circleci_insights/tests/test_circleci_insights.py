@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_i
     CircleciInsightsResumeConfig,
     CircleciInsightsRetryableError,
     _format_start_date,
+    _format_start_date_param,
     circleci_insights_source,
     get_rows,
     org_slugs_from_projects,
@@ -100,6 +101,16 @@ class TestFormatStartDate:
     )
     def test_formats_as_date_only(self, value, expected):
         assert _format_start_date(value) == expected
+
+    @parameterized.expand(
+        [
+            (datetime(2026, 7, 1, 13, 30, tzinfo=UTC), False, "2026-07-01"),
+            (datetime(2026, 7, 1, 13, 30, tzinfo=UTC), True, "2026-07-01T00:00:00Z"),
+            (None, True, None),
+        ]
+    )
+    def test_timestamp_form_keeps_the_same_watermark_day(self, value, needs_timestamp, expected):
+        assert _format_start_date_param(value, needs_timestamp) == expected
 
 
 class TestValidateCredentials:
@@ -423,6 +434,212 @@ class TestJobMetricsFanOut:
         assert parse_qs(urlparse(jobs_url).query)["reporting-window"] == ["last-30-days"]
 
 
+class TestJobTimeseriesFanOut:
+    @mock.patch(PATCH_SESSION)
+    def test_buckets_carry_parents_and_request_daily_granularity(self, mock_session):
+        _route_session(
+            mock_session,
+            {
+                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
+                "/api/v2/insights/time-series/gh/a/one/workflows/ci/jobs": _page(
+                    [
+                        {"name": "build", "timestamp": "2026-07-01T00:00:00Z"},
+                        {"name": "test", "timestamp": "2026-07-01T00:00:00Z"},
+                    ],
+                    None,
+                ),
+            },
+        )
+
+        batches = list(get_rows("token", "gh/a/one", "job_timeseries", mock.MagicMock(), _make_manager()))
+        rows = _rows(batches)
+
+        assert [(row["project_slug"], row["workflow_name"], row["name"], row["timestamp"]) for row in rows] == [
+            ("gh/a/one", "ci", "build", "2026-07-01T00:00:00Z"),
+            ("gh/a/one", "ci", "test", "2026-07-01T00:00:00Z"),
+        ]
+        timeseries_url = next(url for url in _requested_urls(mock_session) if "time-series" in url)
+        query = parse_qs(urlparse(timeseries_url).query)
+        # Hourly buckets are only retained for 48 hours, so a scheduled sync must ask for daily.
+        assert query["granularity"] == ["daily"]
+        assert "reporting-window" not in query
+
+    @mock.patch(PATCH_SESSION)
+    def test_all_branches_widens_discovery_but_not_the_timeseries_request(self, mock_session):
+        _route_session(
+            mock_session,
+            {
+                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
+                "/api/v2/insights/time-series/gh/a/one/workflows/ci/jobs": _page([], None),
+            },
+        )
+
+        logger = mock.MagicMock()
+        list(get_rows("token", "gh/a/one", "job_timeseries", logger, _make_manager(), all_branches=True))
+
+        urls = _requested_urls(mock_session)
+        assert parse_qs(urlparse(urls[0]).query)["all-branches"] == ["true"]
+        assert "all-branches" not in parse_qs(urlparse(urls[1]).query)
+        # The setting silently cannot reach these rows, so the sync log has to say so.
+        assert "default branch only" in logger.warning.call_args.args[0]
+
+    @parameterized.expand([(True, ["2026-07-01T00:00:00Z"]), (False, None)])
+    @mock.patch(PATCH_SESSION)
+    def test_start_date_sent_only_on_incremental(self, incremental, expected, mock_session):
+        _route_session(
+            mock_session,
+            {
+                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
+                "/api/v2/insights/time-series/gh/a/one/workflows/ci/jobs": _page([], None),
+            },
+        )
+
+        list(
+            get_rows(
+                "token",
+                "gh/a/one",
+                "job_timeseries",
+                mock.MagicMock(),
+                _make_manager(),
+                should_use_incremental_field=incremental,
+                db_incremental_field_last_value=datetime(2026, 7, 1, 12, 0, tzinfo=UTC),
+            )
+        )
+
+        query = parse_qs(urlparse(_requested_urls(mock_session)[1]).query)
+        assert query.get("start-date") == expected
+
+
+class TestWorkflowSummaryFanOut:
+    @mock.patch(PATCH_SESSION)
+    def test_one_row_per_workflow_keeping_metrics_and_trends(self, mock_session):
+        _route_session(
+            mock_session,
+            {
+                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}, {"name": "release"}], None),
+                "/api/v2/insights/gh/a/one/workflows/ci/summary": {
+                    "metrics": {"total_runs": 10},
+                    "trends": {"total_runs": 1.5},
+                    "workflow_names": ["ci", "release"],
+                },
+                "/api/v2/insights/gh/a/one/workflows/release/summary": {
+                    "metrics": {"total_runs": 2},
+                    "trends": {"total_runs": 0.5},
+                    "workflow_names": ["ci", "release"],
+                },
+            },
+        )
+
+        batches = list(get_rows("token", "gh/a/one", "workflow_summary", mock.MagicMock(), _make_manager()))
+
+        # workflow_names describes the project rather than the row, so it is dropped.
+        assert _rows(batches) == [
+            {
+                "project_slug": "gh/a/one",
+                "workflow_name": "ci",
+                "metrics": {"total_runs": 10},
+                "trends": {"total_runs": 1.5},
+            },
+            {
+                "project_slug": "gh/a/one",
+                "workflow_name": "release",
+                "metrics": {"total_runs": 2},
+                "trends": {"total_runs": 0.5},
+            },
+        ]
+
+    @mock.patch(PATCH_SESSION)
+    def test_state_saved_per_workflow_and_resume_skips_earlier_ones(self, mock_session):
+        _route_session(
+            mock_session,
+            {
+                "/api/v2/insights/gh/a/one/workflows": _page(
+                    [{"name": "ci"}, {"name": "release"}, {"name": "deploy"}], None
+                ),
+                "/api/v2/insights/gh/a/one/workflows/release/summary": {"metrics": {}, "trends": {}},
+                "/api/v2/insights/gh/a/one/workflows/deploy/summary": {"metrics": {}, "trends": {}},
+            },
+        )
+
+        manager = _make_manager(CircleciInsightsResumeConfig(slug="gh/a/one", workflow_name="release"))
+        batches = list(get_rows("token", "gh/a/one", "workflow_summary", mock.MagicMock(), manager))
+
+        assert [row["workflow_name"] for row in _rows(batches)] == ["release", "deploy"]
+        assert all("/workflows/ci/summary" not in url for url in _requested_urls(mock_session))
+        saved_workflows = [call.args[0].workflow_name for call in manager.save_state.call_args_list]
+        assert saved_workflows[:2] == ["release", "deploy"]
+
+
+class TestWorkflowTestMetricsFanOut:
+    @mock.patch(PATCH_SESSION)
+    def test_merges_the_two_test_lists_on_test_identity(self, mock_session):
+        shared = {"job_name": "test", "classname": "suite.A", "test_name": "t1", "failed_runs": 4, "p95_duration": 9.0}
+        _route_session(
+            mock_session,
+            {
+                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
+                "/api/v2/insights/gh/a/one/workflows/ci/test-metrics": {
+                    "average_test_count": 12,
+                    "most_failed_tests": [shared],
+                    "slowest_tests": [
+                        shared,
+                        {"job_name": "test", "classname": "suite.B", "test_name": "t2", "p95_duration": 30.0},
+                    ],
+                },
+            },
+        )
+
+        batches = list(get_rows("token", "gh/a/one", "workflow_test_metrics", mock.MagicMock(), _make_manager()))
+        rows = _rows(batches)
+
+        # The same test appears in both lists; the delta merge only dedupes across syncs, so a
+        # duplicate here would seed duplicate rows under the composite primary key.
+        assert [(row["classname"], row["test_name"]) for row in rows] == [("suite.A", "t1"), ("suite.B", "t2")]
+        assert all(row["project_slug"] == "gh/a/one" and row["workflow_name"] == "ci" for row in rows)
+
+    @mock.patch(PATCH_SESSION)
+    def test_no_tests_reported_yields_nothing(self, mock_session):
+        _route_session(
+            mock_session,
+            {
+                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
+                "/api/v2/insights/gh/a/one/workflows/ci/test-metrics": {"average_test_count": 0},
+            },
+        )
+
+        assert list(get_rows("token", "gh/a/one", "workflow_test_metrics", mock.MagicMock(), _make_manager())) == []
+
+
+class TestBranchesRows:
+    @mock.patch(PATCH_SESSION)
+    def test_branch_names_become_rows_with_project_identifiers(self, mock_session):
+        _route_session(
+            mock_session,
+            {
+                "/api/v2/insights/gh/a/one/branches": {
+                    "org_id": "org-1",
+                    "project_id": "proj-1",
+                    "branches": ["master", "feature/x", "", None],
+                }
+            },
+        )
+
+        batches = list(get_rows("token", "gh/a/one", "branches", mock.MagicMock(), _make_manager()))
+
+        assert _rows(batches) == [
+            {"project_slug": "gh/a/one", "branch": "master", "org_id": "org-1", "project_id": "proj-1"},
+            {"project_slug": "gh/a/one", "branch": "feature/x", "org_id": "org-1", "project_id": "proj-1"},
+        ]
+
+    @mock.patch(PATCH_SESSION)
+    def test_unexpected_shape_syncs_zero_rows(self, mock_session):
+        _route_session(mock_session, {"/api/v2/insights/gh/a/one/branches": {"message": "no insights"}})
+        logger = mock.MagicMock()
+
+        assert list(get_rows("token", "gh/a/one", "branches", logger, _make_manager())) == []
+        logger.warning.assert_called_once()
+
+
 class TestFlakyTestsRows:
     @mock.patch(PATCH_SESSION)
     def test_unwraps_envelope_and_injects_project_slug(self, mock_session):
@@ -573,8 +790,9 @@ class TestCircleciInsightsSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    def test_workflow_runs_declares_desc_sort(self):
-        # The runs listing returns newest-first; declaring asc would corrupt the
-        # incremental watermark checkpointing.
-        response = circleci_insights_source("token", "gh/a/one", "workflow_runs", mock.MagicMock(), _make_manager())
+    @parameterized.expand([("workflow_runs",), ("job_timeseries",)])
+    def test_row_level_endpoints_declare_desc_sort(self, endpoint):
+        # These are the incremental endpoints. Desc defers the watermark commit to the end of
+        # the sync; asc would checkpoint per batch, which fan-out over workflows makes unsafe.
+        response = circleci_insights_source("token", "gh/a/one", endpoint, mock.MagicMock(), _make_manager())
         assert response.sort_mode == "desc"

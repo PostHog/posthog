@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.c
     _format_time,
     _headers,
     _initial_time_start,
+    _resolve_timeseries_request,
     coin_api_source,
     get_rows,
     validate_credentials,
@@ -204,10 +205,115 @@ class TestExchangeRateEndpoint:
         assert session.requested_urls[0] == f"{BASE_URL}/v1/exchangerate/EUR"
 
 
+class TestResolveTimeseriesRequest:
+    @parameterized.expand(
+        [
+            (
+                "symbol_in_path",
+                "ohlcv_history",
+                "/v1/ohlcv/SYM/history",
+                {"period_id": "1DAY"},
+                {"symbol_id": "SYM", "period_id": "1DAY"},
+            ),
+            (
+                "symbol_in_query",
+                "metrics_symbol_history",
+                "/v1/metrics/symbol/history",
+                {"symbol_id": "SYM", "metric_id": "FUNDING_RATE", "period_id": "1DAY"},
+                {"symbol_id": "SYM", "metric_id": "FUNDING_RATE", "period_id": "1DAY"},
+            ),
+            (
+                "assets_in_path",
+                "exchange_rates_history",
+                "/v1/exchangerate/USD/BTC/history",
+                {"period_id": "1DAY", "time_end": "2024-06-01T00:00:00Z"},
+                {"asset_id_base": "USD", "asset_id_quote": "BTC", "period_id": "1DAY"},
+            ),
+            (
+                "no_period",
+                "quotes_history",
+                "/v1/quotes/SYM/history",
+                {},
+                {"symbol_id": "SYM"},
+            ),
+        ]
+    )
+    def test_resolves_path_params_and_row_defaults(
+        self, _name: str, endpoint: str, path: str, params: dict, row_defaults: dict
+    ) -> None:
+        request = _resolve_timeseries_request(
+            config=COIN_API_ENDPOINTS[endpoint],
+            symbol_id="SYM",
+            period_id="1DAY",
+            metric_id="FUNDING_RATE",
+            exchange_rate_base_asset="USD",
+            exchange_rate_quote_asset="BTC",
+            time_end="2024-06-01T00:00:00Z",
+        )
+        assert (request.path, request.params, request.row_defaults) == (path, params, row_defaults)
+
+
 class TestTimeseriesEndpoint:
     def test_requires_symbol_id(self) -> None:
         with pytest.raises(ValueError, match="requires a symbol_id"):
             _run("ohlcv_history", [], _manager(), symbol_id="")
+
+    def test_requires_metric_id(self) -> None:
+        with pytest.raises(ValueError, match="requires a metric_id"):
+            _run("metrics_symbol_history", [], _manager(), symbol_id="SYM", metric_id="")
+
+    def test_requires_quote_asset(self) -> None:
+        with pytest.raises(ValueError, match="requires a quote asset"):
+            _run("exchange_rates_history", [], _manager(), exchange_rate_quote_asset="")
+
+    def test_metrics_symbol_history_sends_symbol_and_metric_as_query_params(self) -> None:
+        with mock.patch.object(coin_api, "PAGE_LIMIT", 5):
+            rows = [{"time_period_start": "2024-01-01T00:00:00.0000000Z", "sum": 1.5}]
+            batches, session = _run(
+                "metrics_symbol_history",
+                [_FakeResponse(json_data=rows)],
+                _manager(),
+                symbol_id="SYM",
+                metric_id="FUNDING_RATE",
+            )
+        url = session.requested_urls[0]
+        assert url.startswith(f"{BASE_URL}/v1/metrics/symbol/history?")
+        assert "symbol_id=SYM" in url
+        assert "metric_id=FUNDING_RATE" in url
+        assert "period_id=1DAY" in url
+        assert batches[0][0]["symbol_id"] == "SYM"
+        assert batches[0][0]["metric_id"] == "FUNDING_RATE"
+        assert batches[0][0]["period_id"] == "1DAY"
+
+    def test_exchange_rates_history_injects_both_assets(self) -> None:
+        with mock.patch.object(coin_api, "PAGE_LIMIT", 5):
+            rows = [{"time_period_start": "2024-01-01T00:00:00.0000000Z", "rate_close": 1.0}]
+            batches, session = _run(
+                "exchange_rates_history",
+                [_FakeResponse(json_data=rows)],
+                _manager(),
+                exchange_rate_base_asset="EUR",
+                exchange_rate_quote_asset="BTC",
+            )
+        assert session.requested_urls[0].startswith(f"{BASE_URL}/v1/exchangerate/EUR/BTC/history?")
+        # CoinAPI rejects this endpoint without time_end, so every page must carry one.
+        assert "time_end=" in session.requested_urls[0]
+        assert batches[0][0]["asset_id_base"] == "EUR"
+        assert batches[0][0]["asset_id_quote"] == "BTC"
+
+    def test_quotes_history_walks_forward_on_time_exchange(self) -> None:
+        with mock.patch.object(coin_api, "PAGE_LIMIT", 1):
+            page1 = [{"symbol_id": "SYM", "time_exchange": "2024-01-01T00:00:00.0000000Z", "bid_price": 1}]
+            page2: list[dict] = []
+            _, session = _run(
+                "quotes_history",
+                [_FakeResponse(json_data=page1), _FakeResponse(json_data=page2)],
+                _manager(),
+                symbol_id="SYM",
+                start_date="2023-01-01T00:00:00",
+            )
+        assert session.requested_urls[0].startswith(f"{BASE_URL}/v1/quotes/SYM/history?")
+        assert "time_start=2024-01-01T00%3A00%3A00.0000000Z" in session.requested_urls[1]
 
     def test_injects_symbol_and_period_for_ohlcv(self) -> None:
         with mock.patch.object(coin_api, "PAGE_LIMIT", 5):
@@ -290,6 +396,18 @@ class TestCoinApiSourceResponse:
             ("exchange_rates", ["asset_id_base", "asset_id_quote"], False),
             ("ohlcv_history", ["symbol_id", "period_id", "time_period_start"], True),
             ("trades_history", ["uuid"], True),
+            ("metrics_listing", ["metric_id"], False),
+            (
+                "exchange_rates_history",
+                ["asset_id_base", "asset_id_quote", "period_id", "time_period_start"],
+                True,
+            ),
+            ("metrics_symbol_history", ["symbol_id", "metric_id", "period_id", "time_period_start"], True),
+            (
+                "quotes_history",
+                ["symbol_id", "time_exchange", "time_coinapi", "ask_price", "ask_size", "bid_price", "bid_size"],
+                True,
+            ),
         ]
     )
     def test_primary_keys_and_partitioning(self, endpoint: str, expected_keys: list[str], partitioned: bool) -> None:

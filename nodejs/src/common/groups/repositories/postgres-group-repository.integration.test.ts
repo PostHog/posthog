@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
-import { insertRow, resetTestDatabase } from '~/tests/helpers/sql'
+import { createOrganization, insertRow, uniqueTestId } from '~/tests/helpers/sql'
 import {
     GroupTypeIndex,
     Hub,
@@ -23,22 +23,21 @@ describe('PostgresGroupRepository Integration', () => {
     let repository: PostgresGroupRepository
     let postgres: PostgresRouter
 
+    let organizationId: string
+    let teamId: TeamId
+
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
         postgres = hub.postgres
         repository = new PostgresGroupRepository(postgres)
-
-        const redis = await hub.redisPool.acquire()
-        await redis.flushdb()
-        await hub.redisPool.release(redis)
+        organizationId = await createOrganization(postgres)
+        teamId = uniqueTestId() as TeamId
     })
 
     afterEach(async () => {
         await closeHub(hub)
     })
 
-    const teamId = 1 as TeamId
     const groupTypeIndex = 0 as GroupTypeIndex
     const groupKey = 'test-group-key'
     const groupProperties = { name: 'Test Group', type: 'company' }
@@ -50,7 +49,7 @@ describe('PostgresGroupRepository Integration', () => {
         // First create the project that the team references
         await insertRow(postgres, 'posthog_project', {
             id: teamId,
-            organization_id: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
+            organization_id: organizationId,
             name: `Test Project ${teamId}`,
             created_at: new Date().toISOString(),
         })
@@ -59,7 +58,7 @@ describe('PostgresGroupRepository Integration', () => {
         await insertRow(postgres, 'posthog_team', {
             id: teamId,
             name: `Test Team ${teamId}`,
-            organization_id: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
+            organization_id: organizationId,
             project_id: teamId,
             uuid: new UUIDT().toString(),
             api_token: `test-api-token-${teamId}`,
@@ -194,29 +193,29 @@ describe('PostgresGroupRepository Integration', () => {
         it('should handle different group types and keys', async () => {
             const group1Key = 'company-group-1'
             const group1TypeIndex = 0 as GroupTypeIndex
-            const group1TeamId = 10 as TeamId
-            const group1ProjectId = 101
+            const group1TeamId = uniqueTestId() as TeamId
+            const group1ProjectId = uniqueTestId()
             const group1Properties = { name: 'Company A', industry: 'tech' }
             const group1CreatedAt = DateTime.fromISO('2023-01-01T00:00:00Z').toUTC()
 
             const group2Key = 'organization-group-2'
             const group2TypeIndex = 1 as GroupTypeIndex
-            const group2TeamId = 20 as TeamId
-            const group2ProjectId = 102
+            const group2TeamId = uniqueTestId() as TeamId
+            const group2ProjectId = uniqueTestId()
             const group2Properties = { name: 'Organization B', sector: 'finance' }
             const group2CreatedAt = DateTime.fromISO('2023-02-01T00:00:00Z').toUTC()
 
             // Insert first group with its own team/project
             await insertRow(postgres, 'posthog_project', {
                 id: group1ProjectId,
-                organization_id: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
+                organization_id: organizationId,
                 name: `Test Project ${group1ProjectId}`,
                 created_at: new Date().toISOString(),
             })
             await insertRow(postgres, 'posthog_team', {
                 id: group1TeamId,
                 name: `Test Team ${group1TeamId}`,
-                organization_id: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
+                organization_id: organizationId,
                 project_id: group1ProjectId,
                 uuid: new UUIDT().toString(),
                 api_token: `test-api-token-${group1TeamId}`,
@@ -257,14 +256,14 @@ describe('PostgresGroupRepository Integration', () => {
             // Insert second group with its own team/project
             await insertRow(postgres, 'posthog_project', {
                 id: group2ProjectId,
-                organization_id: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
+                organization_id: organizationId,
                 name: `Test Project ${group2ProjectId}`,
                 created_at: new Date().toISOString(),
             })
             await insertRow(postgres, 'posthog_team', {
                 id: group2TeamId,
                 name: `Test Team ${group2TeamId}`,
-                organization_id: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
+                organization_id: organizationId,
                 project_id: group2ProjectId,
                 uuid: new UUIDT().toString(),
                 api_token: `test-api-token-${group2TeamId}`,
@@ -1514,8 +1513,8 @@ describe('PostgresGroupRepository Integration', () => {
         })
 
         it('should handle different projects independently', async () => {
-            const localTeamId1 = 10 as TeamId // Use unique IDs for this test
-            const localTeamId2 = 11 as TeamId
+            const localTeamId1 = uniqueTestId() as TeamId // Use unique IDs for this test
+            const localTeamId2 = uniqueTestId() as TeamId
             await insertTestTeam(localTeamId1)
             await insertTestTeam(localTeamId2)
 
@@ -1744,7 +1743,7 @@ describe('PostgresGroupRepository Integration', () => {
 
         it('should return empty arrays for projects with no group types', async () => {
             await insertTestTeam(teamId)
-            const localTeamId2 = 10 as TeamId
+            const localTeamId2 = uniqueTestId() as TeamId
             await insertTestTeam(localTeamId2)
 
             const result = await repository.fetchGroupTypesByProjectIds([
@@ -1776,8 +1775,8 @@ describe('PostgresGroupRepository Integration', () => {
         })
 
         it('should fetch group types for multiple projects', async () => {
-            const localTeamId1 = 10 as TeamId
-            const localTeamId2 = 11 as TeamId
+            const localTeamId1 = uniqueTestId() as TeamId
+            const localTeamId2 = uniqueTestId() as TeamId
             await insertTestTeam(localTeamId1)
             await insertTestTeam(localTeamId2)
 
@@ -1803,8 +1802,8 @@ describe('PostgresGroupRepository Integration', () => {
         })
 
         it('should handle mix of projects with and without group types', async () => {
-            const localTeamId1 = 12 as TeamId
-            const localTeamId2 = 13 as TeamId
+            const localTeamId1 = uniqueTestId() as TeamId
+            const localTeamId2 = uniqueTestId() as TeamId
             await insertTestTeam(localTeamId1)
             await insertTestTeam(localTeamId2)
 
@@ -1842,7 +1841,7 @@ describe('PostgresGroupRepository Integration', () => {
 
         it('should return empty arrays for teams with no group types', async () => {
             await insertTestTeam(teamId)
-            const localTeamId2 = 20 as TeamId
+            const localTeamId2 = uniqueTestId() as TeamId
             await insertTestTeam(localTeamId2)
 
             const result = await repository.fetchGroupTypesByTeamIds([teamId, localTeamId2])
@@ -1871,8 +1870,8 @@ describe('PostgresGroupRepository Integration', () => {
         })
 
         it('should fetch group types for multiple teams', async () => {
-            const localTeamId1 = 21 as TeamId
-            const localTeamId2 = 22 as TeamId
+            const localTeamId1 = uniqueTestId() as TeamId
+            const localTeamId2 = uniqueTestId() as TeamId
             await insertTestTeam(localTeamId1)
             await insertTestTeam(localTeamId2)
 
@@ -1895,8 +1894,8 @@ describe('PostgresGroupRepository Integration', () => {
         })
 
         it('should handle mix of teams with and without group types', async () => {
-            const localTeamId1 = 23 as TeamId
-            const localTeamId2 = 24 as TeamId
+            const localTeamId1 = uniqueTestId() as TeamId
+            const localTeamId2 = uniqueTestId() as TeamId
             await insertTestTeam(localTeamId1)
             await insertTestTeam(localTeamId2)
 
@@ -2042,7 +2041,7 @@ describe('PostgresGroupRepository Integration', () => {
         })
 
         it('should handle multiple teams', async () => {
-            const localTeamId2 = 25 as TeamId
+            const localTeamId2 = uniqueTestId() as TeamId
             await insertTestTeam(localTeamId2)
             await repository.insertGroupType(localTeamId2, localTeamId2 as ProjectId, 'company', 0, TEST_TIMESTAMP)
 

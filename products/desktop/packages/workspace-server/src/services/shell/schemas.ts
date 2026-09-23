@@ -13,6 +13,8 @@ export const createCommandInput = sessionIdInput.extend({
   command: z.string().min(1),
   cwd: z.string(),
   taskId: z.string().optional(),
+  additionalEnv: z.record(z.string(), z.string()).optional(),
+  unsetEnv: z.array(z.string()).optional(),
 });
 
 export const writeInput = sessionIdInput.extend({
@@ -34,13 +36,6 @@ export const executeOutput = z.object({
   stderr: z.string(),
   exitCode: z.number(),
 });
-
-export type SessionIdInput = z.infer<typeof sessionIdInput>;
-export type CreateInput = z.infer<typeof createInput>;
-export type CreateCommandInput = z.infer<typeof createCommandInput>;
-export type WriteInput = z.infer<typeof writeInput>;
-export type ResizeInput = z.infer<typeof resizeInput>;
-export type ExecuteInput = z.infer<typeof executeInput>;
 export type ExecuteOutput = z.infer<typeof executeOutput>;
 
 export const ShellEvent = {

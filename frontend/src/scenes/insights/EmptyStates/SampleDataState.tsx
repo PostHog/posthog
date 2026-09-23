@@ -7,7 +7,7 @@ import { TextMorph } from 'torph/react'
 
 import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { BarChart, LineChart, PieChart } from '@posthog/quill-charts'
-import type { BarChartConfig, LineChartConfig, Series } from '@posthog/quill-charts'
+import type { BarChartConfig, LineChartConfig, PieChartConfig, Series } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
@@ -42,8 +42,13 @@ const TABLE_ROWS = [
 // Cycled through by the "number" variant, morphing from one to the next
 const SAMPLE_NUMBERS = [1284, 1327, 1291, 1362, 1408, 1373]
 
-const LINE_CONFIG: LineChartConfig = { showGrid: true, showCrosshair: true }
-const BAR_CONFIG: BarChartConfig = { barCornerRadius: 2 }
+// The numbers above are invented, so nothing may read them back out. The stylesheet also makes the
+// chart ignore the pointer; turning the tooltip off here keeps that true if a layout change
+// reinstates pointer events.
+const NO_TOOLTIP = { enabled: false } as const
+const LINE_CONFIG: LineChartConfig = { showGrid: true, showCrosshair: true, tooltip: NO_TOOLTIP }
+const BAR_CONFIG: BarChartConfig = { barCornerRadius: 2, tooltip: NO_TOOLTIP }
+const PIE_CONFIG: PieChartConfig = { tooltip: NO_TOOLTIP }
 
 function SampleNumber({ animate }: { animate: boolean }): JSX.Element {
     const [valueIndex, setValueIndex] = useState(0)
@@ -119,7 +124,7 @@ function SampleChart({ variant }: { variant: Exclude<SampleDataVariant, 'number'
             ) : variant === 'funnel' ? (
                 <BarChart series={FUNNEL_SERIES} labels={FUNNEL_LABELS} theme={theme} config={BAR_CONFIG} />
             ) : (
-                <PieChart series={PIE_SERIES} theme={theme} />
+                <PieChart series={PIE_SERIES} theme={theme} config={PIE_CONFIG} />
             )}
         </div>
     )

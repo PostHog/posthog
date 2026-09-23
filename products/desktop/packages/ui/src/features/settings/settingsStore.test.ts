@@ -1,3 +1,4 @@
+import { EMPTY_SPEND_LIMITS } from "@posthog/core/billing/spendLimits";
 import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import {
   flushRendererStateWrites,
@@ -451,6 +452,48 @@ describe("feature settingsStore custom sounds", () => {
   );
 });
 
+describe("feature settingsStore spend limits rehydrate", () => {
+  beforeEach(async () => {
+    await resetPersistenceMocks();
+  });
+
+  it.each([
+    {
+      label: "flat pre-rename keys into the per-period shape",
+      persistedLimits: {
+        dailyWarnUsd: 20,
+        dailyAlertUsd: 50,
+        monthlyStopUsd: 400,
+      },
+      expected: {
+        day: { warnUsd: 20, stopUsd: 50 },
+        month: { warnUsd: null, stopUsd: 400 },
+      },
+    },
+    {
+      label: "a warn line above its stop line down onto it",
+      persistedLimits: { day: { warnUsd: 80, stopUsd: 50 } },
+      expected: {
+        day: { warnUsd: 50, stopUsd: 50 },
+        month: { warnUsd: null, stopUsd: null },
+      },
+    },
+    {
+      label: "garbage values into cleared lines",
+      persistedLimits: { day: "nope", dailyWarnUsd: -3, monthlyStopUsd: "x" },
+      expected: EMPTY_SPEND_LIMITS,
+    },
+  ])("rehydrate migrates $label", async ({ persistedLimits, expected }) => {
+    getItem.mockResolvedValue(
+      JSON.stringify({ state: { spendLimits: persistedLimits }, version: 1 }),
+    );
+
+    await useSettingsStore.persist.rehydrate();
+
+    expect(useSettingsStore.getState().spendLimits).toEqual(expected);
+  });
+});
+
 describe("getEffectiveCustomInstructions", () => {
   const synced = {
     path: "/home/u/.claude/CLAUDE.md",
@@ -464,34 +507,66 @@ describe("getEffectiveCustomInstructions", () => {
       label: "typed instructions when sync is off",
       sync: false,
       syncedValue: synced,
+      ste100Enabled: false,
       expected: "typed",
     },
     {
       label: "file content when sync is on and a file was found",
       sync: true,
       syncedValue: synced,
+      ste100Enabled: false,
       expected: "from file",
     },
     {
       label: "nothing when sync is on but no file was found",
       sync: true,
       syncedValue: null,
+      ste100Enabled: false,
       expected: "",
     },
     {
       label: "nothing when the synced file is whitespace",
       sync: true,
       syncedValue: { ...synced, content: " \n" },
+      ste100Enabled: false,
       expected: "",
     },
-  ])("returns $label", ({ sync, syncedValue, expected }) => {
+    {
+      label: "adds the language instruction when enabled",
+      sync: false,
+      syncedValue: null,
+      ste100Enabled: true,
+      expected:
+        "typed\n\nTalk and write only in Simplified Technical English (ASD-STE100).",
+    },
+  ])("returns $label", ({ sync, syncedValue, ste100Enabled, expected }) => {
     expect(
       getEffectiveCustomInstructions({
         customInstructions: "typed",
         syncCustomInstructionsFromFile: sync,
         syncedCustomInstructions: syncedValue,
+        ste100Enabled,
       }),
     ).toBe(expected);
+  });
+
+  it("keeps synced instructions within the session limit when enabled", () => {
+    const result = getEffectiveCustomInstructions({
+      customInstructions: "",
+      syncCustomInstructionsFromFile: true,
+      syncedCustomInstructions: {
+        ...synced,
+        content: "x".repeat(20_000),
+      },
+      ste100Enabled: true,
+    });
+
+    expect(result).toHaveLength(20_000);
+    expect(
+      result.endsWith(
+        "Talk and write only in Simplified Technical English (ASD-STE100).",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -501,6 +576,7 @@ describe("feature settingsStore custom instructions sync persistence", () => {
 
     useSettingsStore.setState({
       syncCustomInstructionsFromFile: false,
+      ste100Enabled: true,
       syncedCustomInstructions: null,
     });
   });
@@ -527,6 +603,7 @@ describe("feature settingsStore custom instructions sync persistence", () => {
     const persisted = JSON.parse(lastCall[1]);
 
     expect(persisted.state.syncCustomInstructionsFromFile).toBe(true);
+    expect(persisted.state.ste100Enabled).toBe(true);
     expect(persisted.state).not.toHaveProperty("syncedCustomInstructions");
   });
 });

@@ -6,8 +6,11 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.facade.source_config import (
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
@@ -133,6 +136,30 @@ class TestOpenMeteoSource:
         # The transport builds these strings; a reworded message there would silently make the source
         # retry a permanent failure forever.
         assert error_message_matches(raised_message, self.source.get_non_retryable_errors().keys())
+
+    @pytest.mark.parametrize(
+        "raised_message",
+        [
+            "HTTPSConnectionPool(host='archive-api.open-meteo.com', port=443): "
+            "Max retries exceeded with url: /v1/archive?latitude=48.86&longitude=2.35 "
+            "(Caused by ReadTimeoutError(\"HTTPSConnectionPool(host='archive-api.open-meteo.com', "
+            'port=443): Read timed out. (read timeout=60)"))',
+            "HTTPSConnectionPool(host='customer-api.open-meteo.com', port=443): "
+            "Max retries exceeded with url: /v1/forecast (Caused by "
+            "NewConnectionError('Failed to establish a new connection'))",
+            # `_fetch`'s `raise_for_status()` fallback fires once the tracked session's own 429/5xx
+            # retries are exhausted; its message carries the request URL rather than urllib3's
+            # connection-pool wording.
+            "500 Server Error: Internal Server Error for url: https://api.open-meteo.com/v1/forecast",
+        ],
+    )
+    def test_transport_connection_errors_match_the_retryable_patterns(self, raised_message: str) -> None:
+        # `_get_with_redacted_errors` has no retry loop of its own once urllib3's own retry budget
+        # is exhausted, so a plain read-timeout, connection failure, or exhausted-retry HTTP error
+        # against Open-Meteo's own fixed hosts must be recognized here — otherwise it escapes
+        # unclassified and gets reported to error tracking as a bug instead of a transient,
+        # self-recovering blip.
+        assert error_message_matches(raised_message, self.source.get_retryable_errors())
 
     def test_resumable_manager_is_namespaced_per_schema(self) -> None:
         manager = self.source.get_resumable_source_manager(_inputs("weather_current"))

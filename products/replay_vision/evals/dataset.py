@@ -50,6 +50,11 @@ class GoldenCase(BaseModel, frozen=True):
         default_factory=list,
         description="Tag vocabulary a freeform classifier scans with, captured at collection time.",
     )
+    inactivity_periods: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="The rendered video's active/inactive map, for converting the model's video-time citations. "
+        "Empty on cases collected before it was captured, which then score as if nothing was cut.",
+    )
     label_is_correct: bool | None = None
     label_feedback: str = ""
     collected_at: str

@@ -15,6 +15,8 @@ from datetime import datetime
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -37,7 +39,7 @@ def create_mock_metric(series):
     return metric
 
 
-class TestFunnelDWValidator(BaseTest):
+class TestFunnelDWValidator(SimpleTestCase):
     """Test FunnelDWValidator for DW funnel configuration validation."""
 
     def test_validate_required_fields_all_present(self):

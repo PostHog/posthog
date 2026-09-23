@@ -9,50 +9,50 @@
   }
 </style>
 <div class="module">
-  <table summary="Custom admin tools" class="custom-tools-table">
-    <caption>
-      <a href="/admin/" class="section" title="Custom Tools">Custom Tools</a>
-    </caption>
-    <tr class="model-resavecohorts">
-      <td scope="row">
-        <a href="{% url 'resave-cohorts' %}">Resave Cohorts (Regenerate Bytecode & Type)</a>
-      </td>
-      <td>Regenerate compiled bytecode and cohort_type for cohorts, with batch processing</td>
-    </tr>
-    <tr class="model-radarbypass">
-      <td scope="row">
-        <a href="{% url 'radar-bypass' %}">Suspicious signup checks bypass</a>
-      </td>
-      <td>Manage email addresses that bypass suspicious signup checks (WorkOS Radar)</td>
-    </tr>
-    <tr class="model-codebasedverificationbypass">
-      <td scope="row">
-        <a href="{% url 'code-based-verification-bypass' %}">Email MFA bypass</a>
-      </td>
-      <td>Manage email addresses that bypass email MFA verification</td>
-    </tr>
-    <tr class="model-distinctidusage">
-      <td scope="row">
-        <a href="{% url 'distinct-id-usage' %}">Distinct ID usage</a>
-      </td>
-      <td>Monitor distinct ID usage patterns and create ingestion restrictions</td>
-    <tr class="model-tophog">
-      <td scope="row">
-        <a href="{% url 'tophog-dashboard' %}">TopHog Dashboard</a>
-      </td>
-      <td>Live top-N metrics dashboard (count, time, max) across pipelines</td>
-    </tr>
-    <tr class="model-healthchecks">
-      <td scope="row">
-        <a href="{% url 'health-checks' %}">Health checks</a>
-      </td>
-      <td>View and trigger Temporal health check workflows</td>
-    </tr>
-    <tr class="model-notebookmarkdownmigration">
-      <td scope="row">
-        <a href="{% url 'notebook-markdown-migration' %}">Markdown notebook migration</a>
-      </td>
-      <td>Convert legacy rich notebooks to markdown notebooks with dry-run support and history entries</td>
-    </tr>
-  </table>
-</div>
+    <table summary="Custom admin tools" class="custom-tools-table">
+        <caption>
+            <a href="/admin/" class="section" title="Custom Tools">Custom Tools</a>
+        </caption>
+        <tr class="model-resavecohorts">
+            <td scope="row">
+                <a href="{% url 'resave-cohorts' %}">Resave Cohorts (Regenerate Bytecode & Type)</a>
+            </td>
+            <td>Regenerate compiled bytecode and cohort_type for cohorts, with batch processing</td>
+        </tr>
+        <tr class="model-radarbypass">
+            <td scope="row">
+                <a href="{% url 'radar-bypass' %}">Suspicious signup checks bypass</a>
+            </td>
+            <td>Manage email addresses that bypass suspicious signup checks (WorkOS Radar)</td>
+        </tr>
+        <tr class="model-codebasedverificationbypass">
+            <td scope="row">
+                <a href="{% url 'code-based-verification-bypass' %}">Email MFA bypass</a>
+            </td>
+            <td>Manage email addresses that bypass email MFA verification</td>
+        </tr>
+        <tr class="model-distinctidusage">
+            <td scope="row">
+                <a href="{% url 'distinct-id-usage' %}">Distinct ID usage</a>
+            </td>
+            <td>Monitor distinct ID usage patterns and create ingestion restrictions</td>
+            <tr class="model-tophog">
+                <td scope="row">
+                    <a href="{% url 'tophog-dashboard' %}">TopHog Dashboard</a>
+                </td>
+                <td>Live top-N metrics dashboard (count, time, max) across pipelines</td>
+            </tr>
+            <tr class="model-healthchecks">
+                <td scope="row">
+                    <a href="{% url 'health-checks' %}">Health checks</a>
+                </td>
+                <td>View and trigger Temporal health check workflows</td>
+            </tr>
+            <tr class="model-notebookmarkdownmigration">
+                <td scope="row">
+                    <a href="{% url 'notebook-markdown-migration' %}">Markdown notebook migration</a>
+                </td>
+                <td>Convert legacy rich notebooks to markdown notebooks with dry-run support and history entries</td>
+            </tr>
+        </table>
+    </div>

@@ -20,6 +20,7 @@ export interface postgreSQLSetupModalLogicValues {
     isPostgreSQLIntegrationValid: boolean
     postgreSQLIntegration: {
         host: string | null
+        name: string
         password: string | null
         port: number
         ssl_mode: string
@@ -32,6 +33,7 @@ export interface postgreSQLSetupModalLogicValues {
     postgreSQLIntegrationErrors: DeepPartialMap<
         {
             host: string | null
+            name: string
             password: string | null
             port: number
             ssl_mode: string
@@ -48,6 +50,7 @@ export interface postgreSQLSetupModalLogicValues {
     postgreSQLIntegrationValidationErrors: DeepPartialMap<
         {
             host: string | null
+            name: string
             password: string | null
             port: number
             ssl_mode: string
@@ -65,6 +68,7 @@ export interface postgreSQLSetupModalLogicActions {
     loadIntegrations: () => any // integrationsLogic
     resetPostgreSQLIntegration: (values?: {
         host: string | null
+        name: string
         password: string | null
         port: number
         ssl_mode: string
@@ -74,6 +78,7 @@ export interface postgreSQLSetupModalLogicActions {
     }) => {
         values?: {
             host: string | null
+            name: string
             password: string | null
             port: number
             ssl_mode: string
@@ -95,6 +100,7 @@ export interface postgreSQLSetupModalLogicActions {
     setPostgreSQLIntegrationValues: (
         values: DeepPartial<{
             host: string | null
+            name: string
             password: string | null
             port: number
             ssl_mode: string
@@ -105,6 +111,7 @@ export interface postgreSQLSetupModalLogicActions {
     ) => {
         values: DeepPartial<{
             host: string | null
+            name: string
             password: string | null
             port: number
             ssl_mode: string
@@ -125,6 +132,7 @@ export interface postgreSQLSetupModalLogicActions {
     }
     submitPostgreSQLIntegrationRequest: (postgreSQLIntegration: {
         host: string | null
+        name: string
         password: string | null
         port: number
         ssl_mode: string
@@ -134,6 +142,7 @@ export interface postgreSQLSetupModalLogicActions {
     }) => {
         postgreSQLIntegration: {
             host: string | null
+            name: string
             password: string | null
             port: number
             ssl_mode: string
@@ -144,6 +153,7 @@ export interface postgreSQLSetupModalLogicActions {
     }
     submitPostgreSQLIntegrationSuccess: (postgreSQLIntegration: {
         host: string | null
+        name: string
         password: string | null
         port: number
         ssl_mode: string
@@ -153,6 +163,7 @@ export interface postgreSQLSetupModalLogicActions {
     }) => {
         postgreSQLIntegration: {
             host: string | null
+            name: string
             password: string | null
             port: number
             ssl_mode: string
@@ -181,6 +192,7 @@ export const postgreSQLSetupModalLogic = kea<postgreSQLSetupModalLogicType>([
     forms(({ props, actions, values }) => ({
         postgreSQLIntegration: {
             defaults: {
+                name: '' as string,
                 host: null as string | null,
                 port: 5432,
                 user: null as string | null,
@@ -201,11 +213,12 @@ export const postgreSQLSetupModalLogic = kea<postgreSQLSetupModalLogicType>([
             }),
             submit: async () => {
                 try {
-                    const { host, port, user, password, ssl_mode, use_system_ca, ssl_root_cert } =
+                    const { name, host, port, user, password, ssl_mode, use_system_ca, ssl_root_cert } =
                         values.postgreSQLIntegration
                     const integration = await api.integrations.create({
                         kind: 'postgresql',
                         config: {
+                            ...(name?.trim() ? { name: name.trim() } : {}),
                             host: host,
                             port: port,
                             user: user,

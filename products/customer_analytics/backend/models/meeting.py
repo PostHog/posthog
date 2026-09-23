@@ -27,7 +27,7 @@ class Meeting(TeamScopedRootMixin, UUIDModel):
     a single instance is rescheduled, unlike the start time itself.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     account = models.ForeignKey(
         "customer_analytics.Account", on_delete=models.SET_NULL, null=True, blank=True, related_name="meetings"
     )
@@ -60,7 +60,7 @@ class Meeting(TeamScopedRootMixin, UUIDModel):
 
 
 class MeetingParticipant(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     meeting = models.ForeignKey("customer_analytics.Meeting", on_delete=models.CASCADE, related_name="participants")
 
     email = models.CharField(max_length=400)

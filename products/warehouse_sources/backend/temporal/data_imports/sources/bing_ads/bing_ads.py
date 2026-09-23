@@ -11,6 +11,7 @@ from posthog.settings import integrations
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import initial_datetime
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -83,7 +84,7 @@ def bing_ads_source(
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
     name = NamingConvention.normalize_identifier(resource_name)
-    schema = get_schemas()[resource_name]
+    schema = schema_for_resource(get_schemas(), resource_name)
 
     # Define generator function for lazy evaluation - dlt will call this when ready to fetch data
     def get_rows() -> collections.abc.Iterator[list[dict]]:

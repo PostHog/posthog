@@ -3,6 +3,7 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, propsChanged,
 
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
+    isBehavioralPropertyFilter,
     isValidPropertyFilter,
     parseProperties,
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
@@ -36,6 +37,7 @@ const TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME: Partial<Record<TaxonomicFilterGroupT
     [TaxonomicFilterGroupType.ErrorTrackingIssues]: 'Error tracking issues',
     [TaxonomicFilterGroupType.RevenueAnalyticsProperties]: 'Revenue analytics',
     [TaxonomicFilterGroupType.AccountFields]: 'Account fields',
+    [TaxonomicFilterGroupType.AccountRelationships]: 'Account relationships',
     [TaxonomicFilterGroupType.AccountCustomProperties]: 'Account custom properties',
 }
 
@@ -190,7 +192,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                 actions.update()
             }
 
-            if (isComplete && property?.key && property?.type) {
+            if (isComplete && property?.key && property?.type && !isBehavioralPropertyFilter(property)) {
                 const groupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[property.type]
                 if (groupType && recentTaxonomicFiltersLogic.isMounted()) {
                     const groupName = TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME[groupType] ?? groupType

@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -30,7 +30,7 @@ class TestFailStuckVideoExports(APIBaseTest):
             "created_by": self.user,
         }
         fields.update(overrides)
-        with freeze_time(now() - age):
+        with time_machine.travel(now() - age, tick=False):
             return ExportedAsset.objects.create(**fields)
 
     def test_fails_a_video_export_whose_workflow_never_reported_back(self) -> None:

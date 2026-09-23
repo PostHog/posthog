@@ -1323,6 +1323,15 @@ export interface DrawBoxOptions {
     lineWidth?: number
     /** Width of the whisker caps (as a fraction of the box width). Defaults to 0.6. */
     whiskerCapRatio?: number
+    /** The boxes lie along a horizontal value axis: `x`/`width` are band pixels on y, and the value
+     *  fields are pixels on x. Defaults to false. */
+    horizontal?: boolean
+}
+
+/** Swap the canvas x and y axes, so geometry laid out for vertical boxes draws horizontally. The
+ *  transpose is a reflection, so line widths and marker radii keep their size. */
+function transposeAxes(ctx: CanvasRenderingContext2D): void {
+    ctx.transform(0, 1, 1, 0, 0, 0)
 }
 
 /** Paint a whole series of box-and-whiskers, batching path operations so the number of
@@ -1341,8 +1350,13 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
         meanRadius = 3,
         lineWidth = 1.5,
         whiskerCapRatio = 0.6,
+        horizontal = false,
     } = options
 
+    ctx.save()
+    if (horizontal) {
+        transposeAxes(ctx)
+    }
     ctx.lineWidth = lineWidth
     ctx.strokeStyle = color
     ctx.setLineDash([])
@@ -1411,17 +1425,28 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
         ctx.fill()
         ctx.stroke()
     }
+    ctx.restore()
 }
 
 /** Translucent highlight overlay for a hovered box. Drawn on the overlay canvas so it
  *  composites over the static box without disturbing it — mirrors {@link drawBarHighlight}. */
-export function drawBoxHighlight(ctx: CanvasRenderingContext2D, box: BoxRect, overlayColor: string): void {
+export function drawBoxHighlight(
+    ctx: CanvasRenderingContext2D,
+    box: BoxRect,
+    overlayColor: string,
+    horizontal = false
+): void {
     const boxHeight = Math.max(0, box.bottom - box.top)
     if (box.width <= 0 || boxHeight <= 0) {
         return
     }
+    ctx.save()
+    if (horizontal) {
+        transposeAxes(ctx)
+    }
     ctx.fillStyle = overlayColor
     ctx.fillRect(box.x, box.top, box.width, boxHeight)
+    ctx.restore()
 }
 
 type DrawHoverFn = (args: ChartDrawArgs) => DrawHoverResult

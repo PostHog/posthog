@@ -58,6 +58,15 @@ def _event_properties(
     }
 
 
+def is_triggering_message(event: dict[str, Any]) -> bool:
+    """Whether a workflow trigger could fire on this message, and the emit would write it out.
+
+    Exposed so the webhook can decide about a cross-region mirror without spending a probe or a
+    hop on the subtypes (edits, joins, deletions) no trigger fires on.
+    """
+    return bool(settings.SLACK_WORKFLOW_TRIGGERS_ENABLED) and event.get("subtype") in _TRIGGERING_SUBTYPES
+
+
 def emit_slack_message_event(
     event: dict[str, Any],
     slack_team_id: str,
@@ -75,10 +84,7 @@ def emit_slack_message_event(
     Never raises. This runs inside the Slack event webhook, which owes Slack an ack within three
     seconds and shares the handler with mention routing, so a failure here has to cost neither.
     """
-    if not settings.SLACK_WORKFLOW_TRIGGERS_ENABLED:
-        return False
-
-    if event.get("subtype") not in _TRIGGERING_SUBTYPES:
+    if not is_triggering_message(event):
         return False
 
     try:

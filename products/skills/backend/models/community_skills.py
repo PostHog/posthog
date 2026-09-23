@@ -87,5 +87,5 @@ class CommunitySkillVote(UUIDModel):
     skill = models.ForeignKey(CommunitySkill, on_delete=models.CASCADE, related_name="votes")
     # db_constraint=False: posthog_user is a hot table — a real FK constraint takes a SHARE ROW
     # EXCLUSIVE lock on it at create time. Cascade is still enforced by the ORM collector.
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(default=timezone.now)

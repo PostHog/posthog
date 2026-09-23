@@ -767,8 +767,8 @@ export const InCardMinHeight: Story = {
     ),
 } satisfies Story
 
-// Sticky header inside a Card: a definite height (`h-96`, not `max-h-*` — the
-// scroll viewport needs a resolved height) makes the body scroll, and
+// Sticky header inside a Card: a bounded height (`h-96` here; `max-h-*` also
+// scrolls, via the viewport's `max-height: inherit`) makes the body scroll, and
 // `stickyHeader` freezes the header. Because the table sits on the card surface
 // (not the app background), override `--quill-table-sticky-bg` to `var(--card)`
 // so the frozen header matches — here via a Tailwind arbitrary property.

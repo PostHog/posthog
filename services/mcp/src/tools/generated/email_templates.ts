@@ -2,27 +2,24 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    MessagingTemplatesCreateBody,
-    MessagingTemplatesListQueryParams,
-    MessagingTemplatesPartialUpdateBody,
-    MessagingTemplatesPartialUpdateParams,
-    MessagingTemplatesRetrieveParams,
-} from '@/generated/email_templates/api'
+import * as orvalSchemas from '@/generated/email_templates/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { EmailTemplateDesignPatchSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const WorkflowsCreateEmailTemplateSchema = MessagingTemplatesCreateBody
+const WorkflowsCreateEmailTemplateSchema = () => {
+    const MessagingTemplatesCreateBody = orvalSchemas.MessagingTemplatesCreateBody()
+    return MessagingTemplatesCreateBody
+}
 
 const workflowsCreateEmailTemplate = (): ToolBase<
-    typeof WorkflowsCreateEmailTemplateSchema,
+    ReturnType<typeof WorkflowsCreateEmailTemplateSchema>,
     WithPostHogUrl<Schemas.MessageTemplate>
 > => ({
     name: 'workflows-create-email-template',
-    schema: WorkflowsCreateEmailTemplateSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsCreateEmailTemplateSchema>) => {
+    schema: WorkflowsCreateEmailTemplateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsCreateEmailTemplateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -53,15 +50,18 @@ const workflowsCreateEmailTemplate = (): ToolBase<
     },
 })
 
-const WorkflowsGetEmailTemplateSchema = MessagingTemplatesRetrieveParams.omit({ project_id: true })
+const WorkflowsGetEmailTemplateSchema = () => {
+    const MessagingTemplatesRetrieveParams = orvalSchemas.MessagingTemplatesRetrieveParams()
+    return MessagingTemplatesRetrieveParams.omit({ project_id: true })
+}
 
 const workflowsGetEmailTemplate = (): ToolBase<
-    typeof WorkflowsGetEmailTemplateSchema,
+    ReturnType<typeof WorkflowsGetEmailTemplateSchema>,
     WithPostHogUrl<Schemas.MessageTemplate>
 > => ({
     name: 'workflows-get-email-template',
-    schema: WorkflowsGetEmailTemplateSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsGetEmailTemplateSchema>) => {
+    schema: WorkflowsGetEmailTemplateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsGetEmailTemplateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'GET',
@@ -72,15 +72,18 @@ const workflowsGetEmailTemplate = (): ToolBase<
     },
 })
 
-const WorkflowsListEmailTemplatesSchema = MessagingTemplatesListQueryParams
+const WorkflowsListEmailTemplatesSchema = () => {
+    const MessagingTemplatesListQueryParams = orvalSchemas.MessagingTemplatesListQueryParams()
+    return MessagingTemplatesListQueryParams
+}
 
 const workflowsListEmailTemplates = (): ToolBase<
-    typeof WorkflowsListEmailTemplatesSchema,
+    ReturnType<typeof WorkflowsListEmailTemplatesSchema>,
     WithPostHogUrl<Schemas.PaginatedMessageTemplateList>
 > => ({
     name: 'workflows-list-email-templates',
-    schema: WorkflowsListEmailTemplatesSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsListEmailTemplatesSchema>) => {
+    schema: WorkflowsListEmailTemplatesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsListEmailTemplatesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedMessageTemplateList>({
             method: 'GET',
@@ -109,17 +112,17 @@ const workflowsListEmailTemplates = (): ToolBase<
     },
 })
 
-const WorkflowsPatchEmailTemplateSchema = EmailTemplateDesignPatchSchema
+const WorkflowsPatchEmailTemplateSchema = () => EmailTemplateDesignPatchSchema
 
 const workflowsPatchEmailTemplate = (): ToolBase<
-    typeof WorkflowsPatchEmailTemplateSchema,
+    ReturnType<typeof WorkflowsPatchEmailTemplateSchema>,
     Schemas.MessageTemplate
 > => ({
     name: 'workflows-patch-email-template',
-    schema: WorkflowsPatchEmailTemplateSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsPatchEmailTemplateSchema>) => {
+    schema: WorkflowsPatchEmailTemplateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsPatchEmailTemplateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const parsedParams = WorkflowsPatchEmailTemplateSchema.parse(params)
+        const parsedParams = WorkflowsPatchEmailTemplateSchema().parse(params)
         const { id, ...body } = parsedParams
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'PATCH',
@@ -131,16 +134,19 @@ const workflowsPatchEmailTemplate = (): ToolBase<
     },
 })
 
-const WorkflowsShowEmailTemplateSchema = MessagingTemplatesRetrieveParams.omit({ project_id: true })
+const WorkflowsShowEmailTemplateSchema = () => {
+    const MessagingTemplatesRetrieveParams = orvalSchemas.MessagingTemplatesRetrieveParams()
+    return MessagingTemplatesRetrieveParams.omit({ project_id: true })
+}
 
 const workflowsShowEmailTemplate = (): ToolBase<
-    typeof WorkflowsShowEmailTemplateSchema,
+    ReturnType<typeof WorkflowsShowEmailTemplateSchema>,
     WithPostHogUrl<Schemas.MessageTemplate>
 > =>
     withUiApp('email-template', {
         name: 'workflows-show-email-template',
-        schema: WorkflowsShowEmailTemplateSchema,
-        handler: async (context: Context, params: z.infer<typeof WorkflowsShowEmailTemplateSchema>) => {
+        schema: WorkflowsShowEmailTemplateSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsShowEmailTemplateSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.MessageTemplate>({
                 method: 'GET',
@@ -151,17 +157,21 @@ const workflowsShowEmailTemplate = (): ToolBase<
         },
     })
 
-const WorkflowsUpdateEmailTemplateSchema = MessagingTemplatesPartialUpdateParams.omit({ project_id: true }).extend(
-    MessagingTemplatesPartialUpdateBody.shape
-)
+const WorkflowsUpdateEmailTemplateSchema = () => {
+    const MessagingTemplatesPartialUpdateBody = orvalSchemas.MessagingTemplatesPartialUpdateBody()
+    const MessagingTemplatesPartialUpdateParams = orvalSchemas.MessagingTemplatesPartialUpdateParams()
+    return MessagingTemplatesPartialUpdateParams.omit({ project_id: true }).extend(
+        MessagingTemplatesPartialUpdateBody.shape
+    )
+}
 
 const workflowsUpdateEmailTemplate = (): ToolBase<
-    typeof WorkflowsUpdateEmailTemplateSchema,
+    ReturnType<typeof WorkflowsUpdateEmailTemplateSchema>,
     WithPostHogUrl<Schemas.MessageTemplate>
 > => ({
     name: 'workflows-update-email-template',
-    schema: WorkflowsUpdateEmailTemplateSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsUpdateEmailTemplateSchema>) => {
+    schema: WorkflowsUpdateEmailTemplateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsUpdateEmailTemplateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {

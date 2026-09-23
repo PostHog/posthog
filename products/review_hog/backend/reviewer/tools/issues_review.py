@@ -71,9 +71,9 @@ def build_review_prompt(
     Each (perspective × chunk) review is independent — no cross-perspective context; overlap between
     perspectives is resolved downstream by deduplication. The reviewer reconstructs the chunk's intent
     itself from the diff + `<pr_intent>` (its mandated investigation step), so no separate analysis
-    pass is fed in. The skill's focus isn't spliced in — the prompt instructs the agent to `skill-get`
-    it over MCP — so we pass the skill name and pinned version, not its body. `prior_findings` are
-    problems earlier turns already found on this chunk's files; surfacing them tells the agent not to
+    pass is fed in. The prompt instructs the agent to pull the skill over MCP using its name and
+    pinned version. `prior_findings` are problems earlier turns already found on this chunk's files;
+    surfacing them tells the agent not to
     re-investigate already-covered ground.
 
     The blind-spot check adds cross-perspective context WITHIN a turn: `same_turn_findings` are issues

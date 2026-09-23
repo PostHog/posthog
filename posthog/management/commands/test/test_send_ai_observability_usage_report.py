@@ -1,5 +1,5 @@
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -23,7 +23,7 @@ def _clear_dispatch_claims() -> None:
         cache.delete(usage_report_dispatch_lock_key(date))
 
 
-@freeze_time("2026-07-22T12:00:00Z")
+@time_machine.travel("2026-07-22T12:00:00Z", tick=False)
 def test_send_ai_observability_usage_report_defaults_to_current_date() -> None:
     with patch(TASK_PATH) as mock_send_reports:
         call_command("send_ai_observability_usage_report")
@@ -35,7 +35,7 @@ def test_send_ai_observability_usage_report_defaults_to_current_date() -> None:
     )
 
 
-@freeze_time("2026-07-22T12:00:00Z")
+@time_machine.travel("2026-07-22T12:00:00Z", tick=False)
 def test_send_ai_observability_usage_report_preserves_passed_date() -> None:
     with patch(TASK_PATH) as mock_send_reports:
         call_command("send_ai_observability_usage_report", "--date=2026-07-15")
@@ -47,7 +47,7 @@ def test_send_ai_observability_usage_report_preserves_passed_date() -> None:
     )
 
 
-@freeze_time("2026-07-22T12:00:00Z")
+@time_machine.travel("2026-07-22T12:00:00Z", tick=False)
 def test_send_ai_observability_usage_report_dry_run_runs_sync_with_dry_run_flag() -> None:
     with patch(TASK_PATH) as mock_send_reports:
         call_command("send_ai_observability_usage_report", "--dry-run")
@@ -60,7 +60,7 @@ def test_send_ai_observability_usage_report_dry_run_runs_sync_with_dry_run_flag(
     mock_send_reports.delay.assert_not_called()
 
 
-@freeze_time("2026-07-22T12:00:00Z")
+@time_machine.travel("2026-07-22T12:00:00Z", tick=False)
 def test_send_ai_observability_usage_report_async_dispatches_delay_with_parsed_org_ids() -> None:
     with patch(TASK_PATH) as mock_send_reports:
         call_command("send_ai_observability_usage_report", "--async", "--org-ids=org-a, org-b,")
@@ -73,7 +73,7 @@ def test_send_ai_observability_usage_report_async_dispatches_delay_with_parsed_o
     mock_send_reports.assert_not_called()
 
 
-@freeze_time("2026-07-22T12:00:00Z")
+@time_machine.travel("2026-07-22T12:00:00Z", tick=False)
 def test_second_dispatch_for_the_same_date_is_refused() -> None:
     with patch(TASK_PATH) as mock_send_reports:
         call_command("send_ai_observability_usage_report", "--async")
@@ -84,7 +84,7 @@ def test_second_dispatch_for_the_same_date_is_refused() -> None:
     mock_send_reports.delay.assert_called_once()
 
 
-@freeze_time("2026-07-22T12:00:00Z")
+@time_machine.travel("2026-07-22T12:00:00Z", tick=False)
 def test_dispatch_claims_are_scoped_per_date() -> None:
     with patch(TASK_PATH) as mock_send_reports:
         call_command("send_ai_observability_usage_report", "--async", "--date=2026-07-15")
@@ -93,7 +93,7 @@ def test_dispatch_claims_are_scoped_per_date() -> None:
     assert mock_send_reports.delay.call_count == 2
 
 
-@freeze_time("2026-07-22T12:00:00Z")
+@time_machine.travel("2026-07-22T12:00:00Z", tick=False)
 def test_dry_run_does_not_claim_the_date() -> None:
     with patch(TASK_PATH) as mock_send_reports:
         call_command("send_ai_observability_usage_report", "--dry-run")
@@ -102,7 +102,7 @@ def test_dry_run_does_not_claim_the_date() -> None:
     mock_send_reports.delay.assert_called_once()
 
 
-@freeze_time("2026-07-22T12:00:00Z")
+@time_machine.travel("2026-07-22T12:00:00Z", tick=False)
 def test_failed_dispatch_releases_the_claim() -> None:
     with patch(TASK_PATH) as mock_send_reports:
         mock_send_reports.delay.side_effect = [RuntimeError("broker down"), None]
@@ -114,7 +114,7 @@ def test_failed_dispatch_releases_the_claim() -> None:
     assert mock_send_reports.delay.call_count == 2
 
 
-@freeze_time("2026-07-22T12:00:00Z")
+@time_machine.travel("2026-07-22T12:00:00Z", tick=False)
 def test_equivalent_date_spellings_share_one_claim() -> None:
     with patch(TASK_PATH) as mock_send_reports:
         call_command("send_ai_observability_usage_report", "--async", "--date=2026-07-15")
@@ -129,7 +129,7 @@ def test_equivalent_date_spellings_share_one_claim() -> None:
     )
 
 
-@freeze_time("2026-07-22T12:00:00Z")
+@time_machine.travel("2026-07-22T12:00:00Z", tick=False)
 def test_unreadable_date_is_rejected_without_dispatching() -> None:
     with patch(TASK_PATH) as mock_send_reports:
         with pytest.raises(CommandError, match="Could not read"):
@@ -138,7 +138,7 @@ def test_unreadable_date_is_rejected_without_dispatching() -> None:
     mock_send_reports.delay.assert_not_called()
 
 
-@freeze_time("2026-07-22T12:00:00Z")
+@time_machine.travel("2026-07-22T12:00:00Z", tick=False)
 def test_failed_synchronous_run_releases_the_claim() -> None:
     with patch(TASK_PATH) as mock_send_reports:
         mock_send_reports.side_effect = [RuntimeError("clickhouse down"), None]

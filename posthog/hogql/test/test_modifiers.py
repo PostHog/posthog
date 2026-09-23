@@ -17,7 +17,7 @@ from products.cohorts.backend.models.cohort import Cohort
 class TestModifiers(BaseTest):
     def _expected_browser_select(self, materialization_mode: MaterializationMode) -> str:
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            column = "events.properties.`$browser`"
+            column = "nullIf(events.properties.`$browser`, '')"
             source = "events_json AS events"
             return f"SELECT {column} AS `$browser` FROM {source}"
         elif materialization_mode == MaterializationMode.DISABLED:
@@ -40,7 +40,7 @@ class TestModifiers(BaseTest):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             # Whole-blob person_properties reads are reconstructed from the JSON column; assert the
             # reconstruction reads the on-events column rather than pinning the full expression.
-            return "JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties))"
+            return "JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties)) AS properties"
         return "events.person_properties AS properties"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -83,6 +83,29 @@ class TestModifiers(BaseTest):
         self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+
+    def test_unparseable_custom_bot_definitions_are_dropped(self):
+        # modifiers is hand-editable JSON (e.g. Django admin), so an entry that is not a rule object
+        # can reach here. It has to be dropped, not kept — a non-dict entry would otherwise crash
+        # every classification query when compile_definitions reads its fields.
+        self.team.modifiers = {
+            "customBotDefinitions": [
+                "not-a-rule",
+                {"pattern": "no name so invalid"},
+                {
+                    "id": "1",
+                    "name": "Acme",
+                    "combiner": "AND",
+                    "items": [{"id": "c1", "key": "$raw_user_agent", "pattern": "AcmeBot", "matcher": "contains"}],
+                },
+            ]
+        }
+        self.team.save()
+
+        modifiers = create_default_modifiers_for_team(self.team)
+
+        assert modifiers.customBotDefinitions is not None
+        assert [d.name for d in modifiers.customBotDefinitions] == ["Acme"]
 
     @patch(
         # _person_on_events_person_id_override_properties_on_events is normally determined by feature flag

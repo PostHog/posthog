@@ -4,11 +4,10 @@ from posthog.hogql import ast
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_event
 from products.revenue_analytics.backend.views.schemas.subscription import SCHEMA as SUBSCRIPTION_SCHEMA
-from products.revenue_analytics.backend.views.sources.helpers import events_expr_for_team
+from products.revenue_analytics.backend.views.sources.helpers import events_expr_for_handle
 
 
 def build(handle: SourceHandle) -> BuiltQuery:
-    team = handle.team
     event = handle.event
 
     if event is None:
@@ -50,7 +49,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         where=ast.And(
             exprs=[
-                events_expr_for_team(team),
+                events_expr_for_handle(handle),
                 ast.Call(name="isNotNull", args=[ast.Field(chain=["subscription_id"])]),
             ]
         ),

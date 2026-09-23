@@ -8,6 +8,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.census.census import (
     CensusResumeConfig,
     census_source,
+    get_endpoint_permissions,
     get_resource,
     validate_credentials,
 )
@@ -81,6 +82,46 @@ class TestCensusTransport:
 
         assert result == (False, "Could not reach Census. Please check your network and selected region, then retry.")
 
+    @parameterized.expand(
+        [
+            (200, None),
+            (
+                401,
+                "Listing workspaces needs an organization-level Census API token. Reconnect with an organization token, or deselect this table.",
+            ),
+            (
+                403,
+                "Listing workspaces needs an organization-level Census API token. Reconnect with an organization token, or deselect this table.",
+            ),
+            (429, None),  # a throttle is not a refusal
+            (500, None),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
+    def test_get_endpoint_permissions_reports_refusals(self, status, expected_reason, mock_session) -> None:
+        mock_session.return_value.get.return_value = Mock(status_code=status)
+
+        permissions = get_endpoint_permissions(api_key="key", region="us", endpoints=["workspaces"])
+
+        assert permissions == {"workspaces": expected_reason}
+        assert mock_session.return_value.get.call_args.args[0] == "https://app.getcensus.com/api/v1/workspaces"
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
+    def test_get_endpoint_permissions_network_failure_is_not_a_refusal(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+
+        assert get_endpoint_permissions(api_key="key", region="us", endpoints=["workspaces"]) == {"workspaces": None}
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
+    def test_get_endpoint_permissions_skips_workspace_scoped_endpoints(self, mock_session) -> None:
+        # Every workspace token can read these, so probing them would only slow the schema picker.
+        permissions = get_endpoint_permissions(
+            api_key="key", region="us", endpoints=["syncs", "sync_runs", "sources", "destinations"]
+        )
+
+        assert permissions == {"syncs": None, "sync_runs": None, "sources": None, "destinations": None}
+        mock_session.return_value.get.assert_not_called()
+
     def test_get_resource_full_refresh(self) -> None:
         resource = cast(dict[str, Any], get_resource(endpoint="syncs"))
         assert resource["name"] == "syncs"
@@ -95,13 +136,19 @@ class TestCensusTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint="sync_runs")
 
-    @parameterized.expand([("sources",), ("destinations",)])
-    def test_get_resource_strips_connection_details(self, endpoint) -> None:
-        # `connection_details` carries warehouse account identifiers that must not land in a
-        # queryable warehouse table.
+    @parameterized.expand(
+        [
+            ("sources", "connection_details", {"user": "DEV"}),
+            ("destinations", "connection_details", {"user": "DEV"}),
+            ("workspaces", "notification_emails", ["alerts@example.com"]),
+        ]
+    )
+    def test_get_resource_strips_sensitive_fields(self, endpoint, stripped_field, stripped_value) -> None:
+        # `connection_details` carries warehouse account identifiers and `notification_emails`
+        # carries people's addresses; neither belongs in a table any project member can query.
         resource = cast(dict[str, Any], get_resource(endpoint=endpoint))
-        row = resource["data_map"]({"id": 1, "name": "Snowflake", "connection_details": {"user": "DEV"}})
-        assert row == {"id": 1, "name": "Snowflake"}
+        row = resource["data_map"]({"id": 1, "name": "Census", stripped_field: stripped_value})
+        assert row == {"id": 1, "name": "Census"}
 
     def test_get_resource_syncs_keeps_all_fields(self) -> None:
         resource = cast(dict[str, Any], get_resource(endpoint="syncs"))

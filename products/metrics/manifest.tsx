@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -15,6 +14,7 @@ export const manifest: ProductManifest = {
             activityScope: 'Metrics',
             description: 'Monitor and analyze application metrics to understand system performance and health.',
             iconType: 'metrics',
+            docsHref: 'https://posthog.com/docs/metrics',
         },
     },
     routes: {
@@ -37,7 +37,8 @@ export const manifest: ProductManifest = {
                 'var(--color-product-metrics-dark)',
             ] as FileSystemIconColor,
             href: urls.metrics(),
-            flag: FEATURE_FLAGS.METRICS,
+            // Open alpha: the nav item is visible to everyone; the scene gate offers the
+            // feature preview toggle to visitors who have not enrolled yet.
             tags: ['alpha'],
             sceneKey: 'Metrics',
         },

@@ -9,20 +9,19 @@ import { BindLogic } from 'kea'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardType } from '~/types'
 
 import { AddWidgetModal } from './AddWidgetModal'
 
 type AddWidgetModalProps = React.ComponentProps<typeof AddWidgetModal>
 
-jest.mock('../widget_types/catalog', () => ({
-    ...jest.requireActual('../widget_types/catalog'),
+jest.mock('./previews/dashboardWidgetPreviews', () => ({
     DASHBOARD_WIDGET_PREVIEWS: {
         error_tracking_list: () => <div data-attr="error-tracking-preview">Preview</div>,
     },
 }))
 
-const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
+const MOCK_DASHBOARD: DashboardType = {
     id: 5,
     name: 'Test Dashboard',
     description: 'A test dashboard',

@@ -84,17 +84,13 @@ impl StoreKey<'_> {
 #[derive(Clone)]
 pub struct PersonhogStore {
     inner: EtcdStore,
-    /// Freeze-quorum memberships already read, by record id. Records
-    /// are written once and only ever deleted, so an id identifies one
-    /// immutable value and caching cannot go stale; a plan's handoffs
-    /// share one id, so this turns a few hundred reads per reconcile
-    /// pass into one.
-    ///
-    /// INVARIANT: the cached value keeps `Some` (recorded membership)
-    /// distinct from `None` (record absent — requires every live
-    /// router). Flattening them would advance a handoff no router had
-    /// stopped routing for.
-    freeze_quorums: Arc<StdMutex<HashMap<String, Option<Vec<String>>>>>,
+    /// Freeze-quorum memberships already read, by record id. An id
+    /// names one immutable value (a chunked plan re-puts it only
+    /// byte-identically), so a recorded membership cannot go stale; a
+    /// plan's handoffs share one id, so this turns a few hundred reads
+    /// per reconcile pass into one. Absence is never cached — the
+    /// sweep can delete a record a later chunk re-creates.
+    freeze_quorums: Arc<StdMutex<HashMap<String, Vec<String>>>>,
 }
 
 /// Counts store calls by the method that made them. The shared etcd
@@ -104,6 +100,98 @@ pub struct PersonhogStore {
 /// other single-key lookup in the system.
 pub(crate) fn count_call(site: &'static str) {
     metrics::counter!("personhog_coordination_store_calls_total", "site" => site).increment(1);
+}
+
+/// How a plan application ended, per partition.
+#[derive(Debug, Default)]
+pub struct PlanApplication {
+    /// Partitions whose disposition landed.
+    pub applied: Vec<u32>,
+    /// Partitions whose guards failed — a record changed between the
+    /// planner's read and the write; the next plan re-reads them.
+    pub conflicted: Vec<u32>,
+    /// Chunks the server refused as too large and that applied per
+    /// unit instead: the configured budget exceeds the server's.
+    pub over_budget_chunks: usize,
+}
+
+/// One partition's slice of a plan: the guards that make its
+/// disposition safe and the ops that apply it. Chunking never splits a
+/// unit, so a partition's disposition stays atomic across any split.
+struct PlanUnit {
+    partition: u32,
+    guards: Vec<UnitGuard>,
+    ops: Vec<UnitOp>,
+    bytes: usize,
+    references_quorum: bool,
+}
+
+enum UnitGuard {
+    /// The key was never created (create_revision 0).
+    Absent(String),
+    /// The key's mod_revision is exactly this.
+    ModRevision(String, i64),
+}
+
+impl UnitGuard {
+    fn key(&self) -> &str {
+        match self {
+            UnitGuard::Absent(key) | UnitGuard::ModRevision(key, _) => key,
+        }
+    }
+}
+
+enum UnitOp {
+    Put(String, Vec<u8>),
+    DeletePrefix(String),
+}
+
+/// Whether etcd refused a transaction for its size — past
+/// `--max-txn-ops` (`ErrGRPCTooManyOps`) or `--max-request-bytes`
+/// (`ErrGRPCRequestTooLarge`). Matched on the message: the gRPC code
+/// is a generic InvalidArgument.
+fn is_txn_too_large(e: &Error) -> bool {
+    matches!(
+        e,
+        Error::Store(assignment_coordination::error::Error::Etcd(
+            etcd_client::Error::GRpcStatus(status)
+        )) if status.message().contains("too many operations")
+            || status.message().contains("request is too large")
+    )
+}
+
+/// Greedy chunk boundaries over per-unit `(guards, ops)` costs: a chunk
+/// takes units while its compare list and its op list both stay within
+/// `budget` — etcd checks the two lists separately against
+/// `--max-txn-ops`. `reserve_ops` holds back room in every chunk for
+/// ops added on top of its units (the freeze-quorum write).
+fn plan_chunk_ranges(
+    costs: &[(usize, usize)],
+    budget: usize,
+    reserve_ops: usize,
+) -> Vec<std::ops::Range<usize>> {
+    let budget = budget.max(1);
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    let (mut guards, mut ops) = (0, 0);
+    for (i, &(g, o)) in costs.iter().enumerate() {
+        let fits = guards + g <= budget && ops + o + reserve_ops <= budget;
+        // A chunk always takes at least one unit, so a budget below a
+        // single unit's cost still makes progress and lets the server
+        // be the judge.
+        if i > start && !fits {
+            ranges.push(start..i);
+            start = i;
+            guards = 0;
+            ops = 0;
+        }
+        guards += g;
+        ops += o;
+    }
+    if start < costs.len() {
+        ranges.push(start..costs.len());
+    }
+    ranges
 }
 
 impl PersonhogStore {
@@ -591,8 +679,9 @@ impl PersonhogStore {
     // ── Transactional operations ────────────────────────────────
 
     /// Atomically write assignments and create handoff states.
-    /// Returns whether the transaction applied. Guarded so a plan only
-    /// lands if the world it was computed from is still the world:
+    /// Returns whether every disposition applied. Each partition's unit
+    /// is guarded so it only lands if the world it was computed from is
+    /// still the world (an assignment-only unit carries no guard):
     ///
     /// * every handoff key must be absent — concurrent planners (the pod
     ///   watch racing the handoff watch's re-trigger, or a failing-over
@@ -605,10 +694,6 @@ impl PersonhogStore {
     ///   passes the absence guard and drains the wrong pod, leaving the
     ///   real owner unfenced beside the new owner's warm cutoff.
     ///
-    /// All-or-nothing on purpose — a plan is one consistent placement
-    /// computation, and the losing caller replans off the winner's writes
-    /// rather than applying a half-stale plan.
-    ///
     /// `replacements` carry cancellations-by-replacement: each swaps the
     /// record at its partition's key — guarded on the `mod_revision` the
     /// planner read — for the successor (or reaffirm) record, deleting
@@ -620,75 +705,79 @@ impl PersonhogStore {
         assignments: &[PartitionAssignment],
         handoffs: &[HandoffState],
         preconditions: &[AssignmentPrecondition],
+        max_txn_ops: usize,
     ) -> Result<bool> {
         // The handoffs come ready-made, so there is no shared
         // membership to write alongside them.
-        self.apply_plan(assignments, handoffs, &[], preconditions, None)
-            .await
+        let application = self
+            .apply_plan(assignments, handoffs, &[], preconditions, None, max_txn_ops)
+            .await?;
+        Ok(application.conflicted.is_empty())
     }
 
-    /// The full plan-application transaction: creations (absent-guarded)
-    /// plus cancellations-by-replacement (mod_revision-guarded), all or
-    /// nothing.
+    /// Apply a plan — creations (absent-guarded) plus
+    /// cancellations-by-replacement (mod_revision-guarded) — in
+    /// transactions sized to `max_txn_ops`, the server's txn budget.
+    ///
+    /// Atomicity is per partition, not per plan: every guard protects
+    /// one partition's disposition, so a partition's guards and writes
+    /// share one transaction, but the plan itself may split. An
+    /// unchunked plan past `--max-txn-ops` is rejected as a hard error,
+    /// and a coordinator retrying it re-earns the same rejection
+    /// forever. A partially applied plan is placement drift the next
+    /// reconcile-tick replan heals.
     pub async fn apply_plan(
         &self,
         assignments: &[PartitionAssignment],
         handoffs: &[HandoffState],
         replacements: &[HandoffReplacement],
         preconditions: &[AssignmentPrecondition],
-        // The membership every handoff in this plan refers to, written
-        // in the same transaction so no handoff is ever durable with a
-        // reference to a record that does not exist.
+        // The membership the plan's handoffs refer to, re-put
+        // (idempotently) in every chunk that references it so no
+        // handoff is ever durable with a dangling reference.
         freeze_quorum: Option<(&str, &[String])>,
-    ) -> Result<bool> {
+        max_txn_ops: usize,
+    ) -> Result<PlanApplication> {
         count_call("apply_plan");
-        let mut guards: Vec<Compare> =
-            Vec::with_capacity(handoffs.len() + replacements.len() + preconditions.len());
-        let mut ops: Vec<TxnOp> =
-            Vec::with_capacity(assignments.len() + handoffs.len() + replacements.len() * 4);
-        // A plan is one gRPC request and one raft entry, so its size is
-        // bounded by etcd's `--max-request-bytes` however small the
-        // individual records are. Both terms scale with the fleet, so
-        // they are measured rather than assumed — and the measurement
-        // counts every key the request carries, guards and deletes
-        // included, since a total that omits them reads low against the
-        // exact limit it exists to warn about.
-        let mut plan_bytes = 0usize;
-
-        if let Some((id, members)) = freeze_quorum {
-            let key = self.key(StoreKey::FreezeQuorum(id));
-            let value = serde_json::to_vec(members)?;
-            plan_bytes += key.len() + value.len();
-            ops.push(TxnOp::put(key, value, None));
+        let mut units: HashMap<u32, PlanUnit> = HashMap::new();
+        fn unit(units: &mut HashMap<u32, PlanUnit>, partition: u32) -> &mut PlanUnit {
+            units.entry(partition).or_insert_with(|| PlanUnit {
+                partition,
+                guards: Vec::new(),
+                ops: Vec::new(),
+                bytes: 0,
+                references_quorum: false,
+            })
         }
+
         for a in assignments {
             let key = self.key(StoreKey::Assignment(a.partition));
             let value = serde_json::to_vec(a)?;
-            plan_bytes += key.len() + value.len();
-            ops.push(TxnOp::put(key, value, None));
+            let u = unit(&mut units, a.partition);
+            u.bytes += key.len() + value.len();
+            u.ops.push(UnitOp::Put(key, value));
         }
         for h in handoffs {
             let key = self.key(StoreKey::Handoff(h.partition));
             let value = serde_json::to_vec(h)?;
-            plan_bytes += key.len() + value.len();
+            let u = unit(&mut units, h.partition);
+            u.bytes += key.len() + value.len();
             // A key that was never created has create_revision 0 — the
             // canonical etcd existence guard.
-            plan_bytes += key.len();
-            guards.push(Compare::create_revision(key.clone(), CompareOp::Equal, 0));
-            ops.push(TxnOp::put(key, value, None));
+            u.bytes += key.len();
+            u.guards.push(UnitGuard::Absent(key.clone()));
+            u.ops.push(UnitOp::Put(key, value));
+            u.references_quorum |= h.freeze_quorum_ref.is_some();
         }
-        let prefix_delete = || Some(DeleteOptions::new().with_prefix());
         for r in replacements {
             let partition = r.handoff.partition;
             let key = self.key(StoreKey::Handoff(partition));
             let value = serde_json::to_vec(&r.handoff)?;
-            plan_bytes += key.len() + value.len();
-            plan_bytes += key.len();
-            guards.push(Compare::mod_revision(
-                key.clone(),
-                CompareOp::Equal,
-                r.expected_mod_revision,
-            ));
+            let u = unit(&mut units, partition);
+            u.bytes += key.len() + value.len();
+            u.bytes += key.len();
+            u.guards
+                .push(UnitGuard::ModRevision(key.clone(), r.expected_mod_revision));
             for acks in [
                 self.key(StoreKey::FreezeAcksForPartition(partition)),
                 self.key(StoreKey::DrainedAcksForPartition(partition)),
@@ -696,39 +785,147 @@ impl PersonhogStore {
             ] {
                 // A prefix delete carries `range_end` as well as the
                 // key, and they are the same length.
-                plan_bytes += acks.len() * 2;
-                ops.push(TxnOp::delete(acks, prefix_delete()));
+                u.bytes += acks.len() * 2;
+                u.ops.push(UnitOp::DeletePrefix(acks));
             }
-            ops.push(TxnOp::put(key, value, None));
+            u.ops.push(UnitOp::Put(key, value));
+            u.references_quorum |= r.handoff.freeze_quorum_ref.is_some();
         }
         for precondition in preconditions {
-            match precondition {
+            let (partition, guard) = match precondition {
                 AssignmentPrecondition::UnchangedSince {
                     partition,
                     mod_revision,
-                } => {
-                    let key = self.key(StoreKey::Assignment(*partition));
-                    plan_bytes += key.len();
-                    guards.push(Compare::mod_revision(key, CompareOp::Equal, *mod_revision));
+                } => (
+                    *partition,
+                    UnitGuard::ModRevision(
+                        self.key(StoreKey::Assignment(*partition)),
+                        *mod_revision,
+                    ),
+                ),
+                AssignmentPrecondition::Absent { partition } => (
+                    *partition,
+                    UnitGuard::Absent(self.key(StoreKey::Assignment(*partition))),
+                ),
+            };
+            let u = unit(&mut units, partition);
+            u.bytes += guard.key().len();
+            u.guards.push(guard);
+        }
+
+        // Partition order, so chunk composition is a function of the
+        // plan alone rather than of map iteration.
+        let mut units: Vec<PlanUnit> = units.into_values().collect();
+        units.sort_by_key(|u| u.partition);
+
+        let quorum = match freeze_quorum {
+            Some((id, members)) => Some((
+                self.key(StoreKey::FreezeQuorum(id)),
+                serde_json::to_vec(members)?,
+            )),
+            None => None,
+        };
+
+        // Totals across chunks, keys and deletes included, so the
+        // series keeps its meaning from the one-transaction era.
+        let plan_bytes: usize = units.iter().map(|u| u.bytes).sum::<usize>()
+            + quorum.as_ref().map_or(0, |(k, v)| k.len() + v.len());
+        let total_guards: usize = units.iter().map(|u| u.guards.len()).sum();
+        let total_ops: usize = units.iter().map(|u| u.ops.len()).sum();
+        metrics::histogram!("personhog_coordination_plan_bytes").record(plan_bytes as f64);
+        metrics::histogram!("personhog_coordination_plan_ops", "list" => "guards")
+            .record(total_guards as f64);
+        metrics::histogram!("personhog_coordination_plan_ops", "list" => "ops")
+            .record(total_ops as f64);
+
+        let costs: Vec<(usize, usize)> = units
+            .iter()
+            .map(|u| (u.guards.len(), u.ops.len()))
+            .collect();
+        let reserve_ops = usize::from(quorum.is_some());
+        let ranges = plan_chunk_ranges(&costs, max_txn_ops, reserve_ops);
+        metrics::histogram!("personhog_coordination_plan_chunks").record(ranges.len() as f64);
+
+        let mut application = PlanApplication::default();
+        for range in ranges {
+            let chunk = &units[range];
+            match self.apply_units(chunk, &quorum).await {
+                Ok(true) => {
+                    application
+                        .applied
+                        .extend(chunk.iter().map(|u| u.partition));
+                    continue;
                 }
-                AssignmentPrecondition::Absent { partition } => {
-                    let key = self.key(StoreKey::Assignment(*partition));
-                    plan_bytes += key.len();
-                    guards.push(Compare::create_revision(key, CompareOp::Equal, 0));
+                Ok(false) => {}
+                // The server's effective --max-txn-ops can sit below the
+                // configured budget (values drift, a member not yet
+                // restarted with a raised flag). Degrade to the per-unit
+                // path — under any workable server limit — instead of
+                // handing back a rejection the planner retries forever.
+                Err(e) if chunk.len() > 1 && is_txn_too_large(&e) => {
+                    application.over_budget_chunks += 1;
+                    metrics::counter!("personhog_coordination_plan_chunk_over_server_budget_total")
+                        .increment(1);
+                    tracing::warn!(
+                        units = chunk.len(),
+                        max_txn_ops,
+                        error = %e,
+                        "plan chunk exceeds the server txn budget; applying per unit"
+                    );
+                }
+                Err(e) => return Err(e),
+            }
+            // A failed guard names no key, so retry the chunk one
+            // partition at a time: the concurrent write that broke the
+            // chunk stands down only the units it actually touched.
+            for u in chunk {
+                if self.apply_units(std::slice::from_ref(u), &quorum).await? {
+                    application.applied.push(u.partition);
+                } else {
+                    metrics::counter!("personhog_coordination_plan_units_conflicted_total")
+                        .increment(1);
+                    application.conflicted.push(u.partition);
                 }
             }
         }
+        Ok(application)
+    }
 
-        // Both lists count toward the request etcd sizes against
-        // `--max-request-bytes`, and each is checked separately against
-        // `--max-txn-ops`, so a sum could not be compared to either
-        // limit or say which list was close to it.
-        metrics::histogram!("personhog_coordination_plan_bytes").record(plan_bytes as f64);
-        metrics::histogram!("personhog_coordination_plan_ops", "list" => "guards")
-            .record(guards.len() as f64);
-        metrics::histogram!("personhog_coordination_plan_ops", "list" => "ops")
-            .record(ops.len() as f64);
-
+    /// One plan chunk as one transaction: the units' guards and ops,
+    /// plus the freeze-quorum write when any unit references it.
+    /// Returns whether the transaction applied.
+    async fn apply_units(
+        &self,
+        chunk: &[PlanUnit],
+        quorum: &Option<(String, Vec<u8>)>,
+    ) -> Result<bool> {
+        let mut guards: Vec<Compare> = Vec::new();
+        let mut ops: Vec<TxnOp> = Vec::new();
+        if let Some((key, value)) = quorum {
+            if chunk.iter().any(|u| u.references_quorum) {
+                ops.push(TxnOp::put(key.clone(), value.clone(), None));
+            }
+        }
+        for u in chunk {
+            for g in &u.guards {
+                guards.push(match g {
+                    UnitGuard::Absent(key) => {
+                        Compare::create_revision(key.clone(), CompareOp::Equal, 0)
+                    }
+                    UnitGuard::ModRevision(key, rev) => {
+                        Compare::mod_revision(key.clone(), CompareOp::Equal, *rev)
+                    }
+                });
+            }
+            for op in &u.ops {
+                ops.push(match op {
+                    UnitOp::Put(key, value) => TxnOp::put(key.clone(), value.clone(), None),
+                    UnitOp::DeletePrefix(key) => {
+                        TxnOp::delete(key.clone(), Some(DeleteOptions::new().with_prefix()))
+                    }
+                });
+            }
+        }
         let txn = Txn::new().when(guards).and_then(ops);
         let resp = self.inner.txn(txn).await?;
         Ok(resp.succeeded())
@@ -832,10 +1029,7 @@ impl PersonhogStore {
         match &handoff.freeze_quorum_ref {
             Some(id) => {
                 // A hit answers from memory: confirming against etcd
-                // would cost the read this cache removes, to observe a
-                // case it already neutralizes. A hit that resolved to
-                // nothing still counts, so the signal persists while
-                // the condition does.
+                // would cost the read this cache removes.
                 let cached = self
                     .freeze_quorums
                     .lock()
@@ -843,38 +1037,38 @@ impl PersonhogStore {
                     .get(id)
                     .cloned();
                 if let Some(members) = cached {
-                    if members.is_none() {
-                        crate::util::record_unresolved_freeze_quorum();
-                    }
-                    return Ok(members);
+                    return Ok(Some(members));
                 }
                 let members = self.get_freeze_quorum(id).await?;
-                // A miss is cached too: an id that resolves to nothing
-                // resolves to nothing forever, and a lost record would
-                // otherwise cost a read per frozen partition per pass.
-                {
-                    let mut cache = self
-                        .freeze_quorums
-                        .lock()
-                        .expect("freeze quorum cache lock poisoned");
-                    // Sized for a rolling deploy (plans in flight, not
-                    // one). Evicting the oldest — ids lead with
-                    // milliseconds, so smallest is oldest — keeps the
-                    // working set.
-                    if cache.len() >= 32 {
-                        if let Some(oldest) = cache.keys().min().cloned() {
-                            cache.remove(&oldest);
+                match &members {
+                    Some(recorded) => {
+                        let mut cache = self
+                            .freeze_quorums
+                            .lock()
+                            .expect("freeze quorum cache lock poisoned");
+                        // Sized for a rolling deploy (plans in flight,
+                        // not one). Evicting the oldest — ids lead with
+                        // milliseconds, so smallest is oldest — keeps
+                        // the working set.
+                        if cache.len() >= 32 {
+                            if let Some(oldest) = cache.keys().min().cloned() {
+                                cache.remove(&oldest);
+                            }
                         }
+                        cache.insert(id.clone(), recorded.clone());
                     }
-                    cache.insert(id.clone(), members.clone());
-                }
-                if members.is_none() {
-                    crate::util::record_unresolved_freeze_quorum();
-                    tracing::warn!(
-                        partition = handoff.partition,
-                        quorum_id = %id,
-                        "freeze quorum record is missing; requiring every live router"
-                    );
+                    // Never cached: a chunked plan's re-puts can
+                    // re-create a swept record, so absence is not
+                    // permanent — and pinning it would hold every later
+                    // resolution on the every-live-router fallback.
+                    None => {
+                        crate::util::record_unresolved_freeze_quorum();
+                        tracing::warn!(
+                            partition = handoff.partition,
+                            quorum_id = %id,
+                            "freeze quorum record is missing; requiring every live router"
+                        );
+                    }
                 }
                 Ok(members)
             }
@@ -882,22 +1076,42 @@ impl PersonhogStore {
         }
     }
 
-    /// The ids of every membership record currently stored.
-    pub async fn list_freeze_quorum_ids(&self) -> Result<Vec<String>> {
+    /// The ids of every membership record currently stored, each with
+    /// its mod_revision for the sweep's guarded delete.
+    pub async fn list_freeze_quorum_ids(&self) -> Result<Vec<(String, i64)>> {
         count_call("list_freeze_quorum_ids");
         let prefix = self.key(StoreKey::FreezeQuorumsPrefix);
-        let keys = self.inner.list_keys(&prefix).await?;
+        let keys = self.inner.list_keys_with_mod_revisions(&prefix).await?;
         Ok(keys
             .iter()
-            .filter_map(|key| key.strip_prefix(prefix.as_str()))
-            .map(str::to_string)
+            .filter_map(|(key, rev)| {
+                key.strip_prefix(prefix.as_str())
+                    .map(|id| (id.to_string(), *rev))
+            })
             .collect())
     }
 
-    pub async fn delete_freeze_quorum(&self, id: &str) -> Result<()> {
+    /// Delete a membership record only if unchanged since `mod_revision`.
+    /// A chunked plan re-puts its record with every chunk, so a re-put
+    /// after the sweep's read bumps the revision and the delete loses —
+    /// otherwise the sweep could collect a record a chunk it never saw
+    /// still references.
+    pub async fn delete_freeze_quorum_if_unchanged(
+        &self,
+        id: &str,
+        mod_revision: i64,
+    ) -> Result<bool> {
         count_call("delete_freeze_quorum");
         let key = self.key(StoreKey::FreezeQuorum(id));
-        Ok(self.inner.delete(&key).await?)
+        let txn = Txn::new()
+            .when(vec![Compare::mod_revision(
+                key.clone(),
+                CompareOp::Equal,
+                mod_revision,
+            )])
+            .and_then(vec![TxnOp::delete(key, None)]);
+        let resp = self.inner.txn(txn).await?;
+        Ok(resp.succeeded())
     }
 
     // ── Leader election ─────────────────────────────────────────
@@ -1028,5 +1242,73 @@ pub fn extract_partition_from_ack_key(key: &str) -> Option<u32> {
         parts[1].parse().ok()
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plan_chunk_ranges;
+
+    /// Every unit lands in exactly one chunk, in order — chunking must
+    /// never drop or reorder a partition's disposition.
+    fn assert_contiguous_cover(ranges: &[std::ops::Range<usize>], len: usize) {
+        let mut next = 0;
+        for r in ranges {
+            assert_eq!(r.start, next, "chunks must be contiguous");
+            assert!(r.end > r.start, "chunks must be non-empty");
+            next = r.end;
+        }
+        assert_eq!(next, len, "chunks must cover every unit");
+    }
+
+    /// The 256→1 collapse shape: 256 creations of (2 guards, 1 op)
+    /// against etcd's default budget. The compare list is what binds —
+    /// an unchunked plan carries 512 compares and is rejected outright.
+    #[test]
+    fn creations_chunk_on_the_compare_list() {
+        let costs = vec![(2, 1); 256];
+        let ranges = plan_chunk_ranges(&costs, 128, 1);
+        assert_contiguous_cover(&ranges, costs.len());
+        for r in &ranges {
+            let guards: usize = costs[r.clone()].iter().map(|c| c.0).sum();
+            let ops: usize = costs[r.clone()].iter().map(|c| c.1).sum();
+            assert!(guards <= 128, "chunk carries {guards} compares");
+            assert!(ops < 128, "chunk carries {ops} ops plus the quorum write");
+        }
+        assert_eq!(
+            ranges.len(),
+            4,
+            "512 compares over a 128 budget is 4 chunks"
+        );
+    }
+
+    /// The mass-cancellation shape: replacements cost (2 guards, 4 ops),
+    /// so the op list binds, and the reserved quorum write counts
+    /// against every chunk.
+    #[test]
+    fn replacements_chunk_on_the_op_list_with_the_reserve() {
+        let costs = vec![(2, 4); 256];
+        let ranges = plan_chunk_ranges(&costs, 128, 1);
+        assert_contiguous_cover(&ranges, costs.len());
+        for r in &ranges {
+            let ops: usize = costs[r.clone()].iter().map(|c| c.1).sum();
+            assert!(ops < 128, "chunk carries {ops} ops plus the quorum write");
+        }
+    }
+
+    /// A plan that fits stays one transaction — chunking must not tax
+    /// the healthy case with extra round trips.
+    #[test]
+    fn a_fitting_plan_is_one_chunk() {
+        let costs = vec![(2, 1); 60];
+        assert_eq!(plan_chunk_ranges(&costs, 128, 1), vec![0..60]);
+    }
+
+    /// A budget below a single unit's cost still emits that unit alone:
+    /// the packer must make progress and let the server be the judge.
+    #[test]
+    fn an_oversized_unit_is_its_own_chunk() {
+        let costs = vec![(2, 4), (2, 4)];
+        assert_eq!(plan_chunk_ranges(&costs, 1, 0), vec![0..1, 1..2]);
     }
 }

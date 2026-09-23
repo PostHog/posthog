@@ -3,6 +3,14 @@ title: Backend coding conventions
 sidebar: Handbook
 ---
 
+#### Query trace correlation
+
+The `query.client_query_id` attribute on `posthog.query.process_query_model` matches the browser `query completed` event's `queryId` and the API response event's `client_query_id`.
+Only UUID-shaped IDs are added to spans; other client IDs remain valid API inputs.
+A matching ID links a request to its processing span. It does not prove that the request delayed page rendering.
+An asynchronous query can continue in a separate trace after the submission request ends.
+Check request timing against browser performance metrics, and inspect child spans and self time before choosing a performance fix.
+
 #### Logging
 
 As a general rule, we should have logs for every expected and unexpected actions of the application, using the appropriate _log level_.
@@ -119,7 +127,8 @@ Escalating to the next rung is the last resort, not the default.
 - **Use `TestCase`, not `TransactionTestCase`, unless you truly need it.** `TransactionTestCase` flushes the DB between tests instead of rolling back a transaction — dramatically slower, and a common source of cross-test interference. For `transaction.on_commit` side effects use `self.captureOnCommitCallbacks(execute=True)`; reaching ClickHouse is not a reason to switch (`ClickhouseTestMixin` runs on a plain `TestCase`).
 - Mock only true boundaries — network, external APIs, the clock, queues. Don't mock your own internal helpers; that's how change-detector tests are born.
 - Frontend: prefer a kea logic test (`logic.actions` / `logic.values`) over a full component render whenever the behavior lives in the logic, and don't snapshot large rendered trees — assert specific fields instead.
-- Keep tests deterministic and isolated: no `time.sleep` or arbitrary waits (use `freeze_time` or wait on a real condition), no real network or live external services, and they must pass in any order. Don't leave a `@skip`/`xfail`/`.only` without a one-line reason and a linked issue.
+- Keep tests deterministic and isolated: no `time.sleep` or arbitrary waits (use `time_machine.travel(..., tick=False)` or wait on a real condition), no real network or live external services, and they must pass in any order. Don't leave a `@skip`/`xfail`/`.only` without a one-line reason and a linked issue.
+- **An absolute date in a test is a time bomb until you pin the clock.** A fixture date holds its meaning only while the real clock stays where you left it, so a test that measures that date against `now` — an age, a window, a "recent" flag, an expiry — passes today and fails weeks later on every open branch. Pin the process clock to the same instant (`time_machine.travel(..., tick=False)`, or `jest.useFakeTimers()` with `jest.setSystemTime()`), or write the fixture relative to `now`. Pinning covers only what reads the clock inside your process: anything outside it, such as a ClickHouse TTL or an S3 lifecycle rule, still runs on the real one.
 
 #### Fast developer ("unit") tests
 

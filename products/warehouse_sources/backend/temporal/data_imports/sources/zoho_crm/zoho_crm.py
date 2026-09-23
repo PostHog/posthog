@@ -9,6 +9,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dat
     coerce_datetime_to_utc,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+    RESTClientRetryableError,
+    _looks_like_json,
+    _safe_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.settings import (
@@ -38,6 +44,11 @@ ZOHO_REGIONS: dict[str, RegionHosts] = {
     "ca": RegionHosts(accounts_host="https://accounts.zohocloud.ca", api_domain="https://www.zohoapis.ca"),
     "cn": RegionHosts(accounts_host="https://accounts.zoho.com.cn", api_domain="https://www.zohoapis.com.cn"),
 }
+
+# Zoho answers a request that matched nothing with 204. It answers a conditional read whose
+# records are all older than `If-Modified-Since` with 304. Both bodies are empty, and
+# `raise_for_status()` lets 304 through, so each read site must check for both.
+NO_CONTENT_STATUSES = frozenset({204, 304})
 
 # Zoho caps `per_page` at 200.
 PAGE_SIZE = 200
@@ -82,6 +93,24 @@ def format_modified_since(value: Any) -> str:
     if parsed is None:
         return str(value)
     return parsed.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
+def _parse_json_body(response: requests.Response) -> Optional[Any]:
+    """Decode a 2xx JSON body, or classify a body that does not decode.
+
+    An empty body is a complete "no data" answer, so it becomes `None`. A body that starts as a
+    JSON value is a truncated read and stays retryable. A body that never starts as JSON is an
+    error, login, or maintenance page, which a retry can only fetch again, so it is non-retryable.
+    """
+    try:
+        return response.json()
+    except requests.exceptions.JSONDecodeError as e:
+        if not response.content or not response.content.strip():
+            return None
+        # `_safe_url` drops the query string, which carries the page token and the field list.
+        if not _looks_like_json(response.content):
+            raise RESTClientNonRetryableError(f"Non-JSON response from {_safe_url(response.url)}") from e
+        raise RESTClientRetryableError(f"Malformed JSON response from {_safe_url(response.url)}: {e}") from e
 
 
 def chunk_fields(names: list[str], size: int = MAX_FIELDS_PER_REQUEST) -> list[list[str]]:
@@ -135,7 +164,7 @@ class ZohoCRMClient:
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-        body = response.json()
+        body = _parse_json_body(response) or {}
 
         access_token = body.get("access_token")
         if not access_token:
@@ -176,8 +205,7 @@ class ZohoCRMClient:
             self.mint_access_token()
             response = _send()
 
-        # 204 is Zoho's "nothing matched" — an empty body, not an error.
-        if response.status_code != 204:
+        if response.status_code not in NO_CONTENT_STATUSES:
             response.raise_for_status()
         return response
 
@@ -185,11 +213,15 @@ class ZohoCRMClient:
 def readable_field_names(client: ZohoCRMClient, api_version: str, module: str) -> list[str]:
     """Field API names Get Records can project for `module`, from the fields metadata API."""
     response = client.get(f"/crm/{api_version}/settings/fields", params={"module": module})
-    if response.status_code == 204:
+    if response.status_code in NO_CONTENT_STATUSES:
+        return []
+
+    body = _parse_json_body(response)
+    if body is None:
         return []
 
     names: list[str] = []
-    for field in response.json().get("fields") or []:
+    for field in body.get("fields") or []:
         api_name = field.get("api_name")
         if not api_name:
             continue
@@ -209,10 +241,13 @@ def _fetch_page(
     headers: dict[str, str],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     response = client.get(f"/crm/{api_version}/{config.path}", params=params, headers=headers)
-    if response.status_code == 204:
+    if response.status_code in NO_CONTENT_STATUSES:
         return [], {}
 
-    body = response.json()
+    body = _parse_json_body(response)
+    if body is None:
+        return [], {}
+
     return list(body.get(config.data_key) or []), dict(body.get("info") or {})
 
 

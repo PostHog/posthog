@@ -1,13 +1,11 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
@@ -69,6 +67,9 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
             "Report no longer exists": report_gone,
             # A row that resolves by id hits the fetch directly, so a deleted report surfaces there.
             "Request to get report failed with status: 404": report_gone,
+            # DoIt's own rejection text for a bad key, stable across both the list and get-report
+            # endpoints since they share the same bearer token check.
+            "invalid or revoked access key": "Your DoIt API key is invalid or has been revoked. Please create a new key and reconnect.",
         }
 
     def source_for_pipeline(self, config: DoItSourceConfig, inputs: SourceInputs) -> SourceResponse:
@@ -87,7 +88,7 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DO_IT,
+            name=ExternalDataSourceType.DOIT,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="DoIt",
             iconPath="/static/services/doit.svg",

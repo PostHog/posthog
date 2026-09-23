@@ -47,6 +47,49 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "tags": "The tags (keys and values) associated with the configuration set, as JSON.",
         },
     },
+    "contact_lists": {
+        "description": "Contact lists in the account. A contact list stores contacts and the topics they can subscribe to.",
+        "docs_url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetContactList.html",
+        "columns": {
+            "contact_list_name": "The name of the contact list.",
+            "description": "A description of what the contact list is used for.",
+            "topics": "The interest groups, themes, or labels within the list, with each topic's default subscription status, as JSON.",
+            "created_timestamp": "When the contact list was created.",
+            "last_updated_timestamp": "When the contact list was last updated.",
+            "tags": "The tags (keys and values) associated with the contact list, as JSON.",
+        },
+    },
+    "custom_verification_email_templates": {
+        "description": "Custom verification email templates, used to customize the email SES sends when verifying a new email address.",
+        "docs_url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetCustomVerificationEmailTemplate.html",
+        "columns": {
+            "template_name": "The name of the custom verification email template.",
+            "from_email_address": "The email address that the custom verification email is sent from.",
+            "template_subject": "The subject line of the custom verification email.",
+            "template_content": "The content of the custom verification email, in HTML.",
+            "success_redirection_url": "The URL that the recipient of the verification email is sent to if their address is successfully verified.",
+            "failure_redirection_url": "The URL that the recipient of the verification email is sent to if their address is not successfully verified.",
+        },
+    },
+    "dedicated_ip_pools": {
+        "description": "Dedicated IP pools in the account. A pool groups dedicated IP addresses so configuration sets can send through them.",
+        "docs_url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetDedicatedIpPool.html",
+        "columns": {
+            "pool_name": "The name of the dedicated IP pool.",
+            "dedicated_ip_pool_pool_name": "The name of the dedicated IP pool, as returned by the pool detail call.",
+            "dedicated_ip_pool_scaling_mode": "The type of the pool: STANDARD (warm-up managed by you) or MANAGED (warm-up managed by SES).",
+        },
+    },
+    "dedicated_ips": {
+        "description": "Dedicated IP addresses assigned to the account, with their warm-up progress and pool assignment. Empty for accounts without dedicated IPs.",
+        "docs_url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetDedicatedIps.html",
+        "columns": {
+            "ip": "The dedicated IP address.",
+            "warmup_status": "The warm-up status of the address: IN_PROGRESS, DONE, or NOT_APPLICABLE.",
+            "warmup_percentage": "How far along the warm-up process is. 100 means the address is fully warmed up and ready to use.",
+            "pool_name": "The name of the dedicated IP pool that the address is associated with.",
+        },
+    },
     "email_identities": {
         "description": "The email identities (domains and addresses) registered with the account, with their DKIM, MAIL FROM, and verification details.",
         "docs_url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetEmailIdentity.html",
@@ -76,6 +119,29 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "verification_info_soa_record_primary_name_server": "The primary name server from the domain's SOA record.",
             "verification_info_soa_record_admin_email": "The administrative contact email from the domain's SOA record.",
             "verification_info_soa_record_serial_number": "The serial number from the domain's SOA record.",
+        },
+    },
+    "email_templates": {
+        "description": "Email templates stored in SES, including the subject line and the HTML and plain-text bodies used when sending templated email.",
+        "docs_url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_GetEmailTemplate.html",
+        "columns": {
+            "template_name": "The name of the template.",
+            "created_timestamp": "When the template was created.",
+            "template_content_subject": "The subject line of the email template.",
+            "template_content_text": "The plain-text body of the email template.",
+            "template_content_html": "The HTML body of the email template.",
+        },
+    },
+    "multi_region_endpoints": {
+        "description": "Multi-region endpoints (global endpoints), which route sending across a primary and a secondary AWS Region.",
+        "docs_url": "https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_ListMultiRegionEndpoints.html",
+        "columns": {
+            "endpoint_name": "The name of the multi-region endpoint (global endpoint).",
+            "endpoint_id": "The ID of the multi-region endpoint (global endpoint).",
+            "status": "The status of the endpoint: CREATING, READY, FAILED, or DELETING.",
+            "regions": "The AWS Regions the multi-region endpoint sends email from, as JSON.",
+            "created_timestamp": "When the multi-region endpoint was created.",
+            "last_updated_timestamp": "When the multi-region endpoint was last updated.",
         },
     },
     "suppressed_destinations": {

@@ -30,8 +30,7 @@ initialize_otel()
 
 # Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
 # pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
-# collections skip them — which also maximizes copy-on-write sharing when a prototype
-# process forks workers. See docs/internal/django-startup-time.md.
+# collections skip them. See docs/internal/django-startup-time.md.
 gc.disable()
 try:
     _django_application = get_wsgi_application()
@@ -39,9 +38,7 @@ try:
     # Resolve the URLconf now, at module load. The lazy API router otherwise builds on
     # each worker's FIRST LIVE REQUEST — k8s probes (/_livez, /_readyz) short-circuit in
     # middleware and never warm it — costing seconds per worker after every deploy.
-    # Building it here keeps the cost to the prototype-process boot: Unit forks workers
-    # from that prototype after the module loads, so the built router lands in the frozen
-    # heap and is copy-on-write shared across all forked workers. Non-web processes
+    # Building it here moves the cost to worker boot instead. Non-web processes
     # (celery, temporal, migrate, shell) never load this module and keep the lazy win.
     from django.urls import get_resolver
 
@@ -59,9 +56,9 @@ finally:
     gc.enable()
 
 
-# A web worker logs `web_worker_started` once, here at the end of boot. Nginx Unit recycles a
-# worker after NGINX_UNIT_REQUEST_LIMIT requests, and the kernel respawns one whenever a worker
-# is OOM-killed (SIGKILL is uncatchable, so the kill itself can't be logged from inside the
+# A web worker logs `web_worker_started` once, here at the end of boot. Granian recycles a
+# worker once it passes GRANIAN_WORKERS_MAX_RSS, and respawns one whenever a worker is
+# OOM-killed (SIGKILL is uncatchable, so the kill itself can't be logged from inside the
 # worker). Either way the replacement boots and emits this line — so a burst of these on a pod
 # is the in-app fingerprint of worker churn / OOM kills, queryable in PostHog even though the
 # kill leaves no other application-level trace. Best-effort: never break worker startup.
@@ -78,7 +75,7 @@ def _log_web_worker_started() -> None:
             "web_worker_started",
             pid=os.getpid(),
             rss_mb=round(rss_mb, 1) if rss_mb is not None else None,
-            request_limit=os.getenv("NGINX_UNIT_REQUEST_LIMIT"),
+            max_rss_mb=os.getenv("GRANIAN_WORKERS_MAX_RSS"),
             pod=os.getenv("K8S_POD_NAME") or os.getenv("HOSTNAME"),
         )
     except Exception:
@@ -87,11 +84,10 @@ def _log_web_worker_started() -> None:
 
 _log_web_worker_started()
 
-# Nginx Unit forks workers from a prototype process that imported this module, so
-# the query_cache RedisCluster must be discovered post-fork: a client built here at
-# import time would be inherited -- sockets and all -- by every worker. Defer the
-# prewarm to the first request so discovery runs in the worker; the factory also
-# pid-guards the cache as a backstop. (start_continuous_profiling/initialize_otel
+# The query_cache RedisCluster must be discovered by the process that uses it: a client
+# built at import time is inherited, sockets and all, by anything forked afterwards.
+# Defer the prewarm to the first request; the factory also pid-guards the cache as a
+# backstop. (start_continuous_profiling/initialize_otel
 # above still run pre-fork here, unlike asgi.py which defers them -- that is a
 # separate, pre-existing concern, not addressed by this change.)
 #
@@ -106,14 +102,11 @@ def application(environ, start_response):
     if not _prewarmed:
         prewarm_query_cache_cluster_in_background()
         validate_configured_web_bot_auth_private_keys_in_background()
-        # Start the RSS sampler post-fork, here in the worker. Unit forks workers from a
-        # prototype that already imported this module, and a thread started pre-fork does
-        # not survive into the worker — starting it on the worker's first call samples the
-        # process that actually serves requests and grows toward the OOM limit.
+        # Threads do not survive a fork, so start the sampler from the process that
+        # actually serves requests.
         start_web_memory_sampler()
-        # Register the SIGUSR2 memory probe on the same post-fork path (see asgi.py). On a
-        # single-threaded Unit worker this runs on the main thread; if Unit serves the app
-        # from a worker thread the install no-ops gracefully. Inert unless the env flag is set.
+        # Signal handlers install only from the main thread, so this logs a handled failure
+        # when the server calls the app off it. Inert unless the env flag is set.
         install_memory_probe_handler()
         _prewarmed = True
     return _django_application(environ, start_response)

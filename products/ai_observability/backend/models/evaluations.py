@@ -83,7 +83,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     objects = EvaluationQuerySet.as_manager()
 
     # Core fields
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     directory = models.ForeignKey(
@@ -135,7 +135,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
 
     def __init__(self, *args, **kwargs) -> None:

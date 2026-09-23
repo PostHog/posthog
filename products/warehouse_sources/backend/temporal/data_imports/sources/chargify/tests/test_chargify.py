@@ -121,10 +121,10 @@ class TestChargifySourceResumeBehavior:
 
     def _drive(
         self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[MagicMock, list[dict[str, Any]]]:
+    ) -> tuple[MagicMock, list[dict[str, Any]], list[Any]]:
         """Drive ``chargify_source`` with a mocked HTTP session.
 
-        Returns ``(mock_session, sent_params)`` where ``sent_params`` captures a shallow
+        Returns ``(mock_session, sent_params, rows)`` where ``sent_params`` captures a shallow
         copy of ``request.params`` at send-time — the Request object is mutated in place
         by the paginator between pages, so mock call history can't be trusted for it.
         """
@@ -153,10 +153,12 @@ class TestChargifySourceResumeBehavior:
                 db_incremental_field_last_value=None,
                 should_use_incremental_field=False,
             )
-            list(cast(Iterable[Any], resource))
-            return mock_session, sent_params
+            rows = list(cast(Iterable[Any], resource))
+            return mock_session, sent_params, rows
 
-    @pytest.mark.parametrize("endpoint", ["Customers", "Subscriptions", "Events", "Transactions"])
+    @pytest.mark.parametrize(
+        "endpoint", ["Customers", "Subscriptions", "Events", "Transactions", "Coupons", "ReasonCodes"]
+    )
     def test_fresh_run_saves_page_after_each_non_terminal_page(self, endpoint: str) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -167,7 +169,7 @@ class TestChargifySourceResumeBehavior:
             _make_http_response([{selector_key: {"id": 2}}]),
             _make_http_response([]),
         ]
-        _, sent_params = self._drive(endpoint, manager, responses)
+        _, sent_params, _ = self._drive(endpoint, manager, responses)
 
         assert [p.get("page") for p in sent_params] == [1, 2, 3]
 
@@ -183,7 +185,7 @@ class TestChargifySourceResumeBehavior:
             _make_http_response([{"customer": {"id": 1}}]),
             _make_http_response([]),
         ]
-        _, sent_params = self._drive("Customers", manager, responses)
+        _, sent_params, _ = self._drive("Customers", manager, responses)
 
         assert [p.get("page") for p in sent_params] == [5, 6]
         manager.load_state.assert_called_once()
@@ -206,6 +208,35 @@ class TestChargifySourceResumeBehavior:
         self._drive("Customers", manager, responses)
 
         manager.load_state.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("endpoint", "first_page", "empty_page", "expected_row"),
+        [
+            ("Coupons", [{"coupon": {"id": 1, "code": "FREE"}}], [], {"id": 1, "code": "FREE"}),
+            ("ReasonCodes", [{"reason_code": {"id": 2, "code": "LARGE"}}], [], {"id": 2, "code": "LARGE"}),
+            (
+                "CreditNotes",
+                {"credit_notes": [{"uid": "cn_1", "total_amount": "10.0"}]},
+                {"credit_notes": []},
+                {"uid": "cn_1", "total_amount": "10.0"},
+            ),
+        ],
+    )
+    def test_rows_are_unwrapped_and_pagination_terminates(
+        self, endpoint: str, first_page: Any, empty_page: Any, expected_row: dict[str, Any]
+    ) -> None:
+        # Chargify mixes bare arrays of single-key-wrapped objects with payloads nested under a
+        # plural key, so the selector has to strip the right wrapper and the paginator has to
+        # recognise an empty page in either shape.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        responses = [_make_http_response(first_page), _make_http_response(empty_page)]
+        _, sent_params, rows = self._drive(endpoint, manager, responses)
+
+        # The resource yields one list per page.
+        assert rows == [[expected_row]]
+        assert [p.get("page") for p in sent_params] == [1, 2]
 
 
 class TestValidateCredentials:

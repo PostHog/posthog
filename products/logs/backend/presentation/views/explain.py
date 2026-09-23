@@ -231,7 +231,7 @@ async def explain_log_with_openai(log_data: dict, team_id: int) -> LogExplanatio
     ]
 
     try:
-        response = await client.chat.completions.create(  # type: ignore[call-overload]
+        response = await client.chat.completions.create(
             model="gpt-4.1",
             messages=messages,
             response_format=cast(

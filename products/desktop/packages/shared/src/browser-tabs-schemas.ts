@@ -92,14 +92,12 @@ export const browserTabSchema = z.object({
 });
 export type BrowserTab = z.infer<typeof browserTabSchema>;
 
-export const windowBoundsSchema = z.object({
+const windowBoundsSchema = z.object({
   x: z.number(),
   y: z.number(),
   width: z.number(),
   height: z.number(),
 });
-export type WindowBounds = z.infer<typeof windowBoundsSchema>;
-
 export const browserWindowSchema = z.object({
   id: z.string(),
   isPrimary: z.boolean(),

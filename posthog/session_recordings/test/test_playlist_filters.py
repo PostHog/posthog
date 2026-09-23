@@ -42,13 +42,18 @@ class TestConvertFiltersToRecordingsQuery(SimpleTestCase):
         assert query.experiment_exposure.experiment_id == 42
         assert query.experiment_exposure.variant == "test"
 
-    def test_session_ids_survive_conversion(self):
-        # Dropped here, a playlist pinned to specific recordings would count and render every
-        # recording matching the rest of the filters.
+    @parameterized.expand(
+        [
+            ("session_ids", ["0190abc", "0191def"]),
+            ("recommended_only", True),
+        ]
+    )
+    def test_query_only_filters_survive_conversion(self, field, value):
+        # These fields sit outside filter_group, so dropping them silently widens saved playlist counts.
         filters = _filters("AND", "AND", [])
-        filters["session_ids"] = ["0190abc", "0191def"]
+        filters[field] = value
         query = convert_filters_to_recordings_query(filters)
-        assert query.session_ids == ["0190abc", "0191def"]
+        assert getattr(query, field) == value
 
     def test_visited_page_becomes_recording_property_not_event(self):
         filters = _filters("OR", "OR", [_visited_page("/cart"), _visited_page("/orders")])

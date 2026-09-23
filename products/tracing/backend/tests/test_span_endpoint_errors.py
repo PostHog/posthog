@@ -4,10 +4,11 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework.exceptions import ParseError
 
 from posthog.errors import CHQueryErrorTooManyBytes
 
-from products.tracing.backend.presentation.views import _serialize_compare_rows
+from products.tracing.backend.presentation.views import SpansViewSet, _serialize_compare_rows
 
 
 class _FakeRow:
@@ -35,6 +36,30 @@ class TestSerializeCompareRows(SimpleTestCase):
         self.assertEqual(_serialize_compare_rows([_FakeRow(1), _FakeRow(2)]), [{"value": 1}, {"value": 2}])
 
 
+class TestQueryBody(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("array_body", ["x"]),
+            ("string_body", "x"),
+            ("array_query", {"query": ["x"]}),
+            ("string_query", {"query": "x"}),
+        ]
+    )
+    def test_rejects_non_object(self, _name, data):
+        with self.assertRaises(ParseError):
+            SpansViewSet._query_body(data)
+
+    @parameterized.expand(
+        [
+            ("missing", {}, {}),
+            ("null", {"query": None}, {}),
+            ("object", {"query": {"serviceNames": ["web"]}}, {"serviceNames": ["web"]}),
+        ]
+    )
+    def test_reads_the_query(self, _name, data, expected):
+        self.assertEqual(SpansViewSet._query_body(data), expected)
+
+
 class TestSpanCountErrorHandling(APIBaseTest):
     def test_count_over_byte_cap_returns_400_not_500(self):
         # The count is a bounded pre-flight; exceeding ClickHouse's byte cap must surface as an
@@ -50,6 +75,16 @@ class TestSpanCountErrorHandling(APIBaseTest):
             )
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn("narrow", response.json()["detail"].lower())
+
+    def test_count_rejects_a_non_object_query(self):
+        # The body reaches the field reads unvalidated, so a non-object query used to raise an
+        # AttributeError and surface as a 500.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/count/",
+            {"query": ["x"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
 
     def test_aggregate_rejects_malformed_compare_filter(self):
         # A compareFilter that fails validation must 400, not be swallowed into a 200 with

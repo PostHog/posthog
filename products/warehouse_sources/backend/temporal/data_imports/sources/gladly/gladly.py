@@ -5,7 +5,7 @@ import json
 import time
 import hashlib
 import dataclasses
-from collections.abc import Buffer, Iterator
+from collections.abc import Buffer, Iterator, Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
@@ -50,20 +50,23 @@ class GladlyRetryableError(Exception):
 
 
 class GladlyReportHeaderError(Exception):
-    """A report body whose header is missing the columns the stream is keyed on.
-
-    A body that isn't the promised CSV still parses: its first line becomes the
-    header, so the rows come out carrying junk columns or nothing but the injected
-    `_row_id`, and the sync then fails much later with a misleading complaint about
-    the incremental field. Stop at the source instead. Keep the message matching
-    the entry in the source's non-retryable errors.
-    """
-
     def __init__(self, metric_set: str, missing: list[str], present: list[str]) -> None:
         super().__init__(
             f"Gladly report is missing required columns {missing} for metricSet={metric_set}. "
             f"Columns returned: {present!r:.300}"
         )
+
+
+class GladlyReportUnavailableError(Exception):
+    def __init__(self, metric_set: str, header: list[str]) -> None:
+        super().__init__(
+            f"Gladly returned no report for metricSet={metric_set}: the response body is not a CSV report. "
+            f"First line: {header!r:.300}"
+        )
+
+
+def _header_is_an_error_line(fieldnames: Sequence[str]) -> bool:
+    return len(fieldnames) == 1
 
 
 class _ResponseByteStream(io.RawIOBase):
@@ -424,23 +427,14 @@ def _report_rows(
     if not inject_row_id:
         required_columns.add(config.primary_key)
 
-    is_first_request = True
-    while window_start <= today:
-        window_end = min(window_start + timedelta(days=config.report_window_days - 1), today)
-        if not is_first_request:
-            time.sleep(REPORT_REQUEST_INTERVAL_SECONDS)
-        is_first_request = False
-        response = generate_report(
-            {
-                "metricSet": metric_set,
-                # Explicit UTC keeps window boundaries and rendered timestamps
-                # stable even if the organization's default timezone changes.
-                "timezone": "UTC",
-                # endAt is inclusive: the report covers through the end of that day.
-                "startAt": window_start.isoformat(),
-                "endAt": window_end.isoformat(),
-            }
-        )
+    @retry(
+        retry=retry_if_exception_type(GladlyReportUnavailableError),
+        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+        wait=wait_exponential_jitter(initial=2, max=90),
+        reraise=True,
+    )
+    def open_report(payload: dict[str, str], window_start: date, window_end: date) -> "csv.DictReader[str]":
+        response = generate_report(payload)
 
         # Wrap the byte stream rather than iterating lines: CSV values can contain
         # newlines inside quoted fields, which line-splitting would tear apart.
@@ -460,7 +454,31 @@ def _report_rows(
                 f"Gladly: {config.name} report window {window_start} - {window_end} returned a header "
                 f"missing {missing}. Header row: {reader.fieldnames!r:.500}"
             )
+            if _header_is_an_error_line(reader.fieldnames):
+                raise GladlyReportUnavailableError(metric_set, list(reader.fieldnames))
             raise GladlyReportHeaderError(metric_set, missing, present)
+        return reader
+
+    is_first_request = True
+    while window_start <= today:
+        window_end = min(window_start + timedelta(days=config.report_window_days - 1), today)
+        if not is_first_request:
+            time.sleep(REPORT_REQUEST_INTERVAL_SECONDS)
+        is_first_request = False
+        reader = open_report(
+            {
+                "metricSet": metric_set,
+                # Explicit UTC keeps window boundaries and rendered timestamps
+                # stable even if the organization's default timezone changes.
+                "timezone": "UTC",
+                # endAt is inclusive: the report covers through the end of that day.
+                "startAt": window_start.isoformat(),
+                "endAt": window_end.isoformat(),
+            },
+            window_start,
+            window_end,
+        )
+        columns = {name: _normalize_report_column(name) for name in reader.fieldnames or []}
 
         row_count = 0
         chunk: list[dict[str, Any]] = []

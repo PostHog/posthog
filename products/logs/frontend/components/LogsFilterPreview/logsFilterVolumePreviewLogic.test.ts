@@ -17,18 +17,23 @@ describe('logsFilterVolumePreviewLogic', () => {
     let logic: ReturnType<typeof logsFilterVolumePreviewLogic.build>
     let sparklineCalls: number
     let rankBysSeen: (string | undefined)[]
+    let dateFromsSeen: (string | null | undefined)[]
     let sparklineFails: boolean
 
     beforeEach(() => {
         sparklineCalls = 0
         rankBysSeen = []
+        dateFromsSeen = []
         sparklineFails = false
         useMocks({
             post: {
                 '/api/environments/:team_id/logs/sparkline/': async ({ request }) => {
                     sparklineCalls += 1
-                    const body = (await request.clone().json()) as { query?: { sparklineRankBy?: string } }
+                    const body = (await request.clone().json()) as {
+                        query?: { sparklineRankBy?: string; dateRange?: { date_from?: string | null } }
+                    }
                     rankBysSeen.push(body?.query?.sparklineRankBy)
+                    dateFromsSeen.push(body?.query?.dateRange?.date_from)
                     return sparklineFails ? [500, { detail: 'boom' }] : [200, SPARKLINE_ROWS]
                 },
             },
@@ -89,6 +94,24 @@ describe('logsFilterVolumePreviewLogic', () => {
 
         expect(sparklineCalls).toEqual(2)
         expect(rankBysSeen).toEqual(['count', 'bytes'])
+    })
+
+    it('queries a 24h window by default and the requested lookback otherwise', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setPreviewRequest(nonEmptyGroup, 'count')
+        })
+            .toDispatchActions(['loadFilterPreviewSuccess'])
+            .toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setPreviewRequest(nonEmptyGroup, 'count', '1h')
+        })
+            .toDispatchActions(['loadFilterPreviewSuccess'])
+            .toFinishAllListeners()
+
+        // A lookback change alone must refetch: the 24h response can't stand in for the 1h window.
+        expect(sparklineCalls).toEqual(2)
+        expect(dateFromsSeen).toEqual(['-24h', '-1h'])
     })
 
     it('drops the previous result when a later filter fails to load', async () => {

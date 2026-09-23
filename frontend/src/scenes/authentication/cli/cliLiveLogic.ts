@@ -119,7 +119,7 @@ export const cliLiveLogic = kea<cliLiveLogicType>([
             }
 
             try {
-                const team = await api.get(`api/environments/${projectId}/`)
+                const team = await api.get(`api/projects/${projectId}/`)
                 const token = team.live_events_token
                 if (!token) {
                     actions.setError('Live events token not available for this project')

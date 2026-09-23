@@ -202,6 +202,43 @@ describe('ApiClient', () => {
 
     it.each([
         [
+            'forwards a stated intent',
+            'Repairing a tile that hit the query row limit',
+            'Repairing a tile that hit the query row limit',
+        ],
+        ['caps an overlong intent', 'i'.repeat(900), 'i'.repeat(500)],
+        ['strips characters a header cannot carry', 'Fixing the 📈 tile\nfor the user', 'Fixing the  tilefor the user'],
+        ['omits an intent that is not a string', 42 as unknown as string, undefined],
+        ['omits the header when the agent stated none', undefined, undefined],
+    ] as const)('%s', async (_label, intent, expected) => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+        const client = new ApiClient({ apiToken: 'test-token-123', baseUrl: 'https://example.com', intent })
+
+        await client.request({ method: 'GET', path: '/api/projects/1/dashboards/' })
+
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers['x-posthog-intent']).toBe(expected)
+        vi.unstubAllGlobals()
+    })
+
+    it('sends an intent only from the copy that carries it, so concurrent calls cannot cross', async () => {
+        // A fresh Response per call: a body can only be read once.
+        const mockFetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+        const shared = new ApiClient({ apiToken: 'test-token-123', baseUrl: 'https://example.com' })
+
+        await shared.withIntent('auditing the dashboard tiles').request({ method: 'GET', path: '/api/projects/1/' })
+        await shared.request({ method: 'GET', path: '/api/projects/1/' })
+
+        expect(mockFetch.mock.calls[0]![1].headers['x-posthog-intent']).toBe('auditing the dashboard tiles')
+        expect(mockFetch.mock.calls[1]![1].headers).not.toHaveProperty('x-posthog-intent')
+        expect(shared.config.intent).toBeUndefined()
+        vi.unstubAllGlobals()
+    })
+
+    it.each([
+        [
             'both ids set',
             { mcpSessionId: 'abc123session', mcpConversationId: '01984ad9-bda4-7000-8000-abcdef012345' },
             {

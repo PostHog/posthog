@@ -182,9 +182,9 @@ class CIMDRegistrationThrottle(BaseThrottle):
 
     def allow_request(self, request: Request, view: APIView) -> bool:
         client_id = request.data.get("client_id") or request.query_params.get("client_id")
-        if not cimd.is_cimd_client_id(client_id):
+        if not client_id or not cimd.is_cimd_client_id(client_id):
             return True
-        if OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
+        if OAuthApplication.objects.filter(client_id=client_id).exists():
             return True
 
         # Attribute access (not a from-import) so tests patching

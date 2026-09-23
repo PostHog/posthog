@@ -16,7 +16,7 @@ import {
 } from '~/queries/nodes/DataVisualization/Components/Variables/VariableFields'
 import { getListVariableSelectedValues } from '~/queries/nodes/DataVisualization/Components/Variables/variableUtils'
 import { ListVariable, Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import type { Node } from '../../../queries/schema/schema-general'
 import { fetchInsightsUsingVariable } from './insightsLoader'
@@ -70,7 +70,7 @@ export interface sqlVariableEditSceneLogicValues {
           }
     )[]
     hasChanges: boolean
-    insightsUsingVariable: QueryBasedInsightModel[]
+    insightsUsingVariable: InsightModel[]
     insightsUsingVariableLoading: boolean
     isNew: boolean
     isVariableFormSubmitting: boolean
@@ -101,10 +101,10 @@ export interface sqlVariableEditSceneLogicActions {
         errorObject?: any
     }
     loadInsightsUsingVariableSuccess: (
-        insightsUsingVariable: QueryBasedInsightModel<Node<Record<string, any>>>[],
+        insightsUsingVariable: InsightModel<Node<Record<string, any>>>[],
         payload?: any
     ) => {
-        insightsUsingVariable: QueryBasedInsightModel<Node<Record<string, any>>>[]
+        insightsUsingVariable: InsightModel<Node<Record<string, any>>>[]
         payload?: any
     }
     loadVariable: () => any
@@ -226,7 +226,7 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
             },
         ],
         insightsUsingVariable: [
-            [] as QueryBasedInsightModel[],
+            [] as InsightModel[],
             {
                 loadInsightsUsingVariable: async () => {
                     if (props.id === 'new') {

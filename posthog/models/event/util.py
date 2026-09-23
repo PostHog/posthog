@@ -320,7 +320,9 @@ def bulk_create_events(
             }
     if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         sync_execute(
-            BULK_INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE) + ", ".join(inserts), json_params, flush=False
+            BULK_INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE, values=", ".join(inserts)),
+            json_params,
+            flush=False,
         )
     sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
 

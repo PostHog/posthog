@@ -8,11 +8,11 @@
 # exclude.hcl's `*_staging` / `*_backfill` globs are also too broad for this node — they
 # match real objects (web_pre_aggregated_*_staging tables, *_batch_export_backfill views)
 # — so this file spells the transient patterns out rather than reusing them wholesale.
+#
+# Kafka named collections stay in the dump for the same reason as in exclude.hcl: a
+# dump without them cannot resolve the kafka_* tables that name them.
 
 exclude {
-  # Secret Kafka broker/credential config; never modeled in the goldens.
-  object_types = ["named_collection"]
-
   patterns = [
     # --- transient (ClickHouse atomic CREATE-OR-REPLACE / EXCHANGE) ---
     "_tmp_replace_*",

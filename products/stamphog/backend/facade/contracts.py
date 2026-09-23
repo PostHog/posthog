@@ -16,7 +16,14 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from .enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewTrigger, ReviewVerdict
+from .enums import (
+    ChannelResolutionSource,
+    DigestRunStatus,
+    ReviewRequestRefusal,
+    ReviewRunStatus,
+    ReviewTrigger,
+    ReviewVerdict,
+)
 
 
 @dataclass(frozen=True)
@@ -109,6 +116,34 @@ class ReviewRunDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ReviewRequestResultDTO:
+    """The run a manual review request points at, and whether the request created it."""
+
+    run: ReviewRunDTO
+    # False when a live or delivered run already covered the PR's current head.
+    created: bool
+
+
+@dataclass(frozen=True)
+class ReviewReasoningDTO:
+    """The reviewer's reasoning for one run, all None until the reviewer has run."""
+
+    reasoning: str | None = None
+    showstoppers: list[str] | None = None
+    review_body: str | None = None
+    change_summary: str | None = None
+
+
+class ReviewRequestRefusedError(Exception):
+    """A manual review request did not queue a run. ``message`` is written for the requester."""
+
+    def __init__(self, refusal: ReviewRequestRefusal, message: str) -> None:
+        super().__init__(message)
+        self.refusal = refusal
+        self.message = message
 
 
 class RepoAlreadyClaimedError(Exception):

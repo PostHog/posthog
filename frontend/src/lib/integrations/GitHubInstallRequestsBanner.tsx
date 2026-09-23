@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { githubInstallRequestsLogic } from 'lib/integrations/githubInstallRequestsLogic'
@@ -19,11 +19,13 @@ export function buildOrgOwnerMessage(installUrl: string): string {
 export function GitHubInstallRequestsBanner({
     onFinishConnecting,
     finishConnectingUrl,
+    variant = 'default',
 }: {
     /** Runs the surface's own connect flow once an owner has approved the install. */
     onFinishConnecting?: () => void
     /** Alternative to `onFinishConnecting` for surfaces whose connect is a plain link. */
     finishConnectingUrl?: string
+    variant?: 'default' | 'onboarding'
 }): JSX.Element | null {
     const { pendingInstallRequests, approvedInstallRequests, installUrl, dismissingRequestIds } =
         useValues(githubInstallRequestsLogic)
@@ -58,14 +60,16 @@ export function GitHubInstallRequestsBanner({
                             >
                                 Finish connecting
                             </LemonButton>
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                loading={dismissingRequestIds.includes(request.id)}
-                                onClick={() => dismissInstallRequest(request.id)}
-                            >
-                                Dismiss
-                            </LemonButton>
+                            {variant === 'default' ? (
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    loading={dismissingRequestIds.includes(request.id)}
+                                    onClick={() => dismissInstallRequest(request.id)}
+                                >
+                                    Dismiss
+                                </LemonButton>
+                            ) : null}
                         </div>
                     </div>
                 </LemonBanner>
@@ -83,36 +87,47 @@ export function GitHubInstallRequestsBanner({
                             ) : null}{' '}
                             to your organization owners. Once an owner approves the PostHog app, we'll finish connecting
                             here.
+                            {variant === 'onboarding' && installUrl ? (
+                                <>
+                                    {' '}
+                                    <Link to={installUrl} target="_blank">
+                                        Open the approval page
+                                    </Link>
+                                    .
+                                </>
+                            ) : null}
                         </span>
-                        {installUrl ? (
+                        {variant === 'default' && installUrl ? (
                             <code className="text-xs whitespace-normal break-words">
                                 {buildOrgOwnerMessage(installUrl)}
                             </code>
                         ) : null}
-                        <div className="flex flex-wrap gap-2">
-                            {installUrl ? (
+                        {variant === 'default' ? (
+                            <div className="flex flex-wrap gap-2">
+                                {installUrl ? (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() =>
+                                            void copyToClipboard(
+                                                buildOrgOwnerMessage(installUrl),
+                                                'message for your org owner'
+                                            )
+                                        }
+                                    >
+                                        Copy message for your org owner
+                                    </LemonButton>
+                                ) : null}
                                 <LemonButton
-                                    type="secondary"
+                                    type="tertiary"
                                     size="small"
-                                    onClick={() =>
-                                        void copyToClipboard(
-                                            buildOrgOwnerMessage(installUrl),
-                                            'message for your org owner'
-                                        )
-                                    }
+                                    loading={dismissingRequestIds.includes(request.id)}
+                                    onClick={() => dismissInstallRequest(request.id)}
                                 >
-                                    Copy message for your org owner
+                                    Dismiss
                                 </LemonButton>
-                            ) : null}
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                loading={dismissingRequestIds.includes(request.id)}
-                                onClick={() => dismissInstallRequest(request.id)}
-                            >
-                                Dismiss
-                            </LemonButton>
-                        </div>
+                            </div>
+                        ) : null}
                     </div>
                 </LemonBanner>
             ))}

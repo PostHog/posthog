@@ -4,7 +4,9 @@ import {
   formatUsd,
 } from "@posthog/core/billing/spendAnalysisFormat";
 import type { SpendAnalysisFilledDay } from "@posthog/core/billing/spendAnalysisTypes";
+import type { SpendLimits } from "@posthog/core/billing/spendLimits";
 import {
+  type GoalLineConfig,
   type Series,
   TimeSeriesComboChart,
   type TimeSeriesComboChartConfig,
@@ -13,6 +15,7 @@ import {
   TooltipSwatch,
   useChartTheme,
 } from "@posthog/quill-charts";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { UsageCard } from "./UsageCard";
 
 interface SpendOverTimeCardProps {
@@ -146,6 +149,28 @@ function SpendTooltip({
   );
 }
 
+/** The user's daily spend lines as chart goal lines on the daily axis. */
+export function spendLimitGoalLines(
+  limits: SpendLimits["day"],
+): GoalLineConfig[] {
+  const lines: GoalLineConfig[] = [];
+  if (limits.warnUsd !== null) {
+    lines.push({
+      value: limits.warnUsd,
+      label: `Warning ${formatUsd(limits.warnUsd)}`,
+      color: "var(--amber-9)",
+    });
+  }
+  if (limits.stopUsd !== null) {
+    lines.push({
+      value: limits.stopUsd,
+      label: `Stop ${formatUsd(limits.stopUsd)}`,
+      color: "var(--red-9)",
+    });
+  }
+  return lines;
+}
+
 export function modelColorsForDays(
   filledDays: SpendAnalysisFilledDay[],
 ): ReadonlyMap<string | null, string> {
@@ -164,6 +189,8 @@ export function SpendOverTimeCard({ filledDays }: SpendOverTimeCardProps) {
   const theme = useChartTheme();
   const series = spendSeriesForDays(filledDays);
   const modelColors = modelColorsForDays(filledDays);
+  const spendLimits = useSettingsStore((state) => state.spendLimits);
+  const goalLines = spendLimitGoalLines(spendLimits.day);
 
   return (
     <UsageCard
@@ -204,6 +231,7 @@ export function SpendOverTimeCard({ filledDays }: SpendOverTimeCardProps) {
                   currency: "USD",
                 },
               ] as unknown as TimeSeriesComboChartConfig["yAxis"],
+              goalLines: goalLines.length > 0 ? goalLines : undefined,
               barLayout: "grouped",
               barCornerRadius: 2,
               showCrosshair: true,

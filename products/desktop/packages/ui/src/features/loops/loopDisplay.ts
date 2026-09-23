@@ -24,7 +24,8 @@ function describeSchedule(
   const parsed = parseCronSchedule(cron);
   const timezone = config.timezone ?? "UTC";
   const timezoneLabel = formatTimezoneAbbreviation(timezone);
-  if (!parsed) return `${cron ?? "?"} (${timezoneLabel})`;
+  if (!cron) return "No schedule set";
+  if (!parsed) return `${cron} (${timezoneLabel})`;
   if (parsed.frequency === "hourly") return `Every hour (${timezoneLabel})`;
 
   const time = formatClockTime(parsed.time);

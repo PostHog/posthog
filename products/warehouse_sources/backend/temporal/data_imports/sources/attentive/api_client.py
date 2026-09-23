@@ -28,6 +28,21 @@ LOGGER = structlog.get_logger(__name__)
 WEBHOOKS_URL = f"{ATTENTIVE_V1_BASE_URL}/webhooks"
 REQUEST_TIMEOUT_SECONDS = 30
 
+API_KEY_REJECTED_ERROR = (
+    "Attentive rejected your API key. Create a private app under Marketplace > Create app in "
+    "Attentive and reconnect with its API key."
+)
+WEBHOOKS_PERMISSION_ERROR = (
+    "Your Attentive private app doesn't have the Webhooks permission. Grant it to the app under "
+    "Marketplace in Attentive, then reconnect."
+)
+RATE_LIMITED_ERROR = "Attentive rate-limited the request. Wait a few seconds, then try again."
+REQUEST_REJECTED_ERROR = (
+    "Attentive rejected the request. Check the API key and its permissions under Marketplace in "
+    "Attentive, then reconnect."
+)
+UNREACHABLE_ERROR = "Could not reach Attentive. Check your network, then try again."
+
 
 def _session(api_key: str) -> requests.Session:
     return make_tracked_session(
@@ -51,16 +66,16 @@ def _events_for_resources(resource_names: list[str]) -> list[str]:
 
 def _format_http_error(error: requests.HTTPError) -> str:
     status_code = error.response.status_code
+    # The customer-facing strings below omit the status, so log it here for every rejection rather
+    # than only the unrecognized ones.
+    LOGGER.warning("Attentive rejected the request", status_code=status_code)
     if status_code == 401:
-        return (
-            "Attentive rejected the API key (401). Create a private app under Marketplace > "
-            "Create app in Attentive and use its API key."
-        )
+        return API_KEY_REJECTED_ERROR
     if status_code == 403:
-        return "Attentive denied the request (403). Make sure the private app has the Webhooks permission."
+        return WEBHOOKS_PERMISSION_ERROR
     if status_code == 429:
-        return "Attentive rate-limited the request (429). Try again in a few seconds."
-    return f"Attentive API error ({status_code})."
+        return RATE_LIMITED_ERROR
+    return REQUEST_REJECTED_ERROR
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
@@ -73,7 +88,8 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     except requests.HTTPError as e:
         return False, _format_http_error(e)
     except requests.RequestException as e:
-        return False, f"Could not reach Attentive: {e}"
+        LOGGER.warning("Could not reach Attentive to validate the API key", error=str(e))
+        return False, UNREACHABLE_ERROR
     return True, None
 
 
@@ -144,7 +160,7 @@ def create_webhook(api_key: str, webhook_url: str, resource_names: list[str]) ->
         return WebhookCreationResult(success=False, error=_format_http_error(e))
     except requests.RequestException as e:
         LOGGER.warning("Could not reach Attentive to create webhook", error=str(e))
-        return WebhookCreationResult(success=False, error=f"Could not reach Attentive: {e}")
+        return WebhookCreationResult(success=False, error=UNREACHABLE_ERROR)
 
     # Attentive does NOT return the signing key in the create response — the
     # user has to copy it from the webhook's settings in the Attentive UI.
@@ -172,7 +188,7 @@ def enable_webhook(api_key: str, webhook_url: str) -> tuple[bool, str | None]:
         return False, _format_http_error(e)
     except requests.RequestException as e:
         LOGGER.warning("Could not reach Attentive to enable webhook", error=str(e))
-        return False, f"Could not reach Attentive: {e}"
+        return False, UNREACHABLE_ERROR
 
     return True, None
 
@@ -208,7 +224,7 @@ def sync_webhook_events(api_key: str, webhook_url: str, resource_names: list[str
         return WebhookSyncResult(success=False, error=_format_http_error(e))
     except requests.RequestException as e:
         LOGGER.warning("Could not reach Attentive to sync webhook events", error=str(e))
-        return WebhookSyncResult(success=False, error=f"Could not reach Attentive: {e}")
+        return WebhookSyncResult(success=False, error=UNREACHABLE_ERROR)
 
     return WebhookSyncResult(success=True)
 
@@ -234,7 +250,7 @@ def delete_webhook(api_key: str, webhook_url: str) -> WebhookDeletionResult:
         return WebhookDeletionResult(success=False, error=_format_http_error(e))
     except requests.RequestException as e:
         LOGGER.warning("Could not reach Attentive to delete webhook", error=str(e))
-        return WebhookDeletionResult(success=False, error=f"Could not reach Attentive: {e}")
+        return WebhookDeletionResult(success=False, error=UNREACHABLE_ERROR)
 
     return WebhookDeletionResult(success=True)
 
@@ -245,7 +261,8 @@ def get_external_webhook_info(api_key: str, webhook_url: str) -> ExternalWebhook
     except requests.HTTPError as e:
         return ExternalWebhookInfo(exists=False, error=_format_http_error(e))
     except requests.RequestException as e:
-        return ExternalWebhookInfo(exists=False, error=f"Could not reach Attentive: {e}")
+        LOGGER.warning("Could not reach Attentive to read the webhook", error=str(e))
+        return ExternalWebhookInfo(exists=False, error=UNREACHABLE_ERROR)
 
     existing = _find_webhook_by_url(webhooks, webhook_url)
     if existing is None:

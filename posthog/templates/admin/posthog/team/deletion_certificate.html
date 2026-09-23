@@ -1,8 +1,7 @@
 {% extends "admin/base_site.html" %}
 {% load i18n %}
-
 {% block content %}
-<style>
+    <style>
     @media print {
         @page {
             margin: 10mm;
@@ -184,128 +183,127 @@
         color: #6b7280;
         font-size: 14px;
     }
-</style>
-
-<div class="certificate">
-    <div class="actions-bar no-print">
-        <a href="{% url 'admin:posthog_team_delete_recordings' team.pk %}">&larr; Back to delete recordings</a>
-        <button id="print-btn">Print / Save as PDF</button>
-        <a href="{% url 'admin:posthog_team_download_deletion_certificate' team.pk certificate.workflow_id %}">Download JSON</a>
-    </div>
-
-    <div class="certificate-header">
-        <h1>Certificate of Data Deletion</h1>
-        <p class="reference">Reference: {{ reference_id }}</p>
-    </div>
-
-    {% if certificate.dry_run %}
-    <div class="dry-run-watermark">Dry Run</div>
-    {% endif %}
-
-    <div class="section">
-        <h2>Data Subject Details</h2>
-        <dl class="info-grid">
-            <dt>Organization</dt>
-            <dd>{{ team.organization.name }}</dd>
-
-            <dt>Customer ID</dt>
-            <dd>{{ team.organization_id }}</dd>
-        </dl>
-    </div>
-
-    <div class="section">
-        <h2>Scope of Deletion</h2>
-        <dl class="info-grid">
-            <dt>Deletion type</dt>
-            <dd>
-                {% if certificate.workflow_type == "person" %}
-                    All session recordings for specified person(s)
-                {% elif certificate.workflow_type == "team" %}
-                    All session recordings for project (ID {{ certificate.team_id }})
-                {% elif certificate.workflow_type == "query" %}
-                    Session recordings matching filter criteria
-                {% elif certificate.workflow_type == "session_ids" %}
-                    Specified session recordings{% if certificate.source_filename %} ({{ certificate.source_filename }}){% endif %}
-                {% else %}
-                    {{ certificate.workflow_type }}
+    </style>
+    <div class="certificate">
+        <div class="actions-bar no-print">
+            <a href="{% url 'admin:posthog_team_delete_recordings' team.pk %}">&larr; Back to delete recordings</a>
+            <button id="print-btn">Print / Save as PDF</button>
+            <a href="{% url 'admin:posthog_team_download_deletion_certificate' team.pk certificate.workflow_id %}">Download JSON</a>
+        </div>
+        <div class="certificate-header">
+            <h1>Certificate of Data Deletion</h1>
+            <p class="reference">Reference: {{ reference_id }}</p>
+        </div>
+        {% if certificate.dry_run %}
+            <div class="dry-run-watermark">Dry Run</div>
+        {% endif %}
+        <div class="section">
+            <h2>Data Subject Details</h2>
+            <dl class="info-grid">
+                <dt>Organization</dt>
+                <dd>
+                    {{ team.organization.name }}
+                </dd>
+                <dt>Customer ID</dt>
+                <dd>
+                    {{ team.organization_id }}
+                </dd>
+            </dl>
+        </div>
+        <div class="section">
+            <h2>Scope of Deletion</h2>
+            <dl class="info-grid">
+                <dt>Deletion type</dt>
+                <dd>
+                    {% if certificate.workflow_type == "person" %}
+                        All session recordings for specified person(s)
+                    {% elif certificate.workflow_type == "team" %}
+                        All session recordings for project (ID {{ certificate.team_id }})
+                    {% elif certificate.workflow_type == "query" %}
+                        Session recordings matching filter criteria
+                    {% elif certificate.workflow_type == "session_ids" %}
+                        Specified session recordings{% if certificate.source_filename %} ({{ certificate.source_filename }}){% endif %}
+                    {% else %}
+                        {{ certificate.workflow_type }}
+                    {% endif %}
+                </dd>
+                {% if certificate.reason %}
+                    <dt>Reason</dt>
+                    <dd>
+                        {{ certificate.reason }}
+                    </dd>
                 {% endif %}
-            </dd>
-
-            {% if certificate.reason %}
-            <dt>Reason</dt>
-            <dd>{{ certificate.reason }}</dd>
-            {% endif %}
-
-            {% if certificate.distinct_ids %}
-            <dt>Person IDs</dt>
-            <dd>{{ certificate.distinct_ids|join:", " }}</dd>
-            {% endif %}
-
-            {% if certificate.query %}
-            <dt>Filter criteria</dt>
-            <dd>{{ certificate.query_display|default:certificate.query }}</dd>
-            {% endif %}
-        </dl>
-    </div>
-
-    <div class="section">
-        <h2>Summary</h2>
-        <div class="summary-cards">
-            <div class="summary-card">
-                <div class="number">{{ certificate.total_recordings_found }}</div>
-                <div class="label">Recordings Found</div>
-            </div>
-            <div class="summary-card">
-                <div class="number">{{ certificate.total_deleted }}</div>
-                <div class="label">Deleted</div>
-            </div>
-            <div class="summary-card">
-                <div class="number">{{ certificate.total_failed }}</div>
-                <div class="label">Failed</div>
+                {% if certificate.distinct_ids %}
+                    <dt>Person IDs</dt>
+                    <dd>
+                        {{ certificate.distinct_ids|join:", " }}
+                    </dd>
+                {% endif %}
+                {% if certificate.query %}
+                    <dt>Filter criteria</dt>
+                    <dd>
+                        {{ certificate.query_display|default:certificate.query }}
+                    </dd>
+                {% endif %}
+            </dl>
+        </div>
+        <div class="section">
+            <h2>Summary</h2>
+            <div class="summary-cards">
+                <div class="summary-card">
+                    <div class="number">{{ certificate.total_recordings_found }}</div>
+                    <div class="label">Recordings Found</div>
+                </div>
+                <div class="summary-card">
+                    <div class="number">{{ certificate.total_deleted }}</div>
+                    <div class="label">Deleted</div>
+                </div>
+                <div class="summary-card">
+                    <div class="number">{{ certificate.total_failed }}</div>
+                    <div class="label">Failed</div>
+                </div>
             </div>
         </div>
-    </div>
-
-    <div class="section">
-        <h2>Method of Deletion</h2>
-        <ul class="method-list">
-            <li>
-                <strong>Cryptographic erasure</strong>
-                <span>Encryption keys for the affected session recordings have been permanently destroyed, rendering the encrypted recording data unrecoverable.</span>
-            </li>
-            <li>
-                <strong>Deletion from primary database</strong>
-                <span>Session recording metadata has been permanently deleted from the primary database.</span>
-            </li>
-        </ul>
-    </div>
-
-    <div class="section">
-        <h2>Timeline</h2>
-        <dl class="info-grid">
-            <dt>Deletion started</dt>
-            <dd>{{ certificate.started_at|date:"Y-m-d H:i:s T" }}</dd>
-
-            <dt>Deletion completed</dt>
-            <dd>{{ certificate.completed_at|date:"Y-m-d H:i:s T" }}</dd>
-        </dl>
-    </div>
-
-    <div class="section">
-        <h2>Data Protection Officer</h2>
-        <div class="contact-info">
-            <p class="name">Charles Cook, VP</p>
-            <p>PostHog, Inc.</p>
-            <p>privacy@posthog.com</p>
+        <div class="section">
+            <h2>Method of Deletion</h2>
+            <ul class="method-list">
+                <li>
+                    <strong>Cryptographic erasure</strong>
+                    <span>Encryption keys for the affected session recordings have been permanently destroyed, rendering the encrypted recording data unrecoverable.</span>
+                </li>
+                <li>
+                    <strong>Deletion from primary database</strong>
+                    <span>Session recording metadata has been permanently deleted from the primary database.</span>
+                </li>
+            </ul>
+        </div>
+        <div class="section">
+            <h2>Timeline</h2>
+            <dl class="info-grid">
+                <dt>Deletion started</dt>
+                <dd>
+                    {{ certificate.started_at|date:"Y-m-d H:i:s T" }}
+                </dd>
+                <dt>Deletion completed</dt>
+                <dd>
+                    {{ certificate.completed_at|date:"Y-m-d H:i:s T" }}
+                </dd>
+            </dl>
+        </div>
+        <div class="section">
+            <h2>Data Protection Officer</h2>
+            <div class="contact-info">
+                <p class="name">Charles Cook, VP</p>
+                <p>PostHog, Inc.</p>
+                <p>privacy@posthog.com</p>
+            </div>
+        </div>
+        <div class="footer">
+            <p>Certificate generated at {% now "Y-m-d H:i:s T" %}</p>
+            <p>&copy; {% now "Y" %} PostHog, Inc.</p>
         </div>
     </div>
-
-    <div class="footer">
-        <p>Certificate generated at {% now "Y-m-d H:i:s T" %}</p>
-        <p>&copy; {% now "Y" %} PostHog, Inc.</p>
-    </div>
-</div>
-<script nonce="{{ request.csp_nonce }}">
+    <script nonce="{{ request.csp_nonce }}">
 document.getElementById("print-btn").addEventListener("click", function() { window.print(); });
-</script>
+    </script>
 {% endblock %}

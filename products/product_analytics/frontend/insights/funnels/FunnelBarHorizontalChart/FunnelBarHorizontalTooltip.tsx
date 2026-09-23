@@ -1,10 +1,9 @@
 import type { TooltipContext } from '@posthog/quill-charts'
 
-import { funnelComparePeriodDateRange, getFunnelAggregateConversionRate } from 'scenes/funnels/funnelUtils'
-
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
+import { funnelComparePeriodDateRange, getFunnelAggregateConversionRate } from '../funnelUtils'
 import { FunnelStepTooltip } from '../shared/FunnelStepTooltip'
 import { type FunnelBarHorizontalSegmentMeta, resolveFunnelBarHorizontalHover } from './funnelBarHorizontalTransforms'
 

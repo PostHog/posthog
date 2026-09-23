@@ -8,6 +8,7 @@ from django.utils.html import format_html
 
 from products.mcp_store.backend.models import MCPServerTemplate
 from products.mcp_store.backend.oauth import discover_oauth_metadata
+from products.mcp_store.backend.oauth_credentials import oauth_credentials_source_is_configured
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class MCPServerTemplateAdminForm(forms.ModelForm):
             "category",
             "oauth_issuer_url",
             "oauth_metadata",
+            "oauth_scope_allowlist",
             "is_active",
         )
 
@@ -47,16 +49,25 @@ class MCPServerTemplateAdminForm(forms.ModelForm):
         # data, not the instance, so there's nothing to fall back to.
         instance: MCPServerTemplate | None = kwargs.get("instance")
         existing_creds = (instance.oauth_credentials or {}) if instance else {}
+        credentials_source = instance.oauth_credentials_source if instance else ""
 
-        if existing_creds.get("client_id"):
+        if credentials_source:
+            self.fields["client_id"].disabled = True
+            self.fields["client_secret"].disabled = True
+            self.fields["client_id"].help_text = f"Managed by the {credentials_source} instance credential source."
+            self.fields["client_secret"].help_text = f"Managed by the {credentials_source} instance credential source."
+        elif existing_creds.get("client_id"):
             self.fields["client_id"].help_text = "(stored — leave blank to keep, or type a new value to replace)"
         else:
             self.fields["client_id"].help_text = "(not set — template will use per-user DCR on install)"
 
-        if existing_creds.get("client_secret"):
-            self.fields["client_secret"].help_text = "(stored — leave blank to keep, or type a new value to replace)"
-        else:
-            self.fields["client_secret"].help_text = "(not set — fine if the provider uses PKCE-only)"
+        if not credentials_source:
+            if existing_creds.get("client_secret"):
+                self.fields[
+                    "client_secret"
+                ].help_text = "(stored — leave blank to keep, or type a new value to replace)"
+            else:
+                self.fields["client_secret"].help_text = "(not set — fine if the provider uses PKCE-only)"
 
         # The token endpoint comes from the server's own (unauthenticated) metadata
         # discovery, so show the operator exactly where a pasted secret will be sent
@@ -88,11 +99,13 @@ class MCPServerTemplateAdminForm(forms.ModelForm):
 @admin.register(MCPServerTemplate)
 class MCPServerTemplateAdmin(admin.ModelAdmin):
     form = MCPServerTemplateAdminForm
+    readonly_fields = ("oauth_credentials_source",)
     list_display = (
         "name",
         "url",
         "category",
         "auth_type",
+        "oauth_credentials_source",
         "has_client_id",
         "has_metadata",
         "is_active",
@@ -104,6 +117,8 @@ class MCPServerTemplateAdmin(admin.ModelAdmin):
 
     @admin.display(boolean=True, description="Has client_id")
     def has_client_id(self, obj: MCPServerTemplate) -> bool:
+        if obj.oauth_credentials_source:
+            return oauth_credentials_source_is_configured(obj.oauth_credentials_source)
         return bool((obj.oauth_credentials or {}).get("client_id"))
 
     @admin.display(boolean=True, description="Has metadata")

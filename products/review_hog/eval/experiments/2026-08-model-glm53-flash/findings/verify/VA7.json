@@ -1,0 +1,6 @@
+{
+    "id": "VA7",
+    "real": true,
+    "source": "reused-KA10",
+    "reasoning": "Adopted from sol-experiment verdict KA10 (is_real=true, high confidence), which covers the identical claim on the same function. Spot-checked the frozen tree: process_inbox_pr_review (products/stamphog/backend/tasks/tasks.py:1110-1182) parses pr_url, resolves the enabled repo config, fetches the PR, checks only state==open and non-empty head sha, then stamps inbox_review verbatim from its arguments — no task_run_id load, no fork/bot-author check, no PR-to-run linkage (find_signal_implementation_run is webhook-leg only, tasks.py:190-199). Downstream this enables the engine's bot and draft bypass (activities.py:448-451). Defect survives refutation."
+}

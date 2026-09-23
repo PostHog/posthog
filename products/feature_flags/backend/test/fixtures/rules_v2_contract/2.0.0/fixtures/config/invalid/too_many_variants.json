@@ -1,0 +1,133 @@
+{
+  "version": 2,
+  "return_type": "boolean",
+  "default_value": false,
+  "rules": [
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "rule_type": "experiment",
+      "targeting": {
+        "properties": []
+      },
+      "experiment_id": 42,
+      "paused": false,
+      "rollout_percentage": 100,
+      "on_rollout_miss": "continue",
+      "assignment_algorithm": "sha1_60_v1",
+      "seed": "experiment-preview",
+      "assign_by": "person",
+      "variants": [
+        {
+          "key": "variant_0",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_1",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_2",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_3",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_4",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_5",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_6",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_7",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_8",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_9",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_10",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_11",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_12",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_13",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_14",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_15",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_16",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_17",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_18",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_19",
+          "weight": 5,
+          "value": true
+        },
+        {
+          "key": "variant_20",
+          "weight": 0,
+          "value": true
+        }
+      ],
+      "holdout": {
+        "id": 7,
+        "seed": "holdout-",
+        "exclusion_percentage": 5
+      }
+    }
+  ]
+}

@@ -8,10 +8,10 @@ import type { BarChartConfig } from '@posthog/quill-charts'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { hexToRGBA } from 'lib/utils/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { funnelDataLogic } from '../funnelDataLogic'
 import { buildFunnelHistogramData } from './funnelHistogramTransforms'
 
 const CHART_CONFIG: BarChartConfig = {

@@ -5,7 +5,6 @@ import {
   countActiveTaskCells,
   getCanvasCellId,
   getCellCount,
-  getCellSessionId,
   getExpandedLayout,
   getExpansionCellIndex,
   getGridDimensions,
@@ -20,6 +19,7 @@ import {
   makeTerminalCellValue,
   reflowCells,
   resizeCells,
+  resizeCellsForLayout,
 } from "./grid";
 
 describe("getGridDimensions / getCellCount", () => {
@@ -169,6 +169,43 @@ describe("resizeCells", () => {
   });
 });
 
+describe("resizeCellsForLayout", () => {
+  it("packs occupied cells when the grid capacity shrinks", () => {
+    expect(
+      resizeCellsForLayout(
+        ["a", "b", "c", null, "deleted-task", "d"],
+        "3x2",
+        "2x2",
+        [0, 1, 2, 5],
+      ),
+    ).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it.each([
+    {
+      from: "3x1",
+      to: "2x2",
+      cells: ["a", null, "c"],
+      occupiedCellIndices: [0, 2],
+      expected: ["a", null, null, null],
+    },
+    {
+      from: "3x2",
+      to: "2x3",
+      cells: ["a", null, null, null, "b", null],
+      occupiedCellIndices: [0, 4],
+      expected: ["a", null, null, "b", null, null],
+    },
+  ] as const)(
+    "preserves coordinates when resizing from $from to $to without reducing capacity",
+    ({ from, to, cells, occupiedCellIndices, expected }) => {
+      expect(
+        resizeCellsForLayout(cells, from, to, occupiedCellIndices),
+      ).toEqual(expected);
+    },
+  );
+});
+
 describe("clampZoom", () => {
   it.each([
     { input: 0.1, expected: 0.5 },
@@ -231,12 +268,6 @@ describe("terminal cells", () => {
   ])("isTerminalCell($value) -> $expected", ({ value, expected }) => {
     expect(isTerminalCell(value)).toBe(expected);
     expect(getTerminalCellId(value)).toBeNull();
-  });
-});
-
-describe("getCellSessionId", () => {
-  it("formats the cell session id", () => {
-    expect(getCellSessionId(2)).toBe("cc-cell-2");
   });
 });
 

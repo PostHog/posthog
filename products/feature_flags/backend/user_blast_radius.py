@@ -8,10 +8,15 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PropertyOperator
 
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
 )
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -19,16 +24,61 @@ from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
+from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
-from posthog.queries.base import relative_date_parse_for_feature_flag_matching
+from posthog.ph_client import feature_enabled_or_false
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.feature_flags.backend.person_sampling import count_matching_persons
 
 
 @frozen
 class BlastRadiusResult:
     affected: int
     total: int
+
+
+BLAST_RADIUS_QUERY_V2_FLAG = "flags-blast-radius-query-v2"
+
+QUERY_TYPE_V2 = "feature_flag_blast_radius_v2"
+
+
+def use_blast_radius_query_v2(team: Team) -> bool:
+    # Local-only, so a sizing request never waits on a flag fetch. That is also why the gate
+    # targets the project group: the project id travels with the call, where a person property
+    # would need the fetch to answer.
+    return feature_enabled_or_false(
+        BLAST_RADIUS_QUERY_V2_FLAG,
+        f"team-{team.pk}",
+        groups={"project": str(team.pk)},
+        group_properties={"project": {"id": str(team.pk)}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
+def sampled_person_blast_radius(team: Team, filter: Filter, query_type: str) -> BlastRadiusResult:
+    """
+    Person blast radius whose peak query memory does not grow with the size of the person table.
+
+    The exact counts dedup the person table with a hash GROUP BY that holds every matched
+    person in memory, and HogQL's default settings set no spill threshold, so on a large team
+    both counts cross the per-query memory limit and the caller gets an error instead of a
+    number. These counts read a sample of the persons and extrapolate, and fall back to an
+    exact count when the sample holds too few matches to extrapolate from. That fallback stays
+    bounded because count_settings overrides those defaults with in-order aggregation and a
+    spill threshold.
+    """
+    # One database build shared by both counts; each execute_hogql_query call would otherwise
+    # rebuild it, and the build cost scales with the team's warehouse size.
+    database = Database.create_for(team=team)
+
+    total = count_matching_persons(team, None, database, query_type=query_type)
+    if len(filter.property_groups.flat) == 0:
+        return BlastRadiusResult(affected=total, total=total)
+
+    affected = count_matching_persons(team, filter, database, query_type=query_type)
+    return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
 # ClickHouse codes for "this literal can't be parsed as the column's type": 6 CANNOT_PARSE_TEXT,
@@ -125,6 +175,21 @@ def get_user_blast_radius(
             return _get_person_blast_radius(team, cleaned_filter)
 
 
+def get_person_blast_radius_v2(team: Team, feature_flag_condition: dict) -> BlastRadiusResult:
+    """
+    Flags-owned entry point for the sampled person count, behind flags-blast-radius-query-v2.
+
+    The gate is applied by the caller, not inside get_user_blast_radius: workflows shares that
+    function and gates its own audience counts on workflows-audience-query-v2, so a gate in
+    there would move workflows counts outside the workflows rollout.
+    """
+    with unevaluable_filters_as_validation_errors():
+        cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
+
+        tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE_V2)
+
+
 def get_user_blast_radius_persons(
     team: Team,
     feature_flag_condition: dict,
@@ -143,7 +208,6 @@ def get_user_blast_radius_persons(
 
 def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
     """Calculate blast radius for person-based feature flags using HogQL."""
-    from posthog.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
 
@@ -157,13 +221,18 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
 
     # Execute the query
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    # Build the team's HogQL database once and share it between the two counts below.
+    # Each execute_hogql_query call would otherwise build its own, and the build cost
+    # scales with the team's warehouse size.
+    database = Database.create_for(team=team)
     response = execute_hogql_query(
         query=select_query,
         team=team,
+        context=HogQLContext(team_id=team.pk, database=database),
     )
 
     total_count = response.results[0][0] if response.results else 0
-    total_users = team.persons_seen_so_far
+    total_users = team.count_persons_seen_so_far(database=database)
     blast_radius = min(total_count, total_users)
 
     return BlastRadiusResult(affected=blast_radius, total=total_users)
@@ -171,8 +240,6 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
 
 def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
     """Build HogQL AST query to count or select distinct persons matching filters."""
-    from posthog.hogql import ast
-    from posthog.hogql.property import property_to_expr
 
     # Build the main SELECT with either count(DISTINCT persons.id) or DISTINCT persons.id
     if return_count:
@@ -224,7 +291,6 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
 
 def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupTypeIndex) -> BlastRadiusResult:
     """Calculate blast radius for group-based feature flags using HogQL."""
-    from posthog.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
 
@@ -250,14 +316,17 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
 
     # Execute the query with OFFLINE workload (groups queries can be massive)
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    # One database build shared by both counts, as in _get_person_blast_radius above.
+    database = Database.create_for(team=team)
     response = execute_hogql_query(
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
+        context=HogQLContext(team_id=team.pk, database=database),
     )
 
     total_affected = response.results[0][0] if response.results else 0
-    total_groups = team.groups_seen_so_far(group_type_index)
+    total_groups = team.count_groups_seen_so_far(group_type_index, database=database)
 
     return BlastRadiusResult(affected=total_affected, total=total_groups)
 
@@ -273,8 +342,6 @@ def _build_group_query(
     cursor: Optional[str] = None,
 ):
     """Build HogQL AST query to count or select distinct groups matching filters."""
-    from posthog.hogql import ast
-    from posthog.hogql.property import property_to_expr
 
     # Build the main SELECT with either count(DISTINCT groups.key) or DISTINCT groups.key
     if return_count:
@@ -503,7 +570,6 @@ def _build_group_query(
 
 def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optional[str] = None) -> list[str]:
     """Get distinct person IDs matching person-based feature flag filters."""
-    from posthog.hogql.query import execute_hogql_query
 
     # Build the SELECT query to get person IDs
     select_query = _build_person_query(team, filter, return_count=False, cursor=cursor)
@@ -523,7 +589,6 @@ def _get_group_blast_radius_persons(
     team: Team, filter: Filter, group_type_index: GroupTypeIndex, cursor: Optional[str] = None
 ) -> list[str]:
     """Get distinct group keys matching group-based feature flag filters."""
-    from posthog.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
 

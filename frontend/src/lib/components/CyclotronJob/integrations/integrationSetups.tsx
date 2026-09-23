@@ -4,6 +4,7 @@ import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksS
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { GoogleCloudServiceAccountSetupModal } from 'scenes/integrations/google-cloud-service-account/GoogleCloudServiceAccountSetupModal'
 import { PostgreSQLSetupModal } from 'scenes/integrations/postgresql/PostgreSQLSetupModal'
+import { RedshiftSetupModal } from 'scenes/integrations/redshift/RedshiftSetupModal'
 import { S3CompatibleSetupModal } from 'scenes/integrations/s3-compatible/S3CompatibleSetupModal'
 import { SnowflakeSetupModal } from 'scenes/integrations/snowflake/SnowflakeSetupModal'
 import { urls } from 'scenes/urls'
@@ -109,6 +110,17 @@ registerIntegrationSetup({
     }),
     SetupModal: ({ isOpen, integration, onComplete }) => (
         <AwsS3SetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    ),
+})
+
+registerIntegrationSetup({
+    kind: 'aws-redshift',
+    menuItem: ({ openModal }) => ({
+        label: 'Configure new Redshift connection',
+        onClick: () => openModal('aws-redshift'),
+    }),
+    SetupModal: ({ isOpen, integration, onComplete }) => (
+        <RedshiftSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
     ),
 })
 

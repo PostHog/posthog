@@ -85,6 +85,22 @@ class ExternalDataSource:
     direct_engine: str | None
 
 
+@dataclass(frozen=True)
+class ExternalDataSourceHealth:
+    """A source's sync health: how it is configured, plus its newest completed run and error.
+
+    `status` alone conflates "sync in progress" with "never succeeded", so a consumer needs
+    `last_run_at` to tell a healthy source from one that has never synced.
+    """
+
+    source_type: str
+    status: str | None
+    prefix: str | None
+    created_at: datetime
+    last_run_at: datetime | None
+    latest_error: str | None
+
+
 # --- Schema ---
 
 
@@ -135,6 +151,49 @@ class DataWarehouseTable:
     external_data_source_id: UUID | None
     credential_id: UUID | None
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class DuckLakeImportedTable:
+    logical_table_names: tuple[str, ...]
+    physical_table_name: str
+
+
+@dataclass(frozen=True)
+class TableSourceLocation:
+    """Where a synced table is administered: the source and schema its detail page hangs off."""
+
+    source_id: UUID
+    schema_id: UUID
+
+
+@dataclass(frozen=True)
+class TableNames:
+    """The two names one warehouse table answers to.
+
+    ``row_name`` is what the table row stores and a listing shows. ``queryable_key`` is what a
+    query writes, which for a source table is the dotted form. They are equal for a direct-access
+    source and for a table with no source.
+    """
+
+    row_name: str
+    queryable_key: str
+
+
+WAREHOUSE_OBJECT_TABLE = "table"
+WAREHOUSE_OBJECT_VIEW = "view"
+
+
+@dataclass(frozen=True)
+class WarehouseObjectRef:
+    """Which warehouse object a queryable name resolves to, for a caller that must record identity.
+
+    ``kind`` is ``WAREHOUSE_OBJECT_TABLE`` or ``WAREHOUSE_OBJECT_VIEW``, since a name reaches either
+    a warehouse table or a saved query and the two are stored apart.
+    """
+
+    kind: str
+    id: UUID
 
 
 # --- Job ---

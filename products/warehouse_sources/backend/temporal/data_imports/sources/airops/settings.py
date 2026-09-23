@@ -29,6 +29,23 @@ AIROPS_ENDPOINTS: dict[str, AirOpsEndpointConfig] = {
         # apps' executions that share an id from colliding into one warehouse row.
         primary_keys=["airops_app_id", "id"],
     ),
+    # AI search-visibility surface. `brand_kits` is the top-level object; `prompts` and `citations`
+    # are listed per brand kit (fan-out), so their composite keys carry the parent brand kit id.
+    "brand_kits": AirOpsEndpointConfig(
+        name="brand_kits",
+        partition_key="created_at",
+    ),
+    "prompts": AirOpsEndpointConfig(
+        name="prompts",
+        partition_key="created_at",
+        primary_keys=["brand_kit_id", "id"],
+    ),
+    "citations": AirOpsEndpointConfig(
+        name="citations",
+        # Citations carry no id or creation timestamp — a citation is identified by its URL within a
+        # brand kit, and there is no stable creation time to partition on.
+        primary_keys=["brand_kit_id", "url"],
+    ),
 }
 
 ENDPOINTS = tuple(AIROPS_ENDPOINTS.keys())

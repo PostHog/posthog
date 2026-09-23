@@ -48,6 +48,18 @@ class TestWebflowSource:
         matches = [pattern for pattern in errors if pattern in raised_message]
         assert matches == ["409 Client Error: Conflict"]
 
+    def test_406_not_acceptable_message_is_recognised_as_non_retryable(self) -> None:
+        # Webflow returns 406 deterministically for a given site/token when listing CMS
+        # collections; the raised HTTPError message embeds a volatile site id and URL, so we
+        # must match on a stable substring that excludes them.
+        errors = WebflowSource().get_non_retryable_errors()
+        raised_message = (
+            "406 Client Error: Not Acceptable for url: "
+            "https://api.webflow.com/v2/sites/64cd40ea6c8cca864c510895/collections"
+        )
+        matches = [pattern for pattern in errors if pattern in raised_message]
+        assert matches == ["406 Client Error"]
+
     def test_deleted_collection_message_is_recognised_as_non_retryable(self) -> None:
         # _resolve_collection_id raises this when a collection's slug no longer resolves at sync
         # time; the message embeds a volatile schema name and site id, so we must match on a stable

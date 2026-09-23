@@ -1,3 +1,8 @@
+# Tags for building URLs in the email templates under posthog/templates/email.
+# Registered as a template builtin in posthog/settings/web.py, so templates use these tags
+# without a {% load %}. Django resolves {% load %} per file, so without the builtin every
+# template would have to repeat it, including those that extend email/base.html.
+
 import re
 
 from django.conf import settings

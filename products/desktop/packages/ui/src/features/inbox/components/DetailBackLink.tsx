@@ -1,19 +1,34 @@
 import { ArrowLeftIcon } from "@phosphor-icons/react";
+import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { Link } from "@tanstack/react-router";
+import type { ReactElement } from "react";
 
-interface DetailBackLinkProps {
+/** The way back from a detail screen with no report to name (a missing one). */
+export function DetailBackLink({
+  to,
+  label,
+}: {
   to: string;
   label: string;
-}
+}): ReactElement {
+  const triageOrigin = useInboxTriageOrigin();
+  const returnsToTriage = to === "/inbox/reports" && triageOrigin !== null;
 
-export function DetailBackLink({ to, label }: DetailBackLinkProps) {
   return (
     <Link
       to={to}
+      state={
+        returnsToTriage
+          ? (previous) => ({
+              ...previous,
+              inboxTriageOrigin: triageOrigin,
+            })
+          : undefined
+      }
       className="inline-flex w-fit items-center gap-1.5 rounded-(--radius-1) text-[12.5px] text-gray-11 no-underline transition-colors hover:text-gray-12 focus-visible:text-gray-12 focus-visible:outline-(--gray-8) focus-visible:outline-2 focus-visible:outline-offset-2"
     >
       <ArrowLeftIcon size={14} />
-      {label}
+      {returnsToTriage ? "Back to triage" : label}
     </Link>
   );
 }

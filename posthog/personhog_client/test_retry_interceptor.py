@@ -3,10 +3,17 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import DatabaseError
+
 import grpc
 from parameterized import parameterized
 
-from posthog.personhog_client.interceptor import RetryInterceptor, _MutableClientCallDetails
+from posthog.personhog_client.interceptor import (
+    _RETRYABLE_CODES,
+    RetryInterceptor,
+    _MutableClientCallDetails,
+    is_transient_rpc_error,
+)
 
 
 def _make_call_details(
@@ -180,3 +187,39 @@ class TestRetryInterceptorMetrics:
 
         mock_retries.labels.return_value.inc.assert_not_called()
         mock_terminal.labels.return_value.inc.assert_not_called()
+
+
+def _wrapped_in_database_error(cause: BaseException) -> BaseException:
+    wrapped = DatabaseError("personhog insert_cohort_members failed")
+    wrapped.__cause__ = cause
+    return wrapped
+
+
+class TestIsTransientRpcError:
+    @parameterized.expand(
+        [
+            ("retryable_code", _make_rpc_error(grpc.StatusCode.UNAVAILABLE), _RETRYABLE_CODES, True),
+            ("terminal_code", _make_rpc_error(grpc.StatusCode.INVALID_ARGUMENT), _RETRYABLE_CODES, False),
+            ("not_an_rpc_error", ValueError("boom"), _RETRYABLE_CODES, False),
+            (
+                "wrapped_retryable_cause",
+                _wrapped_in_database_error(_make_rpc_error(grpc.StatusCode.UNAVAILABLE)),
+                _RETRYABLE_CODES,
+                True,
+            ),
+            (
+                "code_outside_the_given_set",
+                _make_rpc_error(grpc.StatusCode.RESOURCE_EXHAUSTED),
+                _RETRYABLE_CODES,
+                False,
+            ),
+            (
+                "caller_supplied_codes",
+                _make_rpc_error(grpc.StatusCode.RESOURCE_EXHAUSTED),
+                {grpc.StatusCode.RESOURCE_EXHAUSTED},
+                True,
+            ),
+        ]
+    )
+    def test_classifies_transport_failures(self, _name: str, exc: BaseException, codes, expected: bool):
+        assert is_transient_rpc_error(exc, codes=codes) is expected

@@ -42,6 +42,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.acc
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_row_sink import (
     AccountPropertyRowSink,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_paths import (
+    job_staged_prefix as person_property_job_staged_prefix,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
     PersonPropertyRowSink,
 )
@@ -68,6 +71,7 @@ __all__ = [
     "account_property_job_staged_prefix",
     "account_property_snapshot_prefix",
     "PersonPropertyRowSink",
+    "person_property_job_staged_prefix",
     "SavedQueryNotFoundError",
     "SavedQueryNotOnV2ScheduleError",
     "WarehouseBindingMissingError",

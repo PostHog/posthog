@@ -637,7 +637,9 @@ RELATED_OBJECT_ACTIVITY_LOGGERS: dict[str, RelatedObjectActivityLogger] = {
     "ticket": RelatedObjectActivityLogger(
         scope="Ticket",
         resolve_name=lambda tagged_item, default_name: (
-            f"Ticket #{tagged_item.ticket.ticket_number}" if tagged_item.ticket else default_name
+            f"Ticket #{number}"
+            if (number := getattr(tagged_item.content_object, "ticket_number", None)) is not None
+            else default_name
         ),
     ),
     "account": RelatedObjectActivityLogger(scope="Account"),

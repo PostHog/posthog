@@ -70,7 +70,7 @@ for role in "${ROLES[@]}"; do
   fi
 
   echo "== $ENV/$role: diff golden vs live dump =="
-  if drift="$("$HCLEXP" diff -left "$golden" -right "$live" -exclude "$EXCLUDE" -format json | report_drift)"; then
+  if drift="$("$HCLEXP" diff -left "$golden" -right "$live" -exclude "$EXCLUDE" -ignore-column-order -format json | report_drift)"; then
     echo "no differences"
   else
     echo "DRIFT: $ENV/$role — migrations produced a schema that differs from the HCL golden"

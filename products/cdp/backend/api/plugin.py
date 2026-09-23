@@ -34,7 +34,7 @@ from posthog.models.activity_logging.activity_log import (
     load_all_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
 from posthog.models.utils import generate_random_token
@@ -590,17 +590,16 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         activity_page = load_all_activity(
             scope_list=["Plugin", "PluginConfig"],
             team_id=request.user.team.id,  # type: ignore
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
 
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @staticmethod
     def _activity_page_response(
@@ -880,14 +879,17 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], url_path="activity", detail=True)
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
-            "PluginConfig", team_id=self.team_id, item_ids=[self.get_object().id], limit=limit, page=page
+            "PluginConfig",
+            team_id=self.team_id,
+            item_ids=[self.get_object().id],
+            limit=page_params.limit,
+            page=page_params.page,
         )
 
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["POST"], url_path="migrate", detail=True)
     def migrate(self, request: request.Request, **kwargs):

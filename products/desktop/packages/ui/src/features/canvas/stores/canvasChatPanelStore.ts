@@ -7,7 +7,7 @@ import { persist } from "zustand/middleware";
 // Collapse and width are global user preferences (persisted) so the panel keeps
 // its shape across canvases and navigation.
 const DEFAULT_PANEL_WIDTH = 420;
-export type CanvasPanelTab = "chat" | "comments";
+type CanvasPanelTab = "chat" | "comments";
 
 interface CanvasChatPanelState {
   collapsed: boolean;

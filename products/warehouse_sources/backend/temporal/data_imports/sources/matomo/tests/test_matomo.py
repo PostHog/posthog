@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.mat
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.settings import (
+    DEFAULT_BACKFILL_DAYS,
     ENDPOINTS,
     MATOMO_ENDPOINTS,
     REPORT_LOOKBACK_DAYS,
@@ -36,6 +37,10 @@ def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
     resp.status_code = status_code
     resp.ok = status_code < 400
     return resp
+
+
+def _now_ts() -> int:
+    return int(datetime.now(tz=UTC).timestamp())
 
 
 def _final_ts(offset_seconds: int = 0) -> int:
@@ -91,38 +96,84 @@ class TestValidateCredentials:
 @mock.patch(f"{_MODULE}.time.sleep")
 class TestVisits:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_short_batch_yields_and_stops(self, mock_session, mock_sleep):
+    def test_backfill_walks_the_default_window_day_by_day(self, mock_session, mock_sleep):
+        # Asking for the whole backfill window in one request is what the instance's gateway
+        # answers 502 to, identically on every retry, so the backfill never gets past it.
+        mock_session.return_value.post.return_value = _response([])
+
+        list(get_rows("https://m.example.com", "1", "token", "visits", mock.MagicMock(), _make_manager()))
+
+        bodies = [call.kwargs["data"] for call in mock_session.return_value.post.call_args_list]
+        today = datetime.now(tz=UTC).date()
+        assert {body["period"] for body in bodies} == {"day"}
+        assert [body["date"] for body in bodies] == [
+            (today - timedelta(days=DEFAULT_BACKFILL_DAYS - offset)).isoformat()
+            for offset in range(DEFAULT_BACKFILL_DAYS + 1)
+        ]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_short_batch_yields_and_moves_to_the_next_day(self, mock_session, mock_sleep):
         ts = _final_ts()
+        watermark = _now_ts()
         mock_session.return_value.post.return_value = _response(
             [{"idVisit": "1", "serverTimestamp": ts}, {"idVisit": "2", "serverTimestamp": ts + 1}]
         )
 
         manager = _make_manager()
-        batches = list(get_rows("https://m.example.com", "1", "token", "visits", mock.MagicMock(), manager))
+        batches = list(
+            get_rows(
+                "https://m.example.com",
+                "1",
+                "token",
+                "visits",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=watermark,
+            )
+        )
 
-        assert [row["idVisit"] for batch in batches for row in batch] == ["1", "2"]
-        body = mock_session.return_value.post.call_args.kwargs["data"]
+        assert [len(batch) for batch in batches] == [2, 2]
+        body = mock_session.return_value.post.call_args_list[0].kwargs["data"]
         assert body["method"] == "Live.getLastVisitsDetails"
         assert body["filter_sort_order"] == "asc"
-        assert body["minTimestamp"] == 0
+        assert body["minTimestamp"] == watermark
         assert body["token_auth"] == "token"
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_page_advances_min_timestamp_cursor(self, mock_session, mock_sleep):
+    def test_full_page_advances_min_timestamp_cursor_within_the_day(self, mock_session, mock_sleep):
         base = _final_ts(10_000)
         first_page = [{"idVisit": str(i), "serverTimestamp": base + i} for i in range(VISITS_PAGE_SIZE)]
         second_page = [{"idVisit": "last", "serverTimestamp": base + VISITS_PAGE_SIZE}]
-        mock_session.return_value.post.side_effect = [_response(first_page), _response(second_page)]
+        mock_session.return_value.post.side_effect = [
+            _response(first_page),
+            _response(second_page),
+            *[_response([]) for _ in range(10)],
+        ]
 
         manager = _make_manager()
-        batches = list(get_rows("https://m.example.com", "1", "token", "visits", mock.MagicMock(), manager))
+        batches = list(
+            get_rows(
+                "https://m.example.com",
+                "1",
+                "token",
+                "visits",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=base - 60,
+            )
+        )
 
         assert [len(batch) for batch in batches] == [VISITS_PAGE_SIZE, 1]
-        second_body = mock_session.return_value.post.call_args_list[1].kwargs["data"]
-        assert second_body["minTimestamp"] == base + VISITS_PAGE_SIZE - 1
-        assert [call.args[0].min_timestamp for call in manager.save_state.call_args_list] == [
-            base + VISITS_PAGE_SIZE - 1
-        ]
+        bodies = [call.kwargs["data"] for call in mock_session.return_value.post.call_args_list]
+        # The second request pages within the same day; the third has moved on.
+        assert bodies[1]["date"] == bodies[0]["date"]
+        assert bodies[1]["minTimestamp"] == base + VISITS_PAGE_SIZE - 1
+        assert bodies[2]["date"] > bodies[0]["date"]
+        assert manager.save_state.call_args_list[0].args[0] == MatomoResumeConfig(
+            min_timestamp=base + VISITS_PAGE_SIZE - 1, next_date=bodies[0]["date"]
+        )
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_full_page_at_one_timestamp_steps_past_cursor(self, mock_session, mock_sleep):
@@ -131,15 +182,28 @@ class TestVisits:
         ts = _final_ts(10_000)
         first_page = [{"idVisit": str(i), "serverTimestamp": ts} for i in range(VISITS_PAGE_SIZE)]
         second_page = [{"idVisit": "last", "serverTimestamp": ts + 5}]
-        mock_session.return_value.post.side_effect = [_response(first_page), _response(second_page)]
+        mock_session.return_value.post.side_effect = [
+            _response(first_page),
+            _response(second_page),
+            *[_response([]) for _ in range(10)],
+        ]
 
         manager = _make_manager()
-        batches = list(get_rows("https://m.example.com", "1", "token", "visits", mock.MagicMock(), manager))
+        batches = list(
+            get_rows(
+                "https://m.example.com",
+                "1",
+                "token",
+                "visits",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=ts - 60,
+            )
+        )
 
         assert [len(batch) for batch in batches] == [VISITS_PAGE_SIZE, 1]
-        second_body = mock_session.return_value.post.call_args_list[1].kwargs["data"]
-        assert second_body["minTimestamp"] == ts + 1
-        assert [call.args[0].min_timestamp for call in manager.save_state.call_args_list] == [ts + 1]
+        assert mock_session.return_value.post.call_args_list[1].kwargs["data"]["minTimestamp"] == ts + 1
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_still_active_visits_are_deferred(self, mock_session, mock_sleep):
@@ -151,13 +215,25 @@ class TestVisits:
             ]
         )
 
-        batches = list(get_rows("https://m.example.com", "1", "token", "visits", mock.MagicMock(), _make_manager()))
+        batches = list(
+            get_rows(
+                "https://m.example.com",
+                "1",
+                "token",
+                "visits",
+                mock.MagicMock(),
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=_now_ts(),
+            )
+        )
 
-        assert [row["idVisit"] for batch in batches for row in batch] == ["done"]
+        assert {row["idVisit"] for batch in batches for row in batch} == {"done"}
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_watermark_sets_min_timestamp(self, mock_session, mock_sleep):
+    def test_incremental_watermark_sets_min_timestamp_and_start_day(self, mock_session, mock_sleep):
         mock_session.return_value.post.return_value = _response([])
+        watermark = _now_ts()
 
         list(
             get_rows(
@@ -168,18 +244,21 @@ class TestVisits:
                 mock.MagicMock(),
                 _make_manager(),
                 should_use_incremental_field=True,
-                db_incremental_field_last_value=1700000000,
+                db_incremental_field_last_value=watermark,
             )
         )
 
-        body = mock_session.return_value.post.call_args.kwargs["data"]
-        assert body["minTimestamp"] == 1700000000
+        body = mock_session.return_value.post.call_args_list[0].kwargs["data"]
+        assert body["minTimestamp"] == watermark
+        # A day earlier than the watermark, because `period=day` resolves in the site's timezone.
+        assert body["date"] == (datetime.now(tz=UTC).date() - timedelta(days=1)).isoformat()
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resume_state_supersedes_older_watermark(self, mock_session, mock_sleep):
         mock_session.return_value.post.return_value = _response([])
+        resumed = _now_ts()
 
-        manager = _make_manager(MatomoResumeConfig(min_timestamp=1800000000))
+        manager = _make_manager(MatomoResumeConfig(min_timestamp=resumed))
         list(
             get_rows(
                 "https://m.example.com",
@@ -189,12 +268,22 @@ class TestVisits:
                 mock.MagicMock(),
                 manager,
                 should_use_incremental_field=True,
-                db_incremental_field_last_value=1700000000,
+                db_incremental_field_last_value=resumed - 86_400,
             )
         )
 
-        body = mock_session.return_value.post.call_args.kwargs["data"]
-        assert body["minTimestamp"] == 1800000000
+        assert mock_session.return_value.post.call_args_list[0].kwargs["data"]["minTimestamp"] == resumed
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_resume_day_restarts_the_walk_where_it_stopped(self, mock_session, mock_sleep):
+        mock_session.return_value.post.return_value = _response([])
+        today = datetime.now(tz=UTC).date()
+
+        manager = _make_manager(MatomoResumeConfig(min_timestamp=1, next_date=today.isoformat()))
+        list(get_rows("https://m.example.com", "1", "token", "visits", mock.MagicMock(), manager))
+
+        assert mock_session.return_value.post.call_count == 1
+        assert mock_session.return_value.post.call_args.kwargs["data"]["date"] == today.isoformat()
 
 
 @mock.patch(f"{_MODULE}.time.sleep")

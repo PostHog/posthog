@@ -18,6 +18,9 @@ import type {
     CreateTextTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
+    DashboardSavedViewApi,
+    DashboardSavedViewWriteApi,
+    DashboardSavedViewsListParams,
     DashboardSubscribeNudgeResponseApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
@@ -50,8 +53,10 @@ import type {
     DeleteTileRequestApi,
     MoveTileRequestApi,
     PaginatedDashboardBasicListApi,
+    PaginatedDashboardSavedViewListApi,
     PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
+    PatchedDashboardSavedViewApi,
     PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
@@ -81,6 +86,101 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getDashboardSavedViewsListUrl = (projectId: string, params?: DashboardSavedViewsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboard_saved_views/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboard_saved_views/`
+}
+
+export const dashboardSavedViewsList = async (
+    projectId: string,
+    params?: DashboardSavedViewsListParams,
+    options?: RequestInit
+): Promise<PaginatedDashboardSavedViewListApi> => {
+    return apiMutator<PaginatedDashboardSavedViewListApi>(getDashboardSavedViewsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDashboardSavedViewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_saved_views/`
+}
+
+export const dashboardSavedViewsCreate = async (
+    projectId: string,
+    dashboardSavedViewWriteApi: DashboardSavedViewWriteApi,
+    options?: RequestInit
+): Promise<DashboardSavedViewApi> => {
+    return apiMutator<DashboardSavedViewApi>(getDashboardSavedViewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardSavedViewWriteApi),
+    })
+}
+
+export const getDashboardSavedViewsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_saved_views/${id}/`
+}
+
+export const dashboardSavedViewsUpdate = async (
+    projectId: string,
+    id: string,
+    dashboardSavedViewApi: NonReadonly<DashboardSavedViewApi>,
+    options?: RequestInit
+): Promise<DashboardSavedViewApi> => {
+    return apiMutator<DashboardSavedViewApi>(getDashboardSavedViewsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardSavedViewApi),
+    })
+}
+
+export const getDashboardSavedViewsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_saved_views/${id}/`
+}
+
+export const dashboardSavedViewsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDashboardSavedViewApi?: NonReadonly<PatchedDashboardSavedViewApi>,
+    options?: RequestInit
+): Promise<DashboardSavedViewApi> => {
+    return apiMutator<DashboardSavedViewApi>(getDashboardSavedViewsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDashboardSavedViewApi),
+    })
+}
+
+export const getDashboardSavedViewsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_saved_views/${id}/`
+}
+
+export const dashboardSavedViewsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDashboardSavedViewsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
 
 export const getDashboardTemplatesListUrl = (projectId: string, params?: DashboardTemplatesListParams) => {
     const normalizedParams = new URLSearchParams()

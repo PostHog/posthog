@@ -1,8 +1,9 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN
@@ -14,6 +15,8 @@ from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER
+
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
 class TestDebugCHQuery(APIBaseTest):
@@ -148,6 +151,136 @@ class TestDebugCHQuery(APIBaseTest):
         self.assertEqual(data["tables"]["exposures"]["written_bytes"][i], 100)
         self.assertEqual(sum(data["tables"]["metric_events"]["written_rows"]), 0)
 
+    def test_precompute_timeseries_latency_series_are_bucket_aligned_and_zero_filled(self):
+        # Same positional-indexing contract as cache_growth: the latency and bytes-per-read
+        # series must align to `buckets` and stay zero-filled where a bucket has no reads.
+        self.user.is_staff = True
+        self.user.save()
+        bucket = datetime.now(UTC).strftime("%Y-%m-%dT00:00:00Z")
+
+        with patch(
+            "posthog.api.debug_ch_queries.sync_execute",
+            side_effect=[[(bucket, 5, 4, 1, 120.0, 450.0, 2048.0)], []],
+        ):
+            resp = self.client.get("/api/debug_ch_queries/precompute_timeseries/?hours=336")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        data = resp.json()
+        i = data["buckets"].index(bucket)
+        reads = data["reads"]
+        for series in (
+            "precomputed_p50_duration_ms",
+            "precomputed_p90_duration_ms",
+            "fully_precomputed_avg_read_bytes",
+        ):
+            self.assertEqual(len(reads[series]), len(data["buckets"]))
+        self.assertEqual(reads["precomputed_p50_duration_ms"][i], 120)
+        self.assertEqual(reads["precomputed_p90_duration_ms"][i], 450)
+        self.assertEqual(reads["fully_precomputed_avg_read_bytes"][i], 2048)
+        self.assertEqual(sum(reads["precomputed_p50_duration_ms"]), 120)
+
+    def test_precompute_overview_counts_every_runner_skip_reason(self):
+        # A reason the runner emits but the breakdown omits leaves those reads counted in the
+        # totals while appearing in no skip_reasons bucket. Literal strings on purpose: the
+        # values are persisted in query_log log_comment, so a renamed enum member must fail here.
+        self.user.is_staff = True
+        self.user.save()
+        skip_counts = {
+            reason: i + 1
+            for i, reason in enumerate(
+                (
+                    "override_direct",
+                    "team_disabled",
+                    "min_runtime",
+                    "activation_config",
+                    "cohort_not_calculated",
+                    "data_warehouse",
+                    "group_aggregation",
+                )
+            )
+        }
+        reads_row = (
+            "direct_scan",
+            sum(skip_counts.values()),  # reads
+            0,  # failed_reads
+            *skip_counts.values(),
+            0,  # attempted
+            0,  # me_precomputed
+            sum(skip_counts.values()),  # me_direct_scan
+            0,  # me_not_applicable
+            10.0,  # avg_duration_ms
+            10.0,  # p50_duration_ms
+            20.0,  # p90_duration_ms
+            1024.0,  # avg_read_bytes
+            4096,  # total_read_bytes
+        )
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=[[reads_row], []]):
+            resp = self.client.get("/api/debug_ch_queries/precompute_overview/?hours=24")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        data = resp.json()
+        self.assertEqual(data["reads"]["by_exposures_path"]["direct_scan"]["skip_reasons"], skip_counts)
+        self.assertEqual(data["reads"]["total"], sum(skip_counts.values()))
+
+    def test_precompute_overview_serializes_nan_stats_as_null(self):
+        # avgIf/quantileIf return nan for a path whose reads all failed. STRICT_JSON is off,
+        # so an unguarded nan reaches the client as literal NaN — invalid JSON, blanking the
+        # tab exactly when someone is investigating the failures.
+        self.user.is_staff = True
+        self.user.save()
+        nan = float("nan")
+        no_skips = (0,) * 7
+        reads_row = (
+            "direct_scan",
+            5,  # reads
+            5,  # failed_reads
+            *no_skips,
+            0,  # attempted
+            0,  # me_precomputed
+            5,  # me_direct_scan
+            0,  # me_not_applicable
+            nan,  # avg_duration_ms
+            nan,  # p50_duration_ms
+            nan,  # p90_duration_ms
+            nan,  # avg_read_bytes
+            4096,  # total_read_bytes
+        )
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=[[reads_row], []]):
+            resp = self.client.get("/api/debug_ch_queries/precompute_overview/?hours=24")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        self.assertNotIn(b"NaN", resp.content)
+        entry = resp.json()["reads"]["by_exposures_path"]["direct_scan"]
+        self.assertEqual(entry["reads"], 5)
+        for stat in ("avg_duration_ms", "p50_duration_ms", "p90_duration_ms", "avg_read_bytes"):
+            self.assertIsNone(entry[stat])
+
+    def test_precompute_overview_surfaces_unexpected_paths_instead_of_overwriting_direct_scan(self):
+        # The SQL folds untagged rows into direct_scan inside the GROUP BY. If an untagged ('')
+        # group still reaches the merge loop, it must surface as its own bucket — the old
+        # `or "direct_scan"` fallback folded it in by replacing the percentiles with the last
+        # row's (counts summed, stats lied).
+        self.user.is_staff = True
+        self.user.save()
+        no_skips = (0,) * 7
+
+        def read_row(path, p50):
+            return (path, 3, 0, *no_skips, 3, 3, 0, 0, p50, p50, p50, 1024.0, 4096)
+
+        with patch(
+            "posthog.api.debug_ch_queries.sync_execute",
+            side_effect=[[read_row("direct_scan", 100.0), read_row("", 999.0)], []],
+        ):
+            resp = self.client.get("/api/debug_ch_queries/precompute_overview/?hours=24")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        by_path = resp.json()["reads"]["by_exposures_path"]
+        self.assertEqual(by_path["direct_scan"]["p50_duration_ms"], 100.0)
+        self.assertEqual(by_path[""]["p50_duration_ms"], 999.0)
+        self.assertEqual(resp.json()["reads"]["total"], 6)
+
     @patch("posthog.api.debug_ch_queries.sync_execute", return_value=[])
     def test_slowest_queries_pat_with_scope_and_staff_allowed(self, _mock_execute):
         self.user.is_staff = True
@@ -160,6 +293,161 @@ class TestDebugCHQuery(APIBaseTest):
             headers={"authorization": f"Bearer {token}"},
         )
         self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+
+
+class TestPrecomputeHealth(APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()  # the endpoint caches complete payloads; tests must not share them
+
+    def _create_pat(self, scopes: list[str]) -> str:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test",
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+        )
+        return token
+
+    def test_scope_and_staff_gate_wired_on_action(self) -> None:
+        # The scope/wildcard/staff mechanics are proven on slowest_queries; this
+        # only guards that THIS action declares the scope and the staff check.
+        token = self._create_pat(scopes=["query_performance:read"])
+        self.client.logout()
+
+        resp = self.client.get(
+            "/api/debug_ch_queries/precompute_health/",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
+
+        self.user.is_staff = True
+        self.user.save()
+        with patch("posthog.api.debug_ch_queries.sync_execute", return_value=[]):
+            resp = self.client.get(
+                "/api/debug_ch_queries/precompute_health/",
+                headers={"authorization": f"Bearer {token}"},
+            )
+            self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+
+            # An unregistered product must be rejected before any scan runs.
+            resp = self.client.get(
+                "/api/debug_ch_queries/precompute_health/?product=nonsense",
+                headers={"authorization": f"Bearer {token}"},
+            )
+        self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_assembles_ratio_from_query_log_rows(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+
+        hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+        results = iter(
+            [
+                [(hour.replace(tzinfo=None), 750, 250, 12)],  # hourly: lazy, eligible_live, live_errored
+                [(hour.replace(tzinfo=None), 12000, 2100, 3)],  # warming: queries, teams, errored
+                [("web_overview_query", 180, 9), ("stats_table_main_query", 70, 0)],
+                [(2, 120, 5), (1589, 60, 0)],  # top_missing_teams
+                [(2, 45210, 3811.5, 4)],  # top_warmed_teams
+            ]
+        )
+        call_count = {"n": 0}
+
+        def fake_sync_execute(*_a, **_k):
+            call_count["n"] += 1
+            return next(results)
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=fake_sync_execute):
+            resp = self.client.get("/api/debug_ch_queries/precompute_health/?hours=9999")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        data = resp.json()
+        self.assertEqual(data["hours"], 168)  # clamped
+        self.assertEqual(data["unavailable_sections"], [])
+        self.assertEqual(
+            data["summary"], {"lazy_hits": 750, "eligible_live": 250, "live_errored": 12, "hit_ratio": 75.0}
+        )
+        # Series are zero-filled over the whole window with explicit UTC stamps —
+        # a silent hour must read as zero, and the data hour must land in place.
+        self.assertEqual(len(data["hourly"]), 169)
+        (data_hour,) = [e for e in data["hourly"] if e["lazy_hits"]]
+        self.assertEqual(data_hour["hour"], hour.isoformat())
+        self.assertEqual(data_hour["hit_ratio"], 75.0)
+        self.assertEqual(sum(e["queries"] for e in data["warming"]), 12000)
+        self.assertEqual(data["miss_breakdown"][0], {"query_type": "web_overview_query", "misses": 180, "errored": 9})
+        self.assertEqual(data["top_missing_teams"][0], {"team_id": 2, "misses": 120, "errored": 5})
+        self.assertEqual(
+            data["top_warmed_teams"][0],
+            {"team_id": 2, "warming_queries": 45210, "warming_seconds": 3811.5, "errored": 4},
+        )
+        self.assertEqual(data["product"], "web_analytics")
+
+        # A complete payload is cached: an identical request runs no new scans.
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=AssertionError("must be cached")):
+            resp2 = self.client.get("/api/debug_ch_queries/precompute_health/?hours=9999")
+        self.assertEqual(resp2.status_code, HTTP_200_OK, resp2.content)
+        self.assertEqual(resp2.json()["summary"], data["summary"])
+
+    def test_failed_section_degrades_to_partial_response(self) -> None:
+        # One slow scan (timeout, OOM) must cost its own section, not 500 the
+        # whole response — and a partial payload must not be cached as complete.
+        self.user.is_staff = True
+        self.user.save()
+
+        def fake_sync_execute(query: str, *_a, **_k) -> list:
+            if "'trigger'" in query or '"trigger"' in query:
+                raise Exception("Code: 159. DB::Exception: Timeout exceeded")
+            return []
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=fake_sync_execute):
+            resp = self.client.get("/api/debug_ch_queries/precompute_health/")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        data = resp.json()
+        self.assertEqual(data["unavailable_sections"], ["warming", "top_warmed_teams"])
+        self.assertEqual(data["warming"], [])
+        self.assertEqual(len(data["hourly"]), 25)  # healthy sections still zero-fill
+
+        # Not cached: the next request must re-run the scans.
+        calls = {"n": 0}
+
+        def counting_sync_execute(*_a, **_k) -> list:
+            calls["n"] += 1
+            return []
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=counting_sync_execute):
+            self.client.get("/api/debug_ch_queries/precompute_health/")
+        self.assertGreater(calls["n"], 0)
+
+    def test_team_filter_narrows_all_sections_and_skips_team_ranking(self) -> None:
+        # A per-team read must inject the tenant filter into every section's SQL,
+        # swap the fleet-wide team ranking for the per-strategy triage detail, and
+        # never run an unfiltered scan.
+        self.user.is_staff = True
+        self.user.save()
+
+        executed: list[tuple[str, dict]] = []
+
+        def fake_sync_execute(query: str, params: dict, **_kwargs) -> list:
+            executed.append((query, params))
+            return []
+
+        with patch("posthog.api.debug_ch_queries.sync_execute", side_effect=fake_sync_execute):
+            resp = self.client.get("/api/debug_ch_queries/precompute_health/?team_id=42")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        self.assertEqual(len(executed), 4)  # hourly, warming, miss_breakdown, query_detail
+        for query, params in executed:
+            self.assertIn("JSONExtractInt(log_comment, 'team_id') = %(team_id)s", query)
+            self.assertEqual(params["team_id"], 42)
+        self.assertEqual(resp.json()["team_id"], 42)
+        self.assertEqual(resp.json()["top_missing_teams"], [])
+        self.assertEqual(resp.json()["top_warmed_teams"], [])
+        self.assertEqual(resp.json()["query_detail"], [])
+        self.assertEqual(resp.json()["unavailable_sections"], [])
 
 
 class TestCacheTableStats(SimpleTestCase):
@@ -204,3 +492,23 @@ class TestCacheTableStats(SimpleTestCase):
         self.assertNotIn("unavailable", exposures)
         self.assertTrue(metric_events["unavailable"])
         self.assertEqual(metric_events["total_rows"], 0)
+
+
+class TestPrecomputationTeamsUpdate(APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_staff_toggle_stamps_manual_provenance(self):
+        # A missing stamp would let the auto-enrollment job override a human's disable
+        # on its next run.
+        self.user.is_staff = True
+        self.user.save()
+
+        resp = self.client.post(
+            "/api/debug_ch_queries/precomputation_teams/",
+            {"team_id": self.team.id, "experiment_precomputation_enabled": False},
+        )
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+
+        config = TeamExperimentsConfig.objects.get(team=self.team)
+        self.assertFalse(config.experiment_precomputation_enabled)
+        self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)

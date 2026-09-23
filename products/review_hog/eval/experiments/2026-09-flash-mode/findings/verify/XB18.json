@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB18",
+    "cluster": null,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:104-105 returns for task.internal before the new dispatch at 126-138. The actual Signals auto-start call in signals/backend/auto_start.py:244-265 explicitly sets internal=True at 260-261 together with ai_stage=implementation and signal_report_id. tasks/backend/facade/api.py:891-903 forwards the value, and Task.create_and_run passes it to task creation at models.py:756-768. signals/backend/test/test_auto_start.py:257-264 asserts this exact production shape. The webhook facade independently rejects internal tasks at tasks/facade/api.py:504-509, so a later synchronize cannot rescue the missing initial review.",
+            "refutation": "I first checked whether the receiver's comment that only plumbing is internal matches the real producer, whether the flag is rewritten, and whether the implementation relationship offers an alternate path. The producer explicitly contradicts that comment: implementation runs are hidden from the normal task list through internal=True. The recorded implementation relationship at auto_start.py:271-275 is never used by these guards, and the value is forwarded unchanged. This blocks the primary auto-start flow even for an opted-in reviewer and enabled repository; it is a direct caller/consumer defect."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "The production implementation creator /tmp/frozen-75215/products/signals/backend/auto_start.py:244-261 sets origin SIGNAL_REPORT, ai_stage implementation, and internal=True. That value passes through /tmp/frozen-75215/products/tasks/backend/facade/api.py:891-905 and is persisted by /tmp/frozen-75215/products/tasks/backend/models.py:555-566. /tmp/frozen-75215/products/review_hog/backend/receivers.py:98-105 therefore returns before its new Stamphog queue at126-138 for these actual Inbox implementation tasks. The later-webhook lookup /tmp/frozen-75215/products/tasks/backend/facade/api.py:504-509 also rejects their internal flag, so the alternate trigger cannot recover the advertised reviews.",
+            "refutation": "I first checked whether internal=True was merely research-task plumbing or was normalized before persistence, and whether tests exercised the real implementation producer. The producer explicitly labels this task Implementation and records the implementation relationship at auto_start.py:248,271-275; its test /tmp/frozen-75215/products/signals/backend/test/test_auto_start.py:257-260 asserts internal is True. In contrast, /tmp/frozen-75215/products/review_hog/backend/tests/test_inbox_trigger.py:61-79 defaults its successful fixtures to internal=False and its Stamphog toggle test at315-340 uses that fixture. The tests mask the producer/consumer mismatch; no guard or backstop refutes it."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "The production report generation calls maybe_autostart_implementation_task (products/signals/backend/temporal/agentic/report.py:315-325), which calls the creator at auto_start.py:521-532. That creator deliberately sets signal_report_id, ai_stage='implementation', and internal=True (254-261). tasks/backend/facade/api.py:891-903 and models.py:757-768 carry the value into the created task. The receiver returns on that flag at review_hog/backend/receivers.py:104-105 before reaching the new dispatch at 126-138; the webhook lookup likewise returns None for task.internal at tasks/backend/facade/api.py:504-509. Real auto-start implementations are blocked from both review paths.",
+            "refutation": "I traced the concrete auto-start caller and task construction to challenge the receiver's comment that implementation tasks are non-internal. The comment is wrong: internal=True is intentional visibility behavior, not a transient plumbing-only flag (auto_start.py:260-261), and tests assert it (signals/backend/test/test_auto_start.py:257-260). No forwarding layer changes it. Manual Inbox-created tasks can still reach the receiver, but the claim specifically concerns production auto-start implementations; that working alternative does not refute the excluded primary path."
+        }
+    ]
+}

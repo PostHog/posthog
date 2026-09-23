@@ -1,3 +1,5 @@
+from django.urls import URLPattern, path
+
 from posthog.api.routing import RouterRegistry
 
 from products.user_interviews.backend.presentation.views import (
@@ -5,6 +7,15 @@ from products.user_interviews.backend.presentation.views import (
     UserInterviewTopicViewSet,
     UserInterviewViewSet,
 )
+from products.user_interviews.backend.presentation.webhooks import vapi_webhook
+
+api_urlpatterns: list[URLPattern] = [
+    path(
+        "vapi_webhook/",
+        vapi_webhook,
+        name="user_interviews_vapi_webhook",
+    ),
+]
 
 
 def register_routes(routers: RouterRegistry) -> None:

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { IconFlag, IconPulse, IconWarning } from '@posthog/icons'
+import { IconCopy, IconFlag, IconPulse, IconWarning } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -96,6 +96,7 @@ export function SnapshotCard({
     const { theme } = parseTheme(entry.identifier)
     const area = parseArea(entry.identifier)
     const tolerateCount = entry.tolerate_count_30d
+    const variantCount = entry.active_variants_current_baseline
     const driftPct = entry.recent_drift_avg ?? 0
     const driftVisible = driftPct >= DRIFT_DISPLAY_FLOOR_PCT
     const driftLoud = driftPct >= DRIFT_WARNING_THRESHOLD_PCT
@@ -106,7 +107,7 @@ export function SnapshotCard({
             ? `${thumbnailBasePath}/${encodeURIComponent(entry.identifier)}/`
             : null
     const href = urls.visualReviewSnapshotHistory(repoId, entry.run_type, entry.identifier)
-    const hasMeta = driftVisible || tolerateCount > 0 || entry.baseline_change_count > 0
+    const hasMeta = driftVisible || tolerateCount > 0 || variantCount > 0 || entry.baseline_change_count > 0
 
     const quarantine = entry.quarantine ?? null
     // Yellow ring (not a 1px border) so the card pulls the eye in a grid
@@ -187,7 +188,7 @@ export function SnapshotCard({
                         {area}
                     </LemonTag>
                     {hasMeta && (
-                        <div className="flex items-center gap-2 shrink-0 tabular-nums leading-none">
+                        <div className="flex flex-wrap items-center justify-end gap-2 tabular-nums leading-none">
                             {driftVisible && (
                                 <Tooltip
                                     title={`Average pixel drift over the last ${RECENT_DRIFT_WINDOW} default-branch runs: ${driftPct.toFixed(
@@ -213,6 +214,18 @@ export function SnapshotCard({
                                     <span className="inline-flex items-center gap-0.5">
                                         <IconFlag className="w-3 h-3" />
                                         {tolerateCount}
+                                    </span>
+                                </Tooltip>
+                            )}
+                            {variantCount > 0 && (
+                                <Tooltip
+                                    title={`${variantCount} accepted variant${
+                                        variantCount === 1 ? '' : 's'
+                                    } of the current baseline`}
+                                >
+                                    <span className="inline-flex items-center gap-0.5">
+                                        <IconCopy className="w-3 h-3" />
+                                        {variantCount}
                                     </span>
                                 </Tooltip>
                             )}

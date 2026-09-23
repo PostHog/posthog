@@ -8,7 +8,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.pgwire import postgres_error_to_message, postgres_oid_to_clickhouse_type
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
@@ -112,7 +112,7 @@ class RedshiftAdapter:
             raise ExposedHogQLError("Invalid direct Redshift connection.")
 
         redshift_source = cast(RedshiftSource, SourceRegistry.get_source(ExternalDataSourceType.REDSHIFT))
-        config = redshift_source.parse_config(source.job_inputs or {})
+        config = parse_direct_source_config(redshift_source, source)
 
         is_ssh_valid, ssh_valid_errors = redshift_source.ssh_tunnel_is_valid(config, team.pk)
         if not is_ssh_valid:
@@ -131,6 +131,11 @@ class RedshiftAdapter:
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         source = request.source
+        from products.warehouse_sources.backend.facade.source_management import (
+            HostNotAllowedError,
+            TemporaryHostResolutionError,
+        )
+
         redshift_implementation, source_config = self.validate_source_config(source, request.team)
         source_schema = source_config.schema
         settings = request.settings
@@ -147,7 +152,7 @@ class RedshiftAdapter:
             with request.timings.measure("redshift_execute"), observe_direct_query("redshift"):
                 # `connect` opens the SSH tunnel (if any) and applies the shared Redshift SSL
                 # conventions in one place.
-                with redshift_implementation.connect(source_config) as connection:
+                with redshift_implementation.connect(source_config, team_id=request.team.pk) as connection:
                     # One round trip for the session setup: statement_timeout is a validated int
                     # (milliseconds) so inlining it is injection-safe, and the search_path
                     # identifier is escaped. Multi-statement execute is fine with no parameters.
@@ -163,7 +168,13 @@ class RedshiftAdapter:
                         # as an empty result instead of raising on fetch, mirroring Postgres.
                         description = cursor.description or []
                         results = _fetch_capped_redshift_rows(cursor) if description else []
-        except (psycopg.Error, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
+        except (
+            psycopg.Error,
+            BaseSSHTunnelForwarderError,
+            ExposedHogQLError,
+            HostNotAllowedError,
+            TemporaryHostResolutionError,
+        ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=postgres_error_to_message(error))

@@ -138,7 +138,7 @@ export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => vo
  * Opens the legacy manual-setup dialog: the SDK grid, then per-SDK instructions. Picking an SDK
  * closes the grid and opens the instructions; closing the instructions reopens the grid.
  */
-export function ManualSetupButton(): JSX.Element {
+export function ManualSetupButton({ onAdvance }: { onAdvance: () => void }): JSX.Element {
     const { reportOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
     const { setAvailableSDKInstructionsMap, selectSDK, setSearchTerm, setSelectedTag } = useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
@@ -201,6 +201,7 @@ export function ManualSetupButton(): JSX.Element {
                     adblockResult={adblockResult}
                     verifyingProperty="ingested_event"
                     verifyingName="event"
+                    onAdvance={onAdvance}
                 />
             )}
         </>

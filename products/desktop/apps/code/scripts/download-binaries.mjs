@@ -19,7 +19,7 @@ import { extract } from "tar";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEST_DIR = join(__dirname, "..", "resources", "codex-acp");
 
-const CODEX_VERSION = "0.144.0";
+const CODEX_VERSION = "0.154.0";
 
 function nativeTarget() {
   const { platform, arch } = process;

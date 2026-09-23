@@ -1,7 +1,7 @@
 {
     "id": "019cd30c-1652-0000-5ef1-980212d928fc",
     "name": "Send congrats for a milestone reached",
-    "description": "Celebrate when users reach an important milestone in your product and encourage them to keep going. This can be when they: create a new project, workflow, complete a task, generate a report, etc.",
+    "description": "Congratulate someone when they reach a milestone, and point them at the next one.",
     "version": 1,
     "created_at": "2026-03-09T14:41:50.674613Z",
     "created_by": {

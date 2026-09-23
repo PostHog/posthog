@@ -15,6 +15,12 @@ export function useInView<T extends HTMLElement = HTMLDivElement>(
 
   useEffect(() => {
     if (!element) return;
+    // No IntersectionObserver (jsdom): everything counts as in view, so
+    // consumers behave as if lazy rendering were disabled.
+    if (typeof IntersectionObserver === "undefined") {
+      setInView(true);
+      return;
+    }
 
     const observer = new IntersectionObserver(
       ([entry]) => {

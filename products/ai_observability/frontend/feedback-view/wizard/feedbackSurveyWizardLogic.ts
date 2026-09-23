@@ -257,6 +257,11 @@ export const feedbackSurveyWizardLogic = kea<feedbackSurveyWizardLogicType>([
                         questions,
                         appearance: followUpEnabled ? appearance : undefined,
                         start_date: dayjs().toISOString(),
+                        // The capture snippet this wizard hands out sends the rating and the
+                        // follow-up text as two separate events, and a rating on its own is
+                        // already usable feedback. Without this, a submission that never reaches
+                        // the follow-up counts as incomplete and is hidden from the results.
+                        enable_partial_responses: true,
                     })
 
                     eventUsageLogic.actions.reportSurveyCreated(survey, false, 'llm_analytics')

@@ -78,7 +78,7 @@ export interface DataCatalogCertificationApi {
     readonly saved_query: string | null
     /** Whether the marked target is a 'table' or a 'view'. */
     readonly target_type: string
-    /** Name of the marked table or view. */
+    /** Queryable HogQL name of the marked table or view. */
     readonly target_name: string
     /** proposed, certified (prefer this source), or deprecated (avoid this source). */
     readonly status: string
@@ -123,9 +123,9 @@ export interface CertificationCreateApi {
     table_id?: string
     /** Warehouse view (saved query) id to certify. */
     saved_query_id?: string
-    /** Table name; 409 with candidates if ambiguous. */
+    /** Queryable HogQL table name; 409 with candidates if ambiguous. */
     table_name?: string
-    /** View name; 409 with candidates if ambiguous. */
+    /** Queryable HogQL view name; 409 with candidates if ambiguous. */
     view_name?: string
     /** Why this mark exists. */
     notes?: string
@@ -406,12 +406,24 @@ export interface DataCatalogMetricRunApi {
     /** The query results, for an executable metric. Null for a markdown metric. */
     results: unknown
     /**
+     * Names of the result columns, in the order of the values in each positional result row. Null when the results are already labeled, or the query kind returns no column names.
+     * @nullable
+     */
+    columns: string[] | null
+    /**
      * The compiled HogQL, when available.
      * @nullable
      */
     compiled_query: string | null
     /** Async query status, when the run is not blocking. */
     query_status: unknown
+    /** True when the query hit its row limit and more rows exist. Narrow the window or the interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those overrides, so report the window the definition itself covers, or ask for a parameterized metric. Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row cap was reported for that run. */
+    has_more: boolean
+    /**
+     * Row limit applied to this run. Null when no row cap was reported: a markdown metric, an insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field cannot verify the completeness of those runs.
+     * @nullable
+     */
+    row_limit: number | null
     /**
      * Deep link to open the query in the app (SQL editor or insight).
      * @nullable

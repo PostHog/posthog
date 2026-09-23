@@ -47,17 +47,41 @@ describe('reportRunOutcome', () => {
     })
 
     // The mirror image: netting tolerated matches off real drift hid it entirely.
-    it('warns about drift on an observe run even when tolerated matches exist', async () => {
+    it('warns about drift on a tolerating observe run even when tolerated matches exist', async () => {
         const exitCode = await reportRunOutcome(
             client,
             run({ unchanged: 4113, total: 4115, changed: 2, tolerated_matched: 14 }),
             'https://vr.example.com/run-1',
-            'observe'
+            'observe',
+            true
         )
 
         expect(exitCode).toBe(0)
         expect(output).toContain('Unapproved snapshot drift on master')
         expect(output).toContain('changed: story--light (12.07% diff)')
+    })
+
+    // The merge-queue case. The tree in the run is the tree about to land, so drift there has
+    // to stop the merge rather than warn about it after the fact.
+    it('fails an observe run whose drift is not tolerated', async () => {
+        const exitCode = await reportRunOutcome(
+            client,
+            run({ unchanged: 4113, total: 4115, changed: 2 }),
+            'https://vr.example.com/run-1',
+            'observe'
+        )
+
+        expect(exitCode).toBe(1)
+        expect(output).toContain('Unapproved snapshot drift on master')
+        expect(output).toContain('changed: story--light (12.07% diff)')
+    })
+
+    it('passes a clean observe run whose drift would not be tolerated', async () => {
+        const exitCode = await reportRunOutcome(client, run(), 'https://vr.example.com/run-1', 'observe')
+
+        expect(exitCode).toBe(0)
+        expect(output).toContain('No visual changes')
+        expect(output).not.toContain('::warning::')
     })
 
     it('gates a review run with unresolved changes', async () => {

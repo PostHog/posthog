@@ -5,9 +5,15 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
-from products.data_modeling.backend.facade.models import DataModelingJobEngine, Edge, Node, NodeType
+from products.data_modeling.backend.facade.models import (
+    SAVED_QUERY_NODE_TYPES,
+    DataModelingJobEngine,
+    Edge,
+    Node,
+    NodeType,
+)
 
-from .utils import is_node_suspended, is_suspension_enforced
+from .utils import is_node_suspended
 
 LOGGER = get_logger(__name__)
 
@@ -46,22 +52,17 @@ def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     nodes = Node.objects.filter(team_id=team_id, dag_id=dag_id)
     # a node outlives the query it points at, because deleting one is best-effort while soft-deleting
     # the query is not. running it can only fail, so it must not reach the materialization activity.
-    executable_nodes = nodes.filter(type__in=[NodeType.VIEW, NodeType.MAT_VIEW, NodeType.ENDPOINT]).exclude(
-        saved_query__deleted=True
-    )
+    executable_nodes = nodes.filter(type__in=SAVED_QUERY_NODE_TYPES).exclude(saved_query__deleted=True)
     ephemeral_nodes = executable_nodes.filter(type=NodeType.VIEW)
     edges = (
         Edge.objects.prefetch_related("source", "target")
         .filter(team_id=team_id, dag_id=dag_id)
         .exclude(source__type=NodeType.TABLE)
     )
-    if is_suspension_enforced(team_id):
-        suspended_nodes = {
-            engine.value: [str(n.id) for n in executable_nodes if is_node_suspended(n, engine)]
-            for engine in DataModelingJobEngine
-        }
-    else:
-        suspended_nodes = {engine.value: [] for engine in DataModelingJobEngine}
+    suspended_nodes = {
+        engine.value: [str(n.id) for n in executable_nodes if is_node_suspended(n, engine)]
+        for engine in DataModelingJobEngine
+    }
     # ids are uuid objects by default. primitives are probably better
     return DAG(
         nodes=[str(n.id) for n in nodes],

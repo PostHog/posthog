@@ -1,5 +1,45 @@
-# Trends (unique users, for specific 90 days)
+# Daily unique users over the last 30 days
+
+## Native trends insight
+
+First, check the event with `posthog:read-data-schema`. Then call `posthog:query-trends` with this input for a native daily trends insight:
+
+```json
+{
+  "kind": "TrendsQuery",
+  "series": [{ "kind": "EventsNode", "event": "chat with ai", "math": "dau" }],
+  "dateRange": { "date_from": "-30d" },
+  "interval": "day"
+}
+```
+
+The omitted `filterTestAccounts` field follows the project's "Filter out internal and test users" setting. Set it only when the request explicitly asks to override that setting.
+
+Use the native insight controls for breakdowns or period comparisons. Do not generate SQL only to render this insight.
+
+## SQL representation
+
+This build-time SQL represents the same aggregation and time range. It cannot inherit the project's test-account setting. Before running or adapting it, apply the project's test-account filters when "Filter out internal and test users" is enabled.
 
 ```sql
-{{ render_hogql_example({"kind": "TrendsQuery", "filterTestAccounts": false, "series": [{"kind": "EventsNode", "event": "chat with ai", "math": "dau"}], "dateRange": {"date_from": "-30d"}, "interval": "day"}) }}
+{{ render_hogql_example({"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "chat with ai", "math": "dau"}], "dateRange": {"date_from": "-30d"}, "interval": "day"}) }}
 ```
+
+## Simple aggregate: prefer a typed query when both fit
+
+For "Count `chat with ai` events in the last seven days", either a typed total or SQL can answer the question.
+Prefer the typed query for a new analysis when both methods preserve the requested calculation and output.
+Use `posthog:query-trends` with `math: "total"`, `compareFilter.compare: true`, `trendsFilter.display: "Metric"`, `trendsFilter.metricSummary: "total"`, and the requested time bounds.
+Resolve both rolling bounds to ISO 8601 timestamps and pass them as `date_from` and `date_to` when matching the SQL window below.
+
+The SQL form remains valid when the user requests SQL or an existing SQL query already fits:
+
+```sql
+SELECT count() AS event_count
+FROM events
+WHERE event = 'chat with ai'
+  AND timestamp >= now() - INTERVAL 7 DAY
+  AND timestamp <= now()
+```
+
+Keep test-account filtering consistent. Reuse either valid form when it already fits the task. A single number does not require a method change.

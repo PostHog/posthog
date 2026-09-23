@@ -14,6 +14,8 @@ from posthog.temporal.ai.slack_app import (
     cascade_posthog_code_repository_activity,
 )
 
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
+
 
 def _make_inputs(
     integration_id: int, user_id: int, slack_team_id: str = "T_SLACK"
@@ -161,7 +163,11 @@ class TestCascadeTeamInstall(TestCase):
         mock_user_github_class.return_value = mock_user_github
 
         outcome = cascade_posthog_code_repository_activity(
-            _make_inputs(self.slack_integration.id, self.user.id), event_text, self.user.id, thread_messages, "2.000000"
+            _make_inputs(self.slack_integration.id, self.user.id),
+            event_text,
+            self.user.id,
+            [SlackThreadMessage(**message) for message in thread_messages],
+            "2.000000",
         )
 
         assert outcome.mode == expected_mode

@@ -564,6 +564,12 @@ tools:
     teams-data-freshness-retrieve:
         operation: teams_data_freshness_retrieve
         enabled: false
+    user-facet-settings-partial-update:
+        operation: user_facet_settings_partial_update
+        enabled: false
+    user-facet-settings-retrieve:
+        operation: user_facet_settings_retrieve
+        enabled: false
     user-home-settings-get:
         operation: user_home_settings_retrieve
         enabled: true

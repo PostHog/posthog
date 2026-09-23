@@ -40,6 +40,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models.event.util import format_clickhouse_timestamp
@@ -82,6 +83,7 @@ def _count_unscored_in_one_bucket(lookback_days: int, of_chunks: int) -> int:
         sync_execute(
             surfacing_scoring_sweep_sql.count_unscored_sql(),
             {"lookback_days": lookback_days, "of_chunks": of_chunks},
+            ch_user=ClickHouseUser.SURFACING_SCORING,
             settings={
                 "max_execution_time": CH_FEATURE_QUERY_TIMEOUT_S,
                 "max_memory_usage": CH_FEATURE_QUERY_MAX_MEMORY_BYTES,
@@ -145,6 +147,7 @@ def _fetch_features_dataframe(spec: ChunkSpec) -> pd.DataFrame:
                 "chunk_id": spec.chunk_id,
                 "chunk_size": spec.chunk_size,
             },
+            ch_user=ClickHouseUser.SURFACING_SCORING,
             settings={
                 "max_execution_time": CH_FEATURE_QUERY_TIMEOUT_S,
                 "max_memory_usage": CH_FEATURE_QUERY_MAX_MEMORY_BYTES,
@@ -281,7 +284,7 @@ async def score_chunk_activity(spec: ChunkSpec) -> ChunkResult:
 
     feature_names = await sync_to_async(get_feature_names, thread_sensitive=False)()
 
-    activity.logger.info(
+    logger.info(
         "surfacing_scoring_sweep.fetched",
         chunk_id=spec.chunk_id,
         rows=len(df),
@@ -303,7 +306,7 @@ async def score_chunk_activity(spec: ChunkSpec) -> ChunkResult:
     # chunk would deterministically re-fail this hash bucket every tick.
     bad_rows = out_of_contract_row_mask(df, feature_names=feature_names)
     if bad_rows.any():
-        activity.logger.warning(
+        logger.warning(
             "surfacing_scoring_sweep.rows_out_of_contract",
             chunk_id=spec.chunk_id,
             dropped=int(bad_rows.sum()),
@@ -319,7 +322,7 @@ async def score_chunk_activity(spec: ChunkSpec) -> ChunkResult:
     activity.heartbeat({"phase": "publish", "chunk_id": spec.chunk_id, "rows": len(df)})
     published = await sync_to_async(_publish_scores, thread_sensitive=False)(df, scores)
 
-    activity.logger.info(
+    logger.info(
         "surfacing_scoring_sweep.chunk_done",
         chunk_id=spec.chunk_id,
         scored=published,

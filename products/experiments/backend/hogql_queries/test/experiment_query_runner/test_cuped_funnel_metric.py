@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 
 from django.test import override_settings
@@ -118,7 +118,7 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
                 if (i * 7) % 100 < threshold:
                     self._create_checkout(feature_flag, distinct_id, "2020-01-10T13:00:00Z")
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_disabled_cuped_does_not_collect_covariate_columns(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -149,7 +149,7 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertIsNone(result.baseline.covariate_sum)
         self.assertIsNone(result.variant_results[0].covariate_sum)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_funnel_metric_collects_covariate_columns(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -204,7 +204,7 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
         # Only the user that converted both pre and post contributes to the cross product.
         self.assertEqual(test_variant.covariate_sum_product, 1)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_uses_pre_exposure_window_relative_to_first_exposure(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -248,7 +248,7 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.covariate_sum, 1)
         self.assertEqual(test_variant.covariate_sum_product, 1)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_multi_step_funnel_uses_last_step_for_covariate(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -297,7 +297,7 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.covariate_sum, 0)
         self.assertEqual(test_variant.covariate_sum_product, 0)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_query_uses_single_metric_events_scan(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -321,7 +321,7 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertNotIn("pre_metric_events", result.hogql)
         self.assertNotIn("pre_base_events", result.hogql)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_unordered_funnel_disables_cuped(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -351,7 +351,7 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
         self.assertIsNone(result.baseline.covariate_sum)
         self.assertIsNone(result.variant_results[0].covariate_sum)
 
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_handles_zero_pre_exposure_data(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -385,7 +385,7 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
             ("bayesian", "bayesian", "credible_interval"),
         ]
     )
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     def test_cuped_adjusts_statistical_result(self, name, method, interval_attr):
         metric = self._build_single_step_metric()
 

@@ -256,7 +256,7 @@ describe('utils', () => {
     describe('cohortPercentagesAddUp', () => {
         // Both directions of this have bitten: comparing against 100 exactly reports the balance
         // button's own output as unbalanced, while a tolerance wide enough to cover a hundredth of a
-        // percent hides shortfalls the runtime really does reroute to the last cohort.
+        // percent hides totals that really do miss 100.
         it.each([2, 3, 7, 8, 30, 99])('accepts the even split produced for %i cohorts', (count) => {
             expect(cohortPercentagesAddUp(normalizeCohortPercentages(count))).toBe(true)
         })

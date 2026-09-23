@@ -140,11 +140,10 @@ def _handle_probe(signum: int, frame: FrameType | None) -> None:
 def install_memory_probe_handler() -> None:
     """Register the SIGUSR2 memory-probe handler, gated by WEB_MEMORY_PROBE_ENABLED.
 
-    MUST be called post-fork from inside each worker (see posthog/asgi.py and posthog/wsgi.py):
-    signal handlers can only be registered from the main thread, and the handler has to live
-    in the worker that serves requests, not the idle Nginx Unit prototype the workers fork
-    from. Registering post-fork also means it isn't clobbered by any signal reset Unit does
-    during worker init.
+    MUST be called from inside each worker (see posthog/asgi.py and posthog/wsgi.py): signal
+    handlers can only be registered from the main thread, and the handler has to live in the
+    process that serves requests. Registering it there also keeps it clear of any signal reset
+    the server does during worker init.
 
     Inert until armed: with the flag unset (default) nothing is registered at all, and even
     when armed the handler does nothing until a SIGUSR2 actually arrives. So the safe way to

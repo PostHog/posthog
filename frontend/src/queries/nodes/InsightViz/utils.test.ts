@@ -1,3 +1,4 @@
+import { Node, NodeKind } from '~/queries/schema/schema-general'
 import { InsightModel } from '~/types'
 
 import { extractValidationErrorCode, getQueryBasedInsightModel } from './utils'
@@ -54,5 +55,12 @@ describe('getQueryBasedInsightModel', () => {
     ])('%s', (_name, input, expected) => {
         const result = getQueryBasedInsightModel(input as Partial<InsightModel>)
         expect(result.dashboards).toEqual(expected)
+    })
+
+    it('leaves the rest of the insight untouched', () => {
+        const query = { kind: NodeKind.TrendsQuery } as Node
+        const result = getQueryBasedInsightModel({ id: 7, name: 'Pageviews', query })
+
+        expect(result).toEqual({ id: 7, name: 'Pageviews', query })
     })
 })

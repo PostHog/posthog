@@ -15,7 +15,7 @@ import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 
 // Corner anchor for the collapsed card and the minimized launcher. The dialog is a portal, so it
 // positions itself.
-const CORNER = 'fixed bottom-5 right-5 z-[60]'
+const CORNER = 'fixed bottom-[calc(1.25rem+var(--terminal-dock-height,0px))] right-5 z-[60]'
 
 // Shared presentation for a single run: the collapsed card or, once dismissed, the launcher, plus the
 // dialog. Owns the elapsed clock and reads the shared dismiss/expand UI state.

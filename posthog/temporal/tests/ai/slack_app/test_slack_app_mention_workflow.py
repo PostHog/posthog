@@ -21,8 +21,12 @@ from posthog.temporal.ai.slack_app.types import (
     SlackAppMessageReactionInput,
     SlackAppModelOverride,
     SlackAppModelOverrideInput,
+    SlackAppProjectRoute,
+    SlackAppProjectRouteInput,
     SlackRepoSelectionOutcome,
 )
+
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 
 
 def _message(
@@ -50,6 +54,12 @@ class _Recorder:
         self.model_overrides: dict[str, SlackAppModelOverride] = {}
         # ts -> model override the create-task call actually received.
         self.created_with_override: dict[str, SlackAppModelOverride | None] = {}
+        # event text -> project route the classifier returns; missing means no route.
+        self.project_routes: dict[str, SlackAppProjectRoute] = {}
+        # ts -> integration id each activity was given, so a project the message routed
+        # itself to can be shown to reach the whole run rather than only its tail.
+        self.cascade_integration_ids: dict[str, int] = {}
+        self.created_integration_ids: dict[str, int] = {}
         # ts per hourglass reaction (message queued behind another), in execution order.
         self.queued_marked: list[str] = []
         # ts per hourglass->eyes reaction swap, in execution order.
@@ -64,7 +74,7 @@ class _Recorder:
         self.forward_results: dict[str, bool] = {}
         # ts -> thread snapshot; missing means a one-message thread. An empty list is what
         # a deleted trigger message reads as.
-        self.thread_messages: dict[str, list[dict[str, str]]] = {}
+        self.thread_messages: dict[str, list[SlackThreadMessage]] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
         self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed"]] = {}
         # ts per personal-GitHub gate call, in execution order.
@@ -126,24 +136,29 @@ def _fake_activities(rec: _Recorder) -> list:
     @activity.defn(name="collect_posthog_code_thread_messages_activity")
     async def collect(
         inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
-    ) -> list[dict[str, str]]:
+    ) -> list[SlackThreadMessage]:
         ts = inputs.event["ts"]
-        return rec.thread_messages.get(ts, [{"user": "U1", "text": inputs.event["text"]}])
+        return rec.thread_messages.get(ts, [SlackThreadMessage(user="U1", text=inputs.event["text"])])
 
     @activity.defn(name="cascade_posthog_code_repository_activity")
     async def cascade(
         inputs: PostHogCodeSlackMentionWorkflowInputs,
         event_text: str,
         user_id: int | None = None,
-        thread_messages: list[dict[str, str]] | None = None,
+        thread_messages: list[SlackThreadMessage] | None = None,
         mention_ts: str | None = None,
     ) -> PostHogCodeRepoCascadeOutcome:
+        rec.cascade_integration_ids[inputs.event["ts"]] = inputs.integration_id
         mode = rec.cascade_modes.get(inputs.event["ts"], "auto")
         repository = "org/auto-repo" if mode == "auto" else None
         return PostHogCodeRepoCascadeOutcome(mode=mode, repository=repository, reason="test")
 
     @activity.defn(name="classify_posthog_code_task_needs_repo_activity")
-    async def needs_repo(event_text: str, thread_messages: list[dict[str, str]]) -> bool:
+    async def needs_repo(
+        event_text: str,
+        thread_messages: list[SlackThreadMessage],
+        inputs: PostHogCodeSlackMentionWorkflowInputs | None = None,
+    ) -> bool:
         rec.needs_repo_calls.append(event_text)
         return True
 
@@ -152,7 +167,7 @@ def _fake_activities(rec: _Recorder) -> list:
         inputs: PostHogCodeSlackMentionWorkflowInputs,
         channel: str,
         event: dict[str, Any],
-        thread_messages: list[dict[str, str]],
+        thread_messages: list[SlackThreadMessage],
         user_id: int,
     ) -> SlackRepoSelectionOutcome:
         return SlackRepoSelectionOutcome(status="failed", repository=None, reason="agent crashed")
@@ -188,6 +203,10 @@ def _fake_activities(rec: _Recorder) -> list:
     async def classify_model_override(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
         return rec.model_overrides.get(input.event_text)
 
+    @activity.defn(name="classify_slack_app_project_route_activity")
+    async def classify_project_route(input: SlackAppProjectRouteInput) -> SlackAppProjectRoute | None:
+        return rec.project_routes.get(input.event_text)
+
     @activity.defn(name="create_posthog_code_task_for_repo_activity")
     async def create_task(
         inputs: PostHogCodeSlackMentionWorkflowInputs,
@@ -196,7 +215,7 @@ def _fake_activities(rec: _Recorder) -> list:
         slack_user_id: str,
         user_id: int,
         event: dict[str, Any],
-        thread_messages: list[dict[str, str]],
+        thread_messages: list[SlackThreadMessage],
         repository: str | None,
         repo_research_task_id: str | None = None,
         repo_research_run_id: str | None = None,
@@ -204,6 +223,7 @@ def _fake_activities(rec: _Recorder) -> list:
     ) -> None:
         ts = inputs.event["ts"]
         rec.created_with_override[ts] = model_override
+        rec.created_integration_ids[ts] = inputs.integration_id
         reached = rec.create_reached.get(ts)
         if reached:
             reached.set()
@@ -242,6 +262,7 @@ def _fake_activities(rec: _Recorder) -> list:
         post_picker,
         block_github,
         classify_model_override,
+        classify_project_route,
         create_task,
         picker_timeout,
         internal_error,
@@ -352,6 +373,31 @@ async def test_model_override_reaches_task_creation():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created_with_override == {"1.1": None, "1.2": override}
+
+
+@pytest.mark.asyncio
+async def test_project_route_reaches_the_repo_cascade_and_task_creation():
+    """A mention that names a project moves the whole run to it, not just the task.
+
+    The cascade is the assertion that matters: it reads the team's connected
+    repositories, so a rebind placed after it would pick a repo from the project the
+    mention left.
+    """
+    rec = _Recorder()
+    plain, routed = _message("1.1"), _message("1.2", text="how many signups on staging yesterday")
+    rec.project_routes["how many signups on staging yesterday"] = SlackAppProjectRoute(integration_id=77)
+    rec.create_reached["1.1"] = asyncio.Event()
+    rec.create_gates["1.1"] = asyncio.Event()
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", plain)
+        await asyncio.wait_for(rec.create_reached["1.1"].wait(), timeout=30)
+        await handle.signal(SlackAppMentionWorkflow.new_message, routed)
+        rec.create_gates["1.1"].set()
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.cascade_integration_ids == {"1.1": 1, "1.2": 77}
+    assert rec.created_integration_ids == {"1.1": 1, "1.2": 77}
 
 
 @pytest.mark.asyncio

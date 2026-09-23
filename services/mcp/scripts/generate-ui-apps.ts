@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import { discoverDefinitions, isToolsConfig } from './lib/definitions.mjs'
+import { type ToolInputSchema, validateListAppToolCall } from './lib/validate-ui-app-tool-call'
 import { MCP_ROOT_DIR, ROOT_DIR } from './utils'
 import {
     type CategoryConfig,
@@ -401,6 +402,18 @@ ${appEntries},
 // Main
 // ------------------------------------------------------------------
 
+const TOOL_SCHEMA_SNAPSHOTS_DIR = path.join(MCP_ROOT_DIR, 'tests', 'unit', '__snapshots__', 'tool-schemas')
+
+// The snapshot test writes one JSON schema per registered tool, so the generator
+// can read tool inputs without loading the server bundle.
+function readToolInputSchema(toolName: string): ToolInputSchema | undefined {
+    const snapshotPath = path.join(TOOL_SCHEMA_SNAPSHOTS_DIR, `${toolName}.json`)
+    if (!fs.existsSync(snapshotPath)) {
+        return undefined
+    }
+    return JSON.parse(fs.readFileSync(snapshotPath, 'utf-8'))
+}
+
 function main(): void {
     const definitionSources = discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })
 
@@ -473,6 +486,7 @@ function main(): void {
                     process.exit(1)
                 }
                 const resolved = resolveListApp(appKey, appConfig, componentImport!)
+                validateListAppToolCall(appKey, resolved, readToolInputSchema(resolved.detail_tool))
                 const code = generateListApp(appKey, resolved)
                 const outPath = path.join(GENERATED_APPS_DIR, `${appKey}.tsx`)
                 fs.writeFileSync(outPath, code)

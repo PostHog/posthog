@@ -1,0 +1,54 @@
+{
+    "W1": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "W2": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "W3": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "W4": {
+        "is_real": true,
+        "severity": "must_fix"
+    },
+    "W5": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "W6": {
+        "is_real": true,
+        "severity": "must_fix"
+    },
+    "W7": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "W8": {
+        "is_real": true,
+        "severity": "consider"
+    },
+    "W9": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "W10": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "W11": {
+        "is_real": true,
+        "severity": "should_fix"
+    },
+    "W12": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    },
+    "W13": {
+        "is_real": false,
+        "severity": "not_an_issue"
+    }
+}

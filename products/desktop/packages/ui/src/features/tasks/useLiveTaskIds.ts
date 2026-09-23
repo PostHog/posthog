@@ -10,8 +10,11 @@ import { useMemo } from "react";
  * empty tile the user does. `null` while the list is unknown, which callers
  * read as "hold every non-empty cell" rather than guessing the other way.
  */
-export function useLiveTaskIds(): ReadonlySet<string> | null {
-  const { data: liveTasks } = useTasks();
+export function useLiveTaskIds(enabled = true): ReadonlySet<string> | null {
+  const { data: liveTasks } = useTasks(undefined, {
+    enabled,
+    subscribed: enabled,
+  });
   return useMemo(
     () => (liveTasks ? new Set(liveTasks.map((task) => task.id)) : null),
     [liveTasks],

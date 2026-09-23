@@ -62,6 +62,69 @@ describe('normalizeEvent()', () => {
         })
     })
 
+    describe('$os_name alias', () => {
+        test.each([
+            {
+                name: 'fills a missing $os',
+                event: 'some_event',
+                properties: { $os_name: 'Windows' },
+                expected: 'Windows',
+            },
+            {
+                name: 'leaves an existing $os alone',
+                event: 'some_event',
+                properties: { $os: 'Mac OS X', $os_name: 'Windows' },
+                expected: 'Mac OS X',
+            },
+            {
+                name: 'carries a null $os_name through to $os',
+                event: 'some_event',
+                properties: { $os_name: null },
+                expected: null,
+            },
+            {
+                name: 'skips a $snapshot event, which skips person property lifting too',
+                event: '$snapshot',
+                properties: { $os_name: 'Windows' },
+                expected: undefined,
+            },
+            {
+                name: 'skips a $performance_event, which skips person property lifting too',
+                event: '$performance_event',
+                properties: { $os_name: 'Windows' },
+                expected: undefined,
+            },
+        ])('$name', ({ event, properties, expected }) => {
+            const normalized = normalizeEvent({ event, distinct_id: 'user1', properties } as any)
+            expect(normalized.properties!['$os']).toBe(expected)
+        })
+
+        it('gives the person $os and drops the $os_name alias', () => {
+            const normalized = normalizeEvent({
+                event: 'some_event',
+                distinct_id: 'user1',
+                properties: { $os_name: 'iOS' },
+            } as any)
+
+            expect(normalized.properties!['$set']).toEqual({ $os: 'iOS' })
+            expect(normalized.properties!['$set_once']).toEqual({ $initial_os: 'iOS' })
+        })
+
+        it('keeps a server host OS out of $os and $initial_os', () => {
+            const normalized = normalizeEvent({
+                event: 'some_event',
+                distinct_id: 'user1',
+                properties: { $is_server: true, $os_name: 'Linux' },
+            } as any)
+
+            expect(normalized.properties!['$os']).toBeUndefined()
+            // The host OS still reaches the person under the $os_name keys: personInitialAndUTMProperties
+            // skips only $os and $os_version for a server event, and $set_once makes $initial_os_name sticky.
+            expect(normalized.properties!['$set']).toEqual({ $os_name: 'Linux' })
+            expect(normalized.properties!['$set_once']).toEqual({ $initial_os_name: 'Linux' })
+        })
+    })
+
     it('combines .properties $set and $set_once with top-level $set and $set_once', () => {
         const event = {
             event: 'some_event',

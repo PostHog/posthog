@@ -1,0 +1,68 @@
+name: Desktop backend coupling rerun
+
+# The Desktop backend coupling job reads the PR's labels from the API, so a
+# rerun is all the desktop-skip-backend-check label needs to take effect.
+# Label events cannot go on desktop-ci.yml itself: GitHub cannot filter a
+# trigger by label name, so every label would re-dispatch the whole desktop
+# suite and cancel the run in flight. This workflow reacts to the one label
+# and reruns only that job, plus the Desktop Tests Pass gate that needs it,
+# inside the run that already exists for the PR head.
+#
+# Safety: `pull_request_target` runs the base branch's version of this file
+# with a write token, so the rerun also works on fork PRs. No step checks out
+# or runs PR code; the only inputs are the head SHA and the label name.
+# nosemgrep: semgrep.rules.github-actions-pull-request-target
+on:
+    pull_request_target:
+        types: [labeled, unlabeled]
+
+permissions:
+    actions: write
+
+jobs:
+    rerun:
+        name: Rerun Desktop backend coupling
+        if: github.event.label.name == 'desktop-skip-backend-check'
+        # Job level, not workflow level: a skipped job never claims the group, so
+        # only skip-label events supersede each other. At workflow level, any
+        # other label on the PR would cancel a wait that is already in flight.
+        concurrency:
+            group: desktop-backend-coupling-rerun-${{ github.event.pull_request.number }}
+            cancel-in-progress: true
+        runs-on: depot-ubuntu-24.04
+        # GitHub only reruns jobs of a completed run, so this waits for the whole
+        # desktop suite. Its slowest path budgets 85 minutes; stay above that or
+        # the wait dies before it can rerun anything.
+        timeout-minutes: 120
+        steps:
+            - name: Rerun the coupling job on the PR head
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  ACTION: ${{ github.event.action }}
+              run: |
+                  run_id=$(gh run list --repo "$REPOSITORY" --workflow desktop-ci.yml --event pull_request \
+                      --commit "$HEAD_SHA" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+                  if [ -z "$run_id" ]; then
+                      echo "No Desktop CI run for $HEAD_SHA; the next run reads the label itself."
+                      exit 0
+                  fi
+                  gh run watch --repo "$REPOSITORY" --interval 30 "$run_id" >/dev/null
+                  job=$(gh run view --repo "$REPOSITORY" "$run_id" --json jobs \
+                      --jq '.jobs[] | select(.name == "Desktop backend coupling")')
+                  if [ -z "$job" ]; then
+                      echo "::error::Run $run_id has no 'Desktop backend coupling' job; update this workflow if the job was renamed."
+                      exit 1
+                  fi
+                  job_id=$(jq -r '.databaseId' <<<"$job")
+                  conclusion=$(jq -r '.conclusion' <<<"$job")
+                  case "$ACTION:$conclusion" in
+                      labeled:failure | unlabeled:success)
+                          echo "Rerunning Desktop backend coupling (job $job_id) in run $run_id after '$ACTION'."
+                          gh run rerun --repo "$REPOSITORY" --job "$job_id"
+                          ;;
+                      *)
+                          echo "Desktop backend coupling concluded '$conclusion' before '$ACTION'; nothing to rerun."
+                          ;;
+                  esac

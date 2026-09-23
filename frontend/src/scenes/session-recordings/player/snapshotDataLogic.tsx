@@ -362,12 +362,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
                     const source = sources[0]
 
-                    if (source.source === SnapshotSourceType.blob_v2_lts) {
-                        if (!source.blob_key) {
-                            throw new Error('Missing key')
-                        }
-                        params = { blob_key: source.blob_key, source: 'blob_v2_lts' }
-                    } else if (source.source === SnapshotSourceType.blob_v2) {
+                    if (source.source === SnapshotSourceType.blob_v2) {
                         // they all have to be blob_v2
                         if (sources.some((s) => s.source !== SnapshotSourceType.blob_v2)) {
                             throw new Error('Unsupported source for multiple sources')

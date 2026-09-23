@@ -428,6 +428,56 @@ export function imagePresetName(repository: string): string {
   return `${repoName} toolchain`;
 }
 
+const IMAGE_NAME_ADJECTIVES = [
+  "amber",
+  "brisk",
+  "calm",
+  "cedar",
+  "clever",
+  "crisp",
+  "dapper",
+  "deft",
+  "mellow",
+  "nimble",
+  "quiet",
+  "rapid",
+  "rustic",
+  "snappy",
+  "solar",
+  "sturdy",
+  "swift",
+  "tidy",
+  "zesty",
+] as const;
+
+const IMAGE_NAME_NOUNS = [
+  "badger",
+  "beacon",
+  "comet",
+  "falcon",
+  "fern",
+  "forge",
+  "harbor",
+  "hedgehog",
+  "lantern",
+  "maple",
+  "meadow",
+  "otter",
+  "pebble",
+  "pine",
+  "quill",
+  "ridge",
+  "sparrow",
+  "summit",
+  "willow",
+] as const;
+
+export function randomImageName(): string {
+  const pick = (words: readonly string[]): string =>
+    words[Math.floor(Math.random() * words.length)];
+  return `${pick(IMAGE_NAME_ADJECTIVES)}-${pick(IMAGE_NAME_NOUNS)}`;
+}
+
 /**
  * The brief handed to the builder session. The builder authors and verifies the
  * spec, so this states the goal, the tools and the setup commands rather than
@@ -472,7 +522,7 @@ export function imagePresetBrief(
  * browser or dependency install lands at the version the repository pins and
  * its cache is baked in.
  */
-export type SetupCommandGroup = "dependencies" | "toolchains" | "project";
+type SetupCommandGroup = "dependencies" | "toolchains" | "project";
 
 export const SETUP_COMMAND_GROUPS: readonly {
   id: SetupCommandGroup;
@@ -483,7 +533,7 @@ export const SETUP_COMMAND_GROUPS: readonly {
   { id: "project", label: "Project setup" },
 ];
 
-export interface SetupCommandSuggestion {
+interface SetupCommandSuggestion {
   id: string;
   group: SetupCommandGroup;
   label: string;

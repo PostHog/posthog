@@ -10,7 +10,7 @@
             "type": "boolean"
         },
         "enabled": {
-            "description": "Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.",
+            "description": "Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the boolean form `true` / `false`. Omit to list every scanner.",
             "type": "string"
         },
         "experiment_id": {

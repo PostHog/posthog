@@ -77,7 +77,6 @@ async def assert_clickhouse_records_were_handled(
             model_name=model_name,
             team_id=team_id,
             full_range=(data_interval_start, data_interval_end),
-            done_ranges=[],
             fields=fields,
             filters=filters,
             exclude_events=exclude_events,

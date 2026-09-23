@@ -201,6 +201,17 @@ pub trait Client: Send + Sync {
         max: String,
     ) -> Result<Vec<String>, CustomRedisError>;
 
+    /// `ZRANGEBYSCORE ... LIMIT offset count`: one page of a sorted set, so a
+    /// large set can be read without one reply that holds every member.
+    async fn zrangebyscore_limit(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<String>, CustomRedisError>;
+
     /// Add a single (member, score) pair to a sorted set.
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError>;
 

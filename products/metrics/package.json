@@ -15,6 +15,7 @@
         "@storybook/react": "catalog:",
         "@testing-library/jest-dom": "^5.17.0",
         "@testing-library/react": "^14.3.1",
+        "@testing-library/user-event": "^14.6.1",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
@@ -24,6 +25,7 @@
         "@storybook/react": "*",
         "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
+        "@testing-library/user-event": "*",
         "@types/react": "*",
         "clsx": "*",
         "react": "*",

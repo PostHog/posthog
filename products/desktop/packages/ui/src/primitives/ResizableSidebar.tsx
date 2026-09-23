@@ -10,8 +10,6 @@ import React from "react";
 const DRAG_COLLAPSE_AT = SIDEBAR_MIN_WIDTH * 0.5;
 const DRAG_REOPEN_AT = DRAG_COLLAPSE_AT + 16;
 
-export const SLIDE_MS = 200;
-
 interface ResizableSidebarProps {
   children: React.ReactNode;
   open: boolean;

@@ -41,7 +41,7 @@ class TestNotifyManagersOfUsageSpike(BaseTest):
             account=account,
             definition=definition,
             user=user,
-            created_by=None,
+            actor=relationships_logic.Actor.human(),
         )
 
     def _notify_managers(self, *, team_id: int | None = None, **kwargs):

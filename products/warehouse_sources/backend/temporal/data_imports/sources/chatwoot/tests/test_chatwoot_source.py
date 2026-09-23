@@ -36,13 +36,18 @@ class TestChatwootSource:
         transient = "500 Server Error for url: https://app.chatwoot.com/api/v1/accounts/1/contacts"
         assert not any(key in transient for key in self.source.get_non_retryable_errors())
 
-    def test_get_schemas_are_full_refresh_with_webhook_deltas(self):
+    def test_get_schemas_only_advertise_incremental_where_a_server_filter_exists(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # No Chatwoot list endpoint has a server-side timestamp filter, so nothing may advertise
-        # incremental sync.
-        assert not any(schema.supports_incremental or schema.supports_append for schema in schemas)
+        # reporting_events is the only endpoint with a since/until filter; advertising incremental
+        # on any other would re-walk every page and call it a delta sync.
+        assert {schema.name for schema in schemas if schema.supports_incremental} == {"reporting_events"}
+        # The since/until bounds are whole seconds, so every run re-reads the watermark's own
+        # second. Merge dedupes that overlap on the primary key; append would duplicate it.
+        assert not any(schema.supports_append for schema in schemas)
+        reporting_events = next(schema for schema in schemas if schema.name == "reporting_events")
+        assert [field["field"] for field in reporting_events.incremental_fields] == ["created_at"]
         assert {schema.name for schema in schemas if schema.supports_webhooks} == {"conversations", "messages"}
 
     def test_get_schemas_filtered_by_names(self):

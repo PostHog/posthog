@@ -29,7 +29,6 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
         status: SignalReportStatus.READY,
         total_weight: 1,
         signal_count: 1,
-        relevant_user_count: null,
         created_at: '2026-06-20T00:00:00Z',
         updated_at: '2026-06-20T00:00:00Z',
         artefact_count: 0,
@@ -211,6 +210,7 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: ['error_tracking'],
             scoutFilter: [],
             priorityFilter: ['P0'],
+            stateFilter: ['monitoring'],
             searchQuery: '  acme checkout crash  ',
             hasActiveFilters: true,
         })

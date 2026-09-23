@@ -10,7 +10,7 @@
 let currentAudio: HTMLAudioElement | null = null;
 
 /** Remove [audio tags] the system voice would otherwise read aloud. */
-export function stripAudioTags(text: string): string {
+function stripAudioTags(text: string): string {
   return text
     .replace(/\[[^\]]*\]/g, " ")
     .replace(/\s+/g, " ")

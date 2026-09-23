@@ -1,0 +1,6 @@
+{
+    "id": "VB5",
+    "real": false,
+    "source": "reused-LA6",
+    "reasoning": "Identical claim (same file, lines 1109-1112) refuted in LA6 with high confidence. Early ack is the repo-wide default (no CELERY_TASK_ACKS_LATE in posthog/settings/); the sibling webhook task process_pull_request_event uses the identical decorator (tasks.py:809 vs 1109), so this copies an established pattern. A message lost before row creation is recovered: the receiver re-fires on every TaskRun output save carrying the PR URL (review_hog/backend/receivers.py:75-79,124-136; docstring at tasks.py:1124-1128), deduping on current head and restarting stranded QUEUED runs (tasks.py:1195-1215, tested in test_tasks.py:992-1021). Later synchronize/reopen deliveries also re-review via the webhook carve-out (tasks.py:142-160). Hardening ask, not a reachable defect."
+}

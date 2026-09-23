@@ -32,6 +32,7 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../../../../frontend/src/queries/schema/schema-general'
+import type { TraceSpansTreeQueryResponse } from '../../../../../frontend/src/queries/schema/schema-general'
 import { ACCOUNTS_METRICS_DATA_NODE_KEY } from '../../constants'
 import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
@@ -306,6 +307,7 @@ export interface accountsOverviewTilesLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataNodeLogic
     accountsResponseLoading: boolean // dataNodeLogic
     editorVisible: boolean
@@ -393,6 +395,7 @@ export interface accountsOverviewTilesLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             reconciledTiles: AccountsOverviewTile[]
         ) => Record<string, number | null>

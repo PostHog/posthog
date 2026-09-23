@@ -25,7 +25,7 @@
             "type": "number"
         },
         "source": {
-            "description": "Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
+            "description": "Hog source code to test. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.",
             "minLength": 1,
             "type": "string"
         },

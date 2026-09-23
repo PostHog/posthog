@@ -1,13 +1,15 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class CircleCIEndpointConfig:
     name: str
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Stable creation-time field used for datetime partitioning. Jobs don't expose their own
     # creation timestamp, so they partition on the parent workflow's created_at injected by
     # the transport.
@@ -34,6 +36,20 @@ CIRCLECI_ENDPOINTS: dict[str, CircleCIEndpointConfig] = {
     ),
     "projects": CircleCIEndpointConfig(
         name="projects",
+    ),
+    "components": CircleCIEndpointConfig(
+        name="components",
+        partition_key="created_at",
+    ),
+    "component_versions": CircleCIEndpointConfig(
+        name="component_versions",
+        # A version payload carries no id of its own, and the same version name can be live in
+        # several environments and namespaces, so identity is the component plus the deploy
+        # target. last_deployed_at moves on every redeploy, so there is no partition key.
+        primary_keys=["component_id", "environment_id", "namespace", "name"],
+    ),
+    "users": CircleCIEndpointConfig(
+        name="users",
     ),
 }
 

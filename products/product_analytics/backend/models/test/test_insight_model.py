@@ -321,9 +321,36 @@ class TestInsightModel(BaseTest):
                 "source": {
                     "kind": "TrendsQuery",
                     "series": [
-                        {"kind": "EventsNode", "event": "$pageview"},
+                        {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "properties": [
+                                {
+                                    "type": "behavioral",
+                                    "key": "signed up",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                }
+                            ],
+                        },
                         {"kind": "ActionsNode", "id": 1},
                     ],
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "behavioral",
+                                        "key": "completed onboarding",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
                     "dateRange": {"date_from": "-7d"},
                     "filterTestAccounts": True,
                     "breakdownFilter": {"breakdown_type": "event"},
@@ -336,7 +363,8 @@ class TestInsightModel(BaseTest):
             "event_entity_count": 1,
             "action_entity_count": 1,
             "data_warehouse_entity_count": 0,
-            "has_properties": False,
+            "has_properties": True,
+            "behavioral_filter_count": 2,
             "filter_test_accounts": True,
             "breakdown_type": "event",
             "has_formula": True,

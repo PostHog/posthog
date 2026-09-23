@@ -10,7 +10,7 @@ import {
   type QuickAskSettingsClient,
   type QuickAskState,
 } from "@posthog/ui/features/quick-ask/identifiers";
-import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
+import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect, useState } from "react";
 
@@ -155,12 +155,12 @@ export function QuickAskShortcutSetting({
   };
 
   return (
-    <SettingRow
+    <SettingsCardRow
       label="Ask PostHog anywhere"
       description={
         state.active && !state.registered
-          ? "Another app owns this shortcut. Record a different one."
-          : "Click, then press the keys you want to summon the panel with."
+          ? "Another app owns this shortcut; record a different one"
+          : "Click, then press the keys you want to summon the panel with"
       }
     >
       <ShortcutRecorder
@@ -168,6 +168,6 @@ export function QuickAskShortcutSetting({
         disabled={disabled}
         onRecord={handleRecord}
       />
-    </SettingRow>
+    </SettingsCardRow>
   );
 }

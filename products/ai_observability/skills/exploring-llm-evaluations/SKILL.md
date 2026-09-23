@@ -60,21 +60,23 @@ All `llma-evaluation-*` tools are defined in `products/ai_observability/mcp/tool
 
 Every run of an evaluation emits an `$ai_evaluation` event. Key properties:
 
-| Property                     | Meaning                                                         |
-| ---------------------------- | --------------------------------------------------------------- |
-| `$ai_evaluation_id`          | UUID of the evaluation config                                   |
-| `$ai_evaluation_name`        | Human-readable name                                             |
-| `$ai_target_event_id`        | UUID of the `$ai_generation` event being scored                 |
-| `$ai_trace_id`               | Parent trace ID (for jumping to the trace UI)                   |
-| `$ai_evaluation_result_type` | Result kind: `boolean` or `sentiment`                           |
-| `$ai_evaluation_result`      | For boolean evaluations: `true` = pass, `false` = fail          |
-| `$ai_evaluation_reasoning`   | Free-text explanation (set by the LLM judge or Hog code)        |
-| `$ai_evaluation_applicable`  | `false` when the evaluator decided the generation is N/A        |
-| `$ai_sentiment_label`        | For sentiment evaluations: `positive`, `neutral`, or `negative` |
-| `$ai_sentiment_score`        | Confidence score for the winning sentiment label                |
+| Property                     | Meaning                                                                          |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| `$ai_evaluation_id`          | UUID of the evaluation config                                                    |
+| `$ai_evaluation_name`        | Human-readable name                                                              |
+| `$ai_target_event_id`        | UUID of the `$ai_generation` event being scored                                  |
+| `$ai_trace_id`               | Parent trace ID (for jumping to the trace UI)                                    |
+| `$ai_evaluation_result_type` | Result kind: `boolean` or `sentiment`                                            |
+| `$ai_evaluation_result`      | Raw boolean result. Use the evaluation's output config to map it to pass or fail |
+| `$ai_evaluation_reasoning`   | Free-text explanation (set by the LLM judge or Hog code)                         |
+| `$ai_evaluation_applicable`  | `false` when the evaluator decided the generation is N/A                         |
+| `$ai_sentiment_label`        | For sentiment evaluations: `positive`, `neutral`, or `negative`                  |
+| `$ai_sentiment_score`        | Confidence score for the winning sentiment label                                 |
 
 When `$ai_evaluation_applicable = false`, the run counts as N/A regardless of `$ai_evaluation_result`.
 For evaluations that don't support N/A, this property may be `null` — treat null as "applicable".
+For boolean evaluations, `output_config.true_is_failure: false` maps `true` to pass and `false` to fail.
+Set it to `true` for detector-style evaluations where `true` means the evaluator found a problem.
 
 ## Workflow: investigate why an evaluation is failing
 
@@ -270,6 +272,7 @@ LLM judges require organisation AI data processing approval. Hog evaluators do n
 | Add an LLM-judge evaluator | `llma-evaluation-create` with `evaluation_type: "llm_judge"`, `evaluation_config.prompt`, and a `model_configuration` |
 | Tweak the source or prompt | `llma-evaluation-update` (edits `evaluation_config.source` for Hog, `evaluation_config.prompt` for LLM judge)         |
 | Toggle N/A handling        | `llma-evaluation-update` with `output_config.allows_na`                                                               |
+| Set failure polarity       | `llma-evaluation-update` with `output_config.true_is_failure`                                                         |
 | Disable temporarily        | `llma-evaluation-update` with `enabled: false`                                                                        |
 | Remove                     | `llma-evaluation-delete` (soft-delete via PATCH `{deleted: true}`)                                                    |
 

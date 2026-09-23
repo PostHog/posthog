@@ -18,6 +18,14 @@ export function useCreateSkill() {
   );
 }
 
+export function useSetSkillEnabled() {
+  const trpc = useHostTRPC();
+  const invalidate = useInvalidateSkills();
+  return useMutation(
+    trpc.skills.setEnabled.mutationOptions({ onSuccess: invalidate }),
+  );
+}
+
 export function useSaveSkillManifest() {
   const trpc = useHostTRPC();
   const invalidate = useInvalidateSkills();

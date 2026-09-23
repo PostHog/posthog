@@ -9,6 +9,7 @@ from django.core.cache import cache
 from django.utils.dateparse import parse_datetime
 
 from posthog.models import Project, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
@@ -700,6 +701,18 @@ def test_installation_repos_added_creates_disabled_rows_and_skips_existing(team,
         assert repo_config.enabled is True  # existing row untouched
         assert StamphogRepoConfig.objects.count() == 2
 
+    # One batch audit row per repo the delivery actually added: the per-row receiver is silenced for
+    # the loop, and the skipped repo writes nothing. No PostHog user is behind a webhook.
+    created = list(ActivityLog.objects.filter(detail__trigger__job_id="delivery-inst-added"))
+    assert [log.item_id for log in created] == [str(new_row.id)]
+    for log in created:
+        assert log.scope == "StamphogRepoConfig"
+        assert log.activity == "created"
+        assert log.user is None
+        assert log.is_system is True
+        assert log.detail is not None
+        assert log.detail["name"] == "acme/new-repo"
+
 
 @pytest.mark.parametrize(
     "payload_kwargs,expect_disabled",
@@ -769,6 +782,13 @@ def test_installation_uninstall_tombstones_every_owning_team(team, repo_config):
     with team_scope(team.id):
         repo_config.digest_enabled = True
         repo_config.save()
+        dormant_config = StamphogRepoConfig.objects.create(
+            team_id=team.id,
+            repository="acme/dormant",
+            installation_id=INSTALLATION_ID,
+            enabled=False,
+            digest_enabled=False,
+        )
 
     process_installation_event(_installation_payload(action="deleted"), "delivery-multi-uninstall")
 
@@ -778,6 +798,21 @@ def test_installation_uninstall_tombstones_every_owning_team(team, repo_config):
         second_config.refresh_from_db()
     assert (repo_config.enabled, repo_config.digest_enabled) == (False, False)
     assert (second_config.enabled, second_config.digest_enabled) == (False, False)
+
+    # The uninstall runs as a queryset update, which the model signal cannot see, so the task logs
+    # it by hand. No PostHog user is behind a webhook, so each row is a system row, and the already
+    # disabled config moved nothing and gets no row.
+    logs = list(ActivityLog.objects.filter(detail__trigger__job_id="delivery-multi-uninstall"))
+    assert {log.item_id for log in logs} == {str(repo_config.id), str(second_config.id)}
+    assert str(dormant_config.id) not in {log.item_id for log in logs}
+    for log in logs:
+        assert log.scope == "StamphogRepoConfig"
+        assert log.activity == "updated"
+        assert log.user is None
+        assert log.is_system is True
+        assert log.detail is not None
+        enabled_change = next(change for change in log.detail["changes"] if change["field"] == "enabled")
+        assert (enabled_change["before"], enabled_change["after"]) == (True, False)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

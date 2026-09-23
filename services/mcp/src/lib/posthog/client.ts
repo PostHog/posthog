@@ -19,6 +19,13 @@ export const getPostHogClient = (): PostHogMCP => {
             // Tool errors already surface as `$mcp_is_error: true`; keep the SDK
             // from fanning out a separate `$exception` event into Error Tracking.
             enableExceptionAutocapture: false,
+            captureModel: true,
+            before_send: (event) => {
+                if (event?.properties?.is_impersonated === true) {
+                    return null
+                }
+                return event
+            },
         })
     }
 

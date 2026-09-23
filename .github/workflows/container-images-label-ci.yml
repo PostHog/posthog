@@ -1,0 +1,43 @@
+name: Container image label build
+
+on:
+    pull_request:
+        types: [labeled]
+
+concurrency:
+    # An unrelated label must not cancel a preview or uncached build already in progress.
+    group: >-
+        ${{ github.workflow }}-${{
+            !contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name)
+            && format('ignored-label-{0}', github.event.label.name)
+            || github.head_ref || github.ref
+        }}
+    cancel-in-progress: true
+
+jobs:
+    posthog-build:
+        # This check is intentionally distinct from the required `Build Docker image`
+        # context, which only container-images-ci.yml can publish.
+        name: Build labeled Docker image
+        if: >-
+            github.event.pull_request.head.repo.full_name == github.repository
+            && contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name)
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30
+        permissions:
+            id-token: write
+            contents: read
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Build and cache Docker image in Depot
+              uses: ./.github/actions/build-n-cache-image
+              with:
+                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+                  push-image: true
+                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  pr-number: ${{ github.event.number }}
+                  no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}

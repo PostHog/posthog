@@ -25,9 +25,15 @@ from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
-from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.event_definitions.backend.models.property_definition import (
+    PropertyDefinition,
+    PropertyType,
+    effective_project_id_expr,
+)
 
+from ee.hogai.chat_agent.taxonomy.entities import resolve_entity_name
 from ee.hogai.chat_agent.taxonomy.format import enrich_props_with_descriptions
+from ee.hogai.chat_agent.taxonomy.session_properties import session_property_types
 from ee.hogai.chat_agent.taxonomy.tools import (
     ask_user_for_help,
     retrieve_action_properties,
@@ -136,6 +142,9 @@ class TaxonomyAgentToolkit:
         ]
         return entities
 
+    def _entity_not_found_message(self, entity: str) -> str:
+        return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(self._entity_names)}."
+
     def _generate_properties_output(self, props: list[tuple[str, str | None, str | None]]) -> str:
         """
         Generate the output format for properties. Can be overridden by subclasses.
@@ -210,18 +219,17 @@ class TaxonomyAgentToolkit:
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
 
-        if entity not in ("person", "session", *[g["group_type"] for g in self._groups]):
-            return f"Entity {entity} does not exist in the taxonomy."
+        resolved = resolve_entity_name(entity, self._entity_names)
+        if resolved is None:
+            return self._entity_not_found_message(entity)
+        entity = resolved
 
+        truncated = False
         if entity == "person":
             restricted = self._restricted_property_names(PropertyDefinition.Type.PERSON)
-            stored_props = [
-                p
-                for p in PropertyDefinition.objects.filter(
-                    team=self._team, type=PropertyDefinition.Type.PERSON
-                ).values_list("name", "property_type")
-                if p[0] not in restricted
-            ]
+            stored_props, truncated = self._stored_property_page(
+                PropertyDefinition.Type.PERSON, restricted, max_properties
+            )
             stored_props += list_virtual_properties(
                 "person_properties", exclude={name for name, _ in stored_props} | restricted
             )
@@ -231,27 +239,16 @@ class TaxonomyAgentToolkit:
             props = self._enrich_props_with_descriptions("person", stored_props, stored_descriptions)
         elif entity == "session":
             # Session properties are not in the DB.
-            props = self._enrich_props_with_descriptions(
-                "session",
-                [
-                    (prop_name, prop["type"])
-                    for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items()
-                    if prop.get("type") is not None
-                ],
-            )
+            props = self._enrich_props_with_descriptions("session", list(session_property_types().items()))
 
         else:
             group_type_index = next((g["group_type_index"] for g in self._groups if g["group_type"] == entity), None)
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
             restricted = self._restricted_property_names(PropertyDefinition.Type.GROUP)
-            stored_props = [
-                p
-                for p in PropertyDefinition.objects.filter(
-                    team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
-                ).values_list("name", "property_type")[:max_properties]
-                if p[0] not in restricted
-            ]
+            stored_props, truncated = self._stored_property_page(
+                PropertyDefinition.Type.GROUP, restricted, max_properties, group_type_index=group_type_index
+            )
             stored_props += list_virtual_properties("groups", exclude={name for name, _ in stored_props} | restricted)
             stored_descriptions = self._get_stored_property_descriptions(
                 PropertyDefinition.Type.GROUP,
@@ -263,7 +260,33 @@ class TaxonomyAgentToolkit:
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
 
-        return format_prompt_string(PROPERTIES_EXAMPLE_PROMPT, result=self._generate_properties_output(props))
+        result = format_prompt_string(PROPERTIES_EXAMPLE_PROMPT, result=self._generate_properties_output(props))
+        if truncated:
+            result += (
+                f"\n\nThis list stops at {max_properties} properties and {entity} has more. "
+                "Ask for a property by name before you treat it as missing."
+            )
+        return result
+
+    def _stored_property_page(
+        self,
+        property_type: PropertyDefinition.Type,
+        restricted: set[str],
+        max_properties: int,
+        group_type_index: int | None = None,
+    ) -> tuple[list[tuple[str, str | None]], bool]:
+        """
+        Read one page of stored definitions, and report whether more were left behind.
+
+        Reads one row past the page to detect the overflow. A COUNT would answer the same
+        question by walking the team's whole definition range, which is the cost the page
+        limit is here to avoid.
+        """
+        qs = PropertyDefinition.objects.filter(team=self._team, type=property_type)
+        if group_type_index is not None:
+            qs = qs.filter(group_type_index=group_type_index)
+        rows = list(qs.values_list("name", "property_type")[: max_properties + 1])
+        return [row for row in rows[:max_properties] if row[0] not in restricted], len(rows) > max_properties
 
     def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
@@ -287,6 +310,32 @@ class TaxonomyAgentToolkit:
             )
         return response, verbose_name
 
+    def _fetch_event_property_types(self, names: list[str]) -> dict[str, str | None]:
+        """
+        Fetch the stored type for each event property name.
+
+        Filters on COALESCE(project_id, team_id) rather than team_id: no index on this table
+        contains (team_id, name), so a plain team_id predicate makes Postgres walk the team's
+        entire index range — multi-second to statement-timeout on teams with millions of
+        property definitions. The coalesce expression matches the posthog_propdef_proj_uniq
+        index (COALESCE(project_id, team_id), name, type, ...), turning the lookup into one
+        index seek per name. It is also the same project-level scoping the taxonomy REST API
+        applies to this table.
+
+        That index also keys on COALESCE(group_type_index, -1), which this filter leaves open.
+        Event definitions never carry a group type index, so each (project, name) resolves to
+        one row and the dict build below cannot drop a value.
+        """
+        return dict(
+            PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(
+                effective_project_id=self._team.project_id,
+                type=PropertyDefinition.Type.EVENT,
+                name__in=names,
+            )
+            .values_list("name", "property_type")
+        )
+
     def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
         """
         Retrieve properties for an event.
@@ -306,13 +355,12 @@ class TaxonomyAgentToolkit:
 
         # Intersect properties with their types.
         restricted = self._restricted_property_names(PropertyDefinition.Type.EVENT)
-        qs = PropertyDefinition.objects.filter(
-            team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
-        )
         property_to_type = {
-            property_definition.name: property_definition.property_type
-            for property_definition in qs
-            if property_definition.name not in restricted
+            name: property_type
+            for name, property_type in self._fetch_event_property_types(
+                [item.property for item in response.results]
+            ).items()
+            if name not in restricted
         }
         props: list[tuple[str, str | None]] = [
             (item.property, property_to_type.get(item.property))
@@ -418,23 +466,20 @@ class TaxonomyAgentToolkit:
             sample_values = cast(list[str | int | float], DEFAULT_CHANNEL_TYPES.copy())
             sample_count = len(sample_values)
             is_str = True
-        elif (
-            property_name in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"]
-            and "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]
-        ):
+        elif "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]:
             sample_values = CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["examples"]
             sample_count = None
-            is_str = (
-                CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["type"] == PropertyType.String
-            )
+            is_str = session_property_types().get(property_name) == PropertyType.String
         else:
             return f"Property values for {property_name} do not exist in the taxonomy for the session entity."
 
         return self._format_property_values(sample_values, sample_count, format_as_string=is_str)
 
     def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
-        if entity not in self._entity_names:
-            return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(self._entity_names)}."
+        resolved = resolve_entity_name(entity, self._entity_names)
+        if resolved is None:
+            return self._entity_not_found_message(entity)
+        entity = resolved
 
         if entity == "session":
             return self._retrieve_session_properties(property_name)

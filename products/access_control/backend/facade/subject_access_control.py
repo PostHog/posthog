@@ -3,7 +3,7 @@ from contextvars import ContextVar
 from functools import cached_property
 from typing import Any, Optional, cast
 
-from django.db.models import F, Model, Q
+from django.db.models import Model, Q
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -192,11 +192,7 @@ class SubjectAccessControl(UserAccessControl):
         assert self._team is not None
         if not EE_AVAILABLE:
             return []
-        return list(
-            AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
-                team_id=self._team.id
-            )
-        )
+        return list(AccessControl.objects.filter(team_id=self._team.id))
 
     def preload_access_controls(
         self,
@@ -231,7 +227,11 @@ class SubjectAccessControl(UserAccessControl):
     def _is_creator(self, obj: Model) -> bool:
         """The subject created the object, not the requesting user. A role and the default subject
         are not people, so they never created anything."""
-        return self._subject_member is not None and getattr(obj, "created_by", None) == self._subject_member.user
+        if self._subject_member is None:
+            return False
+        # Compare ids so callers do not need created_by (or the member's user) hydrated.
+        creator_id = getattr(obj, "created_by_id", None)
+        return creator_id is not None and creator_id == self._subject_member.user_id
 
     def _is_subject_row(self, access_control: _AccessControl) -> bool:
         """Whether this row is the subject's own — the kind of rule "No override" would remove."""
@@ -250,6 +250,7 @@ class SubjectAccessControl(UserAccessControl):
             return list(
                 cast(Any, self._subject_member.user)
                 .role_memberships.filter(role__organization_id=self._organization_id)
+                .valid_for_authorization()
                 .values_list("role_id", flat=True)
             )
         return [self._subject_role_id] if self._subject_role_id else []
@@ -317,7 +318,7 @@ def get_project_scoped_visible_membership_ids(
     candidate_role_ids: dict[str, list[str]] = defaultdict(list)
     referenced_role_ids = {role_id for (_, role_id) in role_overrides}
     if referenced_role_ids:
-        for rm in RoleMembership.objects.filter(role_id__in=referenced_role_ids):
+        for rm in RoleMembership.objects.filter(role_id__in=referenced_role_ids).valid_for_authorization():
             if rm.organization_member_id:
                 candidate_role_ids[str(rm.organization_member_id)].append(str(rm.role_id))
     candidate_ids = {membership_id for (_, membership_id) in member_overrides} | set(candidate_role_ids)

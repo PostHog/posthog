@@ -5,13 +5,16 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createHarnessRuntime, runRpcMode } from "@posthog/harness";
 import { createAutoPublishExtension } from "@posthog/harness/extensions/auto-publish";
-import { createPiRuntimeTrustResolver } from "@posthog/harness/project-trust";
+import { createPiContextWikiExtension } from "@posthog/harness/extensions/context-wiki";
+import { createPiEnrichmentExtension } from "@posthog/harness/extensions/enrichment";
+import {
+  createPiTaskSystemPromptExtension,
+  resolvePiTaskContext,
+} from "@posthog/harness/extensions/task-system-prompt";
 import type {
   McpToolPermissionDecision,
   McpToolPermissionRequest,
 } from "@posthog/shared";
-import { createPiContextWikiExtension } from "./context-wiki-extension";
-import { createPiEnrichmentExtension } from "./enrichment-extension";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
@@ -78,8 +81,21 @@ const extensionFactories: Record<PiRuntimeExtension, InlineExtension> = {
   },
   "context-wiki": createPiContextWikiExtension(bootstrap.contextWikiPath),
 };
-const runtimeExtensions = (bootstrap.extensions ?? []).map(
+const taskContext = resolvePiTaskContext(sessionManager, bootstrap.taskContext);
+// A channel task starts in an empty scratch directory, so it needs the tools
+// that find and clone a repository. Resume drops `channelMode` from the
+// bootstrap payload, so read it from the resolved context, not the payload.
+const requestedExtensions = new Set(bootstrap.extensions ?? []);
+if (taskContext?.channelMode) {
+  requestedExtensions.add("repository-tools");
+}
+const runtimeExtensions = [...requestedExtensions].map(
   (extension) => extensionFactories[extension],
+);
+runtimeExtensions.push(
+  createPiTaskSystemPromptExtension(taskContext, {
+    repositoryTools: requestedExtensions.has("repository-tools"),
+  }),
 );
 if (bootstrap.enrichment) {
   runtimeExtensions.push(createPiEnrichmentExtension(bootstrap.enrichment));
@@ -88,10 +104,7 @@ if (bootstrap.enrichment) {
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
-  projectTrusted: createPiRuntimeTrustResolver(
-    cwd,
-    bootstrap.projectTrusted ?? false,
-  ),
+  projectTrusted: () => true,
   resourceLoaderOptions: { extensionFactories: runtimeExtensions },
   ...providerOptions,
   runtimeMcpServers: bootstrap.runtimeMcpServers,

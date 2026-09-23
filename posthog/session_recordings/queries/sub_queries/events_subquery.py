@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 
 import posthoganalytics
 from prometheus_client import Counter
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -11,6 +12,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
+    PersonsOnEventsMode,
     PropertyOperator,
     RecordingsQuery,
 )
@@ -21,8 +23,8 @@ from posthog.hogql.query import execute_hogql_query, tracer
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
-from posthog.models import Entity, EventProperty, Team
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
+from posthog.models import EventProperty, Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import resolved_group_key_expr
@@ -31,6 +33,7 @@ from posthog.session_recordings.queries.utils import (
     NEGATIVE_OPERATORS,
     SessionRecordingQueryResult,
     _entity_to_expr,
+    _node_from_entity,
     is_anonymous_cohort_fix_enabled,
     is_cohort_property,
     is_event_property,
@@ -39,6 +42,10 @@ from posthog.session_recordings.queries.utils import (
 )
 from posthog.types import AnyPropertyFilter
 
+ENTITY_TYPES_ACCEPTED_BY_LEGACY_ENTITY = frozenset(
+    {TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS}
+)
+
 # Cap on the negative blocklist subquery, kept for memory safety. Sessions past the cap
 # are silently not excluded, so hitting it is observed by check_negative_blocklist_truncation.
 NEGATIVE_BLOCKLIST_LIMIT = 1_000_000
@@ -46,6 +53,15 @@ NEGATIVE_BLOCKLIST_LIMIT = 1_000_000
 REPLAY_NEGATIVE_BLOCKLIST_TRUNCATED_COUNTER = Counter(
     "replay_negative_blocklist_truncated",
     "A replay exclusion blocklist hit its row cap, so some sessions were not excluded from the results",
+)
+
+# Modes where events.person_id is resolved through person_distinct_id_overrides, so it follows
+# a person merge instead of reporting whoever the event was attributed to at ingest.
+PERSON_ID_OVERRIDE_MODES = frozenset(
+    {
+        PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+        PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+    }
 )
 
 # Person properties eligible for hybrid query optimization
@@ -65,11 +81,11 @@ def _event_session_id_field() -> ast.Field:
 
 
 def get_negative_entity_properties(
-    entities: list[EventsNode | ActionsNode | DataWarehouseNode | str],
+    entities: list[EventsNode | ActionsNode | DataWarehouseNode],
 ) -> list[AnyPropertyFilter]:
     negative_props: list[AnyPropertyFilter] = []
     for entity in entities:
-        if isinstance(entity, DataWarehouseNode | str) or not entity.properties:
+        if isinstance(entity, DataWarehouseNode) or not entity.properties:
             continue
         for prop in entity.properties:
             if is_negative_prop(prop):
@@ -121,16 +137,16 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
     @staticmethod
     def _event_predicates(
-        entities: Iterable[EventsNode | ActionsNode | DataWarehouseNode | str], team: Team
+        entities: Iterable[EventsNode | ActionsNode | DataWarehouseNode], team: Team
     ) -> list[ast.Expr]:
         event_exprs: list[ast.Expr] = []
 
         for entity in entities:
-            if isinstance(entity, DataWarehouseNode | str):
+            if isinstance(entity, DataWarehouseNode):
                 continue
 
             # this is always _positive_ operations
-            entity_exprs = [_entity_to_expr(entity=entity)]
+            entity_exprs = [_entity_to_expr(entity=entity, team=team)]
 
             if entity.properties:
                 entity_exprs.append(property_to_expr(entity.properties, team=team, scope="replay_entity"))
@@ -146,29 +162,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         group_by: list[ast.Expr],
         limit_expr: ast.Expr,
     ) -> ast.SelectQuery:
-        # NOTE: ORDER BY can cause incorrect results in globalIn contexts on distributed ClickHouse tables.
-        # The ORDER BY was meant to prefer recent sessions when hitting LIMIT, but we saw a
-        # with a bad experience filtering out 60% of results incorrectly
-        # We use a feature flag to control this behavior for safe rollout.
-
-        remove_order_by = feature_enabled_or_false(
-            "remove-order-by-for-event-subquery",
-            str(self._team.organization.id),
-            send_feature_flag_events=False,
-        )
-
-        order_by = None
-        if not remove_order_by:
-            # Legacy behavior: include ORDER BY (may cause incorrect results)
-            order_by = [ast.OrderExpr(expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]), order="DESC")]
-
         return ast.SelectQuery(
             select=select_expr if isinstance(select_expr, list) else [select_expr],
             select_from=self._events_join(),
             where=self._where_predicates(where_expr),
             having=self._having_predicates(),
             group_by=group_by,
-            order_by=order_by,
             limit=limit_expr,
         )
 
@@ -179,6 +178,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         This solves the "late identification problem" where filtering by person properties
         in standard PoE mode only finds sessions where those properties existed at event time.
+
+        The flag is the only switch. Turn it off and this path is dead, whatever mode the
+        project is in.
         """
         return feature_enabled_or_false(
             "enable-hybrid-poe-replay-filtering",
@@ -277,19 +279,18 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
     def _build_sessions_query(
         self,
-        distinct_ids_subquery: ast.SelectQuery,
+        person_match: ast.Expr,
     ) -> ast.SelectQuery:
         """
-        Stage 3: Build query to find all sessions for the distinct_ids from Stage 2.
-
-        This finds all session_ids from events where the distinct_id matches any of
-        the distinct_ids from Stage 2, within the query date range (with buffers).
+        Final stage: every session an event attributes to the matching persons, within the
+        query date range (with buffers).
 
         Args:
-            distinct_ids_subquery: The query from Stage 2 that returns distinct_ids
+            person_match: how an event is tied back to those persons, either by resolved
+                person id or by one of their distinct ids
 
         Returns:
-            SelectQuery that finds all session_ids for those distinct_ids
+            SelectQuery that finds all session_ids for those persons
         """
         # Calculate date range with ±1 day buffer to match events_subquery behavior
         # Events can arrive before session starts or after it ends
@@ -306,11 +307,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                         left=ast.Field(chain=["team_id"]),
                         right=ast.Constant(value=self._team.pk),
                     ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["distinct_id"]),
-                        right=distinct_ids_subquery,
-                    ),
+                    person_match,
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GtEq,
                         left=ast.Field(chain=["timestamp"]),
@@ -321,11 +318,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                         left=ast.Field(chain=["timestamp"]),
                         right=ast.Constant(value=date_to_buffered),
                     ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.NotEq,
-                        left=ast.Call(name="empty", args=[_event_session_id_field()]),
-                        right=ast.Constant(value=1),
-                    ),
+                    # notEmpty, not `empty(...) != 1`: an absent session id reads as NULL, and
+                    # HogQL prints `!=` as ifNull(notEquals(...), 1), so the NULL would compare
+                    # true and reach the GROUP BY. The caller matches this against the replay
+                    # table's non-nullable session_id, which rejects a NULL in the set.
+                    ast.Call(name="notEmpty", args=[_event_session_id_field()]),
                 ]
             ),
             group_by=[_event_session_id_field()],  # DISTINCT session_id
@@ -422,17 +419,36 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         except Exception as e:
             posthoganalytics.capture_exception(e, properties={"context": "hybrid_query_monitoring"})
 
-        # Build the three-stage query using Pure AST
-        # Stage 1: Find person_ids from persons table
+        # Stage 1: the persons whose properties match
         persons_query = self._build_persons_query(person_properties, person_id_limit)
 
-        # Stage 2: Find distinct_ids for those person_ids
-        distinct_ids_query = self._build_distinct_ids_query(persons_query)
+        if self._team.person_on_events_mode in PERSON_ID_OVERRIDE_MODES:
+            # events.person_id already resolves through the overrides table in these modes, so it
+            # follows a merge: an event sent under an anonymous distinct id reports the person it
+            # was later merged into. Matching on it reaches pre-identification sessions directly,
+            # the same way the person profile's replay tab does.
+            #
+            # This trusts person_distinct_id_overrides to hold the merge. A merge that reached
+            # person_distinct_ids but not the overrides table would be missed here and found by
+            # the distinct-id expansion below, which reads the other table. The two are written
+            # by the same merge path, so they only diverge while one lags.
+            return self._build_sessions_query(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["person_id"]),
+                    right=persons_query,
+                )
+            )
 
-        # Stage 3: Find sessions for those distinct_ids
-        sessions_query = self._build_sessions_query(distinct_ids_query)
-
-        return sessions_query
+        # Otherwise events.person_id is the value frozen at ingest and does not follow a merge,
+        # so the persons have to be expanded to their distinct ids first.
+        return self._build_sessions_query(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["distinct_id"]),
+                right=self._build_distinct_ids_query(persons_query),
+            )
+        )
 
     def _get_queries_for_matching(
         self, select_expr: ast.Expr, group_by: list[ast.Expr], union_entities: bool = False
@@ -765,21 +781,36 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def _is_negated_entity(raw_entity: dict[str, Any]) -> bool:
         return bool(raw_entity.get("negation"))
 
+    @staticmethod
+    def _entity_node(raw_entity: dict[str, Any], default_type: str) -> EventsNode | ActionsNode | DataWarehouseNode:
+        # RecordingsQuery accepts untyped entity dicts, and Entity rejects any type it does not
+        # know, so fall back to the type the source list implies.
+        entity = (
+            raw_entity
+            if raw_entity.get("type") in ENTITY_TYPES_ACCEPTED_BY_LEGACY_ENTITY
+            else {**raw_entity, "type": default_type}
+        )
+        try:
+            return _node_from_entity(entity)
+        except ValueError as e:
+            # Entity and the node models raise plain ValueErrors for a dict they can't build from
+            # (pydantic's ValidationError subclasses it), and those escape as a 500. The dict is
+            # caller input, so report it as a bad request. DRF's ValidationError is not a
+            # ValueError, so a field that already validates itself still reports its own message.
+            raise ValidationError(f"Invalid {entity['type']} filter for id {raw_entity.get('id')!r}") from e
+
     @property
     def action_entities(self):
-        # TODO what do we send to the API instead to avoid needing to do this
         return [
-            legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable)
+            self._entity_node(e, TREND_FILTER_TYPE_ACTIONS)
             for e in self._query.actions or []
             if not self._is_negated_entity(e)
         ]
 
     @property
     def event_entities(self):
-        # TODO what do we send to the API instead to avoid needing to do this
-        # TODO is this overkill since it feels like we only need a few things off the entity
         return [
-            legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable)
+            self._entity_node(e, TREND_FILTER_TYPE_EVENTS)
             for e in self._query.events or []
             if not self._is_negated_entity(e)
         ]
@@ -789,11 +820,15 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return self.action_entities + self.event_entities
 
     @property
-    def negated_entities(self) -> list[EventsNode | ActionsNode | DataWarehouseNode | str]:
+    def negated_entities(self) -> list[EventsNode | ActionsNode | DataWarehouseNode]:
         # the legacy Entity class drops unknown keys, so negation is read off the raw dicts
         return [
-            legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable)
-            for e in (self._query.actions or []) + (self._query.events or [])
+            self._entity_node(e, TREND_FILTER_TYPE_ACTIONS)
+            for e in self._query.actions or []
+            if self._is_negated_entity(e)
+        ] + [
+            self._entity_node(e, TREND_FILTER_TYPE_EVENTS)
+            for e in self._query.events or []
             if self._is_negated_entity(e)
         ]
 

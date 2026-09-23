@@ -120,6 +120,13 @@ describe("describeTrigger", () => {
     ).toContain(`Schedule · ${expected} · Next run `);
   });
 
+  // A workflow can carry a schedule trigger with no schedule row yet.
+  it("names a schedule trigger with no cron as unset", () => {
+    expect(describeTrigger({ type: "schedule", config: {} })).toBe(
+      "Schedule · No schedule set",
+    );
+  });
+
   it("keeps custom cron expressions visible", () => {
     expect(
       describeTrigger({

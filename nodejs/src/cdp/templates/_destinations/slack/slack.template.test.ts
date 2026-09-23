@@ -85,6 +85,45 @@ describe('slack template', () => {
         expect(bodyOf(response.invocation.queueParameters)).not.toHaveProperty('thread_ts')
     })
 
+    // Both fields carry a default, so a connection without chat:write.customize would send them and
+    // have Slack refuse the whole message. The granted scopes decide, not the saved value.
+    it.each([
+        ['the scope is granted', 'chat:write,chat:write.customize', true],
+        ['the scope list has spaces', 'chat:write, chat:write.customize', true],
+        // An install predating the recorded scope list keeps its customization, the same fail-open
+        // the config UI applies.
+        ['no scopes are recorded', '', true],
+        ['the scope is absent', 'channels:read,groups:read,chat:write', false],
+        // A prefix match on the granted list would wrongly accept this one.
+        ['only the chat:write prefix is granted', 'chat:write', false],
+    ])('given %s, sends the appearance fields: %s', async (_name, scope, expected) => {
+        const response = await tester.invoke({
+            ...commonInputs,
+            slack_workspace: { access_token: 'xoxb-1234', scope },
+        })
+
+        expect(response.error).toBeUndefined()
+        const body = bodyOf(response.invocation.queueParameters)
+        expect(['icon_emoji' in body, 'username' in body]).toEqual([expected, expected])
+    })
+
+    // Clearing these has to keep the request inside chat:write, so a workspace that never granted
+    // chat:write.customize has a way to make the destination work. The UI writes '' on clear, but an
+    // API caller can leave the input unset or null, and neither may reach Slack either.
+    it.each([
+        ['icon_emoji', 'cleared in the UI', ''],
+        ['icon_emoji', 'unset', undefined],
+        ['icon_emoji', 'null', null],
+        ['username', 'cleared in the UI', ''],
+        ['username', 'unset', undefined],
+        ['username', 'null', null],
+    ])('should omit %s when it is %s', async (key, _name, value) => {
+        const response = await tester.invoke({ ...commonInputs, [key]: value })
+
+        expect(response.error).toBeUndefined()
+        expect(bodyOf(response.invocation.queueParameters)).not.toHaveProperty(key)
+    })
+
     it.each([
         ['a non-200 status', { status: 400, body: { ok: true } }, "Failed to post message to Slack: 400: {'ok': true}"],
         ['ok: false', { status: 200, body: { ok: false } }, "Failed to post message to Slack: 200: {'ok': false}"],

@@ -79,6 +79,10 @@ class SignalSourceTableConfig(BaseModel):
     summarization_prompt: str | None = None
     # How large the description can be before emitting
     description_summarization_threshold_chars: int | None = Field(default=None, gt=0)
+    # Per-team allowlist: `scope_field` is the HogQL expression for a record's scope id and
+    # `scope_config_key` names the list of allowed ids on `SignalSourceConfig.config`.
+    scope_field: str | None = None
+    scope_config_key: str | None = None
 
     @model_validator(mode="after")
     def _validate_prompt_placeholders(self) -> SignalSourceTableConfig:
@@ -86,6 +90,12 @@ class SignalSourceTableConfig(BaseModel):
             value = getattr(self, field_name)
             if value is not None and "{description}" not in value:
                 raise ValueError(f"{field_name} must contain {{description}} placeholder")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_scope_pair(self) -> SignalSourceTableConfig:
+        if (self.scope_field is None) != (self.scope_config_key is None):
+            raise ValueError("scope_field and scope_config_key must both be set or both be None")
         return self
 
     @model_validator(mode="after")

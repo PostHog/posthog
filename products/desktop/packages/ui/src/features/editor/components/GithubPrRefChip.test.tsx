@@ -54,7 +54,7 @@ describe("GithubPrRefChip", () => {
     });
     expect(usePrChecksMock).toHaveBeenCalledWith(null);
 
-    const link = screen.getByText("PostHog/posthog#23985").closest("a");
+    const link = screen.getByText("#23985").closest("a");
     expect(link).not.toBeNull();
     await userEvent.hover(link as HTMLAnchorElement);
 

@@ -19,6 +19,7 @@ const ALL_COLORS: LemonTagType[] = [
     'primary',
     'option',
     'highlight',
+    'info',
     'warning',
     'danger',
     'success',

@@ -7,13 +7,13 @@ import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { Query } from '~/queries/Query/Query'
 import { AnyResponseType, Node } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { DataColorThemeModel, QueryBasedInsightModel } from '~/types'
+import { DataColorThemeModel, InsightModel } from '~/types'
 
 interface RenderQueryExternalPayload {
     query?: Node | string | null
-    cachedResults?: AnyResponseType | Partial<QueryBasedInsightModel> | null
+    cachedResults?: AnyResponseType | Partial<InsightModel> | null
     context?: QueryContext<any> | null
-    insight?: Partial<QueryBasedInsightModel> | null
+    insight?: Partial<InsightModel> | null
     themes?: DataColorThemeModel[]
 }
 

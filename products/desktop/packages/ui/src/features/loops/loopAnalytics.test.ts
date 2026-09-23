@@ -218,7 +218,7 @@ describe("buildLoopSavedProps", () => {
     {
       name: "attached",
       context_target: {
-        folder_id: "f1",
+        channel_id: "f1",
         name: "growth",
         outputs: { post_to_feed: true, update_context: false, canvas_id: null },
       },

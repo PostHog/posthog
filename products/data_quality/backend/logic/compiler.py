@@ -15,9 +15,11 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_prepared_ast
 
+from ..facade.enums import CheckType
 from .contracts import CheckPlan, CompiledCheck, Evaluation, SubjectRef
 from .errors import SubjectUnresolvableError
 from .registry import get_spec
+from .types.common import narrowed_to, window_expr
 
 FAILURE_COUNT_ALIAS = "failure_count"
 OBSERVED_VALUE_ALIAS = "observed_value"
@@ -35,7 +37,8 @@ def compile_check(
         raise SubjectUnresolvableError(f"The {subject.subject_type} {subject.subject_uuid} no longer resolves.")
 
     spec = get_spec(check_type)
-    plan = spec.build(subject, column_name, spec.validate(config, column_name), related_subject)
+    parsed = spec.validate(config, column_name)
+    plan = _windowed(spec.build(subject, column_name, parsed, related_subject), check_type, subject, parsed)
     query = _aggregate(plan)
     return CompiledCheck(
         query=query,
@@ -43,6 +46,20 @@ def compile_check(
         printed_failing_rows_query=_print(plan.diagnostic_rows or plan.failing_rows),
         evaluation=plan.evaluation,
     )
+
+
+def _windowed(plan: CheckPlan, check_type: str, subject: SubjectRef, config: Any) -> CheckPlan:
+    """Bound the plan's rows to the subject's lookback window, where it has one."""
+    window = window_expr(subject.time_column, getattr(config, "lookback_hours", None))
+    if window is None or check_type == CheckType.CUSTOM_SQL:
+        return plan
+    failing_rows = plan.failing_rows
+    diagnostic_rows = plan.diagnostic_rows
+    if isinstance(failing_rows, ast.SelectQuery):
+        narrowed_to(failing_rows, window)
+    if isinstance(diagnostic_rows, ast.SelectQuery):
+        narrowed_to(diagnostic_rows, window)
+    return plan
 
 
 def _print(query: "ast.SelectQuery | ast.SelectSetQuery") -> str:

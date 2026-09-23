@@ -34,9 +34,11 @@ may read. There is deliberately no request body.
 """
 
 import os
+import time
 from dataclasses import field
 from datetime import timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -157,7 +159,89 @@ def integration_service_enabled() -> bool:
     return _disabled_reason() is None
 
 
+def _log_resolve(
+    url: str,
+    keys: list[str],
+    caller: IntegrationCaller,
+    started_at_monotonic: float,
+    *,
+    response: Any = None,
+    body: dict[str, Any] | None = None,
+    error: BaseException | None = None,
+) -> None:
+    """One structured line per credential request. Never raises.
+
+    Field names match `data_imports.http.request` (method, url, host, status_code, latency_ms,
+    error_class) so a credential read reads alongside the rest of a job's HTTP traffic instead of
+    needing its own query. Without it this hop is invisible: a sync that fails on a credential
+    shows the source's traffic and a silent gap where the read was.
+
+    What it adds over a plain request log is the part that answers rotation questions — per-key
+    `state` and `version_id`. "Which value did this pod actually get, and when did it change?"
+    is otherwise unanswerable from the caller's side, because nothing about the value may be
+    logged and the service's own audit line lives in a different system.
+
+    Nothing here can carry a credential, and that is a property of what is selected rather than
+    of any scrubbing: values are read from the response by name (`state`, `version_id`) and the
+    value fields are never among them. The request is logged by URL only — the bearer token is
+    in a header that is not touched, and the path carries no parameters.
+
+    Never raises, for the same reason the warehouse observer doesn't: a broken telemetry layer
+    must not become a failed credential read.
+    """
+    try:
+        status_code = getattr(response, "status_code", None)
+        secrets: dict[str, Any] = (body or {}).get("secrets") or {}
+        # `sorted` so two reads of the same keys produce the same line and diff cleanly.
+        states = {key: secrets[key].get("state") for key in sorted(secrets)}
+        versions = {key: secrets[key].get("version_id") for key in sorted(secrets)}
+        missing = sorted((body or {}).get("missing") or [])
+
+        fields: dict[str, Any] = {
+            "method": "POST",
+            "url": url,
+            "host": urlparse(url).hostname or "",
+            "status_code": status_code,
+            "latency_ms": max(0, int((time.monotonic() - started_at_monotonic) * 1000)),
+            "error_class": type(error).__name__ if error is not None else None,
+            "caller": str(caller),
+            "keys": sorted(keys),
+            "states": states,
+            "version_ids": versions,
+            "missing": missing,
+        }
+
+        if error is not None or (status_code is not None and status_code >= 400):
+            logger.warning("integration_secrets.resolve", **fields)
+        elif missing or any(state != "steady" for state in states.values()):
+            # A rotating or recovered key, or one the service doesn't hold, is the case worth
+            # seeing without turning debug on — it explains a failure, or a value changing under
+            # a caller that did nothing differently.
+            logger.info("integration_secrets.resolve", **fields)
+        else:
+            # Steady reads are the overwhelming majority and say nothing new, so they sit at
+            # debug, the same level the warehouse observer gives an ordinary 2xx.
+            logger.debug("integration_secrets.resolve", **fields)
+    except Exception:
+        logger.debug("integration_secrets.resolve_log_failed", exc_info=True)
+
+
 class IntegrationSecretsClient:
+    def __init__(self, session: requests.Session | None = None) -> None:
+        """`session` swaps the transport without changing anything else.
+
+        The default is the shared internal session, which is right for most callers. A product
+        that already runs its own instrumented session — warehouse sources meters and logs every
+        outbound request through a tracked adapter — passes it here so credential reads land in
+        the same place as the rest of that job's HTTP traffic, instead of being the one hop that
+        is invisible while you are debugging a sync.
+
+        Anything passed in must have HTTP sample capture switched OFF. Responses on this path
+        carry credentials in plaintext, and a sampler that stores request/response bodies for
+        later inspection would write them somewhere they must never be.
+        """
+        self._session = session or internal_requests
+
     def get(self, key: str, caller: IntegrationCaller) -> str:
         return self.get_many([key], caller)[key]
 
@@ -232,22 +316,23 @@ class IntegrationSecretsClient:
         # process, not the service being unreachable. Catching it here would file it under the
         # one label nobody investigates.
         headers = self._auth_headers(keys, caller)
+        url = f"{settings.INTEGRATION_SERVICE_URL.rstrip('/')}{RESOLVE_PATH}"
+        started = time.monotonic()
         try:
-            response = internal_requests.post(
-                f"{settings.INTEGRATION_SERVICE_URL.rstrip('/')}{RESOLVE_PATH}",
-                headers=headers,
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            )
+            response = self._session.post(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
             response.raise_for_status()
             # ValueError covers a body that is not JSON. Modern `requests` raises its own
             # JSONDecodeError (a RequestException), but the stdlib/simplejson ValueError still
             # surfaces on older paths, and nothing else in this block raises one.
-            return response.json()
+            body: dict[str, Any] = response.json()
         except (requests.RequestException, ValueError) as e:
             INTEGRATION_SECRET_FETCH_COUNTER.labels(outcome="unreachable").inc()
+            _log_resolve(url, keys, caller, started, response=getattr(e, "response", None), error=e)
             raise IntegrationServiceUnreachableError(
                 f"The integration service did not answer a credential request: {e}"
             ) from e
+        _log_resolve(url, keys, caller, started, response=response, body=body)
+        return body
 
     def _auth_headers(self, keys: list[str], caller: IntegrationCaller) -> dict[str, str]:
         token = encode_jwt(

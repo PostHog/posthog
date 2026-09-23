@@ -57,6 +57,9 @@ class TestAviatorSource:
             ("queued_pull_requests", False, []),
             ("queue_stats", False, []),
             ("config_history", False, []),
+            ("branches", False, []),
+            ("bot_pull_requests", False, []),
+            ("user_actions", False, []),
         ]
     )
     def test_incremental_support_per_endpoint(

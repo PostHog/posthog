@@ -7,7 +7,6 @@ class Migration(migrations.Migration):
     atomic = False  # Required for AddIndexConcurrently
 
     dependencies = [
-        ("data_warehouse", "0014_mat_view_credential_deletion"),
         ("endpoints", "0008_endpoint_last_executed_at"),
     ]
 

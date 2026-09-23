@@ -218,34 +218,6 @@ export class LocalLogsService implements ILogsService {
     return inFlight;
   }
 
-  async seedLocalLogs(taskRunId: string, content: string): Promise<void> {
-    if (!content?.trim()) return;
-    const logPath = this.getLocalLogPath(taskRunId);
-    const marker = JSON.stringify({ type: "seed_boundary" });
-    const trailingNewline = content.endsWith("\n") ? "" : "\n";
-    await fs.promises.mkdir(path.dirname(logPath), { recursive: true });
-    await fs.promises.writeFile(
-      logPath,
-      `${content}${trailingNewline}${marker}\n`,
-      "utf-8",
-    );
-  }
-
-  async countLocalLogEntries(taskRunId: string): Promise<number> {
-    const logPath = this.getLocalLogPath(taskRunId);
-    try {
-      const content = await fs.promises.readFile(logPath, "utf-8");
-      return content.split("\n").filter((line) => line.trim()).length;
-    } catch {
-      return 0;
-    }
-  }
-
-  async deleteLocalLogCache(taskRunId: string): Promise<void> {
-    const logPath = this.getLocalLogPath(taskRunId);
-    await fs.promises.rm(logPath, { force: true });
-  }
-
   private async drain(
     taskRunId: string,
     initialContent: string,

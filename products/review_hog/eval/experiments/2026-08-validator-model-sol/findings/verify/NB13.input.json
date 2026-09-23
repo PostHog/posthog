@@ -1,0 +1,12 @@
+{
+    "id": "NB13",
+    "file": "products/stamphog/backend/tasks/tasks.py",
+    "lines": "1140-1146,1184-1234",
+    "priority": "must_fix",
+    "title": "A disable race can create a review after repository opt-out",
+    "problem": "The enabled-config check completes before the GitHub request. A disable can commit while that request runs. The disable path finds no run to supersede. This task then creates a new run from the stale config object. The workflow never checks enabled, so it can post a verdict after the user disables the repository.",
+    "suggestion": "Lock and reload the config inside the creation transaction. Recheck enabled, installation_id, and connected_by_user_id before creating the run. The disable will then happen before the check or supersede the committed run afterward.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}

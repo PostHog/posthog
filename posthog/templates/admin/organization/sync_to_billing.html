@@ -1,4 +1,6 @@
-<form method="post" action="{% url 'admin:organization_sync_to_billing' organization_id %}" style="display: inline-block;">
+<form method="post"
+      action="{% url 'admin:organization_sync_to_billing' organization_id %}"
+      style="display: inline-block">
     {% csrf_token %}
     <button type="submit" class="button">Sync to billing</button>
 </form>

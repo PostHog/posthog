@@ -1,0 +1,218 @@
+# These cases apply only to an implementation that supports alias files (SPEC section 6).
+# product.yaml is the default alias file name, and most cases here declare it explicitly.
+cases:
+    - name: a product.yaml owners list decides ownership
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              alias_files: [product.yaml]
+          products/foo/product.yaml: |
+              name: Foo
+              owners:
+                - team-foo
+      expect:
+          products/foo/backend/x.py:
+              owners: [team-foo]
+              unowned_by_design: false
+              status: active
+              source: products/foo/product.yaml
+              slack: '#team-foo'
+
+    - name: only the owners field of product.yaml has an effect
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              status: deprecated
+              alias_files: [product.yaml]
+          products/foo/product.yaml: |
+              name: Foo
+              owners: [team-foo]
+              status: generated
+              inherit: false
+              rules:
+                - match: '*.py'
+                  owners: team-rule
+      expect:
+          products/foo/x.py:
+              owners: [team-foo]
+              unowned_by_design: false
+              status: deprecated
+              source: products/foo/product.yaml
+              slack: '#team-foo'
+
+    - name: an owners.yaml in the same directory takes precedence over product.yaml
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              alias_files: [product.yaml]
+          products/foo/owners.yaml: |
+              version: 1
+              owners: team-owners-file
+          products/foo/product.yaml: |
+              name: Foo
+              owners: [team-foo]
+      expect:
+          products/foo/x.py:
+              owners: [team-owners-file]
+              unowned_by_design: false
+              status: active
+              source: products/foo/owners.yaml
+              slack: '#team-owners-file'
+
+    - name: product.yaml applies when the owners.yaml next to it is invalid
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              alias_files: [product.yaml]
+          products/foo/owners.yaml: |
+              owners: team-owners-file
+          products/foo/product.yaml: |
+              name: Foo
+              owners: [team-foo]
+      expect:
+          products/foo/x.py:
+              owners: [team-foo]
+              unowned_by_design: false
+              status: active
+              source: products/foo/product.yaml
+              slack: '#team-foo'
+
+    - name: a product.yaml whose owners is not a list counts as absent
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              alias_files: [product.yaml]
+          products/string/product.yaml: |
+              owners: team-foo
+          products/null/product.yaml: |
+              owners: null
+          products/missing/product.yaml: |
+              name: Missing
+          products/bad-entry/product.yaml: |
+              owners: [team-foo, '']
+      expect:
+          products/string/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          products/null/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          products/missing/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          products/bad-entry/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: a product.yaml with an empty owners list falls through
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              alias_files: [product.yaml]
+          products/foo/product.yaml: |
+              owners: []
+      expect:
+          products/foo/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: product.yaml is the alias file when the root file declares no alias_files
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          products/foo/product.yaml: |
+              name: Foo
+              owners:
+                - team-foo
+      expect:
+          products/foo/backend/x.py:
+              owners: [team-foo]
+              unowned_by_design: false
+              status: active
+              source: products/foo/product.yaml
+              slack: '#team-foo'
+
+    - name: an empty alias_files list leaves product.yaml as an ordinary file
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              alias_files: []
+          products/foo/product.yaml: |
+              name: Foo
+              owners:
+                - team-foo
+      expect:
+          products/foo/backend/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: a declared alias_files list without product.yaml leaves product.yaml as an ordinary file
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              alias_files: [package.yaml]
+          products/foo/product.yaml: |
+              name: Foo
+              owners:
+                - team-foo
+          products/bar/package.yaml: |
+              owners:
+                - team-bar
+      expect:
+          products/foo/backend/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          products/bar/backend/x.py:
+              owners: [team-bar]
+              unowned_by_design: false
+              status: active
+              source: products/bar/package.yaml
+              slack: '#team-bar'
+
+    - name: the first declared alias file in a directory decides
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              alias_files: [product.yaml, package.yaml]
+          products/foo/package.yaml: |
+              owners: [team-package]
+          products/foo/product.yaml: |
+              owners: [team-product]
+      expect:
+          products/foo/x.py:
+              owners: [team-product]
+              unowned_by_design: false
+              status: active
+              source: products/foo/product.yaml
+              slack: '#team-product'

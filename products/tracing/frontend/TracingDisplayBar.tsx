@@ -3,11 +3,13 @@ import { useActions, useValues } from 'kea'
 import { IconChevronLeft, IconChevronRight, IconList, IconListTree, IconStack } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, type LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CompareMenuButton } from './components/Comparison/CompareMenuButton'
+import { TracingImpactStrip } from './components/TracingImpactStrip'
 import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
 
@@ -27,7 +29,10 @@ export function TracingDisplayBar(): JSX.Element {
 
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const inTracesView = displayMode !== 'operations'
-    const showCount = inTracesView && !compareActive && totalMatchingFilters > 0
+    // The Operations view carries its own counts in table columns, and a comparison covers two
+    // windows while both indicators describe one.
+    const showsSingleWindowCounts = inTracesView && !compareActive
+    const showCount = showsSingleWindowCounts && totalMatchingFilters > 0
 
     // data-attrs keep the names from the two controls this one replaced, for analytics continuity.
     const displayModeOptions: LemonSegmentedButtonOption<TracingDisplayMode>[] = [
@@ -87,6 +92,12 @@ export function TracingDisplayBar(): JSX.Element {
                         {humanFriendlyNumber(totalMatchingFilters)} {displayMode === 'spans' ? 'spans' : 'traces'}{' '}
                         matching filters
                     </span>
+                )}
+                {/* Gated here so the strip's logic (and its query) only mount when the flag is on. */}
+                {showsSingleWindowCounts && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.TRACING_IMPACT_STRIP}>
+                        <TracingImpactStrip />
+                    </FlaggedFeature>
                 )}
             </div>
             {inTracesView && (

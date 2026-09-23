@@ -1,0 +1,29 @@
+name: aurora_replica_status
+description: >
+  Aurora's replication view (pg_stat_replication is empty on Aurora): one row
+  per instance in the cluster with replica lag, replay latency, oldest read
+  view, and storage-daemon CPU. Writer-only (same data from every instance).
+interval: 60s
+scope: cluster
+kind: gauge
+per_instance: false
+requires: { aurora: true }
+query: |
+  SELECT server_id AS instance_id,
+         CASE WHEN session_id = 'MASTER_SESSION_ID' THEN 'writer' ELSE 'reader' END AS role,
+         replica_lag_in_msec::float8            AS replica_lag_ms,
+         cur_replay_latency_in_usec::bigint     AS replay_latency_us,
+         active_txns::bigint                    AS active_txns,
+         durable_lsn::text                      AS durable_lsn,
+         highest_lsn_rcvd::text                 AS highest_lsn_rcvd,
+         current_read_lsn::text                 AS current_read_lsn,
+         oldest_read_view_lsn::text             AS oldest_read_view_lsn,
+         feedback_xmin::text::bigint            AS feedback_xmin,
+         pending_read_ios::bigint               AS pending_read_ios,
+         read_ios::bigint                       AS read_ios,
+         cpu::float8                            AS storage_daemon_cpu,
+         log_stream_speed_in_kib_per_second::float8 AS log_stream_kib_s,
+         last_transport_error::bigint           AS last_transport_error,
+         last_error_timestamp,
+         last_update_timestamp
+  FROM aurora_replica_status()

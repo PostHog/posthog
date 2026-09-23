@@ -1,11 +1,15 @@
-import { PencilSimple, Trash } from "@phosphor-icons/react";
+import {
+  CursorTextIcon,
+  NotePencilIcon,
+  PlusIcon,
+  TrashIcon,
+} from "@phosphor-icons/react";
 import type { SkillFileEntry } from "@posthog/shared";
 import {
   TreeDirectoryRow,
   TreeFileRow,
 } from "@posthog/ui/primitives/TreeDirectoryRow";
-import { Flex, Tooltip } from "@radix-ui/themes";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 interface TreeDir {
   name: string;
@@ -33,21 +37,49 @@ function buildTree(files: SkillFileEntry[]): TreeDir {
   return root;
 }
 
+function RowAction({
+  label,
+  icon,
+  onClick,
+}: {
+  label: string;
+  icon: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="rounded p-0.5 text-gray-9 transition-colors hover:bg-gray-4 hover:text-gray-12"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+    >
+      {icon}
+    </button>
+  );
+}
+
 interface SkillFileTreeProps {
   files: SkillFileEntry[];
   selectedPath: string | null;
   onSelect: (path: string) => void;
-  /** When set, file rows (except SKILL.md) get rename/delete actions. */
+  onEditFile?: (path: string) => void;
   onRenameFile?: (path: string) => void;
   onDeleteFile?: (path: string) => void;
+  onAddFile?: () => void;
 }
 
 export function SkillFileTree({
   files,
   selectedPath,
   onSelect,
+  onEditFile,
   onRenameFile,
   onDeleteFile,
+  onAddFile,
 }: SkillFileTreeProps) {
   const tree = useMemo(() => buildTree(files), [files]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -64,12 +96,12 @@ export function SkillFileTree({
     });
   };
 
-  const renderDir = (dir: TreeDir, depth: number): React.ReactNode => (
-    <Flex direction="column" key={dir.path || "__root"}>
+  const renderDir = (dir: TreeDir, depth: number): ReactNode => (
+    <div className="flex flex-col" key={dir.path || "__root"}>
       {dir.dirs.map((child) => {
         const isExpanded = !collapsed.has(child.path);
         return (
-          <Flex direction="column" key={child.path}>
+          <div className="flex flex-col" key={child.path}>
             <TreeDirectoryRow
               name={child.name}
               depth={depth}
@@ -77,12 +109,38 @@ export function SkillFileTree({
               onToggle={() => toggleDir(child.path)}
             />
             {isExpanded && renderDir(child, depth + 1)}
-          </Flex>
+          </div>
         );
       })}
       {dir.files.map((file) => {
-        const showActions =
-          (onRenameFile || onDeleteFile) && file.path !== "SKILL.md";
+        const isManifest = file.path === "SKILL.md";
+        const actions = [
+          onEditFile ? (
+            <RowAction
+              key="edit"
+              label={isManifest ? "Edit the instructions" : "Edit this file"}
+              icon={<NotePencilIcon size={12} />}
+              onClick={() => onEditFile(file.path)}
+            />
+          ) : null,
+          onRenameFile && !isManifest ? (
+            <RowAction
+              key="rename"
+              label="Rename this file"
+              icon={<CursorTextIcon size={12} />}
+              onClick={() => onRenameFile(file.path)}
+            />
+          ) : null,
+          onDeleteFile && !isManifest ? (
+            <RowAction
+              key="delete"
+              label="Delete this file"
+              icon={<TrashIcon size={12} />}
+              onClick={() => onDeleteFile(file.path)}
+            />
+          ) : null,
+        ].filter(Boolean);
+
         return (
           <TreeFileRow
             key={file.path}
@@ -92,46 +150,31 @@ export function SkillFileTree({
             title={file.path}
             onClick={() => onSelect(file.path)}
             trailing={
-              showActions ? (
-                <Flex gap="1" className="shrink-0">
-                  {onRenameFile && (
-                    <Tooltip content="Rename file">
-                      <button
-                        type="button"
-                        aria-label="Rename file"
-                        className="rounded p-0.5 text-gray-9 hover:bg-gray-4 hover:text-gray-12"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRenameFile(file.path);
-                        }}
-                      >
-                        <PencilSimple size={12} />
-                      </button>
-                    </Tooltip>
-                  )}
-                  {onDeleteFile && (
-                    <Tooltip content="Delete file">
-                      <button
-                        type="button"
-                        aria-label="Delete file"
-                        className="rounded p-0.5 text-gray-9 hover:bg-gray-4 hover:text-gray-12"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteFile(file.path);
-                        }}
-                      >
-                        <Trash size={12} />
-                      </button>
-                    </Tooltip>
-                  )}
-                </Flex>
+              actions.length > 0 ? (
+                <div className="flex shrink-0 items-center gap-0.5">
+                  {actions}
+                </div>
               ) : undefined
             }
           />
         );
       })}
-    </Flex>
+    </div>
   );
 
-  return renderDir(tree, 0);
+  return (
+    <div className="flex flex-col py-1">
+      {renderDir(tree, 0)}
+      {onAddFile ? (
+        <button
+          type="button"
+          className="flex h-[22px] items-center gap-1.5 pl-[24px] text-[13px] text-gray-9 transition-colors hover:bg-gray-3 hover:text-gray-11"
+          onClick={onAddFile}
+        >
+          <PlusIcon size={12} />
+          Add file
+        </button>
+      ) : null}
+    </div>
+  );
 }

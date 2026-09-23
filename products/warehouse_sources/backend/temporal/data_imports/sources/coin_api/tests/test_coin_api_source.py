@@ -43,18 +43,35 @@ class TestCoinApiSource:
     def test_get_schemas_marks_only_timeseries_incremental(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         assert set(schemas) == set(ENDPOINTS)
-        for name in ("assets", "exchanges", "symbols", "exchange_rates"):
+        for name in ("assets", "exchanges", "symbols", "exchange_rates", "metrics_listing"):
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
-        for name in ("ohlcv_history", "trades_history"):
+        for name in (
+            "ohlcv_history",
+            "trades_history",
+            "exchange_rates_history",
+            "metrics_symbol_history",
+            "quotes_history",
+        ):
             assert schemas[name].supports_incremental is True
             assert schemas[name].supports_append is True
 
     def test_timeseries_endpoints_off_by_default(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         assert schemas["assets"].should_sync_default is True
-        assert schemas["ohlcv_history"].should_sync_default is False
-        assert schemas["trades_history"].should_sync_default is False
+        assert schemas["metrics_listing"].should_sync_default is True
+        for name in ("ohlcv_history", "trades_history", "exchange_rates_history", "quotes_history"):
+            assert schemas[name].should_sync_default is False
+
+    def test_get_schemas_describes_every_field_an_endpoint_needs(self) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        assert schemas["metrics_symbol_history"].description == (
+            "Requires a Symbol ID and a Metric ID on the source. Only syncs the configured series."
+        )
+        assert schemas["exchange_rates_history"].description == (
+            "Requires an Exchange rate quote asset on the source. Only syncs the configured series."
+        )
+        assert schemas["assets"].description is None
 
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["ohlcv_history"])
@@ -114,7 +131,9 @@ class TestCoinApiSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["symbol_id"] == ""
         assert kwargs["period_id"] == "1DAY"
+        assert kwargs["metric_id"] == ""
         assert kwargs["exchange_rate_base_asset"] == "USD"
+        assert kwargs["exchange_rate_quote_asset"] == ""
         assert kwargs["start_date"] == ""
 
     def test_documented_tables_render_for_public_docs(self) -> None:

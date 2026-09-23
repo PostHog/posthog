@@ -16,6 +16,7 @@ class SignalsConfig(AppConfig):
             receivers,  # noqa: F401
         )
 
+        receivers.connect_task_run_assignment_sync()
         self._register_signal_emission_gate()
 
     def _register_signal_emission_gate(self) -> None:

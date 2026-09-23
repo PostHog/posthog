@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB1",
+    "cluster": null,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:113-121 uses an unanchored search and captures only the leading digits after /pull/, so https://github.com/acme/widgets/pull/42abc resolves to repository acme/widgets and number 42. This input is reachable through task output: tasks/backend/presentation/views/api.py:1101-1118 accepts caller output and facade/api.py:2123-2154 only applies an optional task JSON schema before saving pr_url. review_hog/backend/receivers.py:92-138 passes that string to the initial queue for a qualifying task/reviewer. The worker then fetches the parsed integer at tasks.py:1159; github_client.py:466-474 constructs /repos/acme/widgets/pulls/42, and tasks.py:1166-1181 checks only open/head before enabling inbox provenance. No comparison rejects the malformed original URL before reviewing the different, real PR 42.",
+            "refutation": "I first checked whether caller validation or the GitHub fetch rejects the malformed URL. Neither does: caller validation does not enforce a canonical GitHub PR URL, and GitHub receives the already-truncated integer rather than the original path. Closed/missing PRs and unsynced repositories do fail closed (tasks.py:1140-1153,1166-1174), limiting this to an existing open PR in a configured repository with an eligible task and opted-in reviewer. The parser does not add new GitHub access, so this is a narrow wrong-target input-handling defect rather than the claimed must_fix severity."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The regex at /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:113-121 is permissive, but the malformed example does not identify a different valid GitHub PR. The worker extracts repository/number, scopes them to a synced enabled same-team GitHub config at :1140-1146, and calls get_pr with those exact values at :1159. logic/github_client.py:466-474 constructs the authenticated GitHub API path from that repository and integer and requires a 200 response; the submitted host/path is never fetched directly. The webhook producer records GitHub's PR URL through products/tasks/backend/webhooks.py:159-185,276-292, not a digit-suffixed synthetic URL.",
+            "refutation": "First checked whether parsing could cross repository authorization or select another valid PR than the task's canonical GitHub target. Repository scoping remains in force, and legitimate GitHub html_url values contain the canonical number; the finding provides only an invalid synthetic string and no producing code that emits it. Task output is generic caller-written JSON (presentation/serializers.py:671-674), but a controller capable of submitting that string can already submit the canonical PR 42 URL, so this parsing permissiveness creates no separate approval authority. Strict validation may improve malformed-input handling; the cited example alone does not prove a shipping correctness/security defect under the required rubric."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "products/stamphog/backend/tasks/tasks.py:113-121 uses an unanchored regex with no boundary after the numeric PR component, so a supplied /pull/42abc is interpreted as PR 42. The initial worker then queries the enabled connected repository at 1140-1146 and fetches that integer PR via logic/github_client.py:466-474, rather than rejecting the nonexistent target. Task output is an arbitrary caller-writable JSON field (products/tasks/backend/presentation/serializers.py:179; facade/api.py:2149-2154); its pr_url is forwarded verbatim by review_hog/backend/receivers.py:126-138. A non-internal manual Inbox signal task exists through frontend/src/scenes/inbox/inboxTaskKickoffLogic.ts:80-96, so this is a reachable input path rather than only a direct function test.",
+            "refutation": "I checked whether all producers supply canonical GitHub html_url values. The webhook backstop does (tasks/backend/webhooks.py:136,185), but the task output API also accepts and saves a replacement string without URL validation, and only pr_merged is attested (tasks/backend/facade/api.py:1770-1788). Repository scoping restricts which PR can be fetched but cannot distinguish /42abc from /42 after the parser discards the suffix. Comparing the fetched number with the parsed integer would not fix that truncation. The impact is confined to malformed task output, so this is a narrow incorrect-target review, not a general security boundary failure."
+        }
+    ]
+}

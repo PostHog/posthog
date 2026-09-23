@@ -12,8 +12,8 @@ from temporalio.exceptions import ApplicationError
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
+    PromptSuggestionStatus,
     ReplayScannerPromptSuggestion,
-    SuggestionStatus,
 )
 from products.replay_vision.backend.prompt_evaluation import (
     EvaluationOutcome,
@@ -56,7 +56,7 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
     scanner = suggestion.scanner
     if not evaluation_supported(scanner):
         raise ApplicationError(f"Scanner type {scanner.scanner_type} does not support evaluation", non_retryable=True)
-    if suggestion.status != SuggestionStatus.PENDING:
+    if suggestion.status != PromptSuggestionStatus.PENDING:
         raise ApplicationError(f"Suggestion is {suggestion.status}, not pending", non_retryable=True)
 
     observations = select_evaluation_observations(scanner, session_limit=inputs.session_limit)

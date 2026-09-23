@@ -6,7 +6,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
-import { LEARN_COMMAND_LINE } from '../src/tools/exec-help'
+import { LEARN_COMMAND_LINE } from '../src/tools/exec-learn'
 
 const SECTIONS_DIR = path.join(__dirname, '../src/templates/sections')
 const OUTPUT_PATH = path.join(__dirname, '../schema/exec-command-reference.md')

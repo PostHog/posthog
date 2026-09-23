@@ -61,6 +61,8 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'kotlin',
                                 file: 'SampleApp.kt',
                                 code: dedent`
+                                    import com.posthog.android.replay.PostHogScreenshotColorMode
+
                                     class SampleApp : Application() {
 
                                         companion object {
@@ -98,6 +100,20 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             // If disabled, replays are created using wireframes instead.
                                             // The screenshot may contain sensitive information, so use with caution
                                             config.sessionReplayConfig.screenshot = false
+
+                                            // Experimental screenshot settings require SDK 3.63.0+ and screenshot = true.
+                                            // We recommend the values below to balance performance and image quality.
+                                            // Lower resolution and RGB_565 reduce capture time and memory use.
+
+                                            // Scale each screenshot dimension from 0.1 to 1.0. Default is 1.0.
+                                            config.sessionReplayConfig.screenshotScale = 0.5f
+
+                                            // RGB_565 uses two bytes per pixel instead of four, with lower color precision
+                                            // and no transparency. Transparent window regions appear black. Default is ARGB_8888.
+                                            config.sessionReplayConfig.screenshotColorMode = PostHogScreenshotColorMode.RGB_565
+
+                                            // WebP compression quality from 0 to 100. Default is 30.
+                                            config.sessionReplayConfig.screenshotCompressionQuality = 30
 
                                             // Throttle delay used to reduce the number of snapshots captured. Default is 1000ms
                                             config.sessionReplayConfig.throttleDelayMs = 1000

@@ -1,11 +1,12 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
-import { Button, Spinner } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useIntegrationSelectors } from "@posthog/ui/features/integrations/store";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useSlackConnect } from "@posthog/ui/features/integrations/useSlackConnect";
 import { SettingsSection } from "@posthog/ui/features/settings/components/SettingsCard";
 import { SlackCommentNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackCommentNotificationsSettings";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { getPostHogUrl } from "@posthog/ui/utils/urls";
 import { SlackInboxNotificationsSettings } from "./SlackInboxNotificationsSettings";
@@ -14,7 +15,7 @@ import {
   SlackWorkspaceConnectionCallouts,
 } from "./SlackWorkspaceConnection";
 
-const SLACK_DOCS_URL = "https://posthog.com/docs/libraries/slack";
+const SLACK_DOCS_URL = "https://posthog.com/docs/libraries/slack?tab=Desktop";
 const SETTINGS_REFETCH_INTERVAL_MS = 30_000;
 
 export function SlackSettings() {
@@ -37,7 +38,7 @@ export function SlackSettings() {
     <div className="flex flex-col gap-7">
       <SettingsSection
         label="Workspace connection"
-        description="Connect a Slack workspace so reports can post to channels, reviewers get pinged, and you can kick off tasks from Slack."
+        description="Connect a Slack workspace so reports can post to channels, reviewers get pinged, and you can kick off tasks from Slack"
         action={
           !isLoading && hasSlackIntegration ? (
             <Button
@@ -105,7 +106,7 @@ export function SlackSettings() {
         <button
           type="button"
           onClick={() => void openUrlInBrowser(SLACK_DOCS_URL)}
-          className="ml-auto inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-gray-10 text-xs no-underline hover:text-gray-12"
+          className="ml-auto inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-muted-foreground text-xs no-underline hover:text-foreground"
         >
           Learn about the Slack integration
           <ArrowSquareOutIcon size={11} />

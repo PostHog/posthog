@@ -5,6 +5,7 @@ import { Optional } from 'lib/utils/types'
 import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
 
 import { HogFlowAction } from '../types'
+import { isDuration, isSignedDuration } from './durations'
 
 export type HogFlowStepNodeProps = NodeProps & {
     data: HogFlowAction
@@ -24,7 +25,7 @@ const DURATION_STRING = z.string().superRefine((v, ctx) => {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please enter a duration' })
         return
     }
-    if (!/^\d*\.?\d+[dhms]$/.test(v)) {
+    if (!isDuration(v)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be a number followed by s, m, h, or d' })
         return
     }
@@ -35,7 +36,7 @@ const DURATION_STRING = z.string().superRefine((v, ctx) => {
 
 // A delay offset points either side of the date it offsets, so unlike DURATION_STRING it is signed.
 const OFFSET_DURATION_STRING = z.string().superRefine((v, ctx) => {
-    if (!/^-?\d*\.?\d+[dhms]$/.test(v)) {
+    if (!isSignedDuration(v)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Offset must be a number followed by s, m, h, or d' })
     }
 })
@@ -103,6 +104,8 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_model',
         'task_repository',
         'task_mcp_installations',
+        'signals_scout',
+        'task_skills',
     ]),
     key: z.string(),
     label: z.string(),
@@ -176,6 +179,7 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             audience_type: z.enum(['persons', 'accounts']).optional(),
             properties: z.array(z.any()),
             tag_names: z.array(z.string()).optional(),
+            assignment_status: z.enum(['all', 'assigned', 'unassigned']).optional(),
             assigned_to_user_ids: z.array(z.number()).optional(),
             all_roles_unassigned: z.boolean().optional(),
         }),
@@ -190,9 +194,10 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         key_property: z.string().optional(),
     }),
     z.object({
-        type: z.literal('slack-message'),
+        type: z.literal('internal-event'),
         filters: z.object({
-            // Message properties only, channel included — see the trigger registry entry
+            source: z.literal('internal-events'),
+            events: z.array(z.any()).min(1),
             properties: z.array(z.any()).optional(),
         }),
     }),
@@ -228,7 +233,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     name: z.string().optional(), // Custom name for the condition
                 })
             ),
-            delay_duration: z.string().optional(),
         }),
     }),
     z.object({

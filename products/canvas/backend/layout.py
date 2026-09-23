@@ -13,7 +13,7 @@ visibility, config-vs-schema) live in ``validate_layout_references``.
 import re
 import json
 from collections import Counter
-from typing import Any, TypeGuard
+from typing import TYPE_CHECKING, Any, TypeGuard
 from uuid import UUID
 
 import jsonschema
@@ -23,6 +23,9 @@ from posthog.models.scoping import team_scope
 
 from products.canvas.backend.contract import GRID_COLUMN_CHOICES, MAX_COMPONENT_HEIGHT, contract_limits
 from products.canvas.backend.source import diagnostic
+
+if TYPE_CHECKING:
+    from products.canvas.backend.models import Canvas, CanvasSourceVersion
 
 CANVAS_LAYOUT_SCHEMA_VERSION = 1
 
@@ -132,12 +135,19 @@ def _validate_placement(placement: Any, index: int, columns: int) -> list[dict[s
             )
         )
 
-    status = placement.get("status")
-    if status not in PLACEMENT_STATUSES:
+    if placement.get("status") not in PLACEMENT_STATUSES:
         diagnostics.append(
             diagnostic("error", "invalid_placement", f"{label}.status must be one of " + ", ".join(PLACEMENT_STATUSES))
         )
 
+    diagnostics.extend(_validate_placement_box(placement, label, columns))
+    diagnostics.extend(_validate_placement_component(placement, label))
+    diagnostics.extend(_validate_placement_options(placement, label))
+    return diagnostics
+
+
+def _validate_placement_box(placement: dict[str, Any], label: str, columns: int) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
     for key, minimum, maximum in (
         ("x", 0, columns - 1),
         ("y", 0, MAX_GRID_ROWS - 1),
@@ -161,9 +171,13 @@ def _validate_placement(placement: Any, index: int, columns: int) -> list[dict[s
                 f"{label} extends past the grid's {columns} columns (x + w must be <= columns)",
             )
         )
+    return diagnostics
 
+
+def _validate_placement_component(placement: dict[str, Any], label: str) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
     component = placement.get("component")
-    if status == "live" and not _is_uuid(component):
+    if placement.get("status") == "live" and not _is_uuid(component):
         diagnostics.append(
             diagnostic("error", "invalid_placement", f"{label} is live but names no component canvas id")
         )
@@ -179,7 +193,11 @@ def _validate_placement(placement: Any, index: int, columns: int) -> list[dict[s
                 f'{label}.version must be "latest" or a source version id of the component',
             )
         )
+    return diagnostics
 
+
+def _validate_placement_options(placement: dict[str, Any], label: str) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
     config = placement.get("config")
     if config is not None and not isinstance(config, dict):
         diagnostics.append(diagnostic("error", "invalid_placement", f"{label}.config must be an object"))
@@ -235,19 +253,29 @@ def validate_layout(layout: Any) -> list[dict[str, Any]]:
         return [*diagnostics, diagnostic("error", "invalid_layout", "layout.placements must be a list")]
     max_placements = contract_limits()["maxGridPlacements"]
     if len(placements) > max_placements:
-        # Overlap detection below compares every placement against every earlier
-        # one, so an over-cap document must never reach it.
+        # Overlap detection compares every placement against every earlier one,
+        # so an over-cap document must never reach it.
         return [
             *diagnostics,
             diagnostic("error", "too_many_placements", f"a grid canvas may hold at most {max_placements} placements"),
         ]
 
-    columns = layout.get("grid", {}).get("columns") if isinstance(layout.get("grid"), dict) else None
-    effective_columns = columns if columns in GRID_COLUMN_CHOICES else max(GRID_COLUMN_CHOICES)
+    diagnostics.extend(_validate_placements(placements, _effective_columns(layout.get("grid"))))
+    return diagnostics
+
+
+def _effective_columns(grid: Any) -> int:
+    """An invalid column count is already reported, so placements are bounded by the widest choice."""
+    columns = grid.get("columns") if isinstance(grid, dict) else None
+    return columns if columns in GRID_COLUMN_CHOICES else max(GRID_COLUMN_CHOICES)
+
+
+def _validate_placements(placements: list[Any], columns: int) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     rects: list[dict[str, Any]] = []
     for index, placement in enumerate(placements):
-        diagnostics.extend(_validate_placement(placement, index, effective_columns))
+        diagnostics.extend(_validate_placement(placement, index, columns))
         if not isinstance(placement, dict):
             continue
         identifier = placement.get("id")
@@ -279,21 +307,36 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
     whether the component is missing, deleted, the wrong kind, or merely
     invisible, so the error does not disclose which.
     """
-    from products.canvas.backend.models import (  # noqa: PLC0415 — keeps this module import-light for the pure validators
-        Canvas,
-        CanvasBuild,
-        CanvasSourceVersion,
-    )
-    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — same reason
-
-    diagnostics: list[dict[str, Any]] = []
     referenced = [
         placement
         for placement in layout.get("placements", [])
         if isinstance(placement, dict) and _is_uuid(placement.get("component"))
     ]
     if not referenced:
-        return diagnostics
+        return []
+    component_index = _load_component_index(team_id, user_id, referenced)
+    diagnostics: list[dict[str, Any]] = []
+    for placement in referenced:
+        diagnostics.extend(_validate_placement_reference(placement, component_index))
+    return diagnostics
+
+
+@frozen
+class _ComponentIndex:
+    """What the database says about the components a layout references."""
+
+    components: dict[str, "Canvas"]
+    pinned_versions: dict[tuple[str, str], "CanvasSourceVersion"]
+    renderable_versions: set[UUID]
+
+
+def _load_component_index(team_id: int, user_id: int | None, referenced: list[dict[str, Any]]) -> _ComponentIndex:
+    from products.canvas.backend.models import (  # noqa: PLC0415 — keeps this module import-light for the pure validators
+        Canvas,
+        CanvasBuild,
+        CanvasSourceVersion,
+    )
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — same reason
 
     with team_scope(team_id):
         component_ids = {str(placement["component"]) for placement in referenced}
@@ -329,94 +372,121 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
             if pinned_versions
             else set()
         )
+    return _ComponentIndex(
+        components=components,
+        pinned_versions=pinned_versions,
+        renderable_versions=renderable_versions,
+    )
 
-    for placement in referenced:
-        label = f'placement "{placement.get("id")}"'
-        component_id = str(placement["component"])
-        component = components.get(component_id)
-        if component is None:
-            diagnostics.append(
-                diagnostic("error", "component_not_found", f"{label} references a component that is not available")
+
+def _validate_placement_reference(placement: dict[str, Any], component_index: _ComponentIndex) -> list[dict[str, Any]]:
+    label = f'placement "{placement.get("id")}"'
+    component_id = str(placement["component"])
+    component = component_index.components.get(component_id)
+    if component is None:
+        return [diagnostic("error", "component_not_found", f"{label} references a component that is not available")]
+    version = placement.get("version")
+    pinned = component_index.pinned_versions.get((component_id, str(version))) if _is_uuid(version) else None
+    if _is_uuid(version) and pinned is None:
+        return [
+            diagnostic(
+                "error",
+                "component_version_not_found",
+                f"{label} pins a version that is not one of the component's published versions",
             )
+        ]
+    source_version = pinned or component.current_source_version
+    meta = source_version.component_meta if source_version else None
+    if not isinstance(meta, dict):
+        return [
+            diagnostic(
+                "error",
+                "component_not_published",
+                f"{label} references a component that has never published a placement contract",
+            )
+        ]
+    return [
+        *_validate_live_build(placement, label, component, pinned, component_index.renderable_versions),
+        *_validate_placement_size(placement, label, meta.get("size") or {}),
+        *_validate_placement_config(placement, label, meta.get("configSchema")),
+    ]
+
+
+def _validate_live_build(
+    placement: dict[str, Any],
+    label: str,
+    component: "Canvas",
+    pinned: "CanvasSourceVersion | None",
+    renderable_versions: set[UUID],
+) -> list[dict[str, Any]]:
+    """Check a live placement has a built artifact to render.
+
+    Without a ready build there is nothing to render, so going live must wait
+    for it. A pin is asked about its own build, whose artifact may since have
+    aged out.
+    """
+    if placement.get("status") != "live":
+        return []
+    if pinned is not None and pinned.id not in renderable_versions:
+        return [
+            diagnostic(
+                "error",
+                "component_build_not_ready",
+                f"{label} cannot go live: the version it pins has no build to render. "
+                "Pin a version whose build is still retained, or follow the latest one.",
+            )
+        ]
+    if pinned is None and component.published_build_id is None:
+        return [
+            diagnostic(
+                "error",
+                "component_build_not_ready",
+                f"{label} cannot go live: the component has no ready build yet. Wait for its build to finish.",
+            )
+        ]
+    return []
+
+
+def _validate_placement_size(placement: dict[str, Any], label: str, size: dict[str, Any]) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    for axis in ("W", "H"):
+        value = placement.get(axis.lower())
+        if not _is_int(value):
             continue
-        version = placement.get("version")
-        pinned = pinned_versions.get((component_id, str(version))) if _is_uuid(version) else None
-        if _is_uuid(version) and pinned is None:
+        minimum = size.get(f"min{axis}", 1)
+        maximum = size.get(f"max{axis}")
+        if value < minimum or (maximum is not None and value > maximum):
+            cap = f"-{maximum}" if maximum is not None else "+"
+            # Advisory only: the user sizes their own grid, and components
+            # are responsible for rendering responsively at any box size.
+            # The contract's range still informs defaults and this hint.
             diagnostics.append(
                 diagnostic(
-                    "error",
-                    "component_version_not_found",
-                    f"{label} pins a version that is not one of the component's published versions",
+                    "warning",
+                    "placement_size_out_of_contract",
+                    f"{label} is {value} {axis.lower()} units; the component suggests {minimum}{cap}",
                 )
             )
-            continue
-        source_version = pinned or component.current_source_version
-        meta = source_version.component_meta if source_version else None
-        if not isinstance(meta, dict):
-            diagnostics.append(
-                diagnostic(
-                    "error",
-                    "component_not_published",
-                    f"{label} references a component that has never published a placement contract",
-                )
-            )
-            continue
-        # A live placement renders a built artifact; without a ready build there
-        # is nothing to render, so going live must wait for it. A pin is asked
-        # about its own build, whose artifact may since have aged out.
-        if placement.get("status") == "live":
-            if pinned is not None and pinned.id not in renderable_versions:
-                diagnostics.append(
-                    diagnostic(
-                        "error",
-                        "component_build_not_ready",
-                        f"{label} cannot go live: the version it pins has no build to render. "
-                        "Pin a version whose build is still retained, or follow the latest one.",
-                    )
-                )
-            elif pinned is None and component.published_build_id is None:
-                diagnostics.append(
-                    diagnostic(
-                        "error",
-                        "component_build_not_ready",
-                        f"{label} cannot go live: the component has no ready build yet. Wait for its build to finish.",
-                    )
-                )
-        size = meta.get("size") or {}
-        for axis in ("W", "H"):
-            value = placement.get(axis.lower())
-            if not _is_int(value):
-                continue
-            minimum = size.get(f"min{axis}", 1)
-            maximum = size.get(f"max{axis}")
-            if value < minimum or (maximum is not None and value > maximum):
-                cap = f"-{maximum}" if maximum is not None else "+"
-                # Advisory only: the user sizes their own grid, and components
-                # are responsible for rendering responsively at any box size.
-                # The contract's range still informs defaults and this hint.
-                diagnostics.append(
-                    diagnostic(
-                        "warning",
-                        "placement_size_out_of_contract",
-                        f"{label} is {value} {axis.lower()} units; the component suggests {minimum}{cap}",
-                    )
-                )
-        schema = meta.get("configSchema")
-        if schema is not None:
-            # An omitted config is an empty config: a schema that marks fields
-            # required must reject a placement that supplies none, matching how
-            # it already rejects an explicit empty object.
-            try:
-                jsonschema.validate(placement.get("config") or {}, schema)
-            except jsonschema.ValidationError as error:
-                diagnostics.append(
-                    diagnostic(
-                        "error",
-                        "placement_config_invalid",
-                        f"{label} config does not match the component's schema: {error.message}",
-                    )
-                )
     return diagnostics
+
+
+def _validate_placement_config(placement: dict[str, Any], label: str, schema: Any) -> list[dict[str, Any]]:
+    if schema is None:
+        return []
+    # An omitted config is an empty config: a schema that marks fields
+    # required must reject a placement that supplies none, matching how
+    # it already rejects an explicit empty object.
+    try:
+        jsonschema.validate(placement.get("config") or {}, schema)
+    except jsonschema.ValidationError as error:
+        return [
+            diagnostic(
+                "error",
+                "placement_config_invalid",
+                f"{label} config does not match the component's schema: {error.message}",
+            )
+        ]
+    return []
 
 
 # Placement index labels shift when placements are removed; normalize them so

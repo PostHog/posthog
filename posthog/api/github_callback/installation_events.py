@@ -38,8 +38,8 @@ logger = structlog.get_logger(__name__)
 def handle_installation_event(payload: dict) -> HttpResponse:
     """Process a pre-verified GitHub ``installation`` webhook event.
 
-    Called from ``posthog.urls.github_webhook`` after signature verification and
-    JSON parsing. ``action == "deleted"`` triggers integration cleanup; ``"created"``
+    Registered by the GitHub incarnation as the ``installation_lifecycle`` consumer, so it
+    runs after signature verification and JSON parsing. ``action == "deleted"`` triggers integration cleanup; ``"created"``
     resolves matching pending install requests. Reversible actions (suspend/unsuspend)
     and other lifecycle noise are ignored.
     """

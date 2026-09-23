@@ -335,7 +335,8 @@ class TestSalesforceApiVersionDispatch:
     @parameterized.expand(
         [
             ("legacy", "v61.0", "/services/data/v61.0/query"),
-            ("current", "v67.0", "/services/data/v67.0/query"),
+            ("previous", "v67.0", "/services/data/v67.0/query"),
+            ("current", "v68.0", "/services/data/v68.0/query"),
         ]
     )
     def test_get_resource_path_uses_api_version(self, _name: str, api_version: str, expected_path: str) -> None:
@@ -345,7 +346,7 @@ class TestSalesforceApiVersionDispatch:
         assert isinstance(endpoint, dict)
         assert endpoint["path"] == expected_path
 
-    @parameterized.expand([("v61.0",), ("v67.0",)])
+    @parameterized.expand([("v61.0",), ("v67.0",), ("v68.0",)])
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce.rest_api_resource"
     )

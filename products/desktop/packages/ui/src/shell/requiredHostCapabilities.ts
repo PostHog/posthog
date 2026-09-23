@@ -4,6 +4,7 @@ import {
   SPEECH_USER_NAME_PROVIDER,
 } from "@posthog/core/speech/identifiers";
 import type { HostCapabilityRequirement } from "@posthog/di/hostCapabilities";
+import { FEEDBACK_CONTEXT_SERVICE } from "@posthog/platform/feedback-context";
 import { HOST_CAPABILITIES } from "@posthog/platform/host-capabilities";
 import { SPEECH_SERVICE } from "@posthog/platform/speech";
 import { AUTH_SIDE_EFFECTS } from "@posthog/ui/features/auth/identifiers";
@@ -12,6 +13,7 @@ import { CONNECTIVITY_CLIENT } from "@posthog/ui/features/connectivity/connectiv
 import { FEATURE_FLAGS } from "@posthog/ui/features/feature-flags/identifiers";
 import { GIT_CACHE_KEY_PROVIDER } from "@posthog/ui/features/git-interaction/gitCacheProvider";
 import { SPEECH_NOTIFY_SETTINGS } from "@posthog/ui/features/notifications/identifiers";
+import { AGENT_PROMPT_SENDER } from "@posthog/ui/features/sessions/agentPromptSender";
 import { UPDATES_CLIENT } from "@posthog/ui/features/updates/updatesClient";
 import { DIFF_WORKER_FACTORY } from "@posthog/ui/shell/diffWorkerHost";
 
@@ -35,7 +37,7 @@ import { DIFF_WORKER_FACTORY } from "@posthog/ui/shell/diffWorkerHost";
  *
  * Excluded on purpose: core-module services (they fail at module load, a
  * different and already-loud failure mode) and host-specific/local-only
- * capabilities (e.g. file watchers, local handoff) that not every host provides.
+ * capabilities such as file watchers that not every host provides.
  */
 export const REQUIRED_HOST_CAPABILITIES: readonly HostCapabilityRequirement[] =
   [
@@ -46,6 +48,10 @@ export const REQUIRED_HOST_CAPABILITIES: readonly HostCapabilityRequirement[] =
     {
       token: FEATURE_FLAGS,
       description: "feature-flag gating across the app",
+    },
+    {
+      token: FEEDBACK_CONTEXT_SERVICE,
+      description: "recent app logs for explicit feedback attachments",
     },
     {
       token: AUTH_SIDE_EFFECTS,
@@ -66,6 +72,11 @@ export const REQUIRED_HOST_CAPABILITIES: readonly HostCapabilityRequirement[] =
     {
       token: REVIEW_HOST,
       description: "code-review page host wiring",
+    },
+    {
+      token: AGENT_PROMPT_SENDER,
+      description:
+        "send-a-prompt-to-the-agent actions (sendPromptToAgent, edit flag in task)",
     },
     {
       token: DIFF_WORKER_FACTORY,

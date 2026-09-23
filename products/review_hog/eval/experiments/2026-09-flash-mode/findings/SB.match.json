@@ -1,0 +1,52 @@
+{
+    "SB1": {
+        "cluster": 3,
+        "confidence": "high",
+        "reason": "Same claim (bool() coercion of self_driving_review should be a strict `is True` check) at the same anchor review_local.py:321 that cluster 3 lists."
+    },
+    "SB2": {
+        "cluster": 16,
+        "confidence": "high",
+        "reason": "Asserts the deferred facade import in _start_stamphog_review sits outside its try/except so an ImportError escapes the on_commit callback, which is exactly cluster 16's import-failure exception-safety claim; cluster 25 (robust=False on_commit) rejected because SB2's root cause is the import placement, not hook cancellation."
+    },
+    "SB3": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Claims the facade's .delay() at facade/api.py:149 is fire-and-forget with no durable record, so a broker failure permanently drops the initial review, matching cluster 58's anchor and claim; cluster 54 rejected because that cluster is about errors raising into the caller, not silent loss."
+    },
+    "SB4": {
+        "cluster": 6,
+        "confidence": "high",
+        "reason": "Claims the engine's draft-gate bypass at review_pr.py:587-590 keys only on self_driving without requiring pr.author_is_bot, which is cluster 6's exact claim; cluster 2 rejected because SB4's anchor and fix are the Pipeline gate, with the receiver-leg bot check only as a secondary remark."
+    },
+    "SB5": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Claims find_task_run queries TaskRun across all teams and the facade only rechecks run.team_id post-hoc at api.py:504-506, so another tenant's row can shadow the correct run, which is cluster 39's claim and anchor."
+    },
+    "SB6": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Claims the gate consults a single canonical acting reviewer's toggle so an opted-in secondary assigned reviewer is ignored, at receivers.py:111-126 and the webhook resolver at 150-156, matching cluster 57's claim and anchors."
+    },
+    "SB7": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Claims process_inbox_pr_review (tasks.py:1143-1176) stamps inbox_review provenance without verifying task-run linkage, bot authorship or native head, unlike the webhook leg, which is cluster 2's exact claim; cluster 31 rejected because the toggle re-check is only one item in SB7's list and not its root cause."
+    },
+    "SB8": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Same lost-initial-review claim as SB3 seen from the receiver side (receivers.py:225-235 swallows the publish error with only a log and nothing retries), which is cluster 58's fire-and-forget-with-no-reconciliation claim; cluster 54 rejected since it concerns unguarded raising, not swallowed loss."
+    },
+    "SB9": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "Claims the receiver leg checks stamphog_review_inbox_prs only at queue time (receivers.py:126-138) and process_inbox_pr_review never re-reads it before creating a ReviewRun, which is cluster 31's queue-time-trust claim at the same anchor."
+    },
+    "SB10": {
+        "cluster": 73,
+        "confidence": "high",
+        "reason": "Claims find_task_run's branch fallback (facade/api.py:499-506) can bind a stale or already-linked run to a different PR and thereby authorize it as self-driving, matching cluster 73's claim and anchor; cluster 23 rejected because that one is about sequential-scan cost of the branch leg, not mis-binding."
+    }
+}

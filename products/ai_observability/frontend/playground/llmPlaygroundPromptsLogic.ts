@@ -69,7 +69,18 @@ export interface PlaygroundSetupPayload {
     sourceEvaluationId?: string
     input?: unknown
     output?: unknown
-    tools?: Record<string, unknown>[]
+    tools?: unknown
+}
+
+function normalizePlaygroundTools(tools: unknown): Record<string, unknown>[] | undefined {
+    if (Array.isArray(tools)) {
+        return tools.every(isObject) ? tools : undefined
+    }
+    if (!isObject(tools)) {
+        return undefined
+    }
+    const values = Object.values(tools)
+    return values.every(isObject) ? values : [tools]
 }
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
@@ -1180,7 +1191,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 source_type: sourceType ?? 'unknown',
             })
             actions.setSourceSetupLoading(true)
-            const { input, tools, systemPrompt } = payload
+            const { input, systemPrompt } = payload
+            const tools = normalizePlaygroundTools(payload.tools)
             const currentPrompt = values.promptConfigs[0] ?? createPromptConfig({ id: INITIAL_PROMPT.id })
             const promptId = currentPrompt.id
 

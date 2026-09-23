@@ -1,17 +1,27 @@
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Optional
 
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.airops.settings import AIROPS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.airops.settings import (
+    AIROPS_ENDPOINTS,
+    AirOpsEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
+    RESTClient,
+    create_auth,
     rest_api_resource,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    create_response_hooks,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
@@ -22,6 +32,17 @@ AIROPS_BASE_URL = "https://api.airops.com"
 APPS_PATH = "public_api/airops_apps"
 # The executions endpoint caps `items` at 100.
 EXECUTIONS_PAGE_SIZE = 100
+
+# AI search-visibility surface. Every brand-kit list endpoint is POST, wraps rows in
+# `{"data": [...], "meta": {...}}`, and paginates by page number carried in the request body.
+BRAND_KITS_PATH = "public_api/brand_kits"
+BRAND_KIT_LIST_PATH = f"{BRAND_KITS_PATH}/list"
+# `per_page` caps at 100 on every brand-kit list endpoint.
+BRAND_KIT_PAGE_SIZE = 100
+# Child endpoints hang off a brand kit and share the `/{brand_kit_id}/{name}/list` POST shape, so the
+# schema name doubles as the path segment. `brand_kits` is the top-level parent (no fan-out).
+BRAND_KIT_CHILD_ENDPOINTS = ("prompts", "citations")
+BRAND_KIT_ENDPOINTS = ("brand_kits", *BRAND_KIT_CHILD_ENDPOINTS)
 
 
 class AirOpsCursorPaginator(JSONResponseCursorPaginator):
@@ -67,10 +88,98 @@ def _stamp_app_id(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _brand_kit_client(api_key: str) -> RESTClient:
+    # Auth goes through the framework (bearer header built per request, token redacted from
+    # telemetry). The tracked session pins redirects off and disables sample capture the same way
+    # `_make_session` does for the rest of AirOps.
+    return RESTClient(
+        base_url=AIROPS_BASE_URL,
+        auth=create_auth({"type": "bearer", "token": api_key}),
+        session=_make_session(api_key),
+    )
+
+
+def _brand_kit_paginator() -> PageNumberPaginator:
+    # AirOps carries the page number in the POST body (`param_location="json"`) and reports the page
+    # count in `meta.total_pages`, so pagination stops after the last page without paying for an
+    # extra empty page.
+    return PageNumberPaginator(base_page=1, total_path="meta.total_pages", param_location="json")
+
+
+def _paginate_brand_kits(client: RESTClient) -> Iterator[list[dict[str, Any]]]:
+    # A 200 without a `data` array means the response shape changed — fail loud
+    # (`data_selector_required`) rather than silently syncing 0 rows.
+    yield from client.paginate(
+        path=BRAND_KIT_LIST_PATH,
+        method="post",
+        json={"per_page": BRAND_KIT_PAGE_SIZE},
+        paginator=_brand_kit_paginator(),
+        data_selector="data",
+        data_selector_required=True,
+    )
+
+
+def _paginate_brand_kit_children(client: RESTClient, endpoint: str) -> Iterator[list[dict[str, Any]]]:
+    # prompts/citations only exist per brand kit, so enumerate brand kits first and follow each one's
+    # paginated child endpoint, stamping every row with its parent brand kit id (part of the composite
+    # primary key, so rows from two brand kits never collide).
+    #
+    # A brand kit that has not configured AEO answers the child endpoints with 412; ignore that brand
+    # kit (a valid empty page) rather than failing the whole table.
+    child_hooks = create_response_hooks([{"status_code": 412, "action": "ignore"}], resource_name=endpoint)
+    for kit_page in _paginate_brand_kits(client):
+        for kit in kit_page:
+            brand_kit_id = kit.get("id")
+            if brand_kit_id is None:
+                raise ValueError(f"AirOps brand kit is missing its 'id' field; cannot list {endpoint}")
+            for child_page in client.paginate(
+                path=f"{BRAND_KITS_PATH}/{brand_kit_id}/{endpoint}/list",
+                method="post",
+                json={"per_page": BRAND_KIT_PAGE_SIZE},
+                paginator=_brand_kit_paginator(),
+                data_selector="data",
+                data_selector_required=True,
+                hooks=child_hooks,
+            ):
+                for row in child_page:
+                    row["brand_kit_id"] = brand_kit_id
+                yield child_page
+
+
+def _source_response(
+    endpoint: str,
+    endpoint_config: AirOpsEndpointConfig,
+    items: Callable[[], Iterable[Any]],
+    column_hints: Optional[dict[str, Any]],
+) -> SourceResponse:
+    return SourceResponse(
+        name=endpoint,
+        items=items,
+        primary_keys=endpoint_config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if endpoint_config.partition_key else None,
+        partition_format="month" if endpoint_config.partition_key else None,
+        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        column_hints=column_hints,
+    )
+
+
 def airops_source(api_key: str, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
     if endpoint not in AIROPS_ENDPOINTS:
         raise ValueError(f"Unknown AirOps endpoint: {endpoint}")
     endpoint_config = AIROPS_ENDPOINTS[endpoint]
+
+    if endpoint in BRAND_KIT_ENDPOINTS:
+        client = _brand_kit_client(api_key)
+
+        def brand_kit_items() -> Iterator[list[dict[str, Any]]]:
+            if endpoint == "brand_kits":
+                yield from _paginate_brand_kits(client)
+            else:
+                yield from _paginate_brand_kit_children(client, endpoint)
+
+        return _source_response(endpoint, endpoint_config, brand_kit_items, column_hints=None)
 
     # The apps endpoint returns a plain (unwrapped) JSON array with no pagination. A non-list 200
     # body means the response shape changed — fail loud instead of silently syncing 0 rows.
@@ -124,17 +233,7 @@ def airops_source(api_key: str, endpoint: str, team_id: int, job_id: str) -> Sou
         rest_config["resources"] = [apps_resource]
         resource = rest_api_resource(rest_config, team_id, job_id, None)
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=endpoint_config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="month" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
-        column_hints=resource.column_hints,
-    )
+    return _source_response(endpoint, endpoint_config, lambda: resource, resource.column_hints)
 
 
 def validate_credentials(api_key: str) -> bool:

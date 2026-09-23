@@ -21,7 +21,7 @@ class ManagedWarehouseBackfillPartition(TeamScopedRootMixin, UUIDModel):
 
     # team is the canonical tenant boundary; environment_id preserves the exact
     # project because sibling environments share a team scope.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     environment_id = models.BigIntegerField()
     dataset = models.CharField(max_length=16, choices=Dataset.choices)
     # partition_key is whatever the scheduler calls this unit of work — opaque here, and only

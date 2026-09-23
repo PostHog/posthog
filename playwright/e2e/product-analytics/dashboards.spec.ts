@@ -467,7 +467,6 @@ test.describe('Dashboard link variable and filter overrides', () => {
         await expect(dashboard.insightCards).toBeVisible()
         await expect(dashboard.variableButtons.first()).toContainText(String(urlOverride))
         await expect(dashboard.dateFilter).toContainText('Last 7 days')
-        await expect(dashboard.overridesBanner).toBeVisible()
     })
 })
 

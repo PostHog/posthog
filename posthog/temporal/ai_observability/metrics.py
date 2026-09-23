@@ -25,6 +25,7 @@ LOGGER = get_write_only_logger(__name__)
 
 EVAL_ACTIVITY_TYPES = {
     "fetch_evaluation_activity",
+    "run_local_evaluation_activity",
     "execute_llm_judge_activity",
     "execute_hog_eval_activity",
     "execute_sentiment_eval_activity",
@@ -143,10 +144,10 @@ def increment_tokens(token_type: str, count: int) -> None:
 def increment_emit_event_outcome(outcome: str) -> None:
     """Track $ai_evaluation event emission outcomes (success/failed/dropped_billing_limited).
 
-    Distinguishes Activity 4 failures from other workflow failures so we can
-    measure and alert on dropped eval events specifically. `dropped_billing_limited`
-    is an expected billing condition, not a system failure, so it's kept out of
-    the `failed` bucket the error-rate alert watches.
+    Distinguishes emit failures from other workflow failures so we can measure dropped
+    eval events specifically, and the LLMAEvalsHighErrorRate alert divides llma_eval_errors
+    by this counter's total. `dropped_billing_limited` is an expected billing condition,
+    not a system failure, so it's kept out of the `failed` bucket.
     """
     if not activity.in_activity() and not workflow.in_workflow():
         return

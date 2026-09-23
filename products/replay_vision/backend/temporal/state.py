@@ -13,6 +13,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.redis import get_async_client
 
+from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
 from products.replay_vision.backend.temporal.types import ScannerLlmInputs
 
 logger = structlog.get_logger(__name__)
@@ -27,6 +28,7 @@ KEY_BASE = "replay-vision:state"
 
 class StateActivitiesEnum(Enum):
     SESSION_EVENTS = "session_events"
+    SESSION_NETWORK = "session_network"
 
 
 def generate_state_key(label: StateActivitiesEnum, state_id: str) -> str:
@@ -97,3 +99,13 @@ async def load_scanner_llm_inputs(observation_id: str) -> ScannerLlmInputs | Non
     """Read the ScannerLlmInputs a scan stashed under the SESSION_EVENTS key; None if absent (its TTL has lapsed)."""
     redis_client, redis_key = get_redis_state_client(label=StateActivitiesEnum.SESSION_EVENTS, state_id=observation_id)
     return await get_data_class_from_redis(redis_client, redis_key, target_class=ScannerLlmInputs)
+
+
+async def load_session_network(observation_id: str) -> SessionNetworkPayload | None:
+    """Read the network payload a scan stashed under the SESSION_NETWORK key.
+
+    None when the key is absent, which is the normal case for a scan started before the network activity
+    existed, or one whose Redis TTL has lapsed. Callers treat it as "no network data" and carry on.
+    """
+    redis_client, redis_key = get_redis_state_client(label=StateActivitiesEnum.SESSION_NETWORK, state_id=observation_id)
+    return await get_data_class_from_redis(redis_client, redis_key, target_class=SessionNetworkPayload)

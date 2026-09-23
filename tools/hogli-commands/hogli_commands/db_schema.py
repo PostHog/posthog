@@ -171,10 +171,36 @@ def _recreate_database(target_db: str) -> None:
     _psql_admin(f"CREATE DATABASE {target_db};")
 
 
-def _ensure_migration_defaults(target_db: str) -> None:
+def _manage(target_db: str, *args: str) -> None:
+    """Run a management command against target_db."""
     _run(
-        ["python", "manage.py", "ensure_migration_defaults"],
+        ["python", "manage.py", *args],
         env={"DATABASE_URL": f"postgres://posthog:posthog@localhost:5432/{target_db}"},
+    )
+
+
+def _ensure_migration_defaults(target_db: str) -> None:
+    _manage(target_db, "ensure_migration_defaults")
+
+
+def _psql_write(target_db: str, sql: str) -> None:
+    """Run a one-shot statement against target_db."""
+    _run(
+        [
+            *DOCKER_COMPOSE,
+            "exec",
+            "-T",
+            "db",
+            "psql",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-U",
+            "posthog",
+            target_db,
+            "-c",
+            sql,
+        ]
     )
 
 
@@ -198,28 +224,17 @@ def _forget_product_app_migrations(target_db: str) -> None:
     environment that configures no product database then applies their NEXT migration for real
     and dies on the missing table. Clearing the rows lets each consumer replay them under its own
     routing: a no-op where the app is routed away, real tables where it isn't.
+
+    Only these rows go. Every other row stays, so the caller's `migrate` never re-applies schema
+    the dump already holds. That holds as long as no migration outside a routed app depends on
+    one inside it; `posthog/test/repo_invariants/test_migration_dependencies_share_a_database.py`
+    keeps it that way.
     """
     app_labels = _product_routed_app_labels()
     if not app_labels:
         return
     in_list = ", ".join(f"'{label}'" for label in app_labels)
-    _run(
-        [
-            *DOCKER_COMPOSE,
-            "exec",
-            "-T",
-            "db",
-            "psql",
-            "-q",
-            "-v",
-            "ON_ERROR_STOP=1",
-            "-U",
-            "posthog",
-            target_db,
-            "-c",
-            f"DELETE FROM django_migrations WHERE app IN ({in_list});",
-        ]
-    )
+    _psql_write(target_db, f"DELETE FROM django_migrations WHERE app IN ({in_list});")
 
 
 def restore_schema_dump(

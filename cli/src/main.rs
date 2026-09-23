@@ -1,8 +1,11 @@
-use posthog_cli::{cmd, invocation_context::init_posthog_telemetry};
+use posthog_cli::{
+    cmd, invocation_context::init_posthog_telemetry, safe_eprintln,
+    utils::broken_pipe::BrokenPipeSafeStderr,
+};
 
 fn main() {
     let subscriber = tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
+        .with_writer(BrokenPipeSafeStderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::builder()
                 .with_default_directive(tracing::Level::INFO.into())
@@ -24,19 +27,19 @@ fn main() {
         Err(e) => {
             match e.exception_id {
                 Some(id) => {
-                    eprintln!("Oops! {}", e.inner);
-                    eprintln!();
-                    eprintln!("Exception ID: {id}");
+                    safe_eprintln!("Oops! {}", e.inner);
+                    safe_eprintln!();
+                    safe_eprintln!("Exception ID: {id}");
                 }
                 None => {
-                    eprintln!("Oops! {}", e.inner);
+                    safe_eprintln!("Oops! {}", e.inner);
 
                     let mut source = e.inner.source();
                     if source.is_some() {
-                        eprintln!("\nCaused by:");
+                        safe_eprintln!("\nCaused by:");
                         let mut index = 0;
                         while let Some(err) = source {
-                            eprintln!("    {index}: {err}");
+                            safe_eprintln!("    {index}: {err}");
                             source = err.source();
                             index += 1;
                         }

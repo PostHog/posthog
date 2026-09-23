@@ -40,7 +40,6 @@ def reverse_content_types(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1206_cohort_list_indexes"),
-        ("ai_observability", "0002_migrate_ai_observability_models"),
     ]
 
     operations = [

@@ -58,7 +58,6 @@ posthog_worktree_borrow() {
         if cmp -s pnpm-lock.yaml "$_ph_main/pnpm-lock.yaml"; then
             POSTHOG_BORROW_NODE=1
             PATH="$_ph_main/node_modules/.bin:$PATH"
-            echo "worktree: borrowing node_modules from $_ph_main (lockfiles match)" >&2
         else
             echo "worktree: pnpm-lock.yaml differs from $_ph_main, skipping node_modules borrow -- run 'pnpm install --frozen-lockfile --filter=.'" >&2
         fi
@@ -79,7 +78,6 @@ posthog_worktree_borrow() {
                 UV_NO_SYNC=1
                 export UV_NO_SYNC
                 PATH="$_ph_main_venv/bin:$PATH"
-                echo "worktree: borrowing venv from $_ph_main (lockfiles match)" >&2
             else
                 echo "worktree: uv.lock differs from $_ph_main, skipping venv borrow -- run 'flox activate'" >&2
             fi

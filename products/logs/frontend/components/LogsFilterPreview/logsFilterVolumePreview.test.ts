@@ -36,7 +36,7 @@ describe('constants shared with the backend', () => {
     it('uses the same collapsed-bucket sentinel the backend emits', () => {
         // A mismatch would leave the sentinel unrecognised and drawn as a service literally named
         // "$$_posthog_breakdown_other_$$".
-        const breakdowns = readSource('../posthog/hogql_queries/insights/utils/breakdowns.py')
+        const breakdowns = readSource('../posthog/hogql_queries/utils/breakdowns.py')
         const match = breakdowns.match(/^BREAKDOWN_OTHER_STRING_LABEL = "(.+)"$/m)
         expect(match).not.toBeNull()
         expect(match![1]).toEqual(OTHER_BREAKDOWN_VALUE)

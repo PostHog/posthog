@@ -39,8 +39,9 @@ class ThreadResolution(BaseModel):
     )
     reply: str = Field(
         description=(
-            "The reply to post on the thread: plain, self-contained language a reader can act on "
-            "without opening the code — what was done (or why not) and what happens next."
+            "The reply to post on the thread, exactly as written. Shape: one verdict sentence, a blank "
+            "line, `---`, then at most 3 short lines (5 for escalate) in plain language a reader can act "
+            "on without opening the code. No test or lint results here; they go in verification."
         )
     )
     commit_sha: str | None = Field(
@@ -52,7 +53,11 @@ class ThreadResolution(BaseModel):
     )
     verification: str | None = Field(
         default=None,
-        description="What was run to verify a fix (lint, tests) and the honest result, failures included.",
+        description=(
+            "A short summary of what was run to verify a fix (lint, tests) and the honest result, failures "
+            "included. Posted under the reply as a collapsed block on a public thread: never raw command "
+            "output, environment values, or URLs that carry a token."
+        ),
     )
 
     @field_validator("thread_id", "reasoning", "reply")

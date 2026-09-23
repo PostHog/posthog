@@ -219,6 +219,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/ai-observability/installation/google',
     },
     {
+        name: 'Google ADK',
+        key: SDKKey.GOOGLE_ADK,
+        tags: [SDKTag.FRAMEWORK],
+        image: geminiImage,
+        docsLink: 'https://posthog.com/docs/ai-observability/installation/google-adk',
+    },
+    {
         name: 'Vercel AI SDK',
         key: SDKKey.VERCEL_AI,
         tags: [SDKTag.FRAMEWORK],

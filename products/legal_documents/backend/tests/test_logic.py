@@ -4,8 +4,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from products.legal_documents.backend.logic import (
+    claim_pandadoc_envelope_retry,
     delete_document,
     pandadoc as pandadoc_module,
 )
@@ -128,3 +130,41 @@ class TestDeleteDocument(APIBaseTest):
         delete_document(document)
 
         mock_pandadoc_cls.assert_not_called()
+
+
+class TestClaimPandadocEnvelopeRetry(APIBaseTest):
+    def _document(self, **overrides: Any) -> LegalDocument:
+        defaults: dict[str, Any] = {
+            "organization": self.organization,
+            "document_type": "DPA",
+            "company_name": "Acme, Inc.",
+            "company_address": "1 Analytics Way",
+            "representative_email": "ada@acme.example",
+            "pandadoc_document_id": "doc_123",
+        }
+        defaults.update(overrides)
+        return LegalDocument.objects.create(**defaults)
+
+    def test_claims_and_advances_updated_at_when_in_memory_value_matches_db(self) -> None:
+        document = self._document()
+        original_updated_at = document.updated_at
+        assert original_updated_at is not None
+
+        claimed = claim_pandadoc_envelope_retry(document)
+
+        self.assertTrue(claimed)
+        assert document.updated_at is not None
+        self.assertGreater(document.updated_at, original_updated_at)
+        document.refresh_from_db()
+        assert document.updated_at is not None
+        self.assertGreater(document.updated_at, original_updated_at)
+
+    def test_loses_claim_when_row_was_stamped_after_this_run_loaded_it(self) -> None:
+        document = self._document()
+        LegalDocument.objects.filter(id=document.id).update(updated_at=timezone.now())
+        db_updated_at = LegalDocument.objects.get(id=document.id).updated_at
+
+        claimed = claim_pandadoc_envelope_retry(document)
+
+        self.assertFalse(claimed)
+        self.assertEqual(LegalDocument.objects.get(id=document.id).updated_at, db_updated_at)

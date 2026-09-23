@@ -4,13 +4,14 @@ import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/a
 import type { ScoutCreateInitialValues } from 'products/signals/frontend/inbox/logics/scoutCreateModalLogic'
 import { scoutTags } from 'products/signals/frontend/inbox/utils/scoutTags'
 
+import cacheOptimizationSkill from '../../backend/scouts/signals-scout-ai-observability-cache-optimization.md?raw'
 import costlyUsersSkill from '../../backend/scouts/signals-scout-ai-observability-costly-users.md?raw'
 import dailyDigestSkill from '../../backend/scouts/signals-scout-ai-observability-daily-digest.md?raw'
 import errorPatternsSkill from '../../backend/scouts/signals-scout-ai-observability-error-patterns.md?raw'
 
 export const AI_OBSERVABILITY_SCOUT_TAG = 'ai-observability'
 
-export type AIObservabilityScoutTemplateKey = 'daily-digest' | 'costly-users' | 'error-patterns'
+export type AIObservabilityScoutTemplateKey = 'daily-digest' | 'costly-users' | 'error-patterns' | 'cache-optimization'
 
 export interface AIObservabilityScoutTemplate {
     key: AIObservabilityScoutTemplateKey
@@ -93,6 +94,14 @@ export const AI_OBSERVABILITY_SCOUT_TEMPLATES: AIObservabilityScoutTemplate[] = 
         description: 'Read real traces to find recurring errors and silent AI failures worth fixing.',
         schedule: 'Daily at 9:00 AM',
         initialValues: readScoutSkill(errorPatternsSkill, 'signals-scout-ai-observability-error-patterns.md'),
+    },
+    {
+        key: 'cache-optimization',
+        title: 'Cache optimization',
+        description:
+            'Find workloads that resend large prompts without caching, locate the fix in code, and size the net saving.',
+        schedule: 'Daily at 9:00 AM',
+        initialValues: readScoutSkill(cacheOptimizationSkill, 'signals-scout-ai-observability-cache-optimization.md'),
     },
 ]
 

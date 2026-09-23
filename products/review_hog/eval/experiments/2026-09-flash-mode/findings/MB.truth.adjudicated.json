@@ -1,0 +1,82 @@
+{
+    "MB1": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 6,
+        "source": "adjudicated:3/3",
+        "adjudicated_from": "UA1",
+        "adjudication_reason": "Same engine-side draft-gate and machine-author framing claim: a self_driving flag enables the carve-out without requiring bot authorship."
+    },
+    "MB2": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 57,
+        "source": "adjudicated:3/3",
+        "adjudicated_from": "GC7",
+        "adjudication_reason": "Same mismatch between the stated any-assignee opt-in rule and the canonical-reviewer-only toggle check; an enabled noncanonical assignee cannot trigger the review."
+    },
+    "MB3": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 4,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MB4": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "adjudicated:0/3",
+        "adjudicated_from": "UA6",
+        "adjudication_reason": "Same initial Celery broker-publication failure, before the task or ReviewRun exists. The facade anchor is the publication call caught by the receiver; this is not task retry exhaustion."
+    },
+    "MB5": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 18,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MB6": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MB7": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 2,
+        "source": "adjudicated:2/3",
+        "adjudicated_from": "UA7",
+        "adjudication_reason": "Same initial receiver provenance omission despite the documentation anchor: caller-provided PR identity is stamped without positively verifying the task-to-PR relationship or expected author."
+    },
+    "MB8": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 2,
+        "source": "adjudicated:2/3",
+        "adjudicated_from": "UA7",
+        "adjudication_reason": "Same process_inbox_pr_review omission: the fetched PR is not checked for implementation-run linkage, expected bot authorship, or a repository-native head before receiving self-driving provenance."
+    },
+    "MB9": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 58,
+        "source": "adjudicated:0/3",
+        "adjudicated_from": "UA6",
+        "adjudication_reason": "Same caught initial Celery publication failure at the receiver. This maps to the rejected broker-publish sub-claim in cluster 58, not its task retry or stranded-QUEUED sub-claims."
+    },
+    "MB10": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 58,
+        "source": "adjudicated:2/3",
+        "adjudicated_from": "UA9",
+        "adjudication_reason": "Same short non-rate-limit task retry budget exhausting during a transient GitHub or database outage. This carries the general task-retry exhaustion sub-claim; it does not endorse the separate assertion about retries occurring inside the primary rate-limit window."
+    },
+    "MB11": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 9,
+        "source": "verified-3-skeptics:0/3"
+    }
+}

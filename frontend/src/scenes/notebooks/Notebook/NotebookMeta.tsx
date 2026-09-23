@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconSparkles, IconTerminal } from '@posthog/icons'
+import { IconBrackets, IconSparkles, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
@@ -204,6 +204,32 @@ export const NotebookExpandButton = ({ inPanel, ...buttonProps }: NotebookExpand
             tooltip={isContentWidthExpanded ? 'Fix content width' : 'Fill content width'}
             tooltipPlacement="left"
         />
+    )
+}
+
+export const NotebookVariablesButton = (
+    props: Pick<LemonButtonProps, 'children' | 'size' | 'type'>
+): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { content, variables, showVariables } = useValues(notebookLogic)
+    const { setShowVariables } = useActions(notebookSettingsLogic)
+
+    // Only the revamped cells read variables, so the toggle stays out of other notebooks.
+    if (!isKernelUiEnabled(featureFlags) || !isMarkdownNotebookContent(content)) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            {...props}
+            onClick={() => setShowVariables(!showVariables)}
+            active={showVariables}
+            icon={<IconBrackets />}
+            tooltip={showVariables ? 'Hide variables' : 'Show variables'}
+            data-attr="notebook-variables-toggle"
+        >
+            {variables.length ? `Variables (${variables.length})` : 'Variables'}
+        </LemonButton>
     )
 }
 

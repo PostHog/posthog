@@ -21,12 +21,14 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, HeatmapScreenshotType } from '~/types'
 
 import { HeatmapsWarnings } from '../../components/HeatmapsWarnings'
+import { heatmapsEmptyState } from '../../emptyState/heatmapsEmptyState'
 import { HEATMAPS_PER_PAGE, heatmapsSceneLogic } from './heatmapsSceneLogic'
 
 export const scene: SceneExport = {
     component: HeatmapsScene,
     logic: heatmapsSceneLogic,
     productKey: ProductKey.HEATMAPS,
+    emptyState: heatmapsEmptyState,
 }
 
 export function HeatmapsScene(): JSX.Element {

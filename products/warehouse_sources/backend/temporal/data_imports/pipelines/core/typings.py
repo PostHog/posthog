@@ -21,9 +21,14 @@ class PipelineResult(TypedDict):
     runs some other party already finalized, where True likewise means "workflow: hands off".
     Making this a pure version property requires an empty-final-batch queue message so the
     consumer hears about every v3 run — deferred until the v2 pipeline is deleted.
+
+    `fast_returned` marks a run completed on a negative source probe, before any extraction.
+    It always rides with `skip_post_import_activities=True` (which does the actual skipping);
+    the workflow reads it only to count these runs separately from other skipped ones.
     """
 
     should_trigger_cdp_producer: bool
     consumer_manages_job_status: NotRequired[bool]
     skip_post_import_activities: NotRequired[bool]
     prepared_queryable_folder: NotRequired[str]
+    fast_returned: NotRequired[bool]

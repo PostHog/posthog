@@ -1,0 +1,23 @@
+name: vacuum_progress
+description: In-flight VACUUM operations. Usually empty.
+interval: 60s
+scope: cluster
+kind: gauge
+query: |
+  SELECT p.pid, p.datname, p.relid::bigint AS relid, p.phase,
+         p.heap_blks_total, p.heap_blks_scanned, p.heap_blks_vacuumed,
+         p.index_vacuum_count, p.max_dead_tuples, p.num_dead_tuples,
+         extract(epoch FROM now() - a.xact_start)::float8 AS running_seconds,
+         a.query
+  FROM pg_stat_progress_vacuum p
+  JOIN pg_stat_activity a ON a.pid = p.pid
+variants:
+  - min_pg_version: 170000
+    query: |
+      SELECT p.pid, p.datname, p.relid::bigint AS relid, p.phase,
+             p.heap_blks_total, p.heap_blks_scanned, p.heap_blks_vacuumed,
+             p.index_vacuum_count, p.max_dead_tuple_bytes AS max_dead_tuples, p.dead_tuple_bytes AS num_dead_tuples,
+             extract(epoch FROM now() - a.xact_start)::float8 AS running_seconds,
+             a.query
+      FROM pg_stat_progress_vacuum p
+      JOIN pg_stat_activity a ON a.pid = p.pid

@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "Project id. If omitted, uses the active project.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "member_id": {
+            "description": "The organization membership id, as `organization_membership_id` in access-control-members-list.",
+            "type": "string"
+        }
+    },
+    "required": ["member_id"],
+    "type": "object"
+}

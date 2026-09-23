@@ -2,19 +2,18 @@ import { CaretLeftIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import {
   Button,
   Input,
-  Spinner,
   Tabs,
   TabsList,
   TabsTrigger,
   Text,
 } from "@posthog/quill";
-import type { Task } from "@posthog/shared/domain-types";
 import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
-import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -82,7 +81,7 @@ export function GridChatPanel({
   if (target) {
     return (
       <div className="flex h-full flex-col border-(--gray-5) border-l">
-        <div className="flex h-10 shrink-0 items-center gap-1 border-(--gray-5) border-b px-2">
+        <ChromeBar inset="control" className="gap-1" actions={minimize}>
           <Button
             variant="default"
             size="icon"
@@ -94,8 +93,7 @@ export function GridChatPanel({
           <Text size="sm" weight="medium" className="min-w-0 flex-1 truncate">
             {target.title}
           </Text>
-          {minimize}
-        </div>
+        </ChromeBar>
         {target.taskId ? (
           <TaskChat taskId={target.taskId} />
         ) : (
@@ -109,7 +107,7 @@ export function GridChatPanel({
 
   return (
     <div className="flex h-full flex-col border-(--gray-5) border-l">
-      <div className="flex h-10 shrink-0 items-center justify-between border-(--gray-5) border-b pr-2 pl-3">
+      <ChromeBar actions={minimize}>
         <Tabs
           value={tab}
           onValueChange={(value) => setTab(value as "chat" | "comments")}
@@ -127,8 +125,7 @@ export function GridChatPanel({
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        {minimize}
-      </div>
+      </ChromeBar>
       {tab === "comments" && commentTaskId ? (
         <CanvasComments
           taskId={commentTaskId}
@@ -157,11 +154,7 @@ export function GridChatPanel({
 function TaskChat({ taskId }: { taskId: string }) {
   const { data: task } = useQuery(taskDetailQuery(taskId));
   if (!task) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState className="flex-1" />;
   }
   // Constrain the chat body like the comments branch beside it: a shrinkable
   // flex child below the fixed header needs min-h-0 so it fills the remaining
@@ -188,57 +181,20 @@ function CanvasComments({
   canvasVersionId: string | null;
   commentVersionLabel: (versionId: string) => string | null;
 }) {
-  const { data: task } = useQuery(taskDetailQuery(taskId));
-  if (!task) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner />
-      </div>
-    );
-  }
   return (
     <div className="min-h-0 flex-1">
-      <GridCanvasComments
-        task={task}
-        canvasId={canvasId}
-        canvasName={canvasName}
+      <TaskCommentsList
+        taskId={taskId}
+        onlySource={{
+          kind: "canvas",
+          name: canvasName,
+          target: { scope: "desktop_canvas", itemId: canvasId },
+          url: null,
+        }}
         canvasVersionId={canvasVersionId}
         commentVersionLabel={commentVersionLabel}
       />
     </div>
-  );
-}
-
-// Its own component so useThreadConversation runs only once the task exists.
-function GridCanvasComments({
-  task,
-  canvasId,
-  canvasName,
-  canvasVersionId,
-  commentVersionLabel,
-}: {
-  task: Task;
-  canvasId: string;
-  canvasName: string;
-  canvasVersionId: string | null;
-  commentVersionLabel: (versionId: string) => string | null;
-}) {
-  const { timeline } = useThreadConversation(task, {
-    surface: "activity_panel",
-  });
-  return (
-    <TaskCommentsList
-      task={task}
-      timeline={timeline}
-      onlySource={{
-        kind: "canvas",
-        name: canvasName,
-        target: { scope: "desktop_canvas", itemId: canvasId },
-        url: null,
-      }}
-      canvasVersionId={canvasVersionId}
-      commentVersionLabel={commentVersionLabel}
-    />
   );
 }
 

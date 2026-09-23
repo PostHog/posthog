@@ -1,0 +1,244 @@
+{
+    "repository": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86",
+    "packages": [
+        {
+            "file": "e2fsprogs-libs-1.47.2-r2.apk",
+            "sha256": "8a3009b0b395ea5a8677b7fe140348d2a7024cc92b87b0d6bff5c41f09fd95a9"
+        },
+        {
+            "file": "glib-2.84.4-r0.apk",
+            "sha256": "3968ecacf16189e4ebf1f9695dfb1aee386c681424642f6f8e10f1fe907c6f85"
+        },
+        {
+            "file": "gpm-libs-1.20.7-r5.apk",
+            "sha256": "3558b07e905878d2e222fd974809140593e6a2938ab8cc87db9e548d1c9182c2"
+        },
+        {
+            "file": "libblkid-2.41.6-r1.apk",
+            "sha256": "b536871f26d239656f839e067868aa2582e9393e5bc5107765d301b7b0707f7c"
+        },
+        {
+            "file": "libcom_err-1.47.2-r2.apk",
+            "sha256": "f4cabaa4e7200926d2a5583a15a37aee9717f343dc46b9d5e04af61b07468125"
+        },
+        {
+            "file": "libcrypto3-3.5.8-r0.apk",
+            "sha256": "0e213a6181a38fcd71df7ec50980ce98e777de5abe605268ab8bcbfa53683738"
+        },
+        {
+            "file": "libeconf-0.6.3-r0.apk",
+            "sha256": "a7a6cd5efb005dc5e693cdeb31ed857929a01573c993b38eceaa3c5c29dfce3f"
+        },
+        {
+            "file": "libffi-3.4.8-r0.apk",
+            "sha256": "ad588b91a38f0c2828347080c96a39062af51a1f06ea3d5e170a988781ef18b6"
+        },
+        {
+            "file": "libintl-0.24.1-r0.apk",
+            "sha256": "fb7e92fb73abbcbae080aba6241d7dd1d552b841023cef072f2f12dfa9caf008"
+        },
+        {
+            "file": "libmount-2.41.6-r1.apk",
+            "sha256": "0e693b246131572ec34289918698fe0f44babe3ef528163787b92775c4bfbfc7"
+        },
+        {
+            "file": "libncursesw-6.5_p20250503-r0.apk",
+            "sha256": "b1262e30c3eb0c9a9b74dba4f33c36ca37e33c4a060429af22f371236bfd4d61"
+        },
+        {
+            "file": "libssh2-1.11.1-r2.apk",
+            "sha256": "0f4d181fdbd1c387133e7bfd35ec929f84b1d913e9fd5dd751157e64a1955c55"
+        },
+        {
+            "file": "mc-4.8.33-r2.apk",
+            "sha256": "65084360daead16e500b1153286fa5853aeda04cb0e2dbbfcb039fb20224faae"
+        },
+        {
+            "file": "musl-1.2.5-r12.apk",
+            "sha256": "d047373c9afb6eaac68df1d03128ac75803350b0368327af85cc95a5b042a1da"
+        },
+        {
+            "file": "nano-8.4-r0.apk",
+            "sha256": "d5fb5ce60cc5b0f3f10f2c5bde5a30ae06d93537b08f0bf57ffd522f8ec290aa"
+        },
+        {
+            "file": "nano-syntax-8.4-r0.apk",
+            "sha256": "890d993bab1d6b41b078168116b399cf5736ed19b4b3593097dd2810b4c28c9f"
+        },
+        {
+            "file": "ncdu-1.22-r0.apk",
+            "sha256": "b19f10b46b05eafccafb92b4d0d720e30e657869b3d9b344829c33d99b8734f0"
+        },
+        {
+            "file": "ncurses-terminfo-base-6.5_p20250503-r0.apk",
+            "sha256": "3264426877964e0ac55488ede6313e907d3663f831008b45fa27c95d60ac34b8"
+        },
+        {
+            "file": "pcre2-10.46-r0.apk",
+            "sha256": "eafeb653254c467dcdf2032a6a936db0c5f500733a49d16d6a1a8e5b0225f0b9"
+        },
+        {
+            "file": "slang-2.3.3-r3.apk",
+            "sha256": "d07fde42b22018ae7db036f46644cd98ae5018102071ec6ac3775d323a53a850"
+        },
+        {
+            "file": "tree-2.2.1-r0.apk",
+            "sha256": "7b6f11680a3f16097d99bb0a5558b62499b1cbea1d1c39f7fed58f38b5ae325b"
+        },
+        {
+            "file": "zlib-1.3.2-r0.apk",
+            "sha256": "486231ba02da32d11a86d29ff838a6991a435b8d8c433926278efdbbcaea74dd"
+        }
+    ],
+    "sources": [
+        {
+            "name": "nano",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/nano-8.4.tar.xz",
+            "sha512": "1b8258e341a8722114b24af9d4676fbd8a91dc3639786a81bcd192a7b4fbca87581ab8ebe49493dfb3599ae90b59f4df8ae2a4ee0c0c7ccec9a49b563c82f44a",
+            "recipe": "https://github.com/alpinelinux/aports/tree/eadb70705bb9ed4a955c88a318bcf204efe43c71/main/nano",
+            "license_files": ["nano-8.4/COPYING"]
+        },
+        {
+            "name": "tree",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/unix-tree-2.2.1.tar.gz",
+            "sha512": "e7f514c2c12bc409d28c83a2c359bf463f8c624b6fc78cb847e0849925dfca746a9dac9a9e55b721972c474a33dba99a069f69694eaa08c12f4ce77db6d49953",
+            "recipe": "https://github.com/alpinelinux/aports/tree/f716d231228886a4bdd36b0a0e1c546f3708a56d/main/tree",
+            "license_files": ["unix-tree-2.2.1/LICENSE"]
+        },
+        {
+            "name": "ncdu",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/ncdu-1.22.tar.gz",
+            "sha512": "04f338e7b0992c1d94893dc6f2ad80318618690232c7bba43cd9a01ce513052460ed396dca49a060f31dbbb72dcddd59e7f78715dbe0da937a7f3d7725f8d2c1",
+            "recipe": "https://github.com/alpinelinux/aports/tree/340f9cbafa599f670f3019cfdc76b5f989e43012/main/ncdu",
+            "license_files": ["ncdu-1.22/COPYING"]
+        },
+        {
+            "name": "musl",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/musl-1.2.5.tar.gz",
+            "sha512": "7bb7f7833923cd69c7a1a9b8a5f1784bfd5289663eb6061dcd43d583e45987df8a68a1be05d75cc1c88a3f5b610653d1a70f4a9cff4d8f7fd41ae73ee058c17c",
+            "recipe": "https://github.com/alpinelinux/aports/tree/1546f29a1fd233db15464ce000b6247ed71b31e7/main/musl",
+            "license_files": ["musl-1.2.5/COPYRIGHT"]
+        },
+        {
+            "name": "ncurses",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/ncurses-6.5-20250503.tgz",
+            "sha512": "b417ea609e497eb746ddb3bef89eafb9eb9e78e605b4b8445cc47f005c22dae24c2c461cd014f7a76c1c6e3f685e0363a7a229af24360b4505483e3bd36efd41",
+            "recipe": "https://github.com/alpinelinux/aports/tree/3fefbe8dda8b3e85458edb190e2f3a69ad16035c/main/ncurses",
+            "license_files": ["ncurses-6.5-20250503/COPYING"]
+        },
+        {
+            "name": "mc",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/mc-4.8.33.tar.xz",
+            "sha512": "3eb857af2fa689e9458aeef6d3b236fb92684e05c0e3e78e7e5a5fa5dba6431cae39bec51bc84598b0bb60579cb0a0679dcdc6e9f7d88ca85dc37ace251c8632",
+            "recipe": "https://github.com/alpinelinux/aports/tree/be0833caee3020f089f02c5d7223e971a9a11ffb/main/mc",
+            "license_files": ["mc-4.8.33/COPYING"]
+        },
+        {
+            "name": "libssh2",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/libssh2-1.11.1.tar.gz",
+            "sha512": "8703636fc28f0b12c8171712f3d605e0466a5bb9ba06e136c3203548fc3408ab07defd71dc801d7009a337e1e02fd60e8933a2a526d5ef0ce53153058d201233",
+            "recipe": "https://github.com/alpinelinux/aports/tree/fad04f2cfb529992124330b331c6e3d3859a9c8d/main/libssh2",
+            "license_files": ["libssh2-1.11.1/COPYING"]
+        },
+        {
+            "name": "zlib",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/zlib-1.3.2.tar.gz",
+            "sha512": "70963771ea5d763614278a69b474f09b7d237ef8f53b675a10fe31d9923aeef601504b35d7ebd1b1e7f347e9ebb048e6b3b47fffdf137e7bdc7e8d5eb4ec4692",
+            "recipe": "https://github.com/alpinelinux/aports/tree/0276ab73299b3fd158361983f2f4ba573e0f7526/main/zlib",
+            "license_files": ["zlib-1.3.2/LICENSE"]
+        },
+        {
+            "name": "openssl",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/openssl-3.5.8.tar.gz",
+            "sha512": "62a1dbed0fad75245b332e41b85a1f7c2379189525e7628a7cf68947d115e90a47f179e3f87d27641e5b2d357c357292179fc0e64eccecdebc81c083f7a8ebe4",
+            "recipe": "https://github.com/alpinelinux/aports/tree/1b80b7c3bf5ba3f13eb748ae953d9215d5a4bb62/main/openssl",
+            "license_files": ["openssl-3.5.8/LICENSE.txt"]
+        },
+        {
+            "name": "slang",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/slang-2.3.3.tar.bz2",
+            "sha512": "f882f09e3fcd53427de0f233c9fc3ab15497f2323007be9a084696c8cf810ffe2726cd003149e757df26198b390b9f8c1ff411dc6473513457bd0f94722f8490",
+            "recipe": "https://github.com/alpinelinux/aports/tree/37d693b12294d28fe8c91a6d6ea4ed81fa0c4d20/main/slang",
+            "license_files": ["slang-2.3.3/COPYING"]
+        },
+        {
+            "name": "gettext",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/gettext-0.24.1.tar.xz",
+            "sha512": "53d5c54105598cc6156b940ff82d9754f4b7cdeafcd2400206c975db9412012511b60a7ebefcd31068a0bc2d99173ecd93a66844c7f3a9772df69d53b3cebeb5",
+            "recipe": "https://github.com/alpinelinux/aports/tree/215a26431d1b09c56cb2a9ffe10175feb9518fd8/main/gettext",
+            "license_files": ["gettext-0.24.1/gettext-runtime/intl/COPYING.LIB"]
+        },
+        {
+            "name": "gpm",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/gpm-1.20.7.tar.bz2",
+            "sha512": "51c1141ed502f8b6bc846485a8e315bafe3cf2b7c9d1ea8a710d9748ff2058f29c7ab5715fc1730a8437c613181d2050f37b134e9288c69ba8ff7fb0be7ec0d1",
+            "recipe": "https://github.com/alpinelinux/aports/tree/d257c5ac154c6eb9e0b58a79e2db42ac9a63f180/main/gpm",
+            "license_files": ["gpm-1.20.7/COPYING"]
+        },
+        {
+            "name": "glib",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/glib-2.84.4.tar.xz",
+            "sha512": "2de9b2f7376c0e5f6ee585087090675d597c474199a10d04aad18df688b6ca77d17e93a86ec07482898663f51c82121992272496318138f77ca5ad2c340a4bd3",
+            "recipe": "https://github.com/alpinelinux/aports/tree/9a0d606dfb2af556b9b96a9e8bb511b2bd0ddbed/main/glib",
+            "license_files": [
+                "glib-2.84.4/LICENSES/Apache-2.0.txt",
+                "glib-2.84.4/LICENSES/CC0-1.0.txt",
+                "glib-2.84.4/LICENSES/GPL-2.0-or-later.txt",
+                "glib-2.84.4/LICENSES/LGPL-2.1-only.txt",
+                "glib-2.84.4/LICENSES/LGPL-2.1-or-later.txt",
+                "glib-2.84.4/LICENSES/LLVM-exception.txt",
+                "glib-2.84.4/LICENSES/LicenseRef-old-glib-tests.txt",
+                "glib-2.84.4/LICENSES/MIT.txt",
+                "glib-2.84.4/LICENSES/MPL-1.1.txt"
+            ]
+        },
+        {
+            "name": "pcre2",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/pcre2-10.46.tar.bz2",
+            "sha512": "795b0d74efb898347990c29fefc85f37ac81e7795f9d6a5598d1169a03c547df7ff7eac280f708b1fef68d3e7686e0d4cd55f0c6364e287ff2a983bbd1a3c334",
+            "recipe": "https://github.com/alpinelinux/aports/tree/a22c8c27a78e00ea7cf03e09c6033a6336ee22a2/main/pcre2",
+            "license_files": ["pcre2-10.46/LICENCE.md", "pcre2-10.46/COPYING"]
+        },
+        {
+            "name": "util-linux",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/util-linux-2.41.6.tar.xz",
+            "sha512": "db63574a6e854c1b56876a125631ca94fcca77067f5b59c293f1b06b7765eb5e284d3cb6d31d319d6f7e9f7070881321fa6b8cc11f3453281454e9943e477560",
+            "recipe": "https://github.com/alpinelinux/aports/tree/b91fb14e28957c6f5a13c02eb9ec136c82ebd50e/main/util-linux",
+            "license_files": [
+                "util-linux-2.41.6/libblkid/COPYING",
+                "util-linux-2.41.6/libmount/COPYING",
+                "util-linux-2.41.6/Documentation/licenses/COPYING.BSD-2-Clause",
+                "util-linux-2.41.6/Documentation/licenses/COPYING.BSD-3-Clause",
+                "util-linux-2.41.6/Documentation/licenses/COPYING.BSD-4-Clause-UC",
+                "util-linux-2.41.6/Documentation/licenses/COPYING.EUPL-1.2",
+                "util-linux-2.41.6/Documentation/licenses/COPYING.GPL-2.0-only",
+                "util-linux-2.41.6/Documentation/licenses/COPYING.GPL-2.0-or-later",
+                "util-linux-2.41.6/Documentation/licenses/COPYING.GPL-3.0-or-later",
+                "util-linux-2.41.6/Documentation/licenses/COPYING.ISC",
+                "util-linux-2.41.6/Documentation/licenses/COPYING.LGPL-2.1-or-later",
+                "util-linux-2.41.6/Documentation/licenses/COPYING.MIT"
+            ]
+        },
+        {
+            "name": "libeconf",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/libeconf-0.6.3.tar.gz",
+            "sha512": "6a177474efa03d4933c1fff85eaf159837b9c803d3be8a8e8a23c271bbcd38f5513bc30df37592721c1d139c36a698fb224be012fa947595c0e90904e22fdadb",
+            "recipe": "https://github.com/alpinelinux/aports/tree/1e0aa723fba50417893fe5f6cf72f76d044b8192/main/libeconf",
+            "license_files": ["libeconf-0.6.3/LICENSE"]
+        },
+        {
+            "name": "libffi",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/libffi-3.4.8.tar.gz",
+            "sha512": "05344c6c1a1a5b44704f6cf99277098d1ea3ac1dc11c2a691c501786a214f76184ec0637135588630db609ce79e49df3dbd00282dd61e7f21137afba70e24ffe",
+            "recipe": "https://github.com/alpinelinux/aports/tree/be5e49159a2ccca93a3290af3d8ab25443523363/main/libffi",
+            "license_files": ["libffi-3.4.8/LICENSE"]
+        },
+        {
+            "name": "e2fsprogs",
+            "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/e2fsprogs-1.47.2.tar.gz",
+            "sha512": "1dc86535b72a4ab60e17a547efe5e137054eff6cad9f6cf9cc9485694ec6166687a9d5f50fb47a10e776a70c7690ade5445c0339731f83066abf33c01f70d9c7",
+            "recipe": "https://github.com/alpinelinux/aports/tree/13f83cd1a99fa6ea58c6f8c3538971f2fb9ac634/main/e2fsprogs",
+            "license_files": ["e2fsprogs-1.47.2/NOTICE"]
+        }
+    ]
+}

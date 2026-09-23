@@ -1,0 +1,29 @@
+-- no-transaction
+--
+-- The sweep pages through one cohort's rows below a version. The unique constraint on
+-- (team_id, cohort_id, person_id) can only prefix-match the cohort, leaving the version filter to
+-- discard most of what it reads; carrying version in the index lets each page stop early.
+--
+-- `id` is in the index because the pager orders by (version, id) and resumes from a
+-- (version, id) > (cursor) row comparison. Postgres turns a row comparison into an index
+-- condition only when every compared column is indexed; without `id` it truncates to
+-- `version >= cursor`, which bounds nothing when candidates share one version, and each page
+-- then sorts the whole remaining set. Every pre-feature row shares the '-infinity' default, so
+-- the first sweep after rollout is exactly that case.
+--
+-- CONCURRENTLY, alone in its own no-transaction file: a plain CREATE INDEX takes SHARE on
+-- cohort_membership, which conflicts with the ROW EXCLUSIVE every consumer upsert needs, and sqlx
+-- would hold it until the whole file commits. This table is on the membership consumer's hot write
+-- path, so a blocking build stalls every batch for the duration.
+--
+-- Recovery note: if this CONCURRENTLY build is ever interrupted, it leaves the index INVALID and a
+-- rerun's IF NOT EXISTS will NOT rebuild it. A drop-first statement can't fix that here, because
+-- sqlx runs a no-transaction migration as one implicitly-transactional batch, so CONCURRENTLY
+-- statements must be alone in their file, and a separate drop migration wouldn't re-run on retry.
+-- Nothing reports that state: the migration run that left it INVALID already failed, and every
+-- later run skips the file and reports success, so check for it before assuming the index is there.
+--   SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('idx_cohort_membership_sweep');
+-- On `f`, recover manually, then re-run migrations:
+--   DROP INDEX CONCURRENTLY idx_cohort_membership_sweep;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cohort_membership_sweep
+    ON cohort_membership (team_id, cohort_id, version, id);

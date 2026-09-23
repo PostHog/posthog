@@ -17,7 +17,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import {
     DASHBOARD_WIDGET_CATALOG_GROUPS,
-    DASHBOARD_WIDGET_PREVIEWS,
     type ResolvedDashboardWidgetCatalogEntry,
     type DashboardWidgetCatalogKey,
     getDashboardWidgetGroupIcon,
@@ -30,6 +29,7 @@ import {
     getAddWidgetDisabledReason,
     submitAddWidgetPayloads,
 } from './addWidgetModalUtils'
+import { DASHBOARD_WIDGET_PREVIEWS } from './previews/dashboardWidgetPreviews'
 import { WidgetTypePickerCard } from './WidgetTypePickerCard'
 
 export type { AddWidgetPayload }

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -120,18 +120,18 @@ class TestPureHelpers:
     def test_reshape_analytics_empty_values(self) -> None:
         assert _reshape_analytics({"fields": [{"name": "time"}], "values": []}, "a", "s") == []
 
-    @freeze_time("2026-06-01T12:00:00Z")
+    @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
     def test_time_window_first_sync_uses_lookback(self) -> None:
         start, end = _time_window_params(DENO_DEPLOY_ENDPOINTS["logs"], True, None)
         assert start == "2026-05-25T12:00:00Z"  # now - 7d default lookback
         assert end == "2026-06-01T12:00:00Z"
 
-    @freeze_time("2026-06-01T12:00:00Z")
+    @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
     def test_time_window_incremental_subtracts_lookback(self) -> None:
         start, _ = _time_window_params(DENO_DEPLOY_ENDPOINTS["logs"], True, datetime(2026, 6, 1, 10, 0, 0, tzinfo=UTC))
         assert start == "2026-06-01T09:55:00Z"  # watermark - 5min lookback
 
-    @freeze_time("2026-06-01T12:00:00Z")
+    @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
     def test_time_window_future_watermark_clamped(self) -> None:
         start, end = _time_window_params(DENO_DEPLOY_ENDPOINTS["analytics"], True, datetime(2027, 1, 1, tzinfo=UTC))
         assert start == "2026-06-01T11:30:00Z"  # min(future, now) - 30min lookback
@@ -210,7 +210,7 @@ class TestFanOut:
         ]
         assert params[1]["limit"] == 100  # child list uses the default page size
 
-    @freeze_time("2026-06-01T12:00:00Z")
+    @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_logs_paginate_via_next_cursor(self, MockSession) -> None:
         session = MockSession.return_value
@@ -234,7 +234,7 @@ class TestFanOut:
         saved = [c.args[0] for c in manager.save_state.call_args_list]
         assert any(s.fanout_state and s.fanout_state.get("child_state") == {"cursor": "c2"} for s in saved)
 
-    @freeze_time("2026-06-01T12:00:00Z")
+    @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_analytics_columnar_explode_with_window(self, MockSession) -> None:
         session = MockSession.return_value

@@ -1,7 +1,10 @@
 from contextlib import contextmanager
+from datetime import timedelta
 
 import pytest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
@@ -42,11 +45,14 @@ async def _team_with_features(features: list[dict], *, current_months: int) -> T
 async def test_syncs_event_retention_months_from_billing(features: list[dict], expected_months: int):
     # Start at a sentinel that differs from every expected value, so the assertion proves a real write.
     team = await _team_with_features(features, current_months=999)
+    previous_updated_at = timezone.now() - timedelta(days=1)
+    await sync_to_async(Team.objects.filter(pk=team.pk).update)(updated_at=previous_updated_at)
 
     await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
 
     await sync_to_async(team.refresh_from_db)()
     assert team.event_retention_months == expected_months
+    assert team.updated_at > previous_updated_at
 
 
 @pytest.mark.django_db(transaction=True)

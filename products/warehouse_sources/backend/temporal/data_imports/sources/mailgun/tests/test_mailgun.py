@@ -12,7 +12,10 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun import (
+    FORBIDDEN_ERROR,
+    INVALID_KEY_ERROR,
     MAX_RETRY_AFTER_SECONDS,
+    UNREACHABLE_ERROR,
     MailgunResumeConfig,
     MailgunRetryableError,
     _epoch_to_datetime,
@@ -275,22 +278,23 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
+            (200, (True, None)),
+            (401, (False, INVALID_KEY_ERROR)),
+            (404, (False, INVALID_KEY_ERROR)),
+            (403, (False, FORBIDDEN_ERROR)),
+            (500, (False, UNREACHABLE_ERROR)),
         ],
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
     def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
         mock_session.return_value.get.return_value = _response({}, status_code)
 
-        assert validate_credentials("key", "us") is expected
+        assert validate_credentials("key", "us") == expected
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
     def test_validate_credentials_swallows_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key", "us") is False
+        assert validate_credentials("key", "us") == (False, UNREACHABLE_ERROR)
 
     @pytest.mark.parametrize(
         "region, expected_host",

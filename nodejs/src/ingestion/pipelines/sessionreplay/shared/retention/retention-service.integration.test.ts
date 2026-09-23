@@ -5,7 +5,7 @@ import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { RedisPool } from '~/types'
 
 import { RetentionService } from './retention-service'
@@ -16,9 +16,8 @@ describe('RetentionService (integration)', () => {
     let teamId: number
 
     beforeEach(async () => {
-        await resetTestDatabase()
         postgres = new PostgresRouter(defaultConfig)
-        teamId = (await getFirstTeam(postgres)).id // seeded with retention '30d'
+        teamId = (await createTestTeamFixture(postgres)).team.id
 
         redisPool = createRedisPoolFromConfig({
             connection: createIngestionRedisConnectionConfig(defaultConfig),

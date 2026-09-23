@@ -75,14 +75,28 @@ export const pageviews = {
     events: [
         ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(6) }).repeat(10),
         ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(5) }).repeat(8),
-        ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(4) }).repeat(6),
-        ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(3) }).repeat(5),
+        ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(4) }).repeat(3),
+        ...createEvent({
+            event: '$pageview',
+            user: (n) => pvUser(n + 3),
+            timestamp: daysAgo(4),
+            properties: { $browser: 'Firefox' },
+        }).repeat(3),
+        ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(3) }).repeat(3),
+        ...createEvent({
+            event: '$pageview',
+            user: (n) => pvUser(n + 3),
+            timestamp: daysAgo(3),
+            properties: { $browser: 'Firefox' },
+        }).repeat(2),
         ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(2) }).repeat(4),
         ...createEvent({ event: '$pageview', user: pvUser, timestamp: hoursAgo(36) }).repeat(3),
         ...createEvent({ event: '$pageview', user: pvUser, timestamp: daysAgo(0) }).repeat(2),
     ],
     expected: {
         total: '38',
+        chromeTotal: '33',
+        firefoxTotal: '5',
     },
 }
 

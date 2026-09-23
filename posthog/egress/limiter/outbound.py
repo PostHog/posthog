@@ -59,6 +59,30 @@ class OutboundRateLimiter:
         record_outbound_decision(domain=_domain_of(key), source=source, priority=priority.value, granted=granted)
         return granted
 
+    def pace_seconds(self, key: str, *, priority: Priority = Priority.NORMAL) -> float:
+        """Seconds to wait before the next call on ``key`` so it does not exhaust the budget.
+
+        Advisory, and non-blocking like the rest of this facade: ``acquire`` and ``consume_sync``
+        stay the authority on whether a call is admitted, and the caller owns the wait. Zero means
+        the budget holds enough headroom that the call does not need to wait, which is the answer
+        for any run short enough never to spend its share.
+
+        A caller that cannot wait can ignore this. A caller that can, such as a bulk import walking
+        pages, turns a budget it would otherwise exhaust (and then be shed from for the rest of the
+        window) into a steady drip that stays admitted.
+        """
+        return self._backend.pace_seconds(key, resolve_policy(key), priority)
+
+    def admission_interval_seconds(self, key: str, *, priority: Priority = Priority.NORMAL) -> float:
+        """Seconds between admissions that keep a steady caller inside its share of every window.
+
+        Derived from the registered policy alone, so it holds when ``pace_seconds`` cannot yet see
+        calls the caller admitted but has not consumed, and when the store is unavailable. A caller
+        that keeps several calls in flight waits for whichever of the two is longer.
+        """
+        policy = resolve_policy(key)
+        return max(period / max(1, count - policy.reserve_amount(priority, count)) for count, period in policy.limits)
+
 
 _limiter: OutboundRateLimiter | None = None
 _limiter_lock = threading.Lock()

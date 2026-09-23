@@ -442,6 +442,28 @@ accessible_notebooks = user_access_control.filter_queryset_by_access_level(
 )
 ```
 
+### Granting object access from product code
+
+When a product must keep a rule in step with its own state (an assignee, a share link), write the rule through the facade instead of the `AccessControl` model. Product code outside `products/access_control/` cannot import the model.
+
+```python
+from products.access_control.backend.facade import contracts
+from products.access_control.backend.facade.api import set_object_access_control
+
+set_object_access_control(
+    team_id=team.id,
+    input=contracts.SetObjectAccessControlInput(
+        resource="customer_task",
+        resource_id=str(task.id),
+        organization_member_id=assignee_membership.id,
+        access_level="editor",  # None removes the rule
+        created_by_id=actor.id,
+    ),
+)
+```
+
+The helper validates the resource, the level, and that the subject belongs to the team's organization. It does not check whether the actor may change access; the caller decides that. A `UserAccessControl` built before the call keeps its preloaded rows, so build a new one before re-checking the object in the same request.
+
 ### Performance Optimization
 
 For bulk operations, preload access controls:

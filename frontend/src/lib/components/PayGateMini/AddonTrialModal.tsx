@@ -1,14 +1,17 @@
 import { useValues } from 'kea'
 
+import * as levelUpHogPng from '@posthog/brand/hoggies/png/level-up'
 import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
-import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { BillingAddonFeaturesList } from 'scenes/billing/BillingAddonFeaturesList'
 import { BillingProductAddonActions } from 'scenes/billing/BillingProductAddonActions'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { urls } from 'scenes/urls'
 
 import { BillingProductV2AddonType } from '~/types'
+
+const HedgehogLevelUp = pngHoggie(levelUpHogPng)
 
 type AddonTrialModalProps = {
     product: BillingProductV2AddonType
@@ -31,7 +34,7 @@ export function AddonTrialModal({ product, isOpen, onClose }: AddonTrialModalPro
             <div className="flex flex-col">
                 <div className="bg-surface-secondary rounded p-6 flex flex-col">
                     <div className="hidden sm:flex [@media(max-height:850px)]:hidden justify-center my-2">
-                        <BigLeaguesHog className="h-auto w-auto max-w-full max-h-[250px]" />
+                        <HedgehogLevelUp className="h-auto w-auto max-w-full max-h-[250px]" />
                     </div>
                     <BillingAddonFeaturesList
                         addonFeatures={addonFeatures?.filter((f: any) => !f.entitlement_only) || []}

@@ -131,6 +131,61 @@ class TestGetRows:
         assert requests[2]["params"]["useColumnNames"] == "true"
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_columns_fan_out_docs_tables_columns(self, MockSession):
+        requests = _wire(
+            MockSession.return_value,
+            [
+                _response([{"id": "doc1"}]),  # docs
+                _response([{"id": "grid-1"}]),  # tables for doc1
+                _response([{"id": "c-1", "name": "Name"}]),  # columns for grid-1
+            ],
+        )
+
+        rows = _rows("columns")
+
+        assert [(c["id"], c["_doc_id"], c["_table_id"]) for c in rows] == [("c-1", "doc1", "grid-1")]
+        assert urlparse(requests[2]["url"]).path == "/apis/v1/docs/doc1/tables/grid-1/columns"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_doc_analytics_lifts_nested_doc_id(self, MockSession):
+        requests = _wire(
+            MockSession.return_value,
+            [_response([{"doc": {"id": "doc1", "title": "Roadmap"}, "metrics": [{"date": "2026-01-01", "views": 5}]}])],
+        )
+
+        rows = _rows("doc_analytics")
+
+        # The doc id is nested under `doc`; it must surface as a top-level `doc_id` to key the merge.
+        assert rows[0]["doc_id"] == "doc1"
+        assert rows[0]["metrics"][0]["views"] == 5
+        assert urlparse(requests[0]["url"]).path == "/apis/v1/analytics/docs"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_analytics_fan_out_and_lifts_page_id(self, MockSession):
+        requests = _wire(
+            MockSession.return_value,
+            [
+                _response([{"id": "doc1"}]),  # docs
+                _response([{"page": {"id": "page-1", "name": "Launch"}, "metrics": [{"views": 3}]}]),  # pages for doc1
+            ],
+        )
+
+        rows = _rows("page_analytics")
+
+        assert [(p["page_id"], p["_doc_id"]) for p in rows] == [("page-1", "doc1")]
+        assert urlparse(requests[1]["url"]).path == "/apis/v1/analytics/docs/doc1/pages"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_folders_is_a_top_level_endpoint(self, MockSession):
+        requests = _wire(MockSession.return_value, [_response([{"id": "folder-1", "name": "Team"}])])
+
+        rows = _rows("folders")
+
+        # Folders has no parent, so a single request against /folders yields its rows directly.
+        assert [f["id"] for f in rows] == ["folder-1"]
+        assert urlparse(requests[0]["url"]).path == "/apis/v1/folders"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_table_without_id_fails_fast_in_rows(self, MockSession):
         _wire(
             MockSession.return_value,

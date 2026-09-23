@@ -18,14 +18,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import {
-    AccessControlLevel,
-    AvailableFeature,
-    DashboardPlacement,
-    DashboardType,
-    QueryBasedInsightModel,
-    UserType,
-} from '~/types'
+import { AccessControlLevel, AvailableFeature, DashboardPlacement, DashboardType, UserType } from '~/types'
 
 import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
 import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
@@ -66,13 +59,13 @@ const USER_WITH_SUBSCRIPTIONS_FEATURE: UserType = {
     },
 }
 
-function mockDashboard(): DashboardType<QueryBasedInsightModel> {
+function mockDashboard(): DashboardType {
     return {
         id: DASHBOARD_ID,
         name: 'Test dashboard',
         user_access_level: AccessControlLevel.Editor,
         tiles: [],
-    } as unknown as DashboardType<QueryBasedInsightModel>
+    } as unknown as DashboardType
 }
 
 function capturesOf(event: string): any[][] {

@@ -3,9 +3,12 @@ import type {
   InlineExtension,
 } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import {
+  enabledLocalTools,
+  type LocalToolCtx,
+} from "@posthog/harness/extensions/local-tools";
 import { convertJsonSchemaToTypebox } from "@posthog/harness/extensions/mcp/schema";
 import { z } from "zod";
-import { enabledLocalTools, type LocalToolCtx } from "../adapters/local-tools";
 
 const REPOSITORY_TOOL_NAMES = new Set(["list_repos", "clone_repo"]);
 type NamedInlineExtension = Exclude<InlineExtension, ExtensionFactory>;

@@ -18,7 +18,7 @@ RESERVED_DAG_NAMES = frozenset({DEFAULT_DAG_NAME, REVENUE_ANALYTICS_DAG_NAME})
 
 
 class DAG(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     team_id: int
 
     name = models.TextField(max_length=2048, db_index=True)

@@ -64,6 +64,12 @@ class GithubEndpointConfig:
     # child rows that never got a webhook (deployment statuses marked inactive) are still
     # collected from the list API. None = webhook drain only.
     webhook_reconcile_lookback_days: Optional[int] = None
+    # Ceiling on how many parents one fan-out walks, the peer of max_pages_per_parent on the other
+    # axis. A walk bounded only by a time window costs whatever the customer's write rate puts in
+    # that window. Every walk restarts at the newest parent, so this narrows the window rather than
+    # rotating through it: set it above the number of parents created within the span a child can
+    # still arrive in, or the tail below it is never revisited. None = no cap.
+    max_fan_out_parents: Optional[int] = None
     # Parent field bumped whenever a child row is created (deployments.updated_at). When set,
     # an incremental fan-out skips parents whose value predates the child watermark — they can
     # hold no unseen children — keeping the reconciliation window cheap to re-walk every sync.
@@ -364,9 +370,12 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # rollbacks and auto_inactive transitions, leaving a superseded deployment looking current.
         # Each sync therefore chases the webhook drain with a bounded reconciliation fan-out over
         # deployments created in the last 30 days; the updated_at recency skip keeps that to
-        # parents that actually gained a status since the child watermark.
+        # parents that actually gained a status since the previous successful sync started.
         initial_lookback_days=0,
         webhook_reconcile_lookback_days=30,
+        # Statuses stop arriving within hours of the deployment, and 500 spans over a day even on a
+        # repository deploying fast enough to reach the cap.
+        max_fan_out_parents=500,
         fan_out_parent_recency_field="updated_at",
         # A deployment status is append-only (each transition is a new, immutable id), so no
         # webhook dedupe is needed — unlike reviews/runs, one id never emits multiple events.

@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import structlog
 from celery import shared_task
 
@@ -24,6 +26,36 @@ def process_canvas_build(team_id: int, build_id: str) -> None:
     run_canvas_build(team_id, build_id)
 
 
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    max_retries=5,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    soft_time_limit=60,
+    time_limit=90,
+)
+def cleanup_notebook_canvas_draft(team_id: int, canvas_id: str, version_id: str) -> None:
+    from products.canvas.backend.notebook_integration import cleanup_discarded_notebook_canvas_draft  # noqa: PLC0415
+
+    cleanup_discarded_notebook_canvas_draft(team_id=team_id, canvas_id=UUID(canvas_id), version_id=UUID(version_id))
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    max_retries=5,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    soft_time_limit=60,
+    time_limit=90,
+)
+def cleanup_canvas_source_uploads(team_id: int, canvas_id: str, object_keys: list[str]) -> None:
+    from products.canvas.backend.build_service import cleanup_unreferenced_source_uploads  # noqa: PLC0415
+
+    cleanup_unreferenced_source_uploads(team_id, UUID(canvas_id), object_keys)
+
+
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 def sweep_canvas_builds() -> None:
     """Recover builds stuck in flight (every 2 minutes)."""
@@ -42,7 +74,13 @@ def sweep_canvas_builds() -> None:
 def cleanup_canvas_builds() -> None:
     """Apply the canvas artifact retention policy (daily)."""
     from products.canvas.backend.build_service import cleanup_canvas_builds as run_cleanup  # noqa: PLC0415
+    from products.canvas.backend.notebook_integration import requeue_discarded_notebook_canvas_drafts  # noqa: PLC0415
 
+    try:
+        requeue_discarded_notebook_canvas_drafts()
+    except Exception as error:
+        logger.exception("canvas_draft_requeue_failed", error=str(error))
+        capture_exception(error, additional_properties={"task": "cleanup_canvas_builds"})
     try:
         pruned = run_cleanup()
         if pruned:

@@ -34,6 +34,13 @@ SdkTypes = Literal[
     "posthog-kmp",
     "posthog-dotnet",
     "posthog-elixir",
+    "posthog-unity",
+    "posthog-node-mcp",
+    "posthog-python-mcp",
+    "posthog-edge",
+    "posthog-convex",
+    "posthog-rails",
+    "posthog-aspnetcore",
 ]
 SDK_TYPES: list[SdkTypes] = [
     "web",
@@ -51,6 +58,13 @@ SDK_TYPES: list[SdkTypes] = [
     "posthog-kmp",
     "posthog-dotnet",
     "posthog-elixir",
+    "posthog-unity",
+    "posthog-node-mcp",
+    "posthog-python-mcp",
+    "posthog-edge",
+    "posthog-convex",
+    "posthog-rails",
+    "posthog-aspnetcore",
 ]
 LEGACY_JAVA_SDK = "posthog-java"
 

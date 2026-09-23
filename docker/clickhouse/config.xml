@@ -10,8 +10,11 @@
         <level>warning</level>
         <log>/var/log/clickhouse-server/clickhouse-server.log</log>
         <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
-        <size>1000M</size>
-        <count>10</count>
+        <!-- Only the local stacks mount this file, where 10 GB per stream is far past
+             anything a developer reads. A noisy consumer loop can produce hundreds of MB
+             per hour, so keep the total bounded. -->
+        <size>100M</size>
+        <count>3</count>
     </logger>
 
     <http_port>8123</http_port>

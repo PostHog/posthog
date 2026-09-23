@@ -34,6 +34,8 @@ _LEADING_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*(?:\r?\n|$)")
 _md = MarkdownIt("commonmark", {"html": False}).enable("table")
 _slack_converter = SlackMarkdownConverter()
 
+_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=eval_report&utm_medium=slack"
+
 # Inline styles for email-safe HTML (many clients strip <style> blocks)
 _EMAIL_TABLE_STYLE = 'style="border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px;"'
 _EMAIL_TH_STYLE = (
@@ -348,6 +350,8 @@ def deliver_slack_report(
     """
     from posthog.models.integration import Integration, SlackIntegration
 
+    from products.slack_app.backend.facade.api import slack_followup_invite
+
     content = EvalReportContent.from_dict(report_run.content)
     citation_map = _build_citation_map(content.citations)
     errors: list[str] = []
@@ -382,7 +386,11 @@ def deliver_slack_report(
             continue
 
         try:
-            integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="slack")
+            # The organization comes along because the follow-up invite below reads its AI consent
+            # flag, and this query already runs once per target.
+            integration = Integration.objects.select_related("team__organization").get(
+                id=integration_id, team_id=team_id, kind="slack"
+            )
             client = SlackIntegration(integration).client
 
             # Main message: header + context + metrics grid + first section (if any)
@@ -409,6 +417,11 @@ def deliver_slack_report(
                         "text": {"type": "mrkdwn", "text": first_section_mrkdwn[:3000]},
                     }
                 )
+
+            # Read rather than assumed: nothing on this path enforces consent before generation.
+            ai_enabled = bool(integration.team.organization.is_ai_data_processing_approved)
+            if invite := slack_followup_invite(integration, utm_tags=_INVITE_UTM_TAGS, ai_enabled=ai_enabled):
+                blocks.append(invite)
 
             result = client.chat_postMessage(
                 channel=channel_id,

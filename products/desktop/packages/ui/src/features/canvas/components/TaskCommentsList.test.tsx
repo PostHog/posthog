@@ -260,7 +260,7 @@ describe("TaskCommentsList", () => {
       prRun(`https://github.com/acme/repo/pull/${index + 1}`),
     );
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     const expectedUrls = Array.from(
       { length: 20 },
@@ -294,6 +294,7 @@ describe("TaskCommentsList", () => {
 
     render(
       <TaskCommentsList
+        taskId={task.id}
         task={task}
         timeline={[]}
         onlySource={{
@@ -355,7 +356,7 @@ describe("TaskCommentsList", () => {
       }),
     ];
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(screen.getByText("report.md")).toBeTruthy();
     expect(screen.getByText("“Purpose”")).toBeTruthy();
@@ -384,7 +385,9 @@ describe("TaskCommentsList", () => {
       },
     ] as unknown as ThreadTimelineRow<TaskThreadMessage>[];
 
-    render(<TaskCommentsList task={task} timeline={timeline} />);
+    render(
+      <TaskCommentsList taskId={task.id} task={task} timeline={timeline} />,
+    );
 
     expect(mocks.queriedTargets.at(-1)).toContainEqual({
       scope: "desktop_canvas",
@@ -396,7 +399,7 @@ describe("TaskCommentsList", () => {
   // The tab is the one place to see every thread the task produced, so each row
   // has to say which artifact it came from.
   it("lists open threads from every artifact, newest first", () => {
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     const newest = screen.getByText("Second thread");
     const oldest = screen.getByText("Tighten this summary");
@@ -411,7 +414,7 @@ describe("TaskCommentsList", () => {
   });
 
   it("opens the artifact a thread belongs to and focuses that thread", () => {
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     openThread("Tighten this summary");
 
@@ -430,7 +433,7 @@ describe("TaskCommentsList", () => {
   });
 
   it("opens an artifact when activity requests its comment thread", () => {
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     act(() => {
       useCommentNavigationStore
@@ -456,7 +459,7 @@ describe("TaskCommentsList", () => {
         callback(0);
         return 0;
       });
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
     const thread = screen
       .getByText("Tighten this summary")
       .closest("[data-comment-thread-id]") as HTMLElement;
@@ -505,6 +508,7 @@ describe("TaskCommentsList", () => {
 
     render(
       <TaskCommentsList
+        taskId={task.id}
         task={task}
         timeline={[]}
         onlySource={{
@@ -534,7 +538,7 @@ describe("TaskCommentsList", () => {
   // Clicking the same thread twice has to scroll twice, so every request is a
   // new nonce rather than a no-op set.
   it("re-requests focus for a thread already focused", () => {
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     openThread("Tighten this summary");
     const first = useCommentNavigationStore.getState().focusByTask["task-1"];
@@ -565,7 +569,7 @@ describe("TaskCommentsList", () => {
       }),
     ];
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(screen.getByText("Second thread")).toBeTruthy();
     expect(screen.queryByText("Tighten this summary")).toBeNull();
@@ -584,13 +588,13 @@ describe("TaskCommentsList", () => {
       },
     });
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(screen.getByText("The highlighted text changed")).toBeTruthy();
   });
 
   it("replies and resolves against the thread's own resource", () => {
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     // Each row builds its mutations from its own target, since the list spans
     // several resources.
@@ -619,7 +623,7 @@ describe("TaskCommentsList", () => {
   it("narrows to the artifact open in the main pane", () => {
     mocks.activeArtifactId = "b";
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(screen.getByText("Second thread")).toBeTruthy();
     expect(screen.queryByText("Tighten this summary")).toBeNull();
@@ -639,7 +643,7 @@ describe("TaskCommentsList", () => {
     mocks.comments = [comment({})];
     mocks.activeArtifactId = "empty";
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(screen.getByLabelText("Filter by source")).toHaveTextContent(
       "empty.md",
@@ -656,7 +660,9 @@ describe("TaskCommentsList", () => {
   it("follows an active artifact once its run data arrives", () => {
     mocks.runs = [];
     mocks.activeArtifactId = "late";
-    const { rerender } = render(<TaskCommentsList task={task} timeline={[]} />);
+    const { rerender } = render(
+      <TaskCommentsList taskId={task.id} task={task} timeline={[]} />,
+    );
 
     expect(screen.getByLabelText("Filter by source")).toHaveTextContent(
       "All sources",
@@ -671,7 +677,7 @@ describe("TaskCommentsList", () => {
         }),
       ]),
     ];
-    rerender(<TaskCommentsList task={task} timeline={[]} />);
+    rerender(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(screen.getByLabelText("Filter by source")).toHaveTextContent(
       "late.md",
@@ -680,12 +686,14 @@ describe("TaskCommentsList", () => {
 
   it("resumes following the main pane after All sources is selected", () => {
     mocks.activeArtifactId = "b";
-    const { rerender } = render(<TaskCommentsList task={task} timeline={[]} />);
+    const { rerender } = render(
+      <TaskCommentsList taskId={task.id} task={task} timeline={[]} />,
+    );
 
     fireEvent.click(screen.getByLabelText("Filter by source"));
     fireEvent.click(screen.getByText(/^All sources/));
     mocks.activeArtifactId = "a";
-    rerender(<TaskCommentsList task={task} timeline={[]} />);
+    rerender(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(screen.queryByText("Second thread")).toBeNull();
     expect(screen.getByText("Tighten this summary")).toBeTruthy();
@@ -693,12 +701,14 @@ describe("TaskCommentsList", () => {
 
   it("stops following the main pane while a specific source is selected", () => {
     mocks.activeArtifactId = null;
-    const { rerender } = render(<TaskCommentsList task={task} timeline={[]} />);
+    const { rerender } = render(
+      <TaskCommentsList taskId={task.id} task={task} timeline={[]} />,
+    );
 
     fireEvent.click(screen.getByLabelText("Filter by source"));
     fireEvent.click(screen.getAllByText("report.md").at(-1) as HTMLElement);
     mocks.activeArtifactId = "b";
-    rerender(<TaskCommentsList task={task} timeline={[]} />);
+    rerender(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(screen.queryByText("Second thread")).toBeNull();
     expect(screen.getByText("Tighten this summary")).toBeTruthy();
@@ -719,7 +729,7 @@ describe("TaskCommentsList", () => {
       },
     ];
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(screen.getByText("This needs a guard")).toBeTruthy();
     expect(screen.getByText("Shipping this")).toBeTruthy();
@@ -744,7 +754,7 @@ describe("TaskCommentsList", () => {
       },
     ];
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
     fireEvent.click(screen.getByText("View on GitHub"));
 
     expect(mocks.openExternalUrl).toHaveBeenCalledWith(
@@ -757,7 +767,7 @@ describe("TaskCommentsList", () => {
     mocks.comments = [];
     mocks.prReviewThreads = [reviewThread()];
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
     openThread("This needs a guard");
 
     expect(mocks.openPrInReview).toHaveBeenCalledWith(
@@ -775,7 +785,7 @@ describe("TaskCommentsList", () => {
     mocks.comments = [];
     mocks.prReviewThreads = [reviewThread()];
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
     const thread = screen
       .getByText("This needs a guard")
       .closest("[data-comment-thread-id]") as HTMLElement;
@@ -787,7 +797,7 @@ describe("TaskCommentsList", () => {
 
   // Not every comment belongs to a deliverable; some are about the work.
   it("posts a comment on the task itself without scrolling", async () => {
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     await act(async () => {
       fireEvent.click(screen.getByText(/Comment on this task/));
@@ -825,7 +835,7 @@ describe("TaskCommentsList", () => {
       ),
     ];
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     const queriedTargets = mocks.queriedTargets.at(-1) as Array<{
       scope: string;
@@ -844,7 +854,7 @@ describe("TaskCommentsList", () => {
       prRun(`https://github.com/acme/repo/pull/${index + 1}`),
     );
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(mocks.prCommentUrls).toHaveLength(4);
     expect(mocks.prReviewUrls).toHaveLength(4);
@@ -854,7 +864,7 @@ describe("TaskCommentsList", () => {
   it("shows an empty state pointing at the artifact surfaces", () => {
     mocks.comments = [];
 
-    render(<TaskCommentsList task={task} timeline={[]} />);
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(screen.getByText("No open comments")).toBeTruthy();
   });

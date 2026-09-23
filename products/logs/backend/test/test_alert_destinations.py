@@ -1,18 +1,22 @@
-from typing import cast
+from typing import Any, cast
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.alerts.backend.destination_configs import (
+from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
-    slack_body as _slack_body,
-    teams_text as _teams_text,
-    validate_destination_data,
 )
-from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EVENT_KINDS, LOGS_DESTINATION_TYPES, EventKind
+from products.alerts.backend.facade.destinations import build_alert_destination_config, validate_destination_data
+from products.logs.backend.alert_destinations import (
+    EVENT_KIND_CONFIG,
+    EVENT_KINDS,
+    LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+    LOGS_DESTINATION_TYPES,
+    EventKind,
+)
 
 
 class TestDestinationValidation(SimpleTestCase):
@@ -57,45 +61,45 @@ class TestDestinationValidation(SimpleTestCase):
         )
 
 
-class TestSlackBody(SimpleTestCase):
+SLACK_DATA = cast(
+    AlertDestinationData, {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-ENG"}
+)
+TEAMS_DATA = cast(AlertDestinationData, {"type": DestinationType.TEAMS, "webhook_url": "https://example.com/hook"})
+
+
+def destination_inputs(kind: EventKind, data: AlertDestinationData) -> dict[str, Any]:
+    config = build_alert_destination_config(
+        spec=EVENT_KIND_CONFIG[kind],
+        alert_id="alert-1",
+        alert_name="Checkout errors",
+        data=data,
+        slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+    )
+    return config.payload["inputs"]
+
+
+class TestRenderedDestinationContent(SimpleTestCase):
     @parameterized.expand([(kind,) for kind in EVENT_KINDS])
-    def test_body_is_slack_mrkdwn(self, kind: EventKind) -> None:
+    def test_slack_body_puts_every_detail_on_its_own_line(self, kind: EventKind) -> None:
         spec = EVENT_KIND_CONFIG[kind]
-        body = _slack_body(spec)
+        blocks = destination_inputs(kind, SLACK_DATA)["blocks"]["value"]
+        body = blocks[1]["text"]["text"]
+
         lines = body.split("\n")
-        assert len(lines) == len(spec.details)
-        for line, (label, value) in zip(lines, spec.details):
-            # Slack mrkdwn bold label, then the plain-text value.
-            assert line == f"*{label}:* {value}"
-        # Detail values are plain text — bold markers come only from the renderer.
+        assert lines == [f"*{label}:* {value}" for label, value in spec.details]
+        # Slack mrkdwn bolds with one asterisk, so a `**` pair would render as literal text.
         assert "**" not in body
 
-    def test_multi_detail_body_renders_one_line_per_detail(self) -> None:
-        body = _slack_body(EVENT_KIND_CONFIG["broken"])
-        assert body == (
-            "*Reason:* {event.properties.consecutive_failures} consecutive check failures.\n"
-            "*Last error:* {event.properties.last_error_message}"
-        )
-
-
-class TestTeamsText(SimpleTestCase):
     @parameterized.expand([(kind,) for kind in EVENT_KINDS])
-    def test_text_is_adaptive_card_markdown(self, kind: EventKind) -> None:
+    def test_teams_text_is_adaptive_card_markdown(self, kind: EventKind) -> None:
         spec = EVENT_KIND_CONFIG[kind]
-        text = _teams_text(spec)
-        # Bold header, every detail label bolded, the action rendered as an inline markdown link.
+        text = destination_inputs(kind, TEAMS_DATA)["text"]["value"]
+
         assert text.startswith(f"**{spec.header}**")
         for label, value in spec.details:
             assert f"**{label}:** {value}" in text
         assert f"[{spec.primary_action_label}]({spec.primary_action_url})" in text
-        # Every asterisk must belong to a `**` pair — no Slack-style single-asterisk bold.
+        # An Adaptive Card renders a single asterisk literally, so every one must be part of a pair.
         assert "*" not in text.replace("**", "")
-
-    def test_multi_detail_text_separates_paragraphs_with_blank_lines(self) -> None:
-        text = _teams_text(EVENT_KIND_CONFIG["broken"])
-        assert (
-            "**Reason:** {event.properties.consecutive_failures} consecutive check failures.\n\n"
-            "**Last error:** {event.properties.last_error_message}"
-        ) in text
-        # Adaptive Card paragraphs need exactly one blank line — never stacked blank lines.
+        # Its paragraphs need exactly one blank line between them; a stacked one renders as a gap.
         assert "\n\n\n" not in text

@@ -1,4 +1,4 @@
-"""Scanner-level RBAC helper shared by the vision-action engine (run-time creator gate) and the
+"""Scanner-level RBAC helper shared by the alert engine (run-time creator gate) and the
 API serializer (write-time editor gate). Lives outside `temporal/` so the API can import it without
 pulling the temporal package onto its import path.
 
@@ -80,18 +80,12 @@ def accessible_observations(
     experiment targeting (every observation predating this feature) is unrestricted here and stays
     subject to the scanner and session-recording gates the caller already passed.
 
-    One experiment query for the whole page, not one per row.
+    The accessible set comes from the team's experiments, which are few and indexed. The snapshot
+    path has no index, so reading the ids off the observations instead scans the whole scanner or team.
     """
-    snapshot_experiment_ids = {
-        eid
-        for eid in observations.values_list(
-            "scanner_snapshot__experiment_targeting__experiment_id", flat=True
-        ).distinct()
-        if eid is not None
-    }
-    accessible = _accessible_experiment_ids(access, team_id, snapshot_experiment_ids)
-    if accessible == snapshot_experiment_ids:
-        return observations
+    accessible = set(
+        access.filter_queryset_by_access_level(Experiment.objects.filter(team_id=team_id)).values_list("id", flat=True)
+    )
     # Keep rows whose snapshot names no experiment (untargeted, unrestricted) OR an accessible one.
     # Phrased positively rather than `.exclude(path__in=inaccessible)`: on a nullable JSON path, exclude
     # negates to `NOT (path IN (...))`, which is NULL — and therefore false — for untargeted rows, so it
@@ -167,16 +161,6 @@ def readable_scanner_ids(user: "User", team: Team, scanner_ids: list[str]) -> li
         ReplayScanner.objects.filter(team_id=team.id, id__in=valid_ids)
     )
     return [str(scanner_id) for scanner_id in readable.values_list("id", flat=True)]
-
-
-def selection_target_ids(scanner_id: uuid.UUID, selection: dict[str, Any] | None) -> set[str]:
-    """Scanner ids an action's selection pulls observations from, beyond its bound `scanner`.
-
-    Shared so the API and the Max tools authorize an action against the same set. A summary fans in
-    observations from every scanner named here, so access to the bound one is not access to the report.
-    """
-    configured = (selection or {}).get("scanner_ids") or []
-    return {str(s) for s in configured if is_uuid(s)} - {str(scanner_id)}
 
 
 def scanner_for_recording_derived_read(

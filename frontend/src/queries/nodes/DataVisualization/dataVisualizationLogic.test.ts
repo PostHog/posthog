@@ -136,6 +136,64 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('initializes axes when columns load after selecting a visualization type', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: null,
+            selectedYAxis: null,
+        })
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            results: [['signed_up', 'Safari', 11]],
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'Nullable(String)'],
+                ['total_count', 'UInt64'],
+            ],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'event',
+            selectedYAxis: [expect.objectContaining({ name: 'total_count' })],
+        })
+    })
+
+    it('auto-maps box plot columns when the chart is selected', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['bucket', 'series', 'min', 'p25', 'median', 'mean', 'p75', 'max'],
+            types: [
+                ['bucket', 'Date'],
+                ['series', 'String'],
+                ['min', 'Float64'],
+                ['p25', 'Float64'],
+                ['median', 'Float64'],
+                ['mean', 'Float64'],
+                ['p75', 'Float64'],
+                ['max', 'Float64'],
+            ],
+            results: [['2026-01-01', 'Free', 1, 2, 3, 4, 5, 6]],
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.BoxPlot)
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: expect.objectContaining({
+                boxPlot: {
+                    xAxisColumn: 'bucket',
+                    seriesColumn: 'series',
+                    minColumn: 'min',
+                    p25Column: 'p25',
+                    medianColumn: 'median',
+                    meanColumn: 'mean',
+                    p75Column: 'p75',
+                    maxColumn: 'max',
+                },
+            }),
+        })
+    })
+
     it('resets axes when y-axis columns are no longer numerical', async () => {
         const dataNode = dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId })
 
@@ -298,6 +356,25 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('shows taxonomy display names for x-axis values of a column named event', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['event', 'count'],
+            types: [
+                ['event', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [
+                ['$pageview', 3],
+                ['signed_up', 1],
+            ],
+        })
+
+        logic.actions.clearAxis()
+        logic.actions.updateXSeries('event')
+
+        expect(logic.values.xData?.data).toEqual(['Pageview', 'signed_up'])
+    })
+
     it('does not resolve to a time-series chart when there is only one row', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
 
@@ -358,20 +435,45 @@ describe('dataVisualizationLogic', () => {
             },
         })
     })
-    it('stamps labels onto the slices when a pie chart is newly picked', async () => {
-        logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
+    test.each([ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut])(
+        'stamps labels onto the slices when a pie display is newly picked',
+        async (displayType) => {
+            logic.actions.setVisualizationType(displayType)
+
+            await expectLogic(logic).toMatchValues({
+                chartSettings: expect.objectContaining({ pie: expect.objectContaining({ sliceContent: 'labels' }) }),
+            })
+        }
+    )
+
+    test.each([ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut])(
+        'does not override existing pie slice content when re-picking a pie display',
+        async (displayType) => {
+            logic.actions.updateChartSettings({ pie: { sliceContent: 'values' } })
+            logic.actions.setVisualizationType(displayType)
+
+            await expectLogic(logic).toMatchValues({
+                chartSettings: expect.objectContaining({ pie: expect.objectContaining({ sliceContent: 'values' }) }),
+            })
+        }
+    )
+
+    it('defaults a newly selected donut total and preserves an explicit setting', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsDonut)
 
         await expectLogic(logic).toMatchValues({
-            chartSettings: expect.objectContaining({ pie: { sliceContent: 'labels' } }),
+            chartSettings: expect.objectContaining({
+                pie: expect.objectContaining({ sliceContent: 'labels', showTotal: true }),
+            }),
         })
-    })
 
-    it('does not override existing pie slice content when re-picking pie', async () => {
-        logic.actions.updateChartSettings({ pie: { sliceContent: 'values' } })
-        logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
+        logic.actions.updateChartSettings({ pie: { showTotal: false } })
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsDonut)
 
         await expectLogic(logic).toMatchValues({
-            chartSettings: expect.objectContaining({ pie: { sliceContent: 'values' } }),
+            chartSettings: expect.objectContaining({
+                pie: expect.objectContaining({ sliceContent: 'labels', showTotal: false }),
+            }),
         })
     })
 
@@ -466,13 +568,13 @@ describe('dataVisualizationLogic', () => {
         await expectLogic(logic).toMatchValues({
             visualizationType: ChartDisplayType.Auto,
             effectiveVisualizationType: ChartDisplayType.TwoDimensionalHeatmap,
-            chartSettings: {
+            chartSettings: expect.objectContaining({
                 heatmap: {
                     xAxisColumn: 'region',
                     yAxisColumn: 'segment',
                     valueColumn: 'count',
                 },
-            },
+            }),
         })
     })
 

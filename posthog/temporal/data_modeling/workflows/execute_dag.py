@@ -41,6 +41,8 @@ from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
 MAX_CONCURRENT_CHILDREN = 10
 
+TRINO_DEPENDENCIES_PATCH = "trino-model-dependencies-2026-09"
+
 NODE_AUDIT_PATCH = "data-quality-node-audit-2026-08"
 
 
@@ -50,7 +52,7 @@ class EmptyDAGOrCycleError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExecuteDAGInputs:
     """Inputs for the ExecuteDAGWorkflow.
 
@@ -64,8 +66,10 @@ class ExecuteDAGInputs:
     team_id: int
     dag_id: str
     node_ids: list[str] | None = None
-    duckgres_only: bool = False
+    managed_warehouse_only: bool = False
     dangerously_execute_raw_sql: bool = False
+    # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
+    duckgres_only: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -89,6 +93,7 @@ class NodeResult:
     skip_reason: str | None = None
     quality_failed: bool = False
     quality_audited: bool = False
+    trino_materialized: bool | None = None
 
 
 @dataclasses.dataclass
@@ -281,15 +286,19 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         ephemeral_node_set = set(dag_structure.ephemeral_nodes)
         failed_node_set: set[str] = set()
         quality_failed_node_set: set[str] = set()
+        managed_warehouse_only = inputs.managed_warehouse_only
         serving_engine = (
-            DataModelingJobEngine.DUCKGRES if inputs.duckgres_only else DataModelingJobEngine.CLICKHOUSE
+            DataModelingJobEngine.MANAGED_WAREHOUSE if managed_warehouse_only else DataModelingJobEngine.CLICKHOUSE
         ).value
         suspended_node_set: set[str] = set(dag_structure.suspended_nodes.get(serving_engine, []))
         downstreams = _get_downstream_lookup(edge_lookup)
         skipped_jobs: list[SkippedDataModelingNode] = []
+        track_trino_dependencies = temporalio.workflow.patched(TRINO_DEPENDENCIES_PATCH)
+        unavailable_trino_nodes: set[str] = set(dag_structure.suspended_nodes.get("managed_warehouse", []))
+        skipped_trino_jobs: list[SkippedDataModelingNode] = []
         # execute child workflows with bounded concurrency using a sliding window;
         # the semaphore limits how many child workflows run simultaneously across
-        # all levels to be a friendlier neighbor to duckgres and clickhouse infrastructure
+        # all levels to be a friendlier neighbor to managed warehouse and ClickHouse infrastructure
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHILDREN)
         for i, level in enumerate(levels):
             temporalio.workflow.logger.info(
@@ -369,15 +378,40 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
 
             async def _run_child(node_id: str) -> NodeResult:
                 async with semaphore:
+                    blocked_trino_upstreams = (
+                        sorted(upstream for upstream in unavailable_trino_nodes if node_id in downstreams[upstream])
+                        if track_trino_dependencies
+                        else []
+                    )
+                    child_inputs = MaterializeViewWorkflowInputs(
+                        team_id=inputs.team_id,
+                        dag_id=inputs.dag_id,
+                        node_id=node_id,
+                        managed_warehouse_only=managed_warehouse_only,
+                        dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                        skip_trino=bool(blocked_trino_upstreams),
+                    )
+                    trino_skip = (
+                        SkippedDataModelingNode(
+                            node_id=node_id,
+                            failed_upstream_node_ids=blocked_trino_upstreams[:UPSTREAM_NAMES_IN_SKIP_REASON],
+                            failed_upstream_total=len(blocked_trino_upstreams),
+                        )
+                        if blocked_trino_upstreams
+                        else None
+                    )
+                    if trino_skip is not None and managed_warehouse_only:
+                        skipped_trino_jobs.append(trino_skip)
+                        return NodeResult(
+                            node_id=node_id,
+                            success=False,
+                            skipped=True,
+                            skip_reason="Upstream Trino materialization unavailable",
+                            trino_materialized=False,
+                        )
                     handle = await temporalio.workflow.start_child_workflow(
                         MaterializeViewWorkflow.run,
-                        MaterializeViewWorkflowInputs(
-                            team_id=inputs.team_id,
-                            dag_id=inputs.dag_id,
-                            node_id=node_id,
-                            duckgres_only=inputs.duckgres_only,
-                            dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
-                        ),
+                        child_inputs,
                         id=f"materialize-view-{inputs.dag_id}-{node_id}-{start_time.isoformat()}",
                         parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
                         retry_policy=temporalio.common.RetryPolicy(
@@ -386,6 +420,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     )
                     try:
                         result: MaterializeViewWorkflowResult = await handle
+                        if trino_skip is not None and result.trino_materialized is False:
+                            skipped_trino_jobs.append(trino_skip)
                         if result.quality_blocking_failures is not None and result.quality_blocking_failures > 0:
                             temporalio.workflow.logger.warning(
                                 f"Node {node_id} materialized but was not published: "
@@ -409,6 +445,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                             rows_materialized=result.rows_materialized,
                             duration_seconds=result.duration_seconds,
                             quality_audited=result.quality_audited,
+                            trino_materialized=result.trino_materialized,
                         )
                     except temporalio.exceptions.ChildWorkflowError as e:
                         error_message = str(e.cause) if e.cause else str(e)
@@ -437,6 +474,12 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             level_results = await asyncio.gather(*[_run_child(node_id) for node_id in execute_nodes])
             for nr in level_results:
                 node_results.append(nr)
+                if nr.trino_materialized is True:
+                    unavailable_trino_nodes.discard(nr.node_id)
+                if track_trino_dependencies and (
+                    nr.trino_materialized is False or (not managed_warehouse_only and nr.trino_materialized is None)
+                ):
+                    unavailable_trino_nodes.add(nr.node_id)
                 if not nr.success:
                     failed_node_set.add(nr.node_id)
                     if nr.quality_failed:
@@ -450,6 +493,19 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     dag_id=inputs.dag_id,
                     engine=serving_engine,
                     skipped_nodes=skipped_jobs,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
+
+        if skipped_trino_jobs:
+            await temporalio.workflow.execute_activity(
+                record_skipped_data_modeling_jobs_activity,
+                RecordSkippedDataModelingJobsInputs(
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    engine=DataModelingJobEngine.MANAGED_WAREHOUSE.value,
+                    skipped_nodes=skipped_trino_jobs,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),

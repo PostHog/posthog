@@ -4,7 +4,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 
 import type { TicketAssignee } from 'products/conversations/frontend/components/Assignee'
-import { getSlaState } from 'products/conversations/frontend/components/SlaDisplay'
+import { getSlaState } from 'products/conversations/frontend/components/SlaDisplay/SlaDisplay'
 import type { TicketChannel } from 'products/conversations/frontend/types'
 
 export type ConversationsWidgetTicket = {

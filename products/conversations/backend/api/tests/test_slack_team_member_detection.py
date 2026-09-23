@@ -9,7 +9,7 @@ from posthog.models.comment import Comment
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import ConversationDeliveryPart, TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel
 from products.conversations.backend.slack import (
     _backfill_thread_replies,
@@ -236,6 +236,10 @@ class TestSlackEchoPreventionSignal(BaseTest):
         super().setUp()
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
+        TeamConversationsSlackConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"slack_team_id": SLACK_TEAM, "slack_bot_token": "xoxb-test"},
+        )
         self.slack_ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id="",
@@ -245,8 +249,8 @@ class TestSlackEchoPreventionSignal(BaseTest):
             slack_thread_ts=PARENT_TS,
         )
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
-    def test_from_slack_team_message_does_not_echo_back(self, mock_delay, _on_commit):
+    @patch("products.conversations.backend.signals.wake_delivery_part")
+    def test_from_slack_team_message_does_not_echo_back(self, mock_wake, _on_commit):
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
@@ -256,10 +260,10 @@ class TestSlackEchoPreventionSignal(BaseTest):
             item_context={"author_type": "support", "is_private": False, "from_slack": True},
         )
 
-        mock_delay.assert_not_called()
+        mock_wake.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
-    def test_posthog_ui_team_message_does_echo_to_slack(self, mock_delay, _on_commit):
+    @patch("products.conversations.backend.signals.wake_delivery_part")
+    def test_posthog_ui_team_message_does_echo_to_slack(self, mock_wake, _on_commit):
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
@@ -269,12 +273,13 @@ class TestSlackEchoPreventionSignal(BaseTest):
             item_context={"author_type": "support", "is_private": False},
         )
 
-        mock_delay.assert_called_once()
-        call_kwargs = mock_delay.call_args[1]
-        assert call_kwargs["author_email"] == self.user.email
+        mock_wake.assert_called_once()
+        part = ConversationDeliveryPart.objects.unscoped().get()
+        assert part.payload is not None
+        assert part.payload["author_email"] == self.user.email
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
-    def test_from_slack_customer_message_does_not_echo(self, mock_delay, _on_commit):
+    @patch("products.conversations.backend.signals.wake_delivery_part")
+    def test_from_slack_customer_message_does_not_echo(self, mock_wake, _on_commit):
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
@@ -283,4 +288,4 @@ class TestSlackEchoPreventionSignal(BaseTest):
             item_context={"author_type": "customer", "is_private": False, "from_slack": True},
         )
 
-        mock_delay.assert_not_called()
+        mock_wake.assert_not_called()

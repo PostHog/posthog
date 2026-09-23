@@ -7,7 +7,7 @@ Person state spans two planes:
 - the sync plane (Postgres primary), which owns existence, identity topology, and lifecycle scalars
 - the async plane (leader + changelog), which owns person property content
 
-`GetOrCreatePersonByDistinctId` / `GetOrCreatePersonsByDistinctIds` orchestrate both planes so a single ack covers both: `created = true` means the person stub is committed in Postgres AND the initial `$set`/`$set_once` are durable in the leader's changelog. The identity service never runs a saga; person-destroying operations (two-person merges, deletes) belong to the lifecycle manager.
+`GetOrCreatePersonByDistinctId` / `GetOrCreatePersonsByDistinctIds` orchestrate both planes so a single ack covers both: `created = true` means the person stub is committed in Postgres AND the initial `$set`/`$set_once` are durable in the leader's changelog. Person-destroying operations (two-person merges, deletes) run as lifecycle sagas hosted in this service (`src/lifecycle/`).
 
 ## How get-or-create works
 
@@ -20,8 +20,10 @@ Races resolve per key, never failing the rest of a batch: a concurrent create co
 ## Layout
 
 - `src/service/` — gRPC surface; `mod.rs` is dispatch-only, each RPC family has its own module (`get_or_create.rs`)
-- `src/storage/` — `IdentityStorage` trait + Postgres implementation (primary pool only; identity reads must never be stale)
+- `src/storage/` — `IdentityStorage` trait + Postgres implementation (primary only; identity reads must never be stale)
+- `src/pools.rs` — the two primary pools, split by how long a statement holds its connection: fast (resolution, op bookkeeping) and heavy (stub creation, attach, saga transactions, GC), sized by `MAX_PG_CONNECTIONS` and `HEAVY_MAX_PG_CONNECTIONS`
 - `src/leader.rs` — `PropertyWriter` trait + router-backed implementation
+- `src/lifecycle/` — the lifecycle engine: merge and delete sagas, sweeper, GC
 - Shared person primitives (row type, storage errors, uuidv5 scheme) live in `personhog-common::persons`
 
 ## Running locally
@@ -35,3 +37,18 @@ Tests need the persons database (`posthog_persons`) with `rust/persons_migration
 ```bash
 cargo test -p personhog-identity
 ```
+
+## Query tags
+
+Every statement carries `/* service='personhog-identity', operation='<name>' */` in front, the SQLCommenter shape both pganalyze and pgcollector parse, so load and latency can be cut by code path.
+Compile-time checked queries get it from `op = "..."` on the `mirrored_query*!` macros; statements built at runtime wrap their SQL in `personhog_common::query_tag!("<name>", sql)`.
+Operation names are `<saga or store>_<step>_<what>`, for example `merge_flip_lock_persons` or `stub_create_mappings`.
+See `rust/pgcollector/docs/query-tags.md` for the key vocabulary.
+
+## Parked lifecycle ops
+
+A lifecycle op parks when the leader answers a semantic refusal after the point of no return: retrying a definitive refusal cannot succeed, so the op holds its fences and only an explicit retry under the same op id resumes it (the sweeper is barred). Refusals before the point of no return abort instead, recording `skipped_refused` for their sources and releasing fences in the same settlement. The sweeper re-drives interrupted sagas to a terminal state and defaults on; a fleet that disables it converts every orphaned saga into fences an operator must clear. The surface is the `personhog_lifecycle_ops_parked` gauge and the park's ERROR log carrying the op id and reason; resolution is a retry with the recorded op id.
+
+## Delete retries must present a byte-stable request
+
+A same-op-id delete retry is compared byte-for-byte against the frozen request, so the caller must present the identical `person_ids` list (same order, same duplicates) on every retry; a mismatch is refused `op_id_reused` and the deletion must be reissued under a fresh op id.

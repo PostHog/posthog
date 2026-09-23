@@ -4,6 +4,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { clustersEmptyState } from '../emptyState/clustersEmptyState'
 import { clustersLogic } from './clustersLogic'
 import { ClustersView } from './ClustersView'
 
@@ -11,6 +12,7 @@ export const scene: SceneExport = {
     component: AIObservabilityClustersScene,
     logic: clustersLogic,
     productKey: ProductKey.AI_OBSERVABILITY,
+    emptyState: clustersEmptyState,
 }
 
 export function AIObservabilityClustersScene(): JSX.Element {

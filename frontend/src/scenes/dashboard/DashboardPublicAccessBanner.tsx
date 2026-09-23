@@ -5,7 +5,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardType } from '~/types'
 
 const DASHBOARD_PUBLIC_ACCESS_BANNER_PLACEMENTS = [
     DashboardPlacement.Dashboard,
@@ -17,7 +17,7 @@ export function DashboardPublicAccessBanner({
     dashboard,
     placement,
 }: {
-    dashboard: DashboardType<QueryBasedInsightModel> | null
+    dashboard: DashboardType | null
     placement: DashboardPlacement
 }): JSX.Element | null {
     const { push } = useActions(router)

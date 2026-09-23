@@ -13,8 +13,9 @@ import { DATABASE_TREE_COLLAPSE_THRESHOLD, editorSizingLogic } from 'scenes/data
 import { DatabaseSearchField } from 'scenes/data-warehouse/editor/sidebar/DatabaseSearchField'
 import { QueryDatabase } from 'scenes/data-warehouse/editor/sidebar/QueryDatabase'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { ExpressionModal } from 'scenes/data-warehouse/ExpressionModal'
-import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
+
+import { ExpressionModal } from 'products/data_warehouse/frontend/shared/components/ExpressionModal'
+import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
 
 import { SyncMoreNotice } from './SyncMoreNotice'
 

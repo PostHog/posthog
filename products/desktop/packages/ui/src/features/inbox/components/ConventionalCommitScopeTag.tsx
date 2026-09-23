@@ -9,13 +9,11 @@ import type { ReactNode } from "react";
 interface ConventionalCommitScopeTagProps {
   type: string;
   scope: string | null;
-  compact?: boolean;
 }
 
 export function ConventionalCommitScopeTag({
   type,
   scope,
-  compact = false,
 }: ConventionalCommitScopeTagProps): ReactNode {
   const meta = getConventionalCommitTypeMeta(type);
   const IconComponent = meta.icon;
@@ -26,18 +24,17 @@ export function ConventionalCommitScopeTag({
   // inheriting the title's weight.
   return (
     <InboxBadge
-      variant={compact ? "default" : meta.variant}
+      variant="default"
       className={cn(
-        "shrink-0 gap-1 font-mono",
-        compact &&
-          "mr-1.5 h-5 gap-0.5 border border-(--gray-4) bg-(--gray-2) px-1.5 py-0 align-middle font-normal text-[11px] text-gray-11 leading-none",
+        "shrink-0 border border-(--gray-4) bg-(--gray-2) align-middle font-mono font-normal text-gray-11 leading-none",
+        "mr-1.5 h-5 gap-0.5 px-1.5 py-0 text-[11px]",
       )}
       title={label}
     >
       <IconComponent
-        size={compact ? 10 : 12}
+        size={10}
         weight="bold"
-        className={compact ? meta.softIconClass : undefined}
+        className={meta.softIconClass}
         aria-hidden
       />
       {label}

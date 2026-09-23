@@ -1,9 +1,8 @@
 import { MakeLogicType, actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import type { DisposablesManager } from 'kea-disposables'
 
 import { getSeriesColor } from 'lib/colors'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
-
-import type { DisposablesManager } from '~/kea-disposables'
 
 import { CountryBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 

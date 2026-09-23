@@ -9,7 +9,7 @@ from typing import Optional
 from urllib.parse import parse_qs, urlencode
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -128,6 +128,17 @@ class TestOauthIntegrationModel(BaseTest):
             assert "code_challenge" not in url
             assert cache.get("oauth_pkce_verifier/no_pkce_state_token") is None
 
+    def test_hubspot_authorize_url_requests_plan_gated_read_scopes_as_optional(self):
+        # A plan-gated scope in the mandatory `scope` fails the whole authorization for a portal
+        # that cannot grant it. Dropping it from `optional_scope` is just as bad: the connection
+        # authorizes without the scope and the tables it covers 403 on every sync.
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("hubspot", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+
+            assert "crm.objects.leads.read" in params["optional_scope"].split(" ")
+            assert "crm.objects.leads.read" not in params["scope"].split(" ")
+
     def test_authorize_url_with_additional_authorize_params(self):
         with self.settings(**self.mock_settings):
             url = OauthIntegration.authorize_url("google-ads", token="state_token", next="/projects/test")
@@ -155,7 +166,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "expires_in": 3600,
             }
 
-            with freeze_time("2024-01-01T12:00:00Z"):
+            with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
                 integration = OauthIntegration.integration_from_oauth_response(
                     "salesforce",
                     self.team.id,
@@ -327,7 +338,7 @@ class TestOauthIntegrationModel(BaseTest):
                 ],
             }
 
-            with freeze_time("2024-01-01T12:00:00Z"):
+            with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
                 integration = OauthIntegration.integration_from_oauth_response(
                     "hubspot",
                     self.team.id,
@@ -378,7 +389,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "expires_in": 3600,
             }
 
-            with freeze_time("2024-01-01T12:00:00Z"):
+            with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
                 integration = OauthIntegration.integration_from_oauth_response(
                     "linkedin-ads",
                     self.team.id,
@@ -405,22 +416,22 @@ class TestOauthIntegrationModel(BaseTest):
 
     def test_integration_access_token_expired(self):
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             # Access token is not expired
             assert not OauthIntegration(integration).access_token_expired()
 
-        with freeze_time(now + timedelta(seconds=1000) - timedelta(seconds=501)):
+        with time_machine.travel(now + timedelta(seconds=1000) - timedelta(seconds=501), tick=False):
             # After the expiry but before the threshold it is not expired
             assert not OauthIntegration(integration).access_token_expired()
 
-        with freeze_time(now + timedelta(seconds=1000) - timedelta(seconds=499)):
+        with time_machine.travel(now + timedelta(seconds=1000) - timedelta(seconds=499), tick=False):
             # After the threshold it is expired
             assert OauthIntegration(integration).access_token_expired()
 
-        with freeze_time(now + timedelta(seconds=1000)):
+        with time_machine.travel(now + timedelta(seconds=1000), tick=False):
             # After the threshold it is expired
             assert OauthIntegration(integration).access_token_expired()
 
@@ -435,7 +446,7 @@ class TestOauthIntegrationModel(BaseTest):
 
         integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             with self.settings(**self.mock_settings):
                 OauthIntegration(integration).refresh_access_token()
 
@@ -481,7 +492,7 @@ class TestOauthIntegrationModel(BaseTest):
 
         integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             with self.settings(**self.mock_settings):
                 OauthIntegration(integration).refresh_access_token()
 
@@ -501,7 +512,7 @@ class TestOauthIntegrationModel(BaseTest):
 
         integration = self.create_integration(kind="tiktok-ads", config={"expires_in": 1000})
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             with self.settings(**self.mock_settings):
                 OauthIntegration(integration).refresh_access_token()
 
@@ -527,7 +538,7 @@ class TestOauthIntegrationModel(BaseTest):
 
         integration = self.create_integration(kind="hubspot", config={"expires_in": 1000, "refreshed_at": 1700000000})
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             with self.settings(**self.mock_settings):
                 OauthIntegration(integration).refresh_access_token()
 
@@ -680,7 +691,7 @@ class TestOauthIntegrationModel(BaseTest):
         integration.errors = "TOKEN_REFRESH_FAILED"
         integration.save()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             with self.settings(**self.mock_settings):
                 OauthIntegration(integration).refresh_access_token()
 
@@ -705,7 +716,7 @@ class TestOauthIntegrationModel(BaseTest):
             config["refresh_failure_count"] = prior_failures
         integration = self.create_integration(kind="hubspot", config=config)
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             with self.settings(**self.mock_settings):
                 OauthIntegration(integration).refresh_access_token()
 
@@ -947,7 +958,7 @@ class TestOauthIntegrationModel(BaseTest):
                 # Note: no expires_in field
             }
 
-            with freeze_time("2024-01-01T12:00:00Z"):
+            with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
                 integration = OauthIntegration.integration_from_oauth_response(
                     "salesforce",
                     self.team.id,
@@ -965,7 +976,7 @@ class TestOauthIntegrationModel(BaseTest):
     def test_salesforce_access_token_expired_without_expires_in(self):
         """Test that Salesforce tokens without expires_in info use 1 hour default"""
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             # Create integration without expires_in
             integration = self.create_integration(
                 kind="salesforce",
@@ -975,22 +986,22 @@ class TestOauthIntegrationModel(BaseTest):
 
         oauth_integration = OauthIntegration(integration)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             # Token should not be expired initially
             assert not oauth_integration.access_token_expired()
 
-        with freeze_time(now + timedelta(minutes=29)):
+        with time_machine.travel(now + timedelta(minutes=29), tick=False):
             # Should not be expired before 30 minutes (half of 1 hour default)
             assert not oauth_integration.access_token_expired()
 
-        with freeze_time(now + timedelta(minutes=31)):
+        with time_machine.travel(now + timedelta(minutes=31), tick=False):
             # Should be expired after 30 minutes (halfway point of 1 hour)
             assert oauth_integration.access_token_expired()
 
     def test_non_salesforce_access_token_expired_without_expires_in(self):
         """Test that non-Salesforce integrations without expires_in return False"""
         now = datetime.now()
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             # Create non-Salesforce integration without expires_in - override the default
             integration = Integration.objects.create(
                 team=self.team,
@@ -1001,7 +1012,7 @@ class TestOauthIntegrationModel(BaseTest):
 
         oauth_integration = OauthIntegration(integration)
 
-        with freeze_time(now + timedelta(hours=5)):
+        with time_machine.travel(now + timedelta(hours=5), tick=False):
             # Should never expire without expires_in for non-Salesforce
             assert not oauth_integration.access_token_expired()
 
@@ -1017,7 +1028,7 @@ class TestOauthIntegrationModel(BaseTest):
 
         integration = self.create_integration(kind="salesforce", config={"expires_in": 1000})
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             with self.settings(**self.mock_settings):
                 OauthIntegration(integration).refresh_access_token()
 
@@ -1112,7 +1123,7 @@ class TestOauthIntegrationModel(BaseTest):
 
         integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             with self.settings(**self.mock_settings):
                 OauthIntegration(integration).refresh_access_token()
 
@@ -1363,7 +1374,7 @@ def _make_resend_jwt(payload: dict) -> str:
 class TestResendIntegrationModel(BaseTest):
     def test_oauth_config(self):
         config = OauthIntegration.oauth_config_for_kind("resend")
-        assert config.authorize_url == "https://resend.com/oauth/authorize"
+        assert config.authorize_url == "https://api.resend.com/oauth/authorize"
         assert config.token_url == "https://api.resend.com/oauth/token"
         assert config.token_revoke_url == "https://api.resend.com/oauth/revoke"
         assert config.client_id == "resend-client-id"
@@ -1388,7 +1399,7 @@ class TestResendIntegrationModel(BaseTest):
             "token_type": "Bearer",
         }
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             integration = OauthIntegration.integration_from_oauth_response(
                 "resend",
                 self.team.id,
@@ -1498,6 +1509,47 @@ class TestPardotIntegrationModel(BaseTest):
         # minted for the CRM kind cannot call it. That is why this kind exists at all.
         assert config.scope == "pardot_api refresh_token"
         assert config.scope != OauthIntegration.oauth_config_for_kind("salesforce").scope
+
+    def test_authorize_url_sends_the_registered_salesforce_callback(self):
+        url = OauthIntegration.authorize_url("pardot", token="state_token", next="/projects/test")
+        params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+        state = {k: v[0] for k, v in parse_qs(params["state"]).items()}
+
+        # This kind borrows the Salesforce connected app, whose allowed callback list holds only the
+        # Salesforce path. A /integrations/pardot/callback redirect_uri is rejected with
+        # redirect_uri_mismatch before the user can grant anything.
+        assert params["redirect_uri"] == "https://localhost:8010/integrations/salesforce/callback"
+        # The callback path can no longer name the kind, so the kind rides in the state instead.
+        assert state["kind"] == "pardot"
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_token_exchange_retries_against_the_sandbox_host(self, mock_post):
+        # An Account Engagement business unit can live on a Salesforce sandbox org, which mints a
+        # code the production token host rejects. Refresh and revoke already follow the org's own
+        # host, so without this retry the connect is the only step that fails for those orgs.
+        production = MagicMock(status_code=400, text='{"error":"invalid_grant"}')
+        production.json.return_value = {"error": "invalid_grant"}
+        sandbox = MagicMock(status_code=200)
+        sandbox.json.return_value = {
+            "access_token": "at",
+            "refresh_token": "rt",
+            "instance_url": "https://acme--sandbox.sandbox.my.salesforce.com",
+        }
+        mock_post.side_effect = [production, sandbox]
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "pardot",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.integration_id == "https://acme--sandbox.sandbox.my.salesforce.com"
+        retry = mock_post.call_args_list[1]
+        assert retry.args[0] == "https://test.salesforce.com/services/oauth2/token"
+        assert retry.kwargs["data"]["redirect_uri"] == "https://localhost:8010/integrations/salesforce/callback"
+        # Same guard as the first exchange: a 30x must not resend the client secret and the code.
+        assert retry.kwargs["allow_redirects"] is False
 
     def test_pardot_is_an_oauth_kind(self):
         # Not being listed makes the authorize + callback endpoints reject the kind and drops

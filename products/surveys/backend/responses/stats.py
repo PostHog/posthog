@@ -3,7 +3,8 @@
 Single source of truth for the "survey performance" numbers (shown / dismissed / sent
 counts, unique persons, and derived response/dismissal rates). Both the surveys REST
 viewset and the dashboard survey widget call `get_survey_stats` so there is exactly one
-query path for these stats.
+query path for these stats. `get_survey_responses_count` shares its definition of a unique
+sent response.
 """
 
 from __future__ import annotations
@@ -11,20 +12,20 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
+from django.db.models import Min
+
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, ProductKey
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models import Team
 
 from products.surveys.backend.models import Survey
-from products.surveys.backend.util import (
-    SurveyEventName,
-    get_archived_response_uuids,
-    get_unique_survey_event_uuids_sql_subquery,
-)
+from products.surveys.backend.responses.fetch_rows import RESPONSE_EVENT_FILTER, SUBMISSION_GROUPING_KEY
+from products.surveys.backend.util import SurveyEventName, get_archived_response_uuids
 
 
 class EventStats(TypedDict):
@@ -86,24 +87,6 @@ def validate_and_parse_dates(date_from: str | None, date_to: str | None) -> tupl
         raise ValueError(
             "Invalid date format. Please use ISO 8601 format with timezone info (e.g. 2024-01-01T00:00:00Z or 2024-01-01T00:00:00+00:00)"
         ) from exc
-
-
-def partial_responses_filter(base_conditions_sql: list[str]) -> str:
-    unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
-        base_conditions_sql=base_conditions_sql,
-    )
-
-    return f"uuid IN {unique_uuids_subquery}"
-
-
-def archived_responses_filter(survey_id: str | None, team_id: int) -> tuple[str, dict]:
-    archived_uuids = get_archived_response_uuids(survey_id, team_id)
-
-    if not archived_uuids:
-        return "", {}
-
-    params = {"archived_uuids": list(archived_uuids)}
-    return "uuid NOT IN %(archived_uuids)s", params
 
 
 def _isoformat_utc_z(value: datetime | None) -> str | None:
@@ -195,6 +178,24 @@ def calculate_rates(stats: SurveyStats) -> SurveyRates:
     return rates
 
 
+def _latest_response_event_uuids_subquery(scan_conditions: str) -> str:
+    """Select the latest response event UUID per submission.
+
+    Several sent, dismissed, or abandoned events can exist per submission; only the latest per
+    $survey_submission_id counts, and events without one count by their own uuid (see
+    SUBMISSION_GROUPING_KEY). Grouping per $survey_id keeps a submission id scoped to its
+    survey. `scan_conditions` must start with " AND " and only narrows the scan window; it
+    is deliberately not filtered by survey, so a caller scoped to one survey still dedupes
+    against every sent event in the window.
+    """
+    return f"""(
+                SELECT argMax(uuid, tuple(timestamp, uuid))
+                FROM events
+                WHERE {RESPONSE_EVENT_FILTER}{scan_conditions}
+                GROUP BY properties.$survey_id, {SUBMISSION_GROUPING_KEY}
+            )"""
+
+
 def get_survey_stats(
     *,
     team_id: int,
@@ -273,39 +274,26 @@ def get_survey_stats(
         conditions.append("properties.$survey_id IN {survey_ids}")
         placeholders["survey_ids"] = ast.Constant(value=[str(id) for id in active_survey_ids])
 
-    # Partially-completed submissions carry a synthetic "survey dismissed" event; don't count those.
-    conditions.append("(event != {dismissed} OR coalesce(properties.$survey_partially_completed, '') != 'true')")
-
     condition_sql = "".join(f"\n            AND {condition}" for condition in conditions)
 
-    # Multiple partial "survey sent" events can exist per submission; only the latest per
-    # $survey_submission_id counts (pre-submission-id events group by their own uuid). Deliberately
-    # not filtered by survey, matching get_unique_survey_event_uuids_sql_subquery's semantics.
-    sent_dedup_sql = f"""(event != {{sent}} OR uuid IN (
-                SELECT argMax(uuid, timestamp)
-                FROM events
-                WHERE event = {{sent}}{date_conditions}
-                GROUP BY if(
-                    coalesce(properties.$survey_submission_id, '') = '',
-                    toString(uuid),
-                    properties.$survey_submission_id
-                )
-            ))"""
+    sent_dedup_sql = (
+        f"(NOT {RESPONSE_EVENT_FILTER} OR uuid IN {_latest_response_event_uuids_subquery(date_conditions)})"
+    )
 
     tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
 
     # Query 1: Base Stats
     base_stats_query = f"""
         SELECT
-            event AS event_name,
+            if({RESPONSE_EVENT_FILTER}, {{sent}}, event) AS event_name,
             count() AS total_count,
             count(DISTINCT person_id) AS unique_persons,
             if(count() > 0, min(timestamp), NULL) AS first_seen,
             if(count() > 0, max(timestamp), NULL) AS last_seen
         FROM events
-        WHERE event IN ({{shown}}, {{dismissed}}, {{sent}}){condition_sql}
+        WHERE (event IN ({{shown}}, {{dismissed}}, {{sent}}) OR {RESPONSE_EVENT_FILTER}){condition_sql}
             AND {sent_dedup_sql}
-        GROUP BY event
+        GROUP BY event_name
     """
     results_base = execute_hogql_query(
         base_stats_query,
@@ -321,10 +309,10 @@ def get_survey_stats(
         FROM (
             SELECT person_id
             FROM events
-            WHERE event IN ({{dismissed}}, {{sent}}){condition_sql}
+            WHERE (event = {{dismissed}} OR {RESPONSE_EVENT_FILTER}){condition_sql}
             GROUP BY person_id
-            HAVING countIf(event = {{dismissed}}) > 0
-               AND countIf(event = {{sent}}) > 0
+            HAVING countIf(event = {{dismissed}} AND NOT {RESPONSE_EVENT_FILTER}) > 0
+               AND countIf({RESPONSE_EVENT_FILTER}) > 0
         )
     """
     dismissed_and_sent_count_result = execute_hogql_query(
@@ -376,3 +364,54 @@ def get_survey_stats(
         "stats": stats,
         "rates": rates,
     }
+
+
+def get_survey_responses_count(
+    *, team: Team, exclude_archived: bool = False, survey_ids: list[str] | None = None
+) -> dict[str, int]:
+    """Count captured submissions per survey, including incomplete responses.
+
+    Only events since the earliest survey start date in the project are scanned. With no
+    started survey there can be no responses, so that case returns empty without a query.
+    """
+    earliest_start_date = Survey.objects.filter(team__project_id=team.project_id).aggregate(Min("start_date"))[
+        "start_date__min"
+    ]
+    if not earliest_start_date:
+        return {}
+
+    placeholders: dict[str, ast.Expr] = {"since": ast.Constant(value=earliest_start_date)}
+    conditions = [f"uuid IN {_latest_response_event_uuids_subquery(' AND timestamp >= {since}')}"]
+
+    if exclude_archived:
+        archived_uuids = get_archived_response_uuids(None, team.pk)
+        if archived_uuids:
+            conditions.append("uuid NOT IN {archived_uuids}")
+            placeholders["archived_uuids"] = ast.Constant(value=sorted(archived_uuids))
+
+    if survey_ids:
+        conditions.append("properties.$survey_id IN {survey_ids}")
+        placeholders["survey_ids"] = ast.Constant(value=survey_ids)
+
+    condition_sql = "".join(f"\n            AND {condition}" for condition in conditions)
+
+    # HogQL adds a 100-row LIMIT to a top-level SELECT without one, which would silently drop
+    # surveys past the first hundred; MAX_SELECT_RETURNED_ROWS is the most a query may return.
+    query = f"""
+        SELECT properties.$survey_id AS survey_id, count()
+        FROM events
+        WHERE {RESPONSE_EVENT_FILTER}
+            AND timestamp >= {{since}}{condition_sql}
+        GROUP BY survey_id
+        LIMIT {MAX_SELECT_RETURNED_ROWS}
+    """
+
+    tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
+    results = execute_hogql_query(
+        query,
+        placeholders=placeholders,
+        team=team,
+        query_type="survey_responses_count",
+    ).results
+
+    return dict(results)

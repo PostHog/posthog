@@ -1,0 +1,107 @@
+{
+    "VA1": {
+        "cluster": 7,
+        "confidence": "high",
+        "reason": "Cluster 7 exactly: stamphog_connected serializer field does a synchronous uncached cross-product Stamphog DB read on every settings GET/PATCH; VA1 adds the no-timeout worker-pileup consequence."
+    },
+    "VA2": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Cluster 58 exactly: initial inbox dispatch is fire-and-forget with no durable intent record, so a broker enqueue failure silently and permanently drops the review."
+    },
+    "VA3": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster claims the opt-out path leaves prior QUEUED/REVIEWING runs unsuperseded so a stale approval lands after dismissal; cluster 29 is dismissal blocked by exceptions, cluster 36 is webhook-leg dedupe."
+    },
+    "VA4": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Cluster 2's claim: process_inbox_pr_review stamps provenance with no PR-to-run linkage, repo comparison, fork rejection, or bot verification; VA4 frames it as an AGENTS.md contract violation (cluster includes AGENTS.md)."
+    },
+    "VA5": {
+        "cluster": 18,
+        "confidence": "high",
+        "reason": "Cluster 18 exactly: the readiness query omits the provider='github' filter its sibling repo-config lookups use, so a non-GitHub row enables a toggle whose reviews no-op."
+    },
+    "VA6": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Same receiver-leg claim as cluster 2: caller-writable output.pr_url is queued with no PR-to-run linkage, stamping inbox_review and bypassing bot, draft, review-mode, and permission gates."
+    },
+    "VA7": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Cluster 2 again: process_inbox_pr_review trusts supplied provenance with no TaskRun reload, repository comparison, fork or bot-author check - the receiver-leg missing-linkage claim."
+    },
+    "VA8": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "Cluster 31 exactly: the toggle is checked only at enqueue time; the queued task never re-validates the acting reviewer's opt-in at execution/effect time."
+    },
+    "VA9": {
+        "cluster": 73,
+        "confidence": "medium",
+        "reason": "Closest is cluster 73: find_task_run's agent-writable inputs (output.pr_url, branch fallback) bind an unrelated PR to a qualifying run, authorizing it as self-driving; VA9 generalizes to unattested fields as authorization."
+    },
+    "VA10": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Cluster 39 exactly: find_task_run queries TaskRun unscoped with only a post-hoc team_id recheck, so another team's newer row can shadow this team's valid run."
+    },
+    "VA11": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Cluster 57 exactly: the gate keys on one canonical acting reviewer's toggle, so an opted-in secondary assigned reviewer is ignored on both trigger legs."
+    },
+    "VA12": {
+        "cluster": 1,
+        "confidence": "high",
+        "reason": "Cluster 1 exactly: production self-driving implementation tasks are internal=True, so the internal-rejecting condition makes the webhook carve-out leg dead."
+    },
+    "VA13": {
+        "cluster": 2,
+        "confidence": "medium",
+        "reason": "Core claim is cluster 2's: the initial trigger stamps inbox_review without app-bot, native-head, or task-repository verification; anchored on the review_local.py gate-relaxation line rather than the receiver itself."
+    },
+    "VA14": {
+        "cluster": 70,
+        "confidence": "high",
+        "reason": "Cluster 70 exactly: the self-driving user-prompt block cannot override the review-guidance system showstopper that every bot author needs human review, forcing REFUSE/ESCALATE on self-driving PRs."
+    },
+    "VA15": {
+        "cluster": 35,
+        "confidence": "high",
+        "reason": "Cluster 35 exactly: the hard-coded 'draft on purpose' provenance sentence still renders on post-ready re-reviews when pr.draft is false."
+    },
+    "VA16": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Cluster 58: _start_stamphog_review's publish is fire-and-forget - errors caught, no dispatch record, no retry - so a broker outage silently loses the only initial review request."
+    },
+    "VA17": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "No cluster claims early-ack (missing acks_late) task loss on worker exit; cluster 32's QUEUED-stranding uses a different, disproven on_commit mechanism and cluster 58 covers dispatch, not redelivery."
+    },
+    "VA18": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Matches cluster 58's second half: exhausting the task's three short retries silently drops the review, with no reconciliation sweep for post-commit QUEUED strandings."
+    },
+    "VA19": {
+        "cluster": 23,
+        "confidence": "high",
+        "reason": "Cluster 23 exactly: the unindexed TaskRun.branch fallback makes every non-matching bot-PR webhook (Dependabot/Renovate) sequentially scan the hot TaskRun table."
+    },
+    "VA20": {
+        "cluster": 29,
+        "confidence": "medium",
+        "reason": "Cluster 29's claim: an exception in the carve-out path (the resolver) retries ahead of and blocks the stale-approval dismissal on head-changing PRs; runner-up 40 is the resolver's missing try/except."
+    },
+    "VA21": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "No cluster disputes a stamphog-label readiness claim in the system prompt; nearest neighbors (70, 71, 74) concern the bot-author showstopper, gate-count wording, and ownership block instead."
+    }
+}

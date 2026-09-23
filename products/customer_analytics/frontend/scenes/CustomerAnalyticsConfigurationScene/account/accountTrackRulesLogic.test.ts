@@ -107,6 +107,31 @@ describe('accountTrackRulesLogic', () => {
         expect(logic.values.canRun).toBe(true)
     })
 
+    it('polls scheduled runs until they finish', async () => {
+        const scheduledRun: AccountTrackRuleRunViewApi = { ...RUN, trigger: 'scheduled', status: 'running' }
+        const completedRun: AccountTrackRuleRunViewApi = {
+            ...scheduledRun,
+            status: 'completed',
+            finished_at: '2026-08-20T12:01:00Z',
+        }
+        mockRuns
+            .mockResolvedValueOnce({ count: 1, results: [scheduledRun] })
+            .mockResolvedValueOnce({ count: 1, results: [completedRun] })
+
+        jest.useFakeTimers()
+        try {
+            await expectLogic(logic, () => logic.actions.loadRuns()).toDispatchActions(['loadRunsSuccess'])
+            expect(logic.values.runs).toEqual([scheduledRun])
+
+            await jest.advanceTimersByTimeAsync(5_000)
+
+            expect(logic.values.runs).toEqual([completedRun])
+            expect(mockRuns).toHaveBeenCalledTimes(3)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('marks a preview stale only when its rule content changes', async () => {
         mockPreview.mockResolvedValue(PREVIEW)
 

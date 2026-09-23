@@ -3,7 +3,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { SCANNER_TYPE_TAG_TYPE, ScannerType, scannerTypeLabel } from '../replay_scanners/types'
 
-function scannerTypeIcon(scannerType: ScannerType): JSX.Element {
+export function scannerTypeIcon(scannerType: ScannerType): JSX.Element {
     switch (scannerType) {
         case 'monitor':
             return <IconEye />
@@ -17,11 +17,11 @@ function scannerTypeIcon(scannerType: ScannerType): JSX.Element {
 }
 
 /**
- * Canonical badge for a scanner type — icon + per-type color + label. Use everywhere a scanner type is shown so
+ * Canonical badge for a scanner type: icon, per-type color, label. Use everywhere a scanner type is shown so
  * the badges stay consistent.
- * - `default` — per-type color.
- * - `muted` — greyed (e.g. a type with no scanners).
- * - `deemphasized` — greyed + struck-through, for "available but not selected" sets (e.g. the read-only config
+ * - `default`: per-type color.
+ * - `muted`: greyed (e.g. a type with no scanners).
+ * - `deemphasized`: greyed and struck-through, for "available but not selected" sets (e.g. the read-only config
  *   showing all types with the active one highlighted).
  * `suffix` renders extra inline content after the label (e.g. an enabled/total count).
  */

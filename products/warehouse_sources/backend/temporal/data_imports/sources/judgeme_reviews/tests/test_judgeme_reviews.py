@@ -38,7 +38,7 @@ def _response(
     if body is None:
         payload: Any = {"current_page": page, "per_page": PAGE_SIZE}
         if not drop_key:
-            payload[list_key] = items or []  # ty: ignore[invalid-assignment]
+            payload[list_key] = items or []
         body = payload
     resp = Response()
     resp.status_code = 200

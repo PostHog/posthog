@@ -31,6 +31,7 @@ from products.tasks.backend.logic.services.workflow_dispatch import (
     dispatch_exceeded_max_age,
     mark_accepted,
     mark_dead,
+    materialize_due_scheduled_task_runs,
     parse_create_payload,
     parse_restart_payload,
     release_claims,
@@ -42,6 +43,7 @@ from products.tasks.backend.logic.services.workflow_dispatch import (
 from products.tasks.backend.metrics import (
     WORKFLOW_DISPATCH_ATTEMPT_TOTAL,
     WORKFLOW_DISPATCH_START_DURATION_SECONDS,
+    WORKFLOW_DISPATCH_START_RPC_DURATION_SECONDS,
     observe_task_run_workflow_start,
 )
 from products.tasks.backend.models import TaskRun, TaskWorkflowDispatch
@@ -49,6 +51,7 @@ from products.tasks.backend.temporal.client import _capture_run_feature_flags
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 
 logger = logging.getLogger(__name__)
+SCHEDULED_RUN_MATERIALIZATION_BATCH_SIZE = 500
 
 
 def _user_can_dispatch(run: TaskRun, options: WorkflowDispatchOptions | None) -> bool:
@@ -100,6 +103,7 @@ class Command(BaseCommand):
             while not stop.is_set():
                 Path("/tmp/dispatcher-heartbeat").touch()
                 try:
+                    await sync_to_async(materialize_due_scheduled_task_runs)(SCHEDULED_RUN_MATERIALIZATION_BATCH_SIZE)
                     if monotonic() - last_metrics_sample >= 15:
                         await sync_to_async(sample_dispatch_metrics)()
                         last_metrics_sample = monotonic()
@@ -239,19 +243,24 @@ class Command(BaseCommand):
                 return
             started = monotonic()
             try:
-                await client.start_workflow(
-                    "process-task",
-                    workflow_input,
-                    id=dispatch.workflow_id,
-                    id_reuse_policy=(
-                        WorkflowIDReusePolicy.TERMINATE_IF_RUNNING
-                        if is_restart
-                        else WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
-                    ),
-                    task_queue=settings.TASKS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                    rpc_timeout=timedelta(seconds=settings.TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS),
-                )
+                try:
+                    await client.start_workflow(
+                        "process-task",
+                        workflow_input,
+                        id=dispatch.workflow_id,
+                        id_reuse_policy=(
+                            WorkflowIDReusePolicy.TERMINATE_IF_RUNNING
+                            if is_restart
+                            else WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+                        ),
+                        task_queue=settings.TASKS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        rpc_timeout=timedelta(seconds=settings.TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS),
+                    )
+                finally:
+                    duration = monotonic() - started
+                    WORKFLOW_DISPATCH_START_DURATION_SECONDS.observe(duration)
+                    WORKFLOW_DISPATCH_START_RPC_DURATION_SECONDS.labels(kind=dispatch.dispatch_kind).observe(duration)
             except WorkflowAlreadyStartedError:
                 if is_restart:
                     await sync_to_async(reschedule)(dispatch.id, instance_id, "Restart workflow is already running")
@@ -266,5 +275,3 @@ class Command(BaseCommand):
                 await sync_to_async(mark_accepted)(dispatch.id, instance_id)
                 WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="accepted").inc()
                 observe_task_run_workflow_start(run, outcome="started", reason="dispatcher")
-            finally:
-                WORKFLOW_DISPATCH_START_DURATION_SECONDS.observe(monotonic() - started)

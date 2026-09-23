@@ -1,16 +1,22 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef } from 'react'
 
+import { IconPlus } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
 import { tracingConfigLogic } from '../../tracingConfigLogic'
+import { customFacetsLogic } from './customFacetsLogic'
 import { facetPresenceLogic } from './facetPresenceLogic'
 import { facetRailLogic } from './facetRailLogic'
 import { facetsByGroup, filterFacetsByName } from './facets'
 import { RailFacet } from './RailFacet'
+
+const ADD_FACET_GROUP_TYPES = [TaxonomicFilterGroupType.SpanAttributes, TaxonomicFilterGroupType.SpanResourceAttributes]
 
 const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
@@ -22,6 +28,8 @@ export function FacetRail(): JSX.Element {
     const { visibleFacets } = useValues(facetPresenceLogic)
     const { facetNameSearch } = useValues(facetRailLogic)
     const { setFacetNameSearch } = useActions(facetRailLogic)
+    const { addCustomFacet } = useActions(customFacetsLogic)
+    const { customFacetsEnabled, entriesLoading } = useValues(customFacetsLogic)
 
     const onToggleClosed = useCallback(
         (shouldBeClosed: boolean) => setFacetRailCollapsed(shouldBeClosed),
@@ -56,7 +64,7 @@ export function FacetRail(): JSX.Element {
             style={{ width: desiredSize ?? DEFAULT_WIDTH_PX, minWidth: COLLAPSE_THRESHOLD_PX, maxWidth: '40%' }}
             data-attr="tracing-facet-rail"
         >
-            <div className="px-2 py-1 border-b">
+            <div className="flex items-center gap-1 px-2 py-1 border-b">
                 <LemonInput
                     type="search"
                     size="small"
@@ -66,6 +74,26 @@ export function FacetRail(): JSX.Element {
                     onChange={setFacetNameSearch}
                     data-attr="tracing-facet-rail-search"
                 />
+                {customFacetsEnabled && (
+                    <TaxonomicStringPopover
+                        groupType={TaxonomicFilterGroupType.SpanAttributes}
+                        groupTypes={ADD_FACET_GROUP_TYPES}
+                        placeholder={null}
+                        size="small"
+                        icon={<IconPlus />}
+                        tooltip="Add custom facet"
+                        disabledReason={entriesLoading ? 'Custom facets are updating' : undefined}
+                        data-attr="tracing-facet-rail-add"
+                        onChange={(value, groupType) =>
+                            addCustomFacet(
+                                value,
+                                groupType === TaxonomicFilterGroupType.SpanResourceAttributes
+                                    ? 'resourceAttribute'
+                                    : 'attribute'
+                            )
+                        }
+                    />
+                )}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
                 {matchingKeys.size === 0 && facetNameSearch.trim() && (

@@ -490,3 +490,29 @@ class TestPgCDCStreamReaderConfirmPosition:
                 reader.confirm_position("B4/C7327D08")
 
         conn.close.assert_called_once()
+
+
+class TestPgCDCStreamReaderCurrentPosition:
+    def test_current_position_returns_the_end_of_wal(self, params):
+        reader = PgCDCStreamReader(params)
+        fake_conn = mock.MagicMock()
+        fake_conn.cursor.return_value.__enter__.return_value.fetchone.return_value = ("B4/C7327D08",)
+        reader._conn = fake_conn
+
+        assert reader.current_position() == "B4/C7327D08"
+
+    def test_current_position_returns_none_without_a_connection(self, params):
+        assert PgCDCStreamReader(params).current_position() is None
+
+    def test_current_position_returns_none_instead_of_failing_the_run(self, params):
+        # A source in recovery cannot run pg_current_wal_flush_lsn(). The caller only loses the
+        # quiet-run slot advance, so this must never propagate.
+        reader = PgCDCStreamReader(params)
+        fake_conn = mock.MagicMock()
+        fake_conn.cursor.return_value.__enter__.return_value.execute.side_effect = (
+            psycopg.errors.ObjectNotInPrerequisiteState("recovery is in progress")
+        )
+        fake_conn.rollback.side_effect = psycopg.OperationalError("the connection is closed")
+        reader._conn = fake_conn
+
+        assert reader.current_position() is None

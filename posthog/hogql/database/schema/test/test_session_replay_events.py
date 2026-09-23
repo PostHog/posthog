@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -27,7 +27,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SES
 from posthog.uuidt import uuid7
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
     session_with_one_hour = str(uuid7("2021-01-01T10"))
     session_with_different_session_and_replay_duration = str(uuid7("2021-01-01T11"))
@@ -136,7 +136,7 @@ class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
         ]
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
     allow_dual_schema_snapshots = True
 
@@ -259,7 +259,7 @@ class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
         ]
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
     allow_dual_schema_snapshots = True
 
@@ -399,7 +399,7 @@ class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
         ]
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestFilterSessionReplaysByConsoleLogs(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -471,7 +471,7 @@ class TestFilterSessionReplaysByConsoleLogs(ClickhouseTestMixin, APIBaseTest):
         assert response.results == [("This is an info message",), ("This is a generic message",)]
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestSelectAggregatedArrayColumns(ClickhouseTestMixin, APIBaseTest):
     """Regression coverage for `groupUniqArrayArray` columns on the session_replay_events lazy table.
 

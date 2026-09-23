@@ -6,9 +6,10 @@ import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import { TraceViewMode, aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
+import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
-import { getEvaluationResultDisplay } from './EvaluationResultTag'
+import { EvaluationResultDisplayOptions, getEvaluationResultDisplay } from './EvaluationResultTag'
 
 export interface EvalSummary {
     latestRun: EvaluationRun
@@ -29,12 +30,15 @@ export function getEvalSummaries(runs: EvaluationRun[]): EvalSummary[] {
     return Array.from(byEvalId.values())
 }
 
-export function getEvalBadgeProps(run: EvaluationRun): {
+export function getEvalBadgeProps(
+    run: EvaluationRun,
+    options: EvaluationResultDisplayOptions = {}
+): {
     type: LemonTagProps['type']
     icon: JSX.Element
     label: string
 } {
-    const { type, icon, label } = getEvaluationResultDisplay(run)
+    const { type, icon, label } = getEvaluationResultDisplay(run, options)
     return { type, icon, label }
 }
 
@@ -70,6 +74,7 @@ export function EvalResultBadges({
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
         generationEvaluationRunsLogic({ traceId })
     )
+    const { detectorEvaluationIds } = useValues(llmEvaluationsLogic)
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
     const { setViewMode } = useActions(traceLogic)
 
@@ -93,7 +98,9 @@ export function EvalResultBadges({
     return (
         <div className="flex flex-row flex-wrap items-center gap-1.5">
             {summaries.map((summary) => {
-                const { type, icon, label } = getEvalBadgeProps(summary.latestRun)
+                const { type, icon, label } = getEvalBadgeProps(summary.latestRun, {
+                    trueIsFailure: detectorEvaluationIds.includes(summary.latestRun.evaluation_id),
+                })
                 return (
                     <Tooltip key={summary.latestRun.evaluation_id} title={<EvalTooltipContent {...summary} />}>
                         <LemonTag

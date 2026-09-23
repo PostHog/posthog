@@ -8,7 +8,7 @@ import structlog
 from redis.asyncio import Redis
 
 from llm_gateway.config import DEFAULT_USER_COST_LIMIT, get_settings
-from llm_gateway.products.config import resolve_cost_key
+from llm_gateway.products.config import POSTHOG_CODE_PRODUCT, resolve_cost_key
 
 if TYPE_CHECKING:
     from llm_gateway.config import UserCostLimit
@@ -20,7 +20,6 @@ from llm_gateway.rate_limiting.throttles import (
     get_rate_limit_multiplier,
     is_usage_unlimited,
 )
-from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT
 
 logger = structlog.get_logger(__name__)
 

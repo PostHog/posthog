@@ -24,6 +24,7 @@ export interface CachedToolInfo {
   name: string;
   /** Original MCP tool name. */
   mcpName: string;
+  title?: string;
   description: string;
 }
 

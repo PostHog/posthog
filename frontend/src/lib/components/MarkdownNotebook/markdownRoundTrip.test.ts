@@ -288,6 +288,22 @@ describe('markdown round trip', () => {
         })
     })
 
+    describe('repeated parses', () => {
+        it('gives duplicate tags distinct ids and never shares nodes between parses', () => {
+            // The component tag cache reuses parse results by raw source. If it handed out the
+            // cached node itself instead of a copy, the second occurrence (or a later parse of
+            // the same markdown) would overwrite the first one's id in place.
+            const markdown = '<SQLV2 code="select 1" />\n\n<SQLV2 code="select 1" />'
+            const first = parseMarkdownNotebook(markdown)
+            const second = parseMarkdownNotebook(markdown)
+
+            expect(first.nodes).toHaveLength(2)
+            expect(first.nodes[0].id).not.toEqual(first.nodes[1].id)
+            expect(second.nodes.map((node) => node.id)).toEqual(first.nodes.map((node) => node.id))
+            expect(second.nodes[0]).not.toBe(first.nodes[0])
+        })
+    })
+
     describe('html comments', () => {
         it('parses a standalone comment line into a Comment node', () => {
             const document = parseMarkdownNotebook('# Title\n\n<!-- reviewer note -->\n\nBody')
@@ -488,6 +504,25 @@ describe('markdown round trip', () => {
             expect(getNodeText(nodes[0])).toEqual('wiki end')
         })
 
+        it('parses the pointy-bracket href form that Slack copies produce', () => {
+            const nodes = parseMarkdownNotebook('See [Payloads](<https://posthog.com/docs/payloads>) now').nodes
+            const children = (nodes[0] as NotebookTextBlockNode).children
+
+            expect(children[1].type === 'text' && children[1].marks?.[0]).toEqual({
+                type: 'link',
+                href: 'https://posthog.com/docs/payloads',
+            })
+            expect(getNodeText(nodes[0])).toEqual('See Payloads now')
+        })
+
+        it('keeps the label but drops the link when a pointy bracket is left unclosed', () => {
+            const nodes = parseMarkdownNotebook('[Payloads](<https://posthog.com/docs) end').nodes
+
+            expect(getNodeText(nodes[0])).toEqual('Payloads end')
+            const child = (nodes[0] as NotebookTextBlockNode).children[0]
+            expect(child.type === 'text' && child.marks).toBeUndefined()
+        })
+
         it('drops disallowed link schemes but keeps the label text', () => {
             // eslint-disable-next-line no-script-url
             const nodes = parseMarkdownNotebook('[click](javascript:alert(1)) safe').nodes
@@ -629,6 +664,76 @@ describe('markdown round trip', () => {
             ])
 
             expect(stripIds(roundTrip(document))).toEqual(stripIds(document))
+        })
+    })
+
+    describe('stored block ids', () => {
+        it('reads an anchor as the block id and makes no node for it', () => {
+            const document = parseMarkdownNotebook('<!--ph:phb-abc-->\nA paragraph.')
+
+            expect(document.nodes.map((node) => node.type)).toEqual(['paragraph'])
+            expect(document.nodes[0].id).toEqual('phb-abc')
+        })
+
+        it('writes a stored id back, so the block keeps it across an edit to its text', () => {
+            const document = parseMarkdownNotebook('<!--ph:phb-abc-->\nA paragraph.')
+            const edited: NotebookDocument = {
+                ...document,
+                nodes: [{ ...document.nodes[0], children: [text('A rewritten paragraph.')] } as NotebookBlockNode],
+            }
+
+            const serialized = serializeMarkdownNotebook(edited)
+            expect(serialized).toEqual('<!--ph:phb-abc-->\nA rewritten paragraph.')
+            expect(parseMarkdownNotebook(serialized).nodes[0].id).toEqual('phb-abc')
+        })
+
+        // A derived id is rebuilt from the block on every parse. Written back, it would rewrite
+        // every document the editor opens, and the whole-document diff would reach the merge.
+        it('writes no anchor for a derived id, so an unanchored document is unchanged', () => {
+            const markdown = '# Title\n\nA paragraph.\n\nAnother paragraph.'
+            expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
+        })
+
+        // A three-way markdown merge can copy an anchor line onto a second block. Two blocks
+        // claiming one id would send an edit by id to whichever the lookup reached first.
+        it('refuses to let a duplicated anchor name two blocks', () => {
+            const document = parseMarkdownNotebook('<!--ph:phb-abc-->\nFirst.\n\n<!--ph:phb-abc-->\nSecond.')
+
+            const ids = document.nodes.map((node) => node.id)
+            expect(ids[0]).toEqual('phb-abc')
+            expect(new Set(ids).size).toEqual(2)
+        })
+
+        // The serializer writes an anchor back only for a stored id. A parser that consumed a
+        // wider set would eat an authorial note and drop it on the next save.
+        it('leaves a comment that is not a stored id as a comment', () => {
+            const markdown = '<!--ph:note-->\n\nA paragraph.'
+
+            const document = parseMarkdownNotebook(markdown)
+
+            expect(document.nodes.map((node) => node.type)).toEqual(['component', 'paragraph'])
+            // The comment serializer pads the delimiters, so the note comes back spaced.
+            expect(serializeMarkdownNotebook(document)).toContain('ph:note')
+        })
+
+        it('gives a tag its own nodeId prop rather than an anchor above it', () => {
+            const document = parseMarkdownNotebook('<!--ph:phb-outer-->\n<SQLV2 nodeId="s1" code="select 1" />')
+
+            expect(document.nodes[0].id).not.toEqual('phb-outer')
+        })
+
+        it('gives a left-behind anchor to no block', () => {
+            const document = parseMarkdownNotebook('<!--ph:phb-abc-->\n\n\nThe next paragraph.')
+
+            expect(document.nodes.map((node) => getNodeText(node))).toEqual(['The next paragraph.'])
+            expect(document.nodes[0].id).not.toEqual('phb-abc')
+        })
+
+        it('keeps an anchored block out of the paragraph above it', () => {
+            const document = parseMarkdownNotebook('First.\n<!--ph:phb-abc-->\nSecond.')
+
+            expect(document.nodes.map((node) => getNodeText(node))).toEqual(['First.', 'Second.'])
+            expect(document.nodes[1].id).toEqual('phb-abc')
         })
     })
 

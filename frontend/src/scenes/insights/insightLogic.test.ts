@@ -2,8 +2,10 @@ import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -15,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { tagsModel } from '~/models/tagsModel'
 import { examples } from '~/queries/examples'
 import { DataTableNode, type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -31,11 +34,13 @@ import {
     InsightType,
     PropertyFilterType,
     PropertyOperator,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
+import { insightVizDataLogic } from './insightVizDataLogic'
+import { insightsApi } from './utils/api'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -101,7 +106,7 @@ const patchResponseFor = (
     }
 }
 
-function insightModelWith(properties: Record<string, any>): QueryBasedInsightModel {
+function insightModelWith(properties: Record<string, any>): InsightModel {
     return {
         id: 42,
         short_id: Insight42,
@@ -130,7 +135,7 @@ function insightModelWith(properties: Record<string, any>): QueryBasedInsightMod
         color: null,
         user_access_level: AccessControlLevel.Editor,
         ...properties,
-    } as QueryBasedInsightModel
+    } as InsightModel
 }
 
 const seenQueryIDs: string[] = []
@@ -266,10 +271,6 @@ describe('insightLogic', () => {
                     )
                     return [200, response]
                 },
-                '/api/projects/:team/insights/:id': async ({ request, params }) => {
-                    const payload = (await request.json()) as Record<string, any>
-                    return [200, { ...payload, id: params.id }]
-                },
             },
         })
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
@@ -374,7 +375,7 @@ describe('insightLogic', () => {
 
         describe('props with filters, no cached results, respects doNotLoad', () => {
             it('does not make a query', async () => {
-                const insight: Partial<QueryBasedInsightModel<InsightVizNode>> = {
+                const insight: Partial<InsightModel<InsightVizNode>> = {
                     short_id: Insight42,
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -771,7 +772,7 @@ describe('insightLogic', () => {
         it('reacts to removal from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: { insight: { id: 42 } } as DashboardTile<QueryBasedInsightModel>,
+                    tile: { insight: { id: 42 } } as DashboardTile,
                     dashboardId: 3,
                 })
             })
@@ -784,7 +785,7 @@ describe('insightLogic', () => {
         it('does not reacts to removal of a different tile from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: { insight: { id: 12 } } as DashboardTile<QueryBasedInsightModel>,
+                    tile: { insight: { id: 12 } } as DashboardTile,
                     dashboardId: 3,
                 })
             })
@@ -796,7 +797,7 @@ describe('insightLogic', () => {
 
         it('reacts to deletion of dashboard', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType<QueryBasedInsightModel>)
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType)
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -806,7 +807,7 @@ describe('insightLogic', () => {
 
         it('does not reacts to deletion of dashboard it is not on', async () => {
             await expectLogic(logic, () => {
-                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType<QueryBasedInsightModel>)
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 1034 } as DashboardType)
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -833,6 +834,33 @@ describe('insightLogic', () => {
                     insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
+    })
+
+    it.each(['clean', 'draft', 'draft during refresh'])('handles an external save with a %s editor', async (state) => {
+        logic = insightLogic({ dashboardItemId: Insight42 })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const original = logic.values.insight
+        const updated = { ...original, name: 'Externally saved name' } as InsightModel
+        let resolveRefresh!: (value: InsightModel) => void
+        const refresh = new Promise<InsightModel>((resolve) => {
+            resolveRefresh = resolve
+        })
+        const fetchInsight = jest.spyOn(insightsApi, 'getByShortId').mockReturnValue(refresh)
+        if (state === 'draft') {
+            logic.actions.setInsightMetadataLocal({ name: 'Unsaved name' })
+        }
+        insightsModel.actions.insightSaved(Insight42)
+        if (state === 'draft during refresh') {
+            logic.actions.setInsightMetadataLocal({ name: 'Unsaved name' })
+        }
+        resolveRefresh(updated)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.insight.name).toEqual(state === 'clean' ? 'Externally saved name' : 'Unsaved name')
+        if (state === 'draft') {
+            expect(fetchInsight).not.toHaveBeenCalled()
+        }
+        fetchInsight.mockRestore()
     })
 
     describe('setInsight name preservation', () => {
@@ -909,7 +937,7 @@ describe('insightLogic', () => {
             const mockCreateCalls = (api.create as jest.Mock).mock.calls
             expect(mockCreateCalls).toEqual([
                 [
-                    `api/environments/${MOCK_TEAM_ID}/insights`,
+                    `api/projects/${MOCK_TEAM_ID}/insights`,
                     expect.objectContaining({
                         derived_name: '* from events',
                         query: {
@@ -930,6 +958,76 @@ describe('insightLogic', () => {
                     }),
                 ],
             ])
+        })
+    })
+
+    describe('PostHog AI suggestions', () => {
+        const suggestedQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
+            },
+        }
+        let vizLogic: ReturnType<typeof insightVizDataLogic.build>
+
+        const mountInsight = async (dashboardItemId: InsightShortId | 'new'): Promise<void> => {
+            const insightProps: InsightLogicProps = { dashboardItemId }
+            logic = insightLogic(insightProps)
+            logic.mount()
+            insightDataLogic(insightProps).mount()
+            vizLogic = insightVizDataLogic(insightProps)
+            vizLogic.mount()
+            // A saved insight loads asynchronously and re-syncs the query when it arrives, which
+            // would land on top of a suggestion applied before then.
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        const suggest = (): void => {
+            logic.actions.handleInsightSuggested(suggestedQuery)
+            vizLogic.actions.setQuery(suggestedQuery)
+        }
+
+        it.each([
+            ['an unsaved', 'new' as const],
+            ['a saved', Insight42],
+        ])('keeping the changes on %s insight ends the review and holds on to the query', async (_, insightId) => {
+            await mountInsight(insightId)
+            suggest()
+
+            await expectLogic(logic, () => {
+                logic.actions.onKeepSuggestedInsight()
+            }).toMatchValues({
+                previousQuery: null,
+                suggestedQuery: null,
+                query: suggestedQuery,
+            })
+        })
+
+        it('an edit made after the suggestion keeps it, so a reject cannot revert the edit', async () => {
+            await mountInsight('new')
+            suggest()
+
+            await expectLogic(logic, () => {
+                vizLogic.actions.updateQuerySource({ filterTestAccounts: true })
+            }).toMatchValues({
+                previousQuery: null,
+                suggestedQuery: null,
+            })
+        })
+
+        it('rejecting the suggestion restores the previous query and leaves it available to reapply', async () => {
+            await mountInsight('new')
+            const queryBeforeSuggestion = logic.values.query
+            suggest()
+
+            await expectLogic(logic, () => {
+                logic.actions.onRejectSuggestedInsight()
+            }).toMatchValues({
+                previousQuery: null,
+                suggestedQuery,
+                query: queryBeforeSuggestion,
+            })
         })
     })
 
@@ -972,10 +1070,7 @@ describe('insightLogic', () => {
             await expectLogic(dashboardsModel, () => {
                 dashboardsModel
                     .findMounted()
-                    ?.actions.updateDashboardInsight(
-                        { ...(logic.values.insight as QueryBasedInsightModel), deleted: false },
-                        [5]
-                    )
+                    ?.actions.updateDashboardInsight({ ...(logic.values.insight as InsightModel), deleted: false }, [5])
             }).toDispatchActions([
                 (action: any) =>
                     action.type === dashboardsModel.actionTypes.updateDashboardInsight &&
@@ -1000,7 +1095,7 @@ describe('insightLogic', () => {
         it('fetches clean insight before duplicating', async () => {
             jest.spyOn(api, 'create')
 
-            logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+            logic.actions.duplicateInsight(logic.values.insight as InsightModel, true)
             await expectLogic(logic).toFinishAllListeners()
 
             // The POST body should contain the clean insight fetched via getByShortId,
@@ -1016,7 +1111,7 @@ describe('insightLogic', () => {
             jest.spyOn(api, 'create')
 
             const insightWithBadShortId = {
-                ...(logic.values.insight as QueryBasedInsightModel),
+                ...(logic.values.insight as InsightModel),
                 short_id: '500' as InsightShortId,
                 name: 'fallback name',
             }
@@ -1033,17 +1128,61 @@ describe('insightLogic', () => {
         it('with redirectToInsight=true navigates to edit URL', async () => {
             // POST mock returns short_id: Insight12 — listen on router before dispatching
             await expectLogic(router, () => {
-                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+                logic.actions.duplicateInsight(logic.values.insight as InsightModel, true)
             }).toDispatchActions([router.actionCreators.push(urls.insightEdit(Insight12))])
         })
 
         it('with redirectToInsight=false does not navigate', async () => {
             await expectLogic(logic, () => {
-                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, false)
+                logic.actions.duplicateInsight(logic.values.insight as InsightModel, false)
             }).toFinishAllListeners()
 
             await expectLogic(router).toNotHaveDispatchedActions(['push'])
         })
+
+        it('marks the insight as duplicating until the request settles', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.duplicateInsight(logic.values.insight as InsightModel, true)
+            })
+                .toMatchValues({ insightDuplicating: true })
+                .toFinishAllListeners()
+                .toMatchValues({ insightDuplicating: false })
+        })
+
+        // Catching the rejection skips the gate `initKea` applies to loader failures, so the
+        // listener has to reapply it: a validation error is the app's own bug and stays
+        // reportable, while an access-denied 403 the AccessDenied scene already handles would
+        // file an issue sharing its stack with every other ApiError, burying real crashes.
+        it.each([
+            ['a validation error', 400, { detail: 'Insight limit reached' }, 1],
+            [
+                'a failure the app recovers from',
+                403,
+                { detail: 'You do not have permission', code: 'permission_denied' },
+                0,
+            ],
+        ])(
+            'toasts %s rather than doing nothing, and reports it only if it is worth filing',
+            async (_, status, body, timesReported) => {
+                useMocks({
+                    post: {
+                        '/api/environments/:team_id/insights/': () => [status, body],
+                    },
+                })
+                jest.spyOn(lemonToast, 'error')
+                jest.spyOn(posthog, 'captureException')
+
+                await expectLogic(logic, () => {
+                    logic.actions.duplicateInsight(logic.values.insight as InsightModel, true)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ insightDuplicating: false })
+
+                expect(lemonToast.error).toHaveBeenCalledWith(body.detail)
+                expect(posthog.captureException).toHaveBeenCalledTimes(timesReported)
+                await expectLogic(router).toNotHaveDispatchedActions(['push'])
+            }
+        )
     })
 
     describe('hasOverrides', () => {
@@ -1133,6 +1272,24 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('insightMissing', () => {
+        // A notebook cell binds a saved insight by short id. When that insight is gone, the API
+        // returns no results and the loader throws — the cell needs a flag it can turn into a
+        // "not found" screen instead of silently rendering a blank default query.
+        it('is set when the insight cannot be found', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [200, { results: [] }],
+                },
+            })
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightFailure'])
+
+            expect(logic.values.insightMissing).toBe(true)
+        })
+    })
+
     describe('editingDisabledReason', () => {
         it.each([
             ['overrides present', { filtersOverride: { date_from: '-7d' } }, 'Discard overrides to edit the insight.'],
@@ -1205,7 +1362,7 @@ describe('insightLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
             })
-                .toDispatchActions(['setInsightMetadataSuccess'])
+                .toDispatchActions([tagsModel.actionTypes.loadTags, 'setInsightMetadataSuccess'])
                 .toMatchValues({
                     savedInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
                     insightChanged: false,
@@ -1254,6 +1411,7 @@ describe('insightLogic', () => {
                 logic.actions.setInsightMetadata({ favorited: true })
             })
                 .toDispatchActions(['setInsightMetadataSuccess'])
+                .toNotHaveDispatchedActions([tagsModel.actionTypes.loadTags])
                 .toMatchValues({
                     savedInsight: partial({ favorited: true }),
                 })

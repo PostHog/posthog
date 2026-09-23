@@ -1,6 +1,6 @@
 import { DataModelingJob } from '~/types'
 
-import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
+import { computeJobDuration, jobLogsWindow, latestSuccessfulSyncAt } from './materializationJobUtils'
 
 const START = '2024-01-10T10:00:00Z'
 const START_PLUS_90S = '2024-01-10T10:01:30Z'
@@ -73,5 +73,22 @@ describe('materializationJobUtils', () => {
         ],
     ])('jobLogsWindow: %s', (_name, overrides, expectedFrom, expectedTo) => {
         expect(jobLogsWindow(makeJob(overrides), 'UTC')).toEqual({ dateFrom: expectedFrom, dateTo: expectedTo })
+    })
+
+    const LATER = '2024-01-10T12:00:00Z'
+
+    test.each<[string, Partial<DataModelingJob>[], string | null]>([
+        ['no jobs yet', [], null],
+        ['the only completed run', [{}], START_PLUS_90S],
+        ['a later failed run does not become the sync', [{ status: 'Failed', last_run_at: LATER }, {}], START_PLUS_90S],
+        [
+            'a later quality-blocked run is recorded as failed, so it does not either',
+            [{ status: 'Failed', last_run_at: LATER, error: '2 data quality checks failed.' }, {}],
+            START_PLUS_90S,
+        ],
+        ['a run still in flight does not either', [{ status: 'Running', last_run_at: LATER }, {}], START_PLUS_90S],
+        ['nothing has completed yet', [{ status: 'Failed' }, { status: 'Cancelled' }, { status: 'Skipped' }], null],
+    ])('latestSuccessfulSyncAt: %s', (_name, jobs, expected) => {
+        expect(latestSuccessfulSyncAt(jobs.map(makeJob))).toEqual(expected)
     })
 })

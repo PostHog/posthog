@@ -38,13 +38,10 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
         public_jwk.update({"kid": KID, "use": "sig", "alg": "RS256"})
         self.jwks = {"keys": [public_jwk]}
 
-        # Mirrors a real CIMD registration: the client knows itself by its metadata URL, while
-        # the client_id column holds the opaque value generated at registration.
         self.jwt_partner = OAuthApplication.objects.create(
             name="JWT Partner",
-            client_id="opaque-jwt-partner-client-id",
+            client_id=PARTNER_CLIENT_ID,
             is_cimd_client=True,
-            cimd_metadata_url=PARTNER_CLIENT_ID,
             client_secret="",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             jwks_uri=PARTNER_JWKS_URI,

@@ -1,5 +1,5 @@
 /** One turn's counts from codex's `thread/tokenUsage/updated`. */
-export interface CodexTokenCounts {
+interface CodexTokenCounts {
   inputTokens?: number;
   cachedInputTokens?: number;
   outputTokens?: number;

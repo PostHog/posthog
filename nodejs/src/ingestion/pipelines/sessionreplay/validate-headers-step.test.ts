@@ -7,11 +7,12 @@ import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
 describe('createValidateSessionReplayHeadersStep', () => {
     const step = createValidateSessionReplayHeadersStep()
 
-    it('narrows headers to the guaranteed fields and drops the rest, preserving other input', async () => {
+    it('narrows headers while preserving trusted capture time and other input', async () => {
         const step = createValidateSessionReplayHeadersStep<{ marker: string; headers: EventHeaders }>()
+        const now = new Date('2026-09-03T10:00:00.000Z')
         const input = {
             marker: 'preserved',
-            headers: createTestEventHeaders({ token: 'tok', session_id: 'sess-1', distinct_id: 'user-1' }),
+            headers: createTestEventHeaders({ token: 'tok', session_id: 'sess-1', distinct_id: 'user-1', now }),
         }
 
         const result = await step(input)
@@ -19,8 +20,7 @@ describe('createValidateSessionReplayHeadersStep', () => {
         expect(isOkResult(result)).toBe(true)
         if (isOkResult(result)) {
             expect(result.value.marker).toBe('preserved')
-            // Only the guaranteed replay headers survive — the wide EventHeaders fields are dropped.
-            expect(result.value.headers).toEqual({ token: 'tok', session_id: 'sess-1', distinct_id: 'user-1' })
+            expect(result.value.headers).toEqual({ token: 'tok', session_id: 'sess-1', distinct_id: 'user-1', now })
         }
     })
 

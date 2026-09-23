@@ -4,7 +4,7 @@ import { Message } from 'node-rdkafka'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
-import { insertRow } from '~/tests/helpers/sql'
+import { getTeamMemberUserId, insertRow, uniqueTestId } from '~/tests/helpers/sql'
 
 import { ClickHousePerson, ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
 import { CohortMembershipChange } from '../consumers/cdp-cohort-membership.consumer'
@@ -58,7 +58,7 @@ export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
 export const createIntegration = (integration: Partial<IntegrationType>) => {
     const item: IntegrationType = {
         team_id: 1,
-        id: integration.id ?? 1,
+        id: integration.id ?? uniqueTestId(),
         kind: integration.kind ?? 'slack',
         config: {},
         sensitive_config: {},
@@ -136,6 +136,7 @@ export const insertHogFunction = async (
     hogFunction: Partial<HogFunctionType> = {}
 ): Promise<HogFunctionType> => {
     // This is only used for testing so we need to override some values
+    const createdById = await getTeamMemberUserId(postgres, team_id)
 
     const res = await insertRow(postgres, 'posthog_hogfunction', {
         ...createHogFunction({
@@ -145,7 +146,7 @@ export const insertHogFunction = async (
         description: '',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        created_by_id: 1001,
+        created_by_id: createdById,
         deleted: false,
     })
     return res
@@ -183,27 +184,33 @@ export const insertHogFunctionTemplate = async (
         template.bytecode = await compileHog(template.code)
     }
 
-    const res = await insertRow(postgres, 'posthog_hogfunctiontemplate', {
-        id: randomUUID(),
-        template_id: template.id,
-        sha: 'sha',
-        name: template.name,
-        description: template.description,
-        code: template.code,
-        code_language: template.code_language,
-        status: template.status,
-        free: template.free,
-        category: template.category,
-        icon_url: template.icon_url,
-        filters: template.filters,
-        masking: template.masking,
-        mappings: template.mappings,
-        bytecode: template.bytecode,
-        inputs_schema: template.inputs_schema,
-        type: template.type,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-    })
+    const res = await insertRow(
+        postgres,
+        'posthog_hogfunctiontemplate',
+        {
+            id: randomUUID(),
+            template_id: template.id,
+            sha: 'sha',
+            name: template.name,
+            description: template.description,
+            code: template.code,
+            code_language: template.code_language,
+            status: template.status,
+            free: template.free,
+            category: template.category,
+            icon_url: template.icon_url,
+            filters: template.filters,
+            masking: template.masking,
+            mappings: template.mappings,
+            bytecode: template.bytecode,
+            inputs_schema: template.inputs_schema,
+            type: template.type,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        },
+        // Templates are global, so a suite that no longer wipes the database re-inserts its own.
+        `ON CONFLICT (template_id, sha) DO UPDATE SET updated_at = EXCLUDED.updated_at`
+    )
     return res
 }
 
@@ -212,6 +219,7 @@ export const insertIntegration = async (
     team_id: Team['id'],
     integration: Partial<IntegrationType> = {}
 ): Promise<IntegrationType> => {
+    const createdById = await getTeamMemberUserId(postgres, team_id)
     const res = await insertRow(postgres, 'posthog_integration', {
         ...createIntegration({
             ...integration,
@@ -219,7 +227,7 @@ export const insertIntegration = async (
         }),
         errors: '',
         created_at: new Date().toISOString(),
-        created_by_id: 1001,
+        created_by_id: createdById,
         repository_cache: JSON.stringify([]),
     })
     return res

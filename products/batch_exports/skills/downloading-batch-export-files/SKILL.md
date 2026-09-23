@@ -33,7 +33,8 @@ Ask a short clarifying question if the user did not specify the required inputs:
   Required for `events`, `persons`, and `sessions`, and not supported for `hogql`
 - `file.format`: `Parquet` or `JSONLines`; prefer `Parquet` for compact analytics exports and `JSONLines` for line-oriented text processing
 - `file.compression`: optional, one of `zstd`, `gzip`, `brotli`, `lz4`, or `snappy`. If `JSONLines` was chosen as format, only `gzip` and `brotli` are supported.
-- `file.max_size_mb`: optional maximum part size in MB; set this when the user wants multiple smaller files instead of a single (potentially large) file.
+- `file.max_size_mb`: part size in MiB, 1024 by default. A part can go a little over this size.
+  Lower it when the user wants smaller parts, raise it for fewer and bigger ones, or set it to `null` to write a single file of any size.
 
 For `events`, `include` and `exclude` are optional event-name filters.
 Use them only when the user asks for specific events or wants to omit specific events.
@@ -93,6 +94,9 @@ Status handling:
 When `Completed`, the `files` array contains file UUIDs.
 For single-file exports it usually contains one UUID.
 For split exports, download every UUID unless the user asked for a specific part.
+
+A `Completed` response also carries `records_completed`, the number of rows the run exported.
+Report it to the user, because the count is otherwise only visible by opening every file.
 
 ### 4. Optionally, cancel a running export
 

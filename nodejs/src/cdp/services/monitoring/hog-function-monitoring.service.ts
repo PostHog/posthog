@@ -72,6 +72,12 @@ export class HogFunctionMonitoringService {
         this.appMetricsAggregator = new AppMetricsAggregator(outputs)
     }
 
+    // Required by ResultSink. This sink holds nothing of its own: it writes through the shared
+    // Kafka outputs, which the server disconnects separately on shutdown.
+    async stop(): Promise<void> {
+        return Promise.resolve()
+    }
+
     async flush() {
         const messages = [...this.queuedLogMessages]
         this.queuedLogMessages = []

@@ -53,7 +53,7 @@ class DataModelingEdgeManager(models.Manager):
 class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     objects = DataModelingEdgeManager()
 
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, editable=False)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, editable=False, related_name="+")
     team_id: int
 
     # the source node of the edge (i.e. the node this edge is pointed away from)

@@ -3,6 +3,7 @@ import { toJsonSchemaCompat } from '@modelcontextprotocol/sdk/server/zod-json-sc
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScopes } from '@/lib/api'
+import { mergeToolFactories } from '@/tools/mergeToolFactories'
 import {
     type ToolDefinition,
     type ToolFilterOptions,
@@ -12,7 +13,13 @@ import {
 import type { Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
 interface PreBuiltTool {
-    base: ToolBase<ZodObjectAny>
+    /**
+     * Builds a fresh tool object. Generated tools construct their zod schema
+     * inside the factory, so nothing holds a schema between calls.
+     */
+    build: () => ToolBase<ZodObjectAny>
+    meta: ToolBase<ZodObjectAny>['_meta']
+    rawInputSchema: ToolBase<ZodObjectAny>['rawInputSchema']
     definition: ToolDefinition | undefined
 }
 
@@ -68,7 +75,10 @@ function flattenTopLevelUnion(variants: JsonSchema[]): JsonSchema | null {
  * so what `tools/list` advertises cannot drift from what the executor validates.
  */
 export function toMcpInputSchema(schema: ZodObjectAny): McpTool['inputSchema'] {
-    let jsonSchema = toJsonSchemaCompat(schema, { strictUnions: true }) as Record<string, unknown>
+    // Spread drops the non-enumerable `~standard` handle zod attaches to its
+    // output. Its `validate` closure points at the zod instance, so keeping it
+    // would pin every built schema for the life of the catalog.
+    let jsonSchema = { ...(toJsonSchemaCompat(schema, { strictUnions: true }) as Record<string, unknown>) }
     delete jsonSchema['$schema']
     delete jsonSchema['additionalProperties']
     // MCP requires inputSchema.type === 'object'. Top-level discriminated unions
@@ -104,14 +114,20 @@ export class ToolCatalog {
             import('@/tools/generated'),
         ])
 
-        const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+        // Hand-written TOOL_MAP wins on collision (e.g. update-feature-flag group merge).
+        const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = mergeToolFactories({
+            generated: GENERATED_TOOL_MAP,
+            handwritten: TOOL_MAP,
+        })
 
         const defs = getToolDefinitions()
 
         for (const [name, factory] of Object.entries(allFactories)) {
             const base = factory()
             this._preBuilt.set(name, {
-                base,
+                build: factory,
+                meta: base._meta,
+                rawInputSchema: base.rawInputSchema,
                 definition: defs[name],
             })
         }
@@ -136,12 +152,12 @@ export class ToolCatalog {
 
             let jsonSchema: McpTool['inputSchema']
             try {
-                jsonSchema = toMcpInputSchema(preBuilt.base.schema)
+                jsonSchema = toMcpInputSchema(preBuilt.build().schema)
             } catch {
                 jsonSchema = EMPTY_OBJECT_JSON_SCHEMA
             }
 
-            let meta = preBuilt.base._meta as Record<string, unknown> | undefined
+            let meta = preBuilt.meta as Record<string, unknown> | undefined
             if (meta?.ui && typeof meta.ui === 'object' && 'resourceUri' in meta.ui && !meta[RESOURCE_URI_META_KEY]) {
                 meta = {
                     ...meta,
@@ -189,8 +205,6 @@ export class ToolCatalog {
             if (!preBuilt) {
                 continue
             }
-            const { base } = preBuilt
-
             const definition = preBuilt.definition
             if (!definition) {
                 continue
@@ -201,7 +215,14 @@ export class ToolCatalog {
             }
 
             tools.push({
-                ...base,
+                name,
+                // Built on access: listing tools must not build a schema per tool.
+                get schema() {
+                    return preBuilt.build().schema
+                },
+                handler: (context, params) => preBuilt.build().handler(context, params),
+                ...(preBuilt.rawInputSchema ? { rawInputSchema: preBuilt.rawInputSchema } : {}),
+                ...(preBuilt.meta ? { _meta: preBuilt.meta } : {}),
                 title: definition.title,
                 description: definition.description,
                 scopes: definition.required_scopes ?? [],

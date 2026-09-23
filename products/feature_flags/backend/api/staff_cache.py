@@ -7,6 +7,7 @@ from typing import Any, Optional
 from django.conf import settings
 from django.core.cache import caches
 from django.core.cache.backends.base import BaseCache
+from django.db import models
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -56,8 +57,22 @@ WARM_RUN_CANCEL_CACHE_KEY = "feature_flags/warm_run/cancel"
 WARM_RUN_HEARTBEAT_STALE_SECONDS = 120
 WARM_RUN_CANCEL_TTL_SECONDS = 3600
 
-WARM_RUN_STATES = ["running", "completed", "cancelled"]
-WARM_RUN_SCOPES = ["all_teams", "teams_with_flags"]
+
+class FlagsWarmRunState(models.TextChoices):
+    RUNNING = "running", "running"
+    COMPLETED = "completed", "completed"
+    CANCELLED = "cancelled", "cancelled"
+
+
+WARM_RUN_STATES = list(FlagsWarmRunState.values)
+
+
+class FlagsWarmRunScope(models.TextChoices):
+    ALL_TEAMS = "all_teams", "all_teams"
+    TEAMS_WITH_FLAGS = "teams_with_flags", "teams_with_flags"
+
+
+WARM_RUN_SCOPES = list(FlagsWarmRunScope.values)
 
 # Reading and mutating currently share the same choice set.
 READABLE_CACHE_CHOICES = CACHE_CHOICES
@@ -76,9 +91,14 @@ class StaffCacheStatusQuerySerializer(serializers.Serializer):
     )
 
 
+class StaffCacheSource(models.TextChoices):
+    REDIS = "redis", "redis"
+    MISS = "miss", "miss"
+
+
 def _cache_source_field() -> serializers.ChoiceField:
     return serializers.ChoiceField(
-        choices=["redis", "miss"],
+        choices=StaffCacheSource.choices,
         help_text="'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.",
     )
 

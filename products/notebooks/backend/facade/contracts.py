@@ -18,6 +18,41 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class NotebookRunBusy(Exception):
+    """Raised when the notebook already has a cell running.
+
+    Surfaced as 409, not 429. It is a conflict with the notebook's state rather than a rate,
+    and the MCP client rewrites every 429 into its own rate-limit error after retrying with
+    backoff — so a 429 would cost an agent seconds of pointless waiting and then hide the one
+    sentence telling it what to do.
+    """
+
+
+class TeamRunCapacityFull(Exception):
+    """Raised when the project already has as many notebook cells in flight as it may.
+
+    A rate rather than a state conflict, so this one is a 429: retrying later genuinely helps,
+    which is exactly what the MCP client's backoff does.
+    """
+
+
+class NotebookCellLimitExceeded(Exception):
+    """Raised when a write would grow a notebook past its cell ceiling.
+
+    Lives here rather than beside the validator because it crosses the product boundary:
+    Max writes notebooks through the facade, and its tool has to catch this to tell the
+    model the notebook is full instead of retrying the save.
+    """
+
+
+class NotebookContentNotConvertible(Exception):
+    """Raised when a create sends rich-text content that the markdown converter cannot read.
+
+    Lives here because it crosses the product boundary: account notebooks are created through
+    the facade, and that API has to turn this into a 400 on `content` instead of a 500.
+    """
+
+
 @dataclass(frozen=True)
 class NotebookData:
     """A notebook's persisted state, as other products read it."""

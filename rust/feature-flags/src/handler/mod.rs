@@ -272,6 +272,7 @@ async fn process_request_inner(
                         // Interpret naive datetime filter values in the team timezone so flag
                         // evaluation matches HogQL/ClickHouse cohort membership.
                         team.parsed_timezone(),
+                        team.property_matching_version.uses_explicit_matching(),
                         distinct_id.clone(),
                         device_id.clone(),
                         filtered_flags.clone(),

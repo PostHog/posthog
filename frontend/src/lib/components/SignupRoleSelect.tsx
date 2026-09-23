@@ -31,7 +31,18 @@ const roleOptions = [...shuffle(ROLE_OPTIONS), OTHER_ROLE_OPTION]
 export default function SignupRoleSelect({ className }: { className?: string }): JSX.Element {
     return (
         <LemonField name="role_at_organization" label="What is your role?" className={className}>
-            <LemonSelect fullWidth data-attr="signup-role-at-organization" options={roleOptions} />
+            {({ value, onChange }) => (
+                <LemonSelect
+                    fullWidth
+                    data-attr="signup-role-at-organization"
+                    options={roleOptions}
+                    // The signup forms default this to an empty string, which LemonSelect treats as a
+                    // selected value and renders as a blank button rather than the placeholder
+                    value={value || undefined}
+                    onChange={onChange}
+                    placeholder="Select your role"
+                />
+            )}
         </LemonField>
     )
 }

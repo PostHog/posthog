@@ -1,10 +1,8 @@
-import {
-  builderHog,
-  explorerHog,
-  happyHog,
-  hogzillaHog,
-  loopHog,
-} from "@posthog/ui/assets/hedgehogs";
+import businessEvolutionHog from "@posthog/brand/hoggies/png/business-evolution";
+import codeBubbleHog from "@posthog/brand/hoggies/png/code-bubble";
+import hogzillaHog from "@posthog/brand/hoggies/png/driving-hogzilla";
+import organizedHog from "@posthog/brand/hoggies/png/organized";
+import researchHog from "@posthog/brand/hoggies/png/research";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { QuickAskEvent } from "../service/quick-ask";
@@ -13,8 +11,13 @@ import { quickAskHost } from "./host-bridge";
 
 type Phase = "idle" | "thinking" | "streaming" | "answered" | "error";
 
-/** Double-clicking the hedgehog cycles through the crew. */
-const HEDGEHOGS = [happyHog, builderHog, explorerHog, loopHog];
+/** Shaking the panel cycles through the crew. */
+const HEDGEHOGS = [
+  businessEvolutionHog,
+  organizedHog,
+  researchHog,
+  codeBubbleHog,
+];
 
 /** Sustained shaking summons (and later banishes) hogzilla. */
 const HOGZILLA_SHAKES = 5;

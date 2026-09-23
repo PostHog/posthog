@@ -7,9 +7,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.clickhouse.client import sync_execute
-
-from products.metrics.backend.tests._seeder import seed_metric
+from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 
 class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
@@ -19,10 +17,7 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        # metric_attributes is fed by MVs on metrics1, so truncating metrics1
-        # alone (as sibling test classes do) leaves attribute rows behind.
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
-        sync_execute("TRUNCATE TABLE IF EXISTS metric_attributes")
+        truncate_metrics_tables()
 
         cls.now = timezone.now().replace(second=0, microsecond=0)
         recent = [(cls.now - dt.timedelta(minutes=m), 1.0) for m in (2, 3, 4)]
@@ -32,7 +27,7 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
             service_name="checkout",
             points=recent,
             labels={"env": "prod", "region": "us"},
-            resource_labels={"k8s.pod.name": "pod-1"},
+            resource_labels={"k8s.pod.name": "pod-1", "region": "us"},
         )
         seed_metric(
             team_id=cls.team.id,
@@ -57,14 +52,12 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         response = self._get("attributes")
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
-        # service_name is synthesized (it lives in its own column, never as an
-        # attribute row); the rest order by total count desc, then name asc.
-        assert [r["name"] for r in body["results"]] == [
-            "service_name",
-            "env",
-            "k8s.pod.name",
-            "region",
-            "stale_key",
+        assert body["results"] == [
+            {"name": "env", "value_count": 2},
+            {"name": "service_name", "value_count": 2},
+            {"name": "k8s.pod.name", "value_count": 1},
+            {"name": "region", "value_count": 1},
+            {"name": "stale_key", "value_count": 1},
         ]
         assert body["count"] == 5
 
@@ -72,6 +65,8 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         [
             ("substring_of_attribute_key", "env", ["env"]),
             ("substring_of_synthetic_service_name", "serv", ["service_name"]),
+            ("dotted_service_name", "service.name", ["service_name"]),
+            ("value_count_order", "e", ["env", "service_name", "k8s.pod.name", "region", "stale_key"]),
         ]
     )
     def test_attributes_search_filters_keys(self, _name: str, search: str, expected: list[str]) -> None:
@@ -79,12 +74,37 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == expected
 
-    def test_attributes_window_excludes_out_of_range_buckets(self):
-        response = self._get("attributes", {"dateFrom": (self.now - dt.timedelta(hours=1)).isoformat()})
+    @parameterized.expand([("recent", 0), ("historical", 10)])
+    def test_attributes_use_recent_metadata_without_enforcing_end_time(self, _name: str, end_minutes_ago: int):
+        response = self._get(
+            "attributes",
+            {
+                "dateFrom": (self.now - dt.timedelta(hours=1)).isoformat(),
+                "dateTo": (self.now - dt.timedelta(minutes=end_minutes_ago)).isoformat(),
+            },
+        )
         assert response.status_code == status.HTTP_200_OK
-        names = [r["name"] for r in response.json()["results"]]
-        assert "stale_key" not in names
-        assert "env" in names
+        assert response.json()["results"] == [
+            {"name": "env", "value_count": 2},
+            {"name": "service_name", "value_count": 2},
+            {"name": "k8s.pod.name", "value_count": 1},
+            {"name": "region", "value_count": 1},
+        ]
+
+    def test_attributes_metric_name_limits_keys_to_that_metric(self):
+        response = self._get("attributes", {"metricName": "http_requests"})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == [
+            {"name": "env", "value_count": 2},
+            {"name": "service_name", "value_count": 2},
+            {"name": "k8s.pod.name", "value_count": 1},
+            {"name": "region", "value_count": 1},
+        ]
+
+    def test_attributes_without_recent_series_return_zero_service_values(self):
+        response = self._get("attributes", {"metricName": "missing_metric"})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == [{"name": "service_name", "value_count": 0}]
 
     def test_attribute_values_returns_values_with_aggregated_counts(self):
         response = self._get("attribute_values", {"key": "env"})
@@ -117,3 +137,37 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
     def test_bad_params_are_400(self, _name: str, action: str, params: dict) -> None:
         response = self._get(action, params)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestMetricAttributeDistinctValuesAPI(ClickhouseTestMixin, APIBaseTest):
+    def test_attributes_count_distinct_values_with_grouping_scope_precedence(self):
+        truncate_metrics_tables()
+        now = timezone.now().replace(second=0, microsecond=0)
+        for index, (labels, resource_labels) in enumerate(
+            [
+                ({"env": "prod", "region": "ignored-a"}, {"region": "us"}),
+                ({"env": "prod", "region": "ignored-b"}, {"region": "us"}),
+                ({"env": "prod", "region": "eu"}, {"region": ""}),
+                ({"env": "prod", "region": ""}, {}),
+            ]
+        ):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="distinct_values",
+                service_name="checkout",
+                points=[(now - dt.timedelta(minutes=2), 1.0)],
+                labels={**labels, "instance": str(index)},
+                resource_labels=resource_labels,
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/metrics/attributes/", {"metricName": "distinct_values"}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == [
+            {"name": "instance", "value_count": 4},
+            {"name": "region", "value_count": 3},
+            {"name": "env", "value_count": 1},
+            {"name": "service_name", "value_count": 1},
+        ]

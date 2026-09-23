@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Smoke-test the metrics ingest chain by POSTing a synthetic OTLP payload to
-# capture-logs. Same shape as nodejs/src/logs-ingestion/sampling-seed-services-curl.sh.
+# capture-apm-metrics. Same shape as nodejs/src/logs-ingestion/sampling-seed-services-curl.sh.
 #
 # Usage:
 #   # Local dev (default — same path logs scripts use):
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 # Default to the same local-OTel-collector endpoint the logs seed scripts use.
-# `otel-collector-config.dev.yaml` routes /v1/metrics to capture-logs:4320 internally.
+# `otel-collector-config.dev.yaml` routes /v1/metrics to capture-apm-metrics:4321 internally.
 ENDPOINT="${ENDPOINT:-http://localhost:4318/v1/metrics}"
 TOKEN="${TOKEN:-}"
 
@@ -114,7 +114,7 @@ EOF
         return 1
     fi
     if [ "$http" = "000" ] || [ "$http" = "" ]; then
-        echo "  ⚠️  Could not reach $ENDPOINT — is your local OTel collector / capture-logs running? (\`hogli start\`)" >&2
+        echo "  ⚠️  Could not reach $ENDPOINT — is your local OTel collector / capture-apm-metrics running? (\`hogli start\`)" >&2
         return 1
     fi
     if [ "$http" != "200" ] && [ "$http" != "202" ]; then

@@ -26,6 +26,7 @@ import type {
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
     IntegrationsListParams,
+    IntegrationsUsersRetrieveParams,
     JiraProjectsResponseApi,
     LinearTeamsResponseApi,
     OrganizationIntegrationApi,
@@ -41,6 +42,7 @@ import type {
     RoleExternalReferencesLookupRetrieveParams,
     RoleLookupResponseApi,
     SlackChannelsResponseApi,
+    SlackUsersResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -619,6 +621,38 @@ export const integrationsTwilioPhoneNumbersRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsTwilioPhoneNumbersRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsUsersRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsUsersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/users/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/users/`
+}
+
+export const integrationsUsersRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsUsersRetrieveParams,
+    options?: RequestInit
+): Promise<SlackUsersResponseApi> => {
+    return apiMutator<SlackUsersResponseApi>(getIntegrationsUsersRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

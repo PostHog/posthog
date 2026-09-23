@@ -4,12 +4,10 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from posthog.clickhouse.client import sync_execute
-
 from products.metrics.backend import diagnostics
 from products.metrics.backend.diagnostics import decompose_bucket
 from products.metrics.backend.fundamentals import SpatialReducer, TemporalReducer
-from products.metrics.backend.tests._seeder import seed_metric
+from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 BUCKET = dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 
@@ -21,7 +19,7 @@ class TestBucketDecomposition(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def _seed_gauge_pair(self) -> None:
         # Two pods reporting the same gauge, three scrapes each inside one bucket.
@@ -140,6 +138,30 @@ class TestBucketDecomposition(ClickhouseTestMixin, APIBaseTest):
         # +20, then a restart whose post-reset reading is itself the increase.
         assert decomposition.reference_value == 25.0
 
+    def test_lone_cumulative_sample_has_no_increase_on_either_side(self) -> None:
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="bytes_total",
+            metric_type="sum",
+            aggregation_temporality="cumulative",
+            is_monotonic=True,
+            points=[(BUCKET, 100.0)],
+        )
+
+        decomposition = decompose_bucket(
+            team=self.team,
+            metric_name="bytes_total",
+            aggregation="increase",
+            bucket_start=BUCKET,
+            interval="minute_5",
+        )
+
+        # The sample's history is unknown, so both the reference and the chart
+        # return no value — a 0 on either side would fabricate a flat counter.
+        assert decomposition.reference_value is None
+        assert decomposition.actual_value is None
+        assert decomposition.agrees is True
+
     def test_empty_bucket_reports_no_series_rather_than_zero(self) -> None:
         decomposition = decompose_bucket(
             team=self.team,
@@ -182,7 +204,7 @@ class TestBucketDecomposition(ClickhouseTestMixin, APIBaseTest):
 class TestExplainEndpoint(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def test_explain_returns_the_series_behind_a_point(self) -> None:
         seed_metric(
@@ -234,7 +256,7 @@ class TestExplainEndpoint(ClickhouseTestMixin, APIBaseTest):
 class TestCounterBoundary(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         # The predecessor sample sits in the previous bucket; the chart's window
         # function diffs across that edge, so the check has to as well.
         seed_metric(
@@ -312,7 +334,7 @@ class TestCounterBoundary(ClickhouseTestMixin, APIBaseTest):
 class TestTruncatedBucket(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def test_truncated_read_reports_not_comparable_instead_of_a_verdict(self) -> None:
         seed_metric(

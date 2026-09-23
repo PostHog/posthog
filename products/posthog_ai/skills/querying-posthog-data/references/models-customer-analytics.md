@@ -17,7 +17,7 @@ Column | Type | Nullable | Description
 `team_id` | integer | NOT NULL | Team this account belongs to
 `name` | varchar | NOT NULL | Display name of the account
 `external_id` | varchar | NULL | Identifier of the account in the source system
-`properties` | json | NOT NULL | Account properties: role assignments `csm`, `account_executive`, `account_owner` (each `{id, email}` of a PostHog user) plus external system identifiers
+`properties` | json | NOT NULL | Account properties for email matching (`email_domains`, `known_emails`) and external system identifiers. Legacy role keys may remain only until backfill and are not authoritative
 `stripe_customer_id` | varchar | NULL | Extracted from `properties`
 `hubspot_deal_id` | varchar | NULL | Extracted from `properties`
 `billing_id` | varchar | NULL | Extracted from `properties`
@@ -27,7 +27,20 @@ Column | Type | Nullable | Description
 `created_at` | timestamptz | NOT NULL | When the account was created
 `updated_at` | timestamptz | NULL | When the account was last updated
 
-Lazy-joined fields: `tags` (tag names), `custom_properties` (see below), `relationships` (active assignments keyed by definition id), `notebooks`.
+Lazy-joined fields:
+
+- `tags.names`: tag names.
+- `notebooks.count`: number of linked internal notes.
+- `custom_properties.values`: current values keyed by immutable definition ID.
+- `custom_properties_history.values`: numeric value history keyed by immutable definition ID.
+- `relationships.values`: active user IDs keyed by immutable relationship-definition ID.
+- `meetings`: meeting count, latest start time, and the newest 10 meeting summaries.
+- `slack_summaries`: summary count, latest generation time, and the newest 10 Slack summaries.
+- `feature_requests`: active request count, latest update time, and the newest 10 linked requests.
+- `support_tickets`: ticket count, latest message time, and the newest 10 linked tickets. Requires ticket access.
+- `email_threads`: thread count, latest message time, and the newest 10 linked email threads. Requires ticket access.
+
+The `recent` fields are JSON arrays. They hold at most 10 records, newest first. Use the top-level tables when you need complete history.
 
 ## Account relationships (`system.account_relationship_definitions`, `system.account_relationships`)
 
@@ -61,7 +74,8 @@ Column | Type | Nullable | Description
 ### Important notes
 
 - Active assignments are `ended_at IS NULL`; ended rows are kept as history.
-- The role keys in `system.accounts.properties` (`csm`, `account_executive`, `account_owner`) mirror the active assignments and include the user's email; the relationships table has only `user_id`.
+- Do not read `csm`, `account_executive`, or `account_owner` from `system.accounts.properties`. These keys are retired, and the relationship backfill removes them. Use `system.account_relationships` for ownership.
+- `system.account_relationships` exposes `user_id`, but the customer analytics HogQL system tables do not expose a current user email field. Use an account API when current organization member details are required.
 
 ## Feature requests
 
@@ -215,7 +229,7 @@ There is no standalone values table. An account's current value for a definition
 accounts.custom_properties.values.`<definition_id>`
 ```
 
-The `<definition_id>` is a `system.custom_property_definitions.id` (backtick-quoted, since it is a UUID). Only the current value is returned — superseded (soft-deleted) values are excluded — and it is team-isolated via the accounts row.
+The `<definition_id>` is a `system.custom_property_definitions.id` (backtick-quoted, since it is a UUID). Only the current value is returned. Superseded values are excluded. The immutable ID keeps saved queries working when a property name changes.
 
 ## Common query patterns
 
@@ -226,16 +240,12 @@ SELECT a.name, d.name AS relationship, r.user_id, r.started_at
 FROM system.account_relationships r
 JOIN system.account_relationship_definitions d ON d.id = r.definition_id
 JOIN system.accounts a ON a.id = r.account_id
-WHERE a.name ILIKE '%acme%' AND r.ended_at IS NULL
+WHERE a.name ILIKE '%acme%'
+  AND d.name = 'CSM'
+  AND r.ended_at IS NULL
 ```
 
-Shortcut when the email is enough — the role keys on `properties` mirror active assignments:
-
-```sql
-SELECT name, properties.csm.email AS csm_email
-FROM system.accounts
-WHERE name ILIKE '%acme%'
-```
+Do not use `properties.csm.email` as an email shortcut. The role keys in account properties are retired and are stripped by `backfill_account_relationships`. HogQL relationship tables return `user_id`; use an account API when current organization member details are required.
 
 **All accounts a user holds a relationship on:**
 

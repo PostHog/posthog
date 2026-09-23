@@ -6,13 +6,14 @@ import type {
 } from "@posthog/core/comments/anchors";
 import {
   Button,
-  Spinner,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
 import { isAllowedImageMimeType } from "@posthog/shared";
 import type { UserBasic } from "@posthog/shared/domain-types";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import type {
   Dispatch,
   ReactElement,
@@ -57,15 +58,12 @@ function GenericArtifactHeader({
   actions?: ReactNode;
 }): ReactElement {
   return (
-    <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-border border-b px-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
-          {name}
-        </span>
-        {versionNav}
-      </div>
-      {actions}
-    </header>
+    <ChromeBar inset="even" actions={actions}>
+      <span className="truncate font-[var(--code-font-family)] text-[13px] text-muted-foreground">
+        {name}
+      </span>
+      {versionNav}
+    </ChromeBar>
   );
 }
 
@@ -221,11 +219,7 @@ export function ArtifactPreviewContent({
 
   if (!previewData) return <ArtifactPreviewError />;
   if (previewData instanceof Blob && !previewUrl) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState />;
   }
   if (!previewUrl) return <ArtifactPreviewError />;
 

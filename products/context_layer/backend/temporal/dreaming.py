@@ -32,13 +32,15 @@ from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, MCP_READ_SCOPES
 
+from products.context_layer.backend.dreams import DREAM_AI_STAGE
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.context_layer.backend.models import ContextLayerConfig
 
 logger = structlog.get_logger(__name__)
 
-DISPATCH_CAP_PER_TICK = 200
+DISPATCH_CAP_PER_TICK = 1000
 # Dispatch failures, not run failures: a lane pauses when we cannot even start
 # its nightly run several nights in a row, and a human unpauses it.
 FAILURE_STREAK_PAUSE_THRESHOLD = 3
@@ -191,21 +193,18 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
         previous_dream_started_at = target.config.last_dream_started_at
         await create_task_and_trigger(
             _build_dream_prompt(previous_dream_started_at),
-            # Read-only MCP surface: the dream gathers from reads and lands its
-            # branch through the commits endpoint, which accepts the run token's
-            # task:write + internal_run:read pair — it never needs user-facing writes.
-            # ACP carries that MCP surface and the publish environment into tool shells.
             CustomPromptSandboxContext(
                 team_id=target.team_id,
                 user_id=target.user_id,
-                posthog_mcp_scopes="read_only",
+                posthog_mcp_scopes=[*MCP_READ_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
                 runtime="acp",
                 runtime_adapter="codex",
                 model="gpt-5.6-sol",
                 reasoning_effort="high",
-                initial_permission_mode="bypassPermissions",
+                initial_permission_mode="full-access",
             ),
             step_name="context-layer-dream",
+            ai_stage=DREAM_AI_STAGE,
             internal=True,
             workflow_id_prefix="context-layer-dream",
         )
@@ -232,7 +231,11 @@ def _build_dream_prompt(since: dt.datetime | None) -> str:
     """The activity window this dream should review, then the canonical skills:
     synthesis first, then the bounded consolidation pass on the same branch."""
     if since is None:
-        preamble = "This is the first dream: review the last 7 days of organizational activity."
+        preamble = (
+            "This is the first dream: review the last 7 days of organizational activity. "
+            "Treat this as a seed run: include public Space pages that still have no substantive content, "
+            "and fill them only when their channels have qualifying activity in the seed window."
+        )
     else:
         since_utc = since.astimezone(dt.UTC)
         recovery_cutoff = since_utc - COMPLETED_TASK_RECOVERY_WINDOW

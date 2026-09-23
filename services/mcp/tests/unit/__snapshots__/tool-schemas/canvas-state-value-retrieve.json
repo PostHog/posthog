@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this canvas.",
+            "type": "string"
+        },
+        "key": {
+            "description": "Exact key to read.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+        },
+        "limit": {
+            "default": 12000,
+            "description": "Maximum JSON characters in this response.",
+            "maximum": 12000,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Character offset from next_offset.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "revision": {
+            "description": "Revision from the first chunk. Required when offset is greater than zero.",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+        },
+        "scope": {
+            "description": "Scope of the value to read.\n\n* `user` - user\n* `shared` - shared",
+            "enum": ["user", "shared"],
+            "type": "string"
+        }
+    },
+    "required": ["id", "key", "scope"],
+    "type": "object"
+}

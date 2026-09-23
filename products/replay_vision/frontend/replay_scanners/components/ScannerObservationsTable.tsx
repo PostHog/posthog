@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
-import { IconCopy, IconEye, IconPlay, IconRefresh, IconX } from '@posthog/icons'
+import { IconCopy, IconEye, IconPlay, IconRefresh, IconSearch, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -16,8 +17,11 @@ import { FilterPill } from '../../components/FilterPill'
 import { NumericRangeFilterPill } from '../../components/NumericRangeFilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
+import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
+import { markSimilarSearchIntent, searchTabUrl, similarSearchUrl } from '../../search/observationQueries'
+import { shortBackfillId } from '../../utils/backfills'
 import {
     OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
@@ -26,7 +30,6 @@ import {
     replayScannerLogic,
 } from '../replayScannerLogic'
 import { OBSERVATION_TRIGGER_TAG } from '../types'
-import { shortBackfillId } from './ScannerBackfillsTab'
 
 const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
@@ -83,6 +86,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
     const logic = replayScannerLogic({ id: scannerId })
     const {
         observations,
+        observationsActive,
         observationsLoading,
         hasObservationsInFlight,
         observationsPage,
@@ -108,6 +112,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         copyingAllObservations,
     } = useValues(logic)
     const {
+        setObservationsActive,
         refreshObservations,
         retryObservation,
         setObservationsPage,
@@ -123,22 +128,48 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         clearObservationFilters,
         copyAllObservations,
     } = useActions(logic)
+    useEffect(() => {
+        setObservationsActive(true)
+        return () => setObservationsActive(false)
+    }, [setObservationsActive])
     const scannerType = scanner?.scanner_type
     const tagFilterOptions = availableTags.map((tag) => ({ value: tag, label: tag }))
     const scoreScale = scanner?.scanner_type === 'scorer' ? scanner.scanner_config.scale : undefined
 
     const columns: LemonTableColumns<ReplayObservationApi> = [
         {
+            title: '',
+            key: 'thumbnail',
+            width: 96,
+            render: (_, obs) => (
+                <Link
+                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
+                    aria-label={`Open the observation for session ${obs.session_id}`}
+                >
+                    <ObservationThumbnail observation={obs} className="w-20" />
+                </Link>
+            ),
+        },
+        {
             title: 'Session',
             key: 'session',
             width: 300,
             render: (_, obs) => (
-                <Link
-                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
-                    className="font-mono text-xs text-primary truncate block"
-                >
-                    {obs.session_id}
-                </Link>
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className="flex w-2 shrink-0">
+                        {!obs.viewed && (
+                            <Tooltip title="You haven't opened this observation yet.">
+                                <span className="size-2 rounded-full bg-danger" />
+                            </Tooltip>
+                        )}
+                    </span>
+                    <Link
+                        to={observationDetailUrl(obs.id, observationDetailLinkParams)}
+                        className="font-mono text-xs text-primary truncate block"
+                    >
+                        {obs.session_id}
+                    </Link>
+                </div>
             ),
         },
         {
@@ -223,18 +254,35 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             title: '',
             key: 'actions',
             width: 1,
-            render: (_, obs) => (
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    icon={<IconEye />}
-                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
-                    className="whitespace-nowrap"
-                    data-attr="vision-observation-view-details"
-                >
-                    View details
-                </LemonButton>
-            ),
+            render: (_, obs) => {
+                const similarUrl = similarSearchUrl(obs)
+                return (
+                    <div className="flex items-center gap-1">
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconEye />}
+                            to={observationDetailUrl(obs.id, observationDetailLinkParams)}
+                            className="whitespace-nowrap"
+                            data-attr="vision-observation-view-details"
+                        >
+                            View details
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconSearch />}
+                            to={similarUrl ?? undefined}
+                            onClick={() => markSimilarSearchIntent(obs)}
+                            disabledReason={similarUrl ? undefined : 'This observation has no text to search with'}
+                            tooltip="Find similar observations across scanners"
+                            // A `to` renders a Link, which skips LemonButton's tooltip-to-aria-label fallback.
+                            aria-label="Find similar observations across scanners"
+                            data-attr="vision-observation-find-similar"
+                        />
+                    </div>
+                )
+            },
         },
     ]
 
@@ -251,6 +299,15 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     · {observationStats.inFlight.toLocaleString()} in flight
                 </span>
                 <div className="ml-auto flex flex-wrap items-center gap-3 xl:flex-nowrap">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconSearch />}
+                        to={searchTabUrl({ scanner: scannerId })}
+                        data-attr="vision-observations-search"
+                    >
+                        Search observations
+                    </LemonButton>
                     <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
                             <>
@@ -376,7 +433,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             <LemonTable
                 columns={columns}
                 dataSource={observations}
-                loading={triggeringOnDemandObservation || observationsLoading}
+                loading={!observationsActive || triggeringOnDemandObservation || observationsLoading}
                 rowKey="id"
                 pagination={{
                     controlled: true,

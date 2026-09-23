@@ -17,12 +17,6 @@ vi.mock("../hooks/useContextWiki", () => ({
     error: null,
     refetch: hoisted.refetch,
   }),
-  useContextWikiHealthReport: () => ({
-    data: { head_sha: "head-1", findings: [] },
-    isLoading: false,
-    error: null,
-    refetch: hoisted.refetch,
-  }),
   useEnableContextWiki: () => ({
     mutate: vi.fn(),
     isPending: false,

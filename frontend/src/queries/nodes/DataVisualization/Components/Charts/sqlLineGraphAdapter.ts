@@ -1,7 +1,10 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import {
+    MAX_CATEGORY_LABEL_WIDTH,
     type AxisLinesConfig,
+    type BarChartConfig,
     type ChartLegendConfig,
+    type ReferenceLineProps,
     type Series,
     type SeriesType,
     type TimeSeriesBarChartConfig,
@@ -13,7 +16,6 @@ import {
     type ValueLabelsConfig,
     type XAxisConfig,
     type YAxisConfig,
-    createXAxisTickCallback,
 } from '@posthog/quill-charts'
 
 import { dayjs } from 'lib/dayjs'
@@ -22,7 +24,10 @@ import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-
 import { ChartDisplayType } from '~/types'
 
 import { chartStyleCurve } from 'products/product_analytics/frontend/insights/shared/chartStyleAdapter'
-import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
+import {
+    goalLinesToReferenceLines,
+    schemaGoalLinesToConfigs,
+} from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
@@ -43,6 +48,10 @@ export function seriesDisplayType(
     visualizationType: ChartDisplayType,
     settings: AxisSeriesSettings | undefined
 ): SeriesType {
+    if (visualizationType === ChartDisplayType.ActionsBarValue) {
+        return 'bar'
+    }
+
     const displayType = settings?.display?.displayType
     if (displayType === 'bar') {
         return 'bar'
@@ -115,7 +124,9 @@ export type SqlChartKindProps = Pick<SqlChartProps, 'visualizationType' | 'yData
  */
 export function sqlChartKind({ visualizationType, yData, chartSettings }: SqlChartKindProps): SqlChartKind {
     const isBarBase =
-        visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
+        visualizationType === ChartDisplayType.ActionsBar ||
+        visualizationType === ChartDisplayType.ActionsBarValue ||
+        visualizationType === ChartDisplayType.ActionsStackedBar
     const isLineBase =
         visualizationType === ChartDisplayType.ActionsLineGraph ||
         visualizationType === ChartDisplayType.ActionsAreaGraph
@@ -218,7 +229,9 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             ...(settings?.formatting?.style === 'percent' ? { visibility: { total: false } } : {}),
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
-            ...(settings?.display?.yAxisPosition === 'right' ? { yAxisId: 'right' } : {}),
+            ...(visualizationType !== ChartDisplayType.ActionsBarValue && settings?.display?.yAxisPosition === 'right'
+                ? { yAxisId: 'right' }
+                : {}),
             ...(type !== 'bar' && isAreaSeries(visualizationType, settings)
                 ? { fill: { opacity: AREA_FILL_OPACITY } }
                 : {}),
@@ -291,7 +304,7 @@ export function buildSqlTooltipConfig(
 }
 
 /** Returns a tooltip label formatter for date/datetime x-axes, or undefined for non-date axes. */
-function buildSqlDateLabelFormatter(
+export function buildSqlDateLabelFormatter(
     xData: AxisSeries<string>,
     timezone: string
 ): ((label: string) => string) | undefined {
@@ -311,6 +324,8 @@ interface BuildConfigArgs {
     timezone: string
     goalLines?: GoalLine[]
     ySeriesData?: SqlLineYSeries[] | null
+    series?: Series<SqlLineSeriesMeta>[]
+    embedded?: boolean
     /** Wraps each legend row, e.g. with the series right-click menu. Passed straight through to
      *  quill so this module stays free of JSX. */
     legendRenderItem?: ChartLegendConfig['renderItem']
@@ -319,6 +334,9 @@ interface BuildConfigArgs {
 export interface BuildBarConfigArgs extends BuildConfigArgs {
     visualizationType: ChartDisplayType
 }
+
+export type SqlBarGraphConfig = BarChartConfig &
+    TimeSeriesBarChartConfig & { yAxis?: YAxisConfig; referenceLines?: ReferenceLineProps[] }
 
 const SQL_BAR_TICK_LABEL_ROTATION = -45
 
@@ -332,7 +350,7 @@ function buildXAxisConfig(
 
     return {
         label: chartSettings.xAxisLabel,
-        tickFormatter: isDateAxis ? createXAxisTickCallback({ allDays: xData.data, timezone }) : undefined,
+        timezone: isDateAxis ? timezone : undefined,
         tickLabelRotation: isDateAxis ? undefined : tickLabelRotation,
         hide: chartSettings.showXAxisTicks === false,
     }
@@ -377,15 +395,20 @@ function buildLegendConfig(
 ): ChartLegendConfig {
     // No `hiddenKeys`, so the legend is uncontrolled: quill owns which series are toggled off, and
     // isolating a series works without SQL charts having to persist anything.
-    return { show: chartSettings.showLegend ?? false, position: 'top', interactive: true, renderItem }
+    return {
+        show: chartSettings.showLegend ?? false,
+        position: chartSettings.legendPosition ?? 'top',
+        interactive: true,
+        renderItem,
+    }
 }
 
 /** The X/Y axis-border toggles map onto quill's per-edge axis lines — undefined when both are on
  *  (the default), so the app-level style default still applies. */
-function buildAxisLinesConfig(chartSettings: ChartSettings): AxisLinesConfig | undefined {
+function buildAxisLinesConfig(chartSettings: ChartSettings, horizontal = false): AxisLinesConfig | undefined {
     const x = chartSettings.showXAxisBorder ?? true
     const y = chartSettings.showYAxisBorder ?? true
-    return x && y ? undefined : { x, y }
+    return x && y ? undefined : horizontal ? { x: y, y: x } : { x, y }
 }
 
 /**
@@ -459,7 +482,7 @@ export function buildBarChartConfig({
     visualizationType,
     ySeriesData,
     legendRenderItem,
-}: BuildBarConfigArgs): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
+}: BuildBarConfigArgs): SqlBarGraphConfig {
     const barLayout = barLayoutForDisplay(visualizationType, chartSettings)
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
     const leftSeries = seriesForAxis(ySeriesData, 'left')
@@ -467,6 +490,7 @@ export function buildBarChartConfig({
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone, SQL_BAR_TICK_LABEL_ROTATION),
+        maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
         yAxis:
             rightSeries.length > 0
                 ? [
@@ -498,6 +522,61 @@ export function buildBarChartConfig({
         tooltip: {
             ...buildSqlTooltipConfig(chartSettings, ySeriesData),
             ...(labelFormatter ? { labelFormatter } : {}),
+        },
+    }
+}
+
+export function buildBarValueChartConfig({
+    xData,
+    chartSettings,
+    timezone,
+    goalLines,
+    ySeriesData,
+    series,
+    legendRenderItem,
+    embedded,
+}: BuildBarConfigArgs): SqlBarGraphConfig {
+    const categoryAxis = buildXAxisConfig(xData, chartSettings, timezone)
+    const valueAxis = buildYAxisConfig(chartSettings.leftYAxisSettings, ySeriesData ?? [], chartSettings.yAxisAtZero)
+    const dateLabelFormatter = buildSqlDateLabelFormatter(xData, timezone)
+    const categoryLabelFormatter = (label: string): string => {
+        const index = Number(label)
+        if (!Number.isInteger(index) || index < 0 || index >= xData.data.length) {
+            return label
+        }
+        const value = xData.data[index]
+        if (value == null) {
+            return '[No value]'
+        }
+        const stringValue = String(value)
+        return dateLabelFormatter?.(stringValue) ?? stringValue
+    }
+    const referenceLines = goalLinesToReferenceLines(goalLines, series ?? [], 'horizontal')
+    const referenceLineValues = referenceLines.flatMap((line) => (typeof line.value === 'number' ? [line.value] : []))
+
+    return {
+        axisOrientation: 'horizontal',
+        barLayout: 'grouped',
+        barCornerRadius: 4,
+        referenceLines,
+        xTickFormatter: categoryLabelFormatter,
+        yTickFormatter: valueAxis.tickFormatter,
+        yScaleType: valueAxis.scale,
+        hideXAxis: valueAxis.hide,
+        hideYAxis: categoryAxis.hide,
+        xAxisLabel: valueAxis.label,
+        yAxisLabel: categoryAxis.label,
+        showGrid: valueAxis.showGrid,
+        showAxisLines: buildAxisLinesConfig(chartSettings, true),
+        maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
+        bars: {
+            fitToHeight: embedded,
+            valueDomain: referenceLineValues.length ? { include: referenceLineValues } : undefined,
+        },
+        legend: buildLegendConfig(chartSettings, legendRenderItem),
+        tooltip: {
+            ...buildSqlTooltipConfig(chartSettings, ySeriesData),
+            labelFormatter: categoryLabelFormatter,
         },
     }
 }

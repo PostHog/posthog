@@ -3,14 +3,14 @@
 Two sequenced phases:
 
 1. Close — evaluate every ACTIVE campaign: close as adopted when the org started
-   using the product, as skipped when the 14-day window expired without adoption.
+   using the product, as skipped when its push window expired without adoption.
 2. Start — start the next campaign for every eligible org (past the signup grace
    period, no active campaign, out of the between-campaigns cooldown, or holding a
    due dated TAM pin).
 
 The start phase depends on the collected close results so a campaign that expires
-today frees its org for cadence evaluation in the same run (the cooldown then
-keeps it quiet for 7 days).
+today frees its org for cadence evaluation in the same run (the between-campaigns
+cooldown then keeps it quiet for COOLDOWN_DAYS).
 
 All business logic lives in products/growth/backend/product_push/; this file only
 orchestrates. Rollout controls (`rollout_percentage`, `max_starts`, `dry_run`)
@@ -196,7 +196,7 @@ def start_campaign_batch_op(context: dagster.OpExecutionContext, spec: StartBatc
         context.log.info(
             f"Batch of {result.orgs_processed} orgs: {result.started} started, {result.would_start} would start, "
             f"{result.no_candidate} without candidate, {result.not_eligible} not eligible, "
-            f"{result.conflicts} conflicts"
+            f"{result.expired} expired before starting, {result.conflicts} conflicts"
         )
         return result
     except Exception as e:
@@ -233,6 +233,7 @@ def summarize_product_push_run_op(
             "campaigns_would_start": dagster.MetadataValue.int(would_start),
             "starts_not_eligible": dagster.MetadataValue.int(sum(r.not_eligible for r in start_results)),
             "starts_no_candidate": dagster.MetadataValue.int(sum(r.no_candidate for r in start_results)),
+            "starts_expired": dagster.MetadataValue.int(sum(r.expired for r in start_results)),
             "start_conflicts": dagster.MetadataValue.int(sum(r.conflicts for r in start_results)),
         }
     )

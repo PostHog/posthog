@@ -44,6 +44,12 @@
       "captureProduced": false
     },
     {
+      "type": "cookieless_team_disabled",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
       "type": "cookieless_timestamp_out_of_range",
       "category": "event",
       "severity": "error",
@@ -82,6 +88,12 @@
     {
       "type": "event_dropped_by_transformation",
       "category": "transformation",
+      "severity": "info",
+      "captureProduced": false
+    },
+    {
+      "type": "event_dropped_person_processing_disabled",
+      "category": "event",
       "severity": "info",
       "captureProduced": false
     },
@@ -200,7 +212,19 @@
       "captureProduced": true
     },
     {
+      "type": "merge_move_limit_exceeded",
+      "category": "merge",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
       "type": "merge_race_condition",
+      "category": "merge",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
+      "type": "merge_settled_failure",
       "category": "merge",
       "severity": "error",
       "captureProduced": false
@@ -222,6 +246,12 @@
       "category": "replay",
       "severity": "warning",
       "captureProduced": false
+    },
+    {
+      "type": "misrouted_event",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": true
     },
     {
       "type": "missing_distinct_id",

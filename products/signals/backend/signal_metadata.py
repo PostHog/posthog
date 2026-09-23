@@ -9,14 +9,24 @@ keeps that import graph acyclic.
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 
 from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Team
+
+# Cap on the signal rows one merge re-points from a source onto its survivor. The move neither
+# pages nor retries, so `report_merge` refuses a source above the cap rather than leaving the
+# remainder pointing at an archived report while the survivor's counters already include them.
+REASSIGN_SIGNAL_ROW_CAP = 5000
+
 
 # The embedding model whose document rows constitute the signal store; every signals
 # ClickHouse query filters on it.
@@ -29,6 +39,12 @@ EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 SIGNAL_DOCUMENT_PRODUCT = "signals"
 SIGNAL_DOCUMENT_TYPE = "signal"
 SIGNAL_DOCUMENT_RENDERING = "plain"
+
+
+def _signals_query_context(team: Team) -> HogQLContext:
+    # These internal queries only use the static document_embeddings table. Supplying that catalog
+    # avoids loading every team-specific warehouse table before each synchronous inbox query.
+    return HogQLContext(team=team, database=Database(), restricted_properties=set())
 
 
 def _deduped_signals_subquery(
@@ -188,6 +204,7 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
         query_type="SignalsFetchSourceProductsForReports",
         query=ch_query,
         team=team,
+        context=_signals_query_context(team),
         placeholders={
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "report_ids": ast.Tuple(exprs=[ast.Constant(value=rid) for rid in report_ids]),
@@ -320,6 +337,9 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
         WHERE NOT is_deleted
           AND report_id = {report_id}
           AND source_product IN ('linear', 'github')
+        ORDER BY source_product, url, html_url
+        LIMIT 1 BY source_product, url, html_url
+        LIMIT {row_cap}
     """
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
@@ -330,6 +350,8 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
         placeholders={
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "report_id": ast.Constant(value=report_id),
+            # Headroom over the reference cap for rows the URL checks below drop.
+            "row_cap": ast.Constant(value=_SOURCE_REFERENCE_CAP * 10),
         },
     )
 
@@ -348,3 +370,72 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
 
     references.sort(key=lambda ref: (ref.source_product, ref.label, ref.url))
     return references[:_SOURCE_REFERENCE_CAP]
+
+
+# Enough ids to fill the capped link list plus one, so the caller can tell there are more.
+ORIGIN_ENTITY_ID_CAP = 6
+# One row per source product and scout, so a report can never return an unbounded result.
+_ORIGIN_SOURCE_ROW_CAP = 50
+
+
+@frozen
+class OriginSource:
+    """One source of a report's signals, without any of their content."""
+
+    source_product: str
+    # The authoring scout's skill slug, or "" for pipeline signals.
+    scout_name: str
+    first_seen: datetime
+    # At most ORIGIN_ENTITY_ID_CAP entity ids, sorted. A support ticket keeps its uuid, because its
+    # sequential ticket number would reveal the team's ticket volume.
+    entity_ids: tuple[str, ...]
+
+
+def fetch_origin_sources_for_report(team: Team, report_id: str) -> list[OriginSource]:
+    """Summarize where a report's non-deleted signals came from, earliest source first.
+
+    Aggregates in ClickHouse, so the result stays small however many signals the report holds.
+    The signal `content` never leaves ClickHouse here, because the caller writes the result into
+    a public pull request.
+    """
+    ch_query = f"""
+        SELECT
+            source_product,
+            scout_name,
+            min(timestamp) as first_seen,
+            groupUniqArray({ORIGIN_ENTITY_ID_CAP})(entity_id) as entity_ids
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'source_product') as source_product,
+                JSONExtractString(metadata, 'extra', 'skill_name') as scout_name,
+                JSONExtractString(metadata, 'source_id') as entity_id,
+                timestamp
+            FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
+            WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}
+              AND NOT JSONExtractBool(metadata, 'deleted')
+        )
+        GROUP BY source_product, scout_name
+        ORDER BY first_seen ASC
+        LIMIT {_ORIGIN_SOURCE_ROW_CAP}
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFetchOriginSourcesForReport",
+        query=ch_query,
+        team=team,
+        context=_signals_query_context(team),
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "report_id": ast.Constant(value=report_id),
+        },
+    )
+    return [
+        OriginSource(
+            source_product=source_product or "",
+            scout_name=scout_name or "",
+            first_seen=first_seen,
+            entity_ids=tuple(sorted(entity_id for entity_id in entity_ids if entity_id)),
+        )
+        for source_product, scout_name, first_seen, entity_ids in result.results or []
+    ]

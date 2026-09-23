@@ -1,7 +1,7 @@
 from datetime import timedelta
 
+import time_machine
 import unittest.mock
-from freezegun import freeze_time
 
 from django.db.models import Q
 from django.test import TestCase, override_settings
@@ -35,7 +35,7 @@ class TestOAuthTokenCleanup(TestCase):
             algorithm="RS256",
         )
 
-    @freeze_time("2023-01-15 02:00:00")
+    @time_machine.travel("2023-01-15 02:00:00", tick=False)
     def test_oauth_cleanup_job_with_real_tokens(self):
         expired_time = timezone.now() - timedelta(days=95)  # Beyond retention period
         OAuthAccessToken.objects.create(
@@ -207,6 +207,46 @@ class TestBatchDeleteFunctionality(TestCase):
         self.assertFalse(OAuthAccessToken.objects.filter(id=old_access_token.id).exists())
         self.assertTrue(OAuthAccessToken.objects.filter(id=recent_expired_token.id).exists())
         self.assertFalse(OAuthGrant.objects.filter(id=old_grant.id).exists())
+
+    def test_clear_expired_oauth_tokens_deletes_orphaned_refresh_tokens(self):
+        """A refresh token whose access token was revoked keeps working, so age has to reach it."""
+        now = timezone.now()
+        beyond_expiry = now - timedelta(days=95)
+
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.oauth_application,
+            token="orphaning_access_token",
+            expires=now + timedelta(hours=1),
+            scope="read",
+        )
+        orphaned = OAuthRefreshToken.objects.create(
+            user=self.user, application=self.oauth_application, token="orphaned_refresh", access_token=access_token
+        )
+        recent_orphan = OAuthRefreshToken.objects.create(
+            user=self.user, application=self.oauth_application, token="recent_orphaned_refresh"
+        )
+        revoked_within_retention = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=self.oauth_application,
+            token="revoked_recently",
+            revoked=now - timedelta(minutes=5),
+        )
+
+        # revoke() nulls the FK without setting `revoked`, which is the state under test.
+        access_token.revoke()
+        OAuthRefreshToken.objects.filter(id=orphaned.id).update(created=beyond_expiry)
+        OAuthRefreshToken.objects.filter(id=revoked_within_retention.id).update(created=beyond_expiry)
+
+        orphaned.refresh_from_db()
+        self.assertIsNone(orphaned.access_token)
+        self.assertIsNone(orphaned.revoked)
+
+        clear_expired_oauth_tokens(dagster.build_op_context())
+
+        self.assertFalse(OAuthRefreshToken.objects.filter(id=orphaned.id).exists())
+        self.assertTrue(OAuthRefreshToken.objects.filter(id=recent_orphan.id).exists())
+        self.assertTrue(OAuthRefreshToken.objects.filter(id=revoked_within_retention.id).exists())
 
     @unittest.mock.patch("products.growth.dags.oauth.batch_delete_model")
     def test_clear_expired_oauth_tokens_metadata_output(self, mock_batch_delete):

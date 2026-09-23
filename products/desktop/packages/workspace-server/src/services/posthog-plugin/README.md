@@ -12,13 +12,14 @@ Skills are published independently from the desktop app at a stable GitHub relea
 
 ### Skill Sources
 
-The plugin directory is assembled from three skill sources, merged in priority order (later overrides earlier for same-named skills):
+The plugin directory is assembled from these skill sources, merged in priority order (later overrides earlier for same-named skills):
 
 | Source | Location | When used |
 |---|---|---|
 | **Shipped** | `plugins/posthog/skills/` | Always — committed to the repo |
 | **Remote** | GitHub releases `skills.zip` | Downloaded at build time and every 30 min at runtime |
 | **Local dev** | `plugins/posthog/local-skills/` | Dev mode only — gitignored |
+| **Local checkout** | `plugins/posthog/checkout-skills/` | Dev mode with `POSTHOG_DESKTOP_SKILLS=local` — generated and gitignored |
 
 A "skill name" is its directory name. If remote and shipped both have `query-data/`, the remote version wins. If local-dev also has `query-data/`, that wins over both.
 
@@ -29,9 +30,12 @@ A "skill name" is its directory name. If remote and shipped both have `query-dat
 1. Copies allowed plugin entries into `.vite/build/plugins/posthog/`
 2. Downloads `skills.zip` via `curl`, extracts with `unzip`, overlays into the build output
 3. In dev mode only: overlays `plugins/posthog/local-skills/` on top
-4. Download failure is non-fatal — build continues with shipped skills only
+4. In local-stack mode: overlays the rendered checkout skills
+5. Download failure is non-fatal — build continues with shipped skills only
 
 Vite watches `plugins/posthog/` (and `local-skills/` in dev) for hot-reload.
+For checkout skills, it watches a readiness file that changes only after a successful build and copy.
+Each rebuild restores the production base before applying overrides, so removed skills do not persist in the bundle.
 
 ## Runtime
 
@@ -69,17 +73,17 @@ Vite watches `plugins/posthog/` (and `local-skills/` in dev) for hot-reload.
 
 ### Testing with local skills
 
-`pnpm dev` and `pnpm dev:code` sync the context layer skills from the current monorepo checkout into `plugins/posthog/local-skills/` before starting Desktop. This makes local agent sessions use the checked-out context layer skill sources instead of the production release.
+Select the Desktop intent with `hogli dev:setup`, then run `hogli start` from the repository root.
+Startup waits for PostgreSQL tables, renders checkout skills, and watches their sources for changes.
+Start a new agent session after each successful rebuild to use the new instructions.
+See [local development](../../../../../docs/LOCAL-DEVELOPMENT.md#test-local-code-and-skill-changes-together) for backend setup and scope.
 
-To refresh the overlay without restarting Desktop, run:
-
-```sh
-pnpm skills:local
-```
+`hogli desktop:dev`, `pnpm dev`, and `pnpm dev:code` use production skills unless `POSTHOG_DESKTOP_SKILLS=local` is set.
+Manual overrides stay separate from generated checkout skills.
 
 For a Desktop-only skill that is not part of the monorepo skill build:
 
-1. Start Desktop once so the checkout skills are synced.
+1. Start Desktop in development mode.
 2. Create a skill directory in `plugins/posthog/local-skills/`, e.g.:
    ```
    plugins/posthog/local-skills/my-skill/SKILL.md

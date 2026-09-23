@@ -18,6 +18,7 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../queries/schema/schema-general'
+import type { TraceSpansTreeQueryResponse } from '../../queries/schema/schema-general'
 
 export type CohortCountWarningLogicProps = {
     cohort: CohortType
@@ -41,6 +42,7 @@ export interface cohortCountWarningLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataNodeLogic
     shouldShowCountWarning: boolean
 }
@@ -64,6 +66,7 @@ export interface cohortCountWarningLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             query: DataTableNode
         ) => boolean

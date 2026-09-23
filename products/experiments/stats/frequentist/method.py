@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 
 from ..shared.enums import DifferenceType
 from ..shared.statistics import AnyStatistic, StatisticError
@@ -100,37 +100,3 @@ class FrequentistMethod:
             )
         except Exception as e:
             raise StatisticError(f"Test execution failed: {str(e)}") from e
-
-    def get_summary(self, result: TestResult) -> dict[str, Any]:
-        """
-        Get human-readable summary of test result.
-
-        Args:
-            result: TestResult object
-
-        Returns:
-            Dict with summary information
-        """
-        summary: dict[str, Any] = {
-            "test_type": result.test_type,
-            "point_estimate": result.point_estimate,
-            "confidence_interval": result.confidence_interval,
-            "p_value": result.p_value,
-            "is_significant": result.is_significant,
-            "alpha": result.alpha,
-            "degrees_of_freedom": result.degrees_of_freedom,
-        }
-
-        # Add interpretation
-        if self.config.difference_type == DifferenceType.RELATIVE:
-            summary["interpretation"] = {
-                "effect_size": f"{result.point_estimate:.1%}",
-                "effect_direction": "positive" if result.point_estimate > 0 else "negative",
-            }
-        elif self.config.difference_type == DifferenceType.ABSOLUTE:
-            summary["interpretation"] = {
-                "effect_size": result.point_estimate,
-                "effect_direction": "positive" if result.point_estimate > 0 else "negative",
-            }
-
-        return summary

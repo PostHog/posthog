@@ -10,6 +10,7 @@ Column | Type | Nullable | Description
 `id` | uuid | NOT NULL | Primary key
 `team_id` | integer | NOT NULL | Team this ticket belongs to
 `ticket_number` | integer | NOT NULL | Auto-incrementing number, unique per team
+`organization_id` | varchar(400) | NULL | Customer organization key. Matches a customer analytics account's `external_id`.
 `channel_source` | varchar(20) | NOT NULL | Origin channel: `widget`, `email`, or `slack`
 `channel_detail` | varchar(30) | NULL | Sub-type: `slack_channel_message`, `slack_bot_mention`, `slack_emoji_reaction`, `widget_embedded`, `widget_api`
 `distinct_id` | varchar(400) | NOT NULL | PostHog distinct_id linking the ticket to a person
@@ -32,6 +33,7 @@ Column | Type | Nullable | Description
 ### Key Relationships
 
 - Tickets belong to a **Team** (`team_id`)
+- Tickets can link to a customer analytics account through `organization_id = system.accounts.external_id`
 - Tickets are linked to a **Person** via `distinct_id`
 - Ticket assignments are managed via `TicketAssignment` (not exposed as a system table)
 

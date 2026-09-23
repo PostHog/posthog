@@ -5,14 +5,19 @@ import { useEffect } from 'react'
 import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ExternalDataJob, ExternalDataJobStatus, LogEntryLevel } from '~/types'
+
+import { JobDestinations } from 'products/data_warehouse/frontend/shared/components/JobDestinations'
+import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
 
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
@@ -39,7 +44,19 @@ export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
     const { user } = useValues(userLogic)
     const { source, jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(logic)
     const { loadJobs, loadMoreJobs, setSelectedSchemas } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { loadDestinations } = useActions(destinationLookupLogic)
+    const { destinationsById, destinationsLoading } = useValues(destinationLookupLogic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
+    // Without the flag every run goes to the warehouse alone, so a column of identical logos
+    // would be noise.
+    const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]
+
+    useEffect(() => {
+        if (showDestinations) {
+            loadDestinations()
+        }
+    }, [showDestinations, loadDestinations])
 
     // Lock to a single schema when asked, otherwise apply a `?schema=<name>` deep link once on
     // mount so links from the schemas list and the schema configuration page land here filtered.
@@ -163,11 +180,27 @@ export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
                         },
                     },
                     {
-                        title: 'Rows synced',
+                        title: 'Row count',
+                        tooltip:
+                            'Rows read from the source. A run reads them once however many destinations it writes to.',
                         render: (_, job) => {
                             return job.rows_synced.toLocaleString()
                         },
                     },
+                    ...(showDestinations
+                        ? [
+                              {
+                                  title: 'Destinations',
+                                  render: (_: any, job: ExternalDataJob) => (
+                                      <JobDestinations
+                                          destinationIds={job.destination_ids ?? []}
+                                          destinationsById={destinationsById}
+                                          loading={destinationsLoading}
+                                      />
+                                  ),
+                              },
+                          ]
+                        : []),
                     {
                         title: 'Synced at',
                         render: (_, job) => {

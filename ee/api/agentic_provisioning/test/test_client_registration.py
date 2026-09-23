@@ -101,9 +101,8 @@ class TestClientRegistration(ProvisioningTestBase):
     def _make_partner(self, **overrides) -> OAuthApplication:
         defaults = {
             "name": "Registered Partner",
-            "client_id": "opaque-registered-client-id",
+            "client_id": CIMD_URL,
             "is_cimd_client": True,
-            "cimd_metadata_url": CIMD_URL,
             "client_secret": "",
             "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
             "jwks_uri": JWKS_URI,
@@ -170,7 +169,7 @@ class TestClientRegistration(ProvisioningTestBase):
         # No pre-existing row: this is the client_id's first ever contact with PostHog, so the
         # promotion has to happen inline with _create_cimd_application, not wait for the next
         # hourly refresh to notice is_provisioning_partner has since flipped.
-        assert not OAuthApplication.objects.filter(cimd_metadata_url=CIMD_URL).exists()
+        assert not OAuthApplication.objects.filter(client_id=CIMD_URL).exists()
 
         res = self._register({"client_id": CIMD_URL})
 
@@ -178,7 +177,7 @@ class TestClientRegistration(ProvisioningTestBase):
         body = res.json()
         assert body["registered"] is True
         assert body["token_endpoint_auth_method"] == "private_key_jwt"
-        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=CIMD_URL)
         assert app.client_type == OAuthApplication.CLIENT_CONFIDENTIAL
         assert app.is_provisioning_partner
 
@@ -214,7 +213,7 @@ class TestClientRegistration(ProvisioningTestBase):
 
         self._register({"client_id": CIMD_URL})
 
-        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=CIMD_URL)
         assert app.client_type == OAuthApplication.CLIENT_PUBLIC
         assert app.is_provisioning_partner is False
 
@@ -248,7 +247,7 @@ class TestClientRegistration(ProvisioningTestBase):
         res = self._register({"client_id": CIMD_URL})
 
         assert res.status_code == 200, res.json()
-        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=CIMD_URL)
         assert app.is_provisioning_partner
         assert app.provisioning.active
 
@@ -279,7 +278,7 @@ class TestClientRegistration(ProvisioningTestBase):
         checks = {check["name"]: check for check in res.json()["checks"]}
         assert checks["provisioning_enabled"]["ok"] is False
         assert '"com.posthog": {"provisioning": true}' in checks["provisioning_enabled"]["detail"]
-        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=CIMD_URL)
         assert app.is_provisioning_partner is False
         assert app.provisioning.can_create_accounts is False
         assert app.client_type == OAuthApplication.CLIENT_PUBLIC
@@ -309,7 +308,7 @@ class TestClientRegistration(ProvisioningTestBase):
         # rejection rather than sending the client's owner after a key they already published.
         assert '"com.posthog"' not in checks["provisioning_enabled"]["detail"]
         assert "metadata_document" in checks["provisioning_enabled"]["detail"]
-        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=CIMD_URL)
         assert app.is_provisioning_partner is False
         assert app.provisioning.can_create_accounts is False
         assert app.client_type == OAuthApplication.CLIENT_PUBLIC
@@ -325,7 +324,7 @@ class TestClientRegistration(ProvisioningTestBase):
 
         assert res.status_code == 400, res.json()
         assert res.json()["error"]["code"] == "registration_failed"
-        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        app = OAuthApplication.objects.get(client_id=CIMD_URL)
         assert app.provisioning.active is False
 
     def test_unreachable_jwks_is_reported_as_a_failed_check(self):

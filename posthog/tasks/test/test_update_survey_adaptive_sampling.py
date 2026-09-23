@@ -2,7 +2,7 @@ import json
 from copy import deepcopy
 from datetime import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -40,7 +40,7 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
         self.survey.internal_response_sampling_flag = self.internal_response_sampling_flag
         self.survey.save()
 
-    @freeze_time("2024-12-13T12:00:00Z")
+    @time_machine.travel("2024-12-13T12:00:00Z", tick=False)
     @patch("posthog.tasks.update_survey_adaptive_sampling._get_survey_responses_count")
     def test_updates_rollout(self, mock_get_count: MagicMock) -> None:
         mock_get_count.return_value = 50
@@ -50,7 +50,7 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
         self.assertEqual(internal_response_sampling_flag.filters["groups"][0]["rollout_percentage"], 20)
         mock_get_count.assert_called_once_with(self.survey)
 
-    @freeze_time("2024-12-21T12:00:00Z")
+    @time_machine.travel("2024-12-21T12:00:00Z", tick=False)
     @patch("posthog.tasks.update_survey_adaptive_sampling._get_survey_responses_count")
     def test_updates_rollout_after_interval_is_over(self, mock_get_count: MagicMock) -> None:
         mock_get_count.return_value = 50
@@ -63,7 +63,7 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
         response_sampling_daily_limits = json.loads(survey.response_sampling_daily_limits)
         self.assertEqual(response_sampling_daily_limits[0].get("date"), "2024-12-22")
 
-    @freeze_time("2024-12-13T12:00:00Z")
+    @time_machine.travel("2024-12-13T12:00:00Z", tick=False)
     @patch("posthog.tasks.update_survey_adaptive_sampling._get_survey_responses_count")
     def test_no_update_when_limit_reached(self, mock_get_count: MagicMock) -> None:
         mock_get_count.return_value = 100
@@ -127,7 +127,7 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
             ),
         ]
     )
-    @freeze_time("2024-12-13T12:00:00Z")
+    @time_machine.travel("2024-12-13T12:00:00Z", tick=False)
     @patch("posthog.tasks.update_survey_adaptive_sampling._get_survey_responses_count")
     def test_round_trip_preserves_filters_except_rollout(
         self, _name: str, filters: dict, mock_get_count: MagicMock
@@ -147,7 +147,7 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
         internal_response_sampling_flag = FeatureFlag.objects.get(id=self.internal_response_sampling_flag.id)
         self.assertEqual(internal_response_sampling_flag.filters, expected)
 
-    @freeze_time("2024-12-13T12:00:00Z")
+    @time_machine.travel("2024-12-13T12:00:00Z", tick=False)
     @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
     @patch("posthog.tasks.update_survey_adaptive_sampling._get_survey_responses_count")
     def test_system_write_skips_approval_gate_and_logs_system_activity(

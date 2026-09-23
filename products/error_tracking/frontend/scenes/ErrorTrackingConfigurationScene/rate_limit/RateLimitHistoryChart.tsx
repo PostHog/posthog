@@ -7,7 +7,7 @@ import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 
 import { getBucketOption, RateLimitHistoryBucket } from './rateLimitConfigLogic'
-import { buildRateLimitBarChartConfig, formatBucketLabel, getBucketTimeline } from './RateLimitSimulationChart'
+import { buildRateLimitBarChartConfig, getBucketTimeline } from './RateLimitSimulationChart'
 
 function fillHistoryBuckets(history: RateLimitHistoryBucket[], bucketMinutes: number): RateLimitHistoryBucket[] {
     const bucketMs = getBucketOption(bucketMinutes).minutes * 60_000
@@ -44,7 +44,7 @@ export function RateLimitHistoryChart({
 
         return {
             isEmpty: recorded.every((c) => c === 0) && dropped.every((c) => c === 0) && bypassed.every((c) => c === 0),
-            labels: filled.map((b) => formatBucketLabel(b.bucket, bucketMinutes)),
+            labels: filled.map((b) => b.bucket),
             series: [
                 { key: 'recorded', label: 'Recorded', data: recorded },
                 { key: 'dropped', label: 'Dropped', data: dropped, color: getColorVar('danger') },
@@ -54,7 +54,7 @@ export function RateLimitHistoryChart({
     }, [history, bucketMinutes])
 
     const theme = useChartTheme()
-    const config = useChartConfig(() => buildRateLimitBarChartConfig('stacked'), [])
+    const config = useChartConfig(() => buildRateLimitBarChartConfig('stacked', bucketMinutes), [bucketMinutes])
 
     if (isEmpty) {
         return (

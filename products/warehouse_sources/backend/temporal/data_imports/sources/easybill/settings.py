@@ -58,6 +58,15 @@ EASYBILL_ENDPOINTS: dict[str, EasybillEndpointConfig] = {
         path="/document-payments",
         table_name="document_payments",
     ),
+    # Received supplier invoices and credit notes. The list endpoint only filters by `created_at`,
+    # so — like `/customers` — it stays full refresh: a `created_at` cursor would miss later edits
+    # (status, payments, `is_paid`) that bump `updated_at` but not the creation date.
+    "IncomingDocuments": EasybillEndpointConfig(
+        name="IncomingDocuments",
+        path="/incoming-documents",
+        table_name="incoming_documents",
+        partition_key="created_at",
+    ),
     # `/customers` only filters by `created_at`, which would miss edits to existing customers, so
     # this stays full refresh rather than syncing on a lossy cursor.
     "Customers": EasybillEndpointConfig(

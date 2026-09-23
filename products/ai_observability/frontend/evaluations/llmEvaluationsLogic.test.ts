@@ -1,14 +1,21 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { llmEvaluationsLogic } from './llmEvaluationsLogic'
-import { HogEvaluation, LLMJudgeEvaluation, SentimentEvaluation } from './types'
+import { llmEvaluationsLogic, waitForEvaluationsSettled } from './llmEvaluationsLogic'
+import {
+    EvaluationConfig,
+    EvaluationOutputConfig,
+    HogEvaluation,
+    LLMJudgeEvaluation,
+    SentimentEvaluation,
+} from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
     {
@@ -51,6 +58,29 @@ const mockProviderKeys: LLMProviderKey[] = [
         api_version_display: null,
     },
 ]
+
+const evaluationWithOutputConfig = (id: string, outputConfig: EvaluationOutputConfig): EvaluationConfig =>
+    ({
+        id,
+        name: `Evaluation ${id}`,
+        description: '',
+        directory_id: null,
+        enabled: true,
+        status: 'active',
+        status_reason: null,
+        status_reason_detail: null,
+        evaluation_type: 'llm_judge',
+        evaluation_config: { prompt: 'Prompt' },
+        output_type: 'boolean',
+        output_config: outputConfig,
+        conditions: [],
+        target: 'generation',
+        target_config: {},
+        model_configuration: null,
+        total_runs: 0,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+    }) as EvaluationConfig
 
 const evaluationWithKey = (
     id: string,
@@ -340,6 +370,108 @@ describe('llmEvaluationsLogic', () => {
             logic.actions.restoreEvaluationSuccess(olderEvaluation)
 
             expect(logic.values.evaluations).toEqual([newerEvaluation, olderEvaluation])
+        })
+    })
+
+    describe('detectorEvaluationIds', () => {
+        it('lists only evaluations whose true result is a failure', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadEvaluationsSuccess([
+                    evaluationWithOutputConfig('detector', { true_is_failure: true }),
+                    evaluationWithOutputConfig('quality', { true_is_failure: false }),
+                    evaluationWithOutputConfig('legacy', {}),
+                ])
+            }).toMatchValues({ detectorEvaluationIds: ['detector'] })
+        })
+    })
+
+    describe('evaluationsLoading', () => {
+        it('clears when no team is available, instead of hanging forever', async () => {
+            // A hard load straight onto a scene before the team resolves is a real way to hit
+            // this: currentTeamId reads null, and the loader must still settle.
+            teamLogic.actions.loadCurrentTeamSuccess(null)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadEvaluations()
+            }).toDispatchActions(['loadEvaluations', 'loadEvaluationsFailure'])
+
+            expect(logic.values.evaluationsLoading).toBe(false)
+        })
+    })
+
+    describe('evaluationsSettled', () => {
+        it('is false while never-started and loading look identical on evaluationsLoading, then flips true on success', async () => {
+            // beforeEach's mount() has already dispatched loadEvaluations synchronously, so the
+            // fetch is in flight here: evaluationsLoading is true, but settling hasn't happened.
+            expect(logic.values.evaluationsSettled).toBe(false)
+
+            await expectLogic(logic).toDispatchActions(['loadEvaluationsSuccess'])
+
+            expect(logic.values.evaluationsSettled).toBe(true)
+        })
+
+        it('flips true on failure too, unlike evaluationsLoading which reads the same as never-started', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess(null)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadEvaluations()
+            }).toDispatchActions(['loadEvaluationsFailure'])
+
+            expect(logic.values.evaluationsLoading).toBe(false)
+            expect(logic.values.evaluationsSettled).toBe(true)
+        })
+    })
+
+    describe('waitForEvaluationsSettled', () => {
+        it('waits for a pending fetch instead of resolving against an empty evaluations list', async () => {
+            let resolveRequest: (value: { results: EvaluationConfig[] }) => void = () => {}
+            useMocks({
+                get: {
+                    '/api/projects/:teamId/evaluations/': () => new Promise((resolve) => (resolveRequest = resolve)),
+                },
+            })
+            logic.unmount()
+            logic = llmEvaluationsLogic()
+            logic.mount()
+
+            let resolved = false
+            const waiting = waitForEvaluationsSettled().then(() => {
+                resolved = true
+            })
+
+            await Promise.resolve()
+            expect(resolved).toBe(false)
+
+            resolveRequest({ results: [] })
+            await waiting
+            expect(resolved).toBe(true)
+        })
+
+        it('resolves immediately once evaluations have already settled', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationsSuccess'])
+
+            await expect(waitForEvaluationsSettled()).resolves.toBeUndefined()
+        })
+
+        it('waits again for a refetch instead of resolving against the polarity of the previous list', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationsSuccess'])
+
+            let resolveRefetch: (value: { results: EvaluationConfig[] }) => void = () => {}
+            const refetch = new Promise<{ results: EvaluationConfig[] }>((resolve) => (resolveRefetch = resolve))
+            useMocks({ get: { '/api/projects/:teamId/evaluations/': () => refetch } })
+            logic.actions.loadEvaluations()
+
+            let resolved = false
+            const waiting = waitForEvaluationsSettled().then(() => {
+                resolved = true
+            })
+
+            await Promise.resolve()
+            expect(resolved).toBe(false)
+
+            resolveRefetch({ results: [] })
+            await waiting
+            expect(resolved).toBe(true)
         })
     })
 })

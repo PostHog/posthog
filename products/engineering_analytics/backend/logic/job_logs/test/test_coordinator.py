@@ -9,9 +9,9 @@ from parameterized import parameterized
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.job_logs.coordinator import (
-    _discover_failed_jobs,
+    _discover_jobs_with_diagnostics,
     _github_source_params,
-    _query_failed_jobs,
+    _query_jobs_with_diagnostics,
 )
 
 
@@ -42,22 +42,22 @@ class TestGithubSourceParams:
         assert _github_source_params(job_inputs) is None
 
 
-class TestDiscoverFailedJobs:
+class TestDiscoverJobsWithDiagnostics:
     @override_settings(OTLP_LOGS_INGEST_ENDPOINT="")
     def test_discovers_nothing_when_logs_endpoint_unset(self):
         # The coordinator schedule is registered but must stay inert until the Logs endpoint is
         # deployed: discovery returns [] (without querying the warehouse) so no child workflows fan
         # out. Drops the guard and this fails by hitting the DB and returning rows.
-        assert _discover_failed_jobs("2026-06-29T00:00:00+00:00") == []
+        assert _discover_jobs_with_diagnostics("2026-06-29T00:00:00+00:00") == []
 
 
-class TestQueryFailedJobs:
+class TestQueryJobsWithDiagnostics:
     @patch("products.engineering_analytics.backend.logic.job_logs.coordinator.execute_hogql_query")
     def test_bypasses_warehouse_access_control(self, mock_execute):
         # The sweep runs with no request user, so without bypass HogQL marks the team's own
         # workflow_jobs warehouse table denied and the query raises "You don't have access to table" —
         # the worker then silently emits nothing. Locks in the bypass that makes the trusted query work.
         mock_execute.return_value = SimpleNamespace(columns=["job_id"], results=[])
-        _query_failed_jobs(Team(pk=1), "devex_", "2026-06-30T00:00:00+00:00")
+        _query_jobs_with_diagnostics(Team(pk=1), "devex_", "2026-06-30T00:00:00+00:00", "PostHog/posthog")
         mock_execute.assert_called_once()
         assert mock_execute.call_args.kwargs["bypass_warehouse_access_control"] is True

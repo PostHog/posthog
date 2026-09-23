@@ -13,10 +13,16 @@ import type {
     CommitBundleApi,
     ContextLayerAgentPagesRetrieveParams,
     ContextLayerPagesRetrieveParams,
+    ContextLayerProposalsListParams,
     ContextLayerStatusApi,
+    DreamRunDetailApi,
+    DreamRunListApi,
+    PaginatedWikiPageProposalListApi,
     WikiExportApi,
     WikiHealthReportApi,
     WikiPageApi,
+    WikiPageProposalApi,
+    WikiPageProposalWriteApi,
     WikiPageWriteApi,
     WikiTreeApi,
 } from './api.schemas'
@@ -66,6 +72,43 @@ export const contextLayerCommitsCreate = async (
         ...options,
         method: 'POST',
         body: formData,
+    })
+}
+
+export const getContextLayerDreamsListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/context_layer/dreams/`
+}
+
+/**
+ * The active dreaming task, when present, plus every landed run newest first. A landed run is one merge commit `dream: <date>` whose body is the summary; its changes are on the detail read.
+ * @summary List dream runs
+ */
+export const contextLayerDreamsList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<DreamRunListApi> => {
+    return apiMutator<DreamRunListApi>(getContextLayerDreamsListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getContextLayerDreamsRetrieveUrl = (organizationId: string, sha: string) => {
+    return `/api/organizations/${organizationId}/context_layer/dreams/${sha}/`
+}
+
+/**
+ * One dreaming run with the per-file unified patches it landed.
+ * @summary Read one dream run
+ */
+export const contextLayerDreamsRetrieve = async (
+    organizationId: string,
+    sha: string,
+    options?: RequestInit
+): Promise<DreamRunDetailApi> => {
+    return apiMutator<DreamRunDetailApi>(getContextLayerDreamsRetrieveUrl(organizationId, sha), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -154,6 +197,56 @@ export const contextLayerPagesUpdate = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(wikiPageWriteApi),
+    })
+}
+
+export const getContextLayerProposalsListUrl = (organizationId: string, params?: ContextLayerProposalsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/context_layer/proposals/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/context_layer/proposals/`
+}
+
+/**
+ * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
+ * @summary List your pending wiki edits
+ */
+export const contextLayerProposalsList = async (
+    organizationId: string,
+    params?: ContextLayerProposalsListParams,
+    options?: RequestInit
+): Promise<PaginatedWikiPageProposalListApi> => {
+    return apiMutator<PaginatedWikiPageProposalListApi>(getContextLayerProposalsListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getContextLayerProposalsApplyCreateUrl = (organizationId: string, proposalId: string) => {
+    return `/api/organizations/${organizationId}/context_layer/proposals/${proposalId}/apply/`
+}
+
+/**
+ * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
+ * @summary Apply a reviewed wiki edit
+ */
+export const contextLayerProposalsApplyCreate = async (
+    organizationId: string,
+    proposalId: string,
+    options?: RequestInit
+): Promise<ContextLayerStatusApi> => {
+    return apiMutator<ContextLayerStatusApi>(getContextLayerProposalsApplyCreateUrl(organizationId, proposalId), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -329,5 +422,33 @@ export const contextLayerAgentPagesUpdate = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(wikiPageWriteApi),
+    })
+}
+
+export const getContextLayerAgentProposalsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/context_layer/agent/proposals/`
+}
+
+/**
+ * The same organization wiki, reached by an agent run inside a sandbox.
+ *
+ * This exists as a second, project-nested route because a sandbox run token
+ * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+ * project-nested view — on the organization-scoped route above, every sandbox
+ * token is refused before it reaches any of this. The wiki is still one repo
+ * per organization; the project in the path is how a run token proves which
+ * organization it may act for, and is not a scope on the wiki itself.
+ * @summary Propose a shared wiki edit for human review
+ */
+export const contextLayerAgentProposalsCreate = async (
+    projectId: string,
+    wikiPageProposalWriteApi: WikiPageProposalWriteApi,
+    options?: RequestInit
+): Promise<WikiPageProposalApi> => {
+    return apiMutator<WikiPageProposalApi>(getContextLayerAgentProposalsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(wikiPageProposalWriteApi),
     })
 }

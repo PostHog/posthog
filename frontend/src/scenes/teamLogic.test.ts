@@ -29,6 +29,32 @@ describe('teamLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
             expect(logic.values.currentProjectId).toBe(MOCK_DEFAULT_TEAM.project_id)
         })
+
+        const refreshedFilters = [{ key: 'email', type: 'person', value: 'example.com', operator: 'not_icontains' }]
+        it.each([
+            ['the same team', MOCK_TEAM_ID, refreshedFilters],
+            ['a different team', MOCK_TEAM_ID + 1, MOCK_DEFAULT_TEAM.test_account_filters],
+        ])('refreshCurrentTeam takes a response for %s without a team reload', async (_, id, expectedFilters) => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            useMocks({
+                get: {
+                    '/api/environments/@current': () => [
+                        200,
+                        { ...MOCK_DEFAULT_TEAM, id, test_account_filters: refreshedFilters },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.refreshCurrentTeam()
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadCurrentTeamSuccess'])
+                .toDispatchActions(['refreshCurrentTeamSuccess'])
+
+            expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
+            expect(logic.values.currentTeam?.test_account_filters).toEqual(expectedFilters)
+        })
     })
 
     describe('updateCurrentTeam with a name-only payload', () => {

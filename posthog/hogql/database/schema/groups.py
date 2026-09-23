@@ -87,30 +87,9 @@ def _is_nonneg_int_constant(expr) -> bool:
     return isinstance(expr, ast.Constant) and isinstance(expr.value, int) and expr.value >= 0
 
 
-class _WindowFunctionFinder(TraversingVisitor):
-    # Window functions evade the order_by and has_aggregation guards but must see every group, so bail on them too.
-    found: bool = False
-
-    def visit(self, node):
-        if not self.found:
-            super().visit(node)
-
-    def visit_select_query(self, node: ast.SelectQuery):
-        pass  # a window inside a scalar subquery doesn't change this query's rows
-
-    def visit_window_function(self, node: ast.WindowFunction):
-        self.found = True
-
-
-def _has_window_function(expr: ast.Expr) -> bool:
-    finder = _WindowFunctionFinder()
-    finder.visit(expr)
-    return finder.found
-
-
 def _bare_limit_key_count(node: SelectQuery) -> int | None:
     # Deferred: posthog.hogql.property imports database schema modules, so a top-level import here is circular.
-    from posthog.hogql.property import has_aggregation  # noqa: PLC0415
+    from posthog.hogql.property import has_aggregation, has_window_function  # noqa: PLC0415
 
     # Only safe for a bare `from groups limit N`; bail to the full dedup on anything that changes the surviving rows.
     if (
@@ -131,7 +110,7 @@ def _bare_limit_key_count(node: SelectQuery) -> int | None:
         or node.limit_percent
         or any(has_aggregation(expr) for expr in node.select)
         or node.window_exprs
-        or any(_has_window_function(expr) for expr in node.select)
+        or any(has_window_function(expr) for expr in node.select)
         or not isinstance(_resolved_table(node.select_from.type), GroupsTable)
     ):
         return None

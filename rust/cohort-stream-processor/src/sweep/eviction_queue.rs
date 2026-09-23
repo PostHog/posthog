@@ -19,16 +19,17 @@
 //! the superseded entry **precisely** in `O(log n)`, in either direction. `len()` therefore always
 //! equals the live-key count, and the staleness problem class disappears. `K` needs no `Ord` (it is
 //! the map *value*); `seq` is a global monotonic tiebreaker that only disambiguates two live keys
-//! sharing a deadline, giving a deterministic pop order.
+//! sharing a deadline, giving a deterministic selection order.
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 
 /// The ordered coordinate of a live entry: its deadline (epoch ms) plus a monotonic tiebreaker.
-/// `Copy`, so it is cheaply read out of `by_deadline` before a mutating call.
+/// `Copy`, so it is cheaply read out of the reverse index before a mutating call.
 type Coord = (i64, u64);
 
-/// A deadline-ordered queue of keys, drained soonest-first by [`pop_due`](Self::pop_due).
+/// A deadline-ordered queue of keys, drained soonest-first by [`due_keys`](Self::due_keys) +
+/// [`take_due`](Self::take_due).
 ///
 /// Single-threaded by design: each partition worker owns one `EvictionQueue<BehavioralKey>` and is
 /// the only mutator, so no internal synchronization is needed. Generic over `K` purely so the
@@ -38,7 +39,7 @@ type Coord = (i64, u64);
 /// so `by_deadline.len() == index.len() == ` the live-key count, and each key maps to exactly one
 /// coordinate in both directions.
 pub struct EvictionQueue<K> {
-    /// Keys ordered by `(deadline_ms, seq)`, so `first_key_value` is always the soonest due. `seq`
+    /// Keys ordered by `(deadline_ms, seq)`, so the front of the map is always the soonest due. `seq`
     /// only breaks ties between equal deadlines.
     by_deadline: BTreeMap<Coord, K>,
     /// Reverse index `K → its live coordinate`, so a reschedule (or [`cancel`](Self::cancel)) removes
@@ -76,26 +77,39 @@ where
         self.index.insert(key, coord);
     }
 
-    /// Pop the soonest-due key whose deadline is **strictly before** `due_before_ms`, returning
-    /// `(key, deadline_ms)`; or [`None`] when the soonest live deadline is `>= due_before_ms` (i.e.
-    /// nothing is due yet). Drain a tick by calling this in a loop until it returns [`None`].
+    /// The soonest-due keys whose deadline is **strictly before** `due_before_ms`, in pop order, at
+    /// most `limit` of them — **without removing any of them**. Selection and removal are split so
+    /// the queue stays the single source of truth for a key's deadline while a sweep pass is in
+    /// flight: a selected key an event reschedules or a merge cancels is simply no longer claimable
+    /// by [`take_due`](Self::take_due), instead of sitting in a copy that has to be reconciled.
     ///
     /// The cutoff is `due_before_ms = now_ms − safety_margin_ms`, computed by the caller (see
     /// [`due_before_ms`](super::scheduler::due_before_ms)) so the queue stays clock- and
     /// arithmetic-free.
-    pub fn pop_due(&mut self, due_before_ms: i64) -> Option<(K, i64)> {
-        // Copy the soonest coordinate out, dropping the immutable borrow before the mutating remove.
-        let (&coord, _) = self.by_deadline.first_key_value()?;
+    pub fn due_keys(&self, due_before_ms: i64, limit: usize) -> impl Iterator<Item = &K> + '_ {
+        // `seq` is unsigned, so `(due_before_ms, 0)` is the least coordinate at the cutoff: the range
+        // is exactly the strictly-earlier deadlines.
+        self.by_deadline
+            .range(..(due_before_ms, 0))
+            .map(|(_, key)| key)
+            .take(limit)
+    }
+
+    /// Remove `key` only if its **current** deadline is still strictly before `due_before_ms`,
+    /// returning that deadline so a failed batch can put the key back where it was. [`None`] when the
+    /// key was cancelled or rescheduled to or past the cutoff since it was selected, in which case it
+    /// stays queued on its live deadline.
+    pub fn take_due(&mut self, key: &K, due_before_ms: i64) -> Option<i64> {
+        let &coord = self.index.get(key)?;
         let (deadline_ms, _) = coord;
         if deadline_ms >= due_before_ms {
             return None;
         }
-        let key = self
-            .by_deadline
+        self.by_deadline
             .remove(&coord)
-            .expect("the peeked coordinate is present");
-        self.index.remove(&key);
-        Some((key, deadline_ms))
+            .expect("the indexed coordinate is present");
+        self.index.remove(key);
+        Some(deadline_ms)
     }
 
     /// Remove `key` from the queue, if present, so its pending eviction never fires.
@@ -136,20 +150,34 @@ where
 mod tests {
     use super::*;
 
+    /// Select the soonest due key and claim it, the two-step the sweep runs. `None` when nothing is
+    /// due — the shape the scheduling tests below assert against.
+    fn claim_soonest_due<K: Hash + Eq + Clone>(
+        queue: &mut EvictionQueue<K>,
+        due_before_ms: i64,
+    ) -> Option<(K, i64)> {
+        let key = queue.due_keys(due_before_ms, 1).next()?.clone();
+        let deadline = queue
+            .take_due(&key, due_before_ms)
+            .expect("a key selected as due is claimable when nothing intervened");
+        Some((key, deadline))
+    }
+
     fn drain<K: Hash + Eq + Clone>(
         queue: &mut EvictionQueue<K>,
         due_before_ms: i64,
     ) -> Vec<(K, i64)> {
         let mut out = Vec::new();
-        while let Some(entry) = queue.pop_due(due_before_ms) {
+        while let Some(entry) = claim_soonest_due(queue, due_before_ms) {
             out.push(entry);
         }
         out
     }
 
     #[test]
-    fn pop_due_boundary_triple() {
-        // Strict `<`: at the exact cutoff and beyond, the key is held; one ms before, it is due.
+    fn due_boundary_triple() {
+        // Strict `<`, on both halves of the pair: at the exact cutoff and beyond, the key is neither
+        // selected nor claimable; one ms before, it is both.
         let due_before = 1_000;
         for (deadline, should_evict) in [
             (due_before - 1, true),
@@ -158,14 +186,65 @@ mod tests {
         ] {
             let mut queue = EvictionQueue::new();
             queue.schedule("k", deadline);
-            let popped = queue.pop_due(due_before);
             assert_eq!(
-                popped.is_some(),
+                queue.due_keys(due_before, 16).count(),
+                usize::from(should_evict),
+                "selection: deadline {deadline} vs due_before {due_before}",
+            );
+            assert_eq!(
+                queue.take_due(&"k", due_before).is_some(),
                 should_evict,
-                "deadline {deadline} vs due_before {due_before}",
+                "claim: deadline {deadline} vs due_before {due_before}",
             );
             assert_eq!(queue.len(), if should_evict { 0 } else { 1 });
         }
+    }
+
+    #[test]
+    fn take_due_refuses_a_key_rescheduled_past_the_cutoff_since_selection() {
+        // The freshness guarantee the split buys: a key selected as due, then pushed past the cutoff
+        // by an intervening event, is not claimable and stays queued on its live deadline.
+        let mut queue = EvictionQueue::new();
+        queue.schedule("k", 100);
+        let selected: Vec<&str> = queue.due_keys(200, 16).copied().collect();
+        assert_eq!(selected, vec!["k"]);
+
+        queue.schedule("k", 900); // a late event slid the window forward
+        assert_eq!(queue.take_due(&"k", 200), None);
+        assert_eq!(queue.len(), 1, "the refused key stays queued");
+        assert_eq!(queue.peek_next_deadline(), Some(900));
+    }
+
+    #[test]
+    fn take_due_refuses_a_key_cancelled_since_selection() {
+        // The other half: a merge cancels the key between selection and claim, so the claim finds
+        // nothing and the eviction never fires.
+        let mut queue = EvictionQueue::new();
+        queue.schedule("k", 100);
+        assert_eq!(queue.due_keys(200, 16).count(), 1);
+
+        queue.cancel(&"k");
+        assert_eq!(queue.take_due(&"k", 200), None);
+        assert_eq!(queue.len(), 0);
+    }
+
+    #[test]
+    fn due_keys_stops_at_the_limit_without_removing_anything() {
+        let mut queue = EvictionQueue::new();
+        for (key, deadline) in [("a", 100), ("b", 200), ("c", 300)] {
+            queue.schedule(key, deadline);
+        }
+        let selected: Vec<&str> = queue.due_keys(1_000, 2).copied().collect();
+        assert_eq!(
+            selected,
+            vec!["a", "b"],
+            "soonest first, capped at the limit"
+        );
+        assert_eq!(queue.len(), 3, "selection removes nothing");
+
+        // Selecting again returns the same keys, so a pass that abandons its candidates loses none.
+        let again: Vec<&str> = queue.due_keys(1_000, 2).copied().collect();
+        assert_eq!(again, selected);
     }
 
     #[test]
@@ -176,12 +255,12 @@ mod tests {
         assert_eq!(queue.len(), 1, "reschedule must not duplicate the key");
 
         // Nothing due at the original deadline anymore.
-        assert_eq!(queue.pop_due(101), None);
+        assert_eq!(claim_soonest_due(&mut queue, 101), None);
         assert_eq!(queue.len(), 1);
 
-        assert_eq!(queue.pop_due(501), Some(("k", 500)));
+        assert_eq!(claim_soonest_due(&mut queue, 501), Some(("k", 500)));
         assert_eq!(queue.len(), 0);
-        assert_eq!(queue.pop_due(501), None);
+        assert_eq!(claim_soonest_due(&mut queue, 501), None);
     }
 
     #[test]
@@ -193,14 +272,14 @@ mod tests {
         queue.schedule("k", 200); // late event in an older bucket pulls it earlier
         assert_eq!(queue.len(), 1);
 
-        assert_eq!(queue.pop_due(201), Some(("k", 200)));
+        assert_eq!(claim_soonest_due(&mut queue, 201), Some(("k", 200)));
         assert_eq!(
             queue.len(),
             0,
             "the superseded far-future entry must not linger",
         );
         // Draining far past the old far-future deadline yields nothing — proof it is gone.
-        assert_eq!(queue.pop_due(1_000_000), None);
+        assert_eq!(claim_soonest_due(&mut queue, 1_000_000), None);
         assert_eq!(queue.peek_next_deadline(), None);
     }
 
@@ -211,7 +290,7 @@ mod tests {
         queue.cancel(&"k");
         assert_eq!(queue.len(), 0);
         assert!(queue.is_empty());
-        assert_eq!(queue.pop_due(1_000_000), None);
+        assert_eq!(claim_soonest_due(&mut queue, 1_000_000), None);
 
         // Cancelling an absent key is a no-op.
         queue.cancel(&"missing");
@@ -225,20 +304,24 @@ mod tests {
         queue.schedule("b", 200);
         queue.cancel(&"a");
         assert_eq!(queue.len(), 1);
-        assert_eq!(queue.pop_due(1_000), Some(("b", 200)));
+        assert_eq!(claim_soonest_due(&mut queue, 1_000), Some(("b", 200)));
     }
 
     #[test]
     fn resurrection_after_pop_pops_again_at_the_new_deadline() {
         let mut queue = EvictionQueue::new();
         queue.schedule("k", 100);
-        assert_eq!(queue.pop_due(101), Some(("k", 100)));
+        assert_eq!(claim_soonest_due(&mut queue, 101), Some(("k", 100)));
         assert_eq!(queue.len(), 0);
 
         queue.schedule("k", 900);
         assert_eq!(queue.len(), 1);
-        assert_eq!(queue.pop_due(200), None, "not due at the old deadline");
-        assert_eq!(queue.pop_due(901), Some(("k", 900)));
+        assert_eq!(
+            claim_soonest_due(&mut queue, 200),
+            None,
+            "not due at the old deadline"
+        );
+        assert_eq!(claim_soonest_due(&mut queue, 901), Some(("k", 900)));
         assert_eq!(queue.len(), 0);
     }
 
@@ -258,13 +341,20 @@ mod tests {
     }
 
     #[test]
-    fn pop_due_drains_in_deadline_then_seq_order() {
+    fn selection_is_in_deadline_then_seq_order() {
         let mut queue = EvictionQueue::new();
         // Insert out of deadline order, with a tie at 200.
         queue.schedule("late", 300);
         queue.schedule("tie_first", 200);
         queue.schedule("early", 100);
         queue.schedule("tie_second", 200);
+
+        let selected: Vec<&str> = queue.due_keys(1_000, usize::MAX).copied().collect();
+        assert_eq!(
+            selected,
+            vec!["early", "tie_first", "tie_second", "late"],
+            "one selection pass already yields the drain order",
+        );
 
         let drained = drain(&mut queue, 1_000);
         assert_eq!(
@@ -295,21 +385,23 @@ mod tests {
         queue.cancel(&"a");
         assert_eq!(queue.peek_next_deadline(), Some(900));
 
-        assert_eq!(queue.pop_due(1_000), Some(("b", 900)));
+        assert_eq!(claim_soonest_due(&mut queue, 1_000), Some(("b", 900)));
         assert_eq!(queue.peek_next_deadline(), None);
     }
 
     #[test]
     fn very_negative_due_before_holds_everything_without_panic() {
         // The caller's saturating `now − margin` (now small, margin huge) yields a far-negative
-        // cutoff. `pop_due` is pure arithmetic-free comparison, so it holds every real (positive)
-        // deadline — the safe "nothing due" direction — and never panics. See
+        // cutoff. Both halves of the pair are arithmetic-free comparisons, so they hold every real
+        // (positive) deadline — the safe "nothing due" direction — and never panic. See
         // `scheduler::tests::due_before_saturates_when_margin_exceeds_now`.
         let mut queue = EvictionQueue::new();
         queue.schedule("k", 1);
         let cutoff = 0_i64.saturating_sub(i64::MAX);
-        assert_eq!(queue.pop_due(cutoff), None);
-        assert_eq!(queue.pop_due(i64::MIN), None);
+        assert_eq!(queue.due_keys(cutoff, usize::MAX).count(), 0);
+        assert_eq!(queue.due_keys(i64::MIN, usize::MAX).count(), 0);
+        assert_eq!(queue.take_due(&"k", cutoff), None);
+        assert_eq!(queue.take_due(&"k", i64::MIN), None);
         assert_eq!(queue.len(), 1);
     }
 

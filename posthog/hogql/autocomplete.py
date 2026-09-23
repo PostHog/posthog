@@ -57,9 +57,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.taxonomy.taxonomy import QUERY_DEPRECATED_EVENT_PROPERTIES
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.product_analytics.backend.facade.models import InsightVariable
+from products.product_analytics.backend.facade.api import insight_variables_for_team
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
@@ -67,6 +68,15 @@ from common.hogvm.python.stl.bytecode import BYTECODE_STL
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
+# The one path through a Hog function's globals that holds an event's own property bag. Other
+# `properties` bags (person, groups, a user-defined input) never carry person property setters.
+EVENT_PROPERTIES_GLOBALS_CHAIN = ["event", "properties"]
+
+# `parse_string_template` prepends a magic "F'" to flip the parser into template mode, so every node
+# position it reports is shifted by that prefix. Keep this list in step with the languages below
+# that are parsed with it, or the cursor resolves to the wrong node.
+STRING_TEMPLATE_LANGUAGES = (HogLanguage.HOG_TEMPLATE, HogLanguage.LIQUID, HogLanguage.HOG_JSON)
+STRING_TEMPLATE_PREFIX_OFFSET = len("F'")
 
 
 def _get_direct_connection_metadata(context: HogQLContext) -> Optional[dict]:
@@ -564,12 +574,20 @@ def get_hogql_autocomplete(
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
     timings = HogQLTimings()
 
-    if database_arg is not None:
-        database = database_arg
-    else:
-        database = Database.create_for(team=team, user=user, timings=timings)
+    built_database: Optional[Database] = database_arg
+    context = HogQLContext(team_id=team.pk, team=team, user=user, database=database_arg, timings=timings)
 
-    context = HogQLContext(team_id=team.pk, team=team, user=user, database=database, timings=timings)
+    def get_database() -> Database:
+        """`Database.create_for` walks every warehouse table, join and view for the team, which
+        dominates the latency of an autocomplete request. Template languages (Hog, Hog templates,
+        Liquid) answer from `query.globals` and the STL alone, so they must never reach it.
+        """
+        nonlocal built_database
+        if built_database is None:
+            built_database = Database.create_for(team=team, user=user, timings=timings)
+            context.database = built_database
+        return built_database
+
     if query.sourceQuery:
         if query.sourceQuery.kind == "HogQLQuery" and (
             query.sourceQuery.query is None or query.sourceQuery.query == ""
@@ -628,31 +646,37 @@ def get_hogql_autocomplete(
                 raise ValueError(f"Unsupported autocomplete language: {query.language}")
 
             with timings.measure("find_node"):
-                # to account for the magic F' symbol we append to change antlr's mode
-                extra = 2 if query.language == HogLanguage.HOG_TEMPLATE else 0
+                extra = STRING_TEMPLATE_PREFIX_OFFSET if query.language in STRING_TEMPLATE_LANGUAGES else 0
                 find_node = GetNodeAtPositionTraverser(root_node, query_start + extra, query_end + extra)
             node = find_node.node
             parent_node = find_node.parent_node
 
-            if HogLanguage.HOG_TEMPLATE and isinstance(node, ast.Constant):
-                # Do not show suggestions if not inside the {} part in a template string
+            if isinstance(node, ast.Constant):
+                # The cursor sits in literal text: outside the {} of a template string, or inside a
+                # string literal elsewhere. Neither takes suggestions.
                 continue
 
             if isinstance(query.globals, dict):
                 if isinstance(node, ast.Field):
+                    # Offer the members of whatever holds the chain element under the cursor, so the
+                    # author gets the level they are editing rather than the end of the chain
                     loop_globals: dict | None = query.globals
-                    for index, key in enumerate(node.chain):
-                        if MATCH_ANY_CHARACTER in str(key):
-                            break
-                        if loop_globals is not None and str(key) in loop_globals:
-                            loop_globals = loop_globals[str(key)]
-                        elif index == len(node.chain) - 1:
-                            break
-                        else:
+                    entered_chain: list[str] = []
+                    for key in node.chain[: chain_index_at_cursor(node, query_to_try, query_start, extra)]:
+                        if MATCH_ANY_CHARACTER in str(key) or not isinstance(loop_globals, dict):
                             loop_globals = None
                             break
-                    if loop_globals is not None:
-                        add_globals_to_suggestions(loop_globals, response)
+                        loop_globals = loop_globals.get(str(key))
+                        entered_chain.append(str(key))
+                    if isinstance(loop_globals, dict):
+                        # The sample event backing these globals is a real captured event, so its
+                        # property bag can still carry properties we no longer offer for querying.
+                        excluded_keys = (
+                            QUERY_DEPRECATED_EVENT_PROPERTIES
+                            if entered_chain == EVENT_PROPERTIES_GLOBALS_CHAIN
+                            else None
+                        )
+                        add_globals_to_suggestions(loop_globals, response, excluded_keys=excluded_keys)
                         # looking at a nested global object, no need for other suggestions
                         if loop_globals != query.globals:
                             break
@@ -682,6 +706,10 @@ def get_hogql_autocomplete(
 
             if select_ast is None:
                 break
+
+            # Everything below resolves against the team's schema, so this is the first point
+            # where the database has to exist.
+            database = get_database()
 
             if query.filters:
                 try:
@@ -802,6 +830,10 @@ def get_hogql_autocomplete(
                                             name__contains=match_term,
                                             type=property_type,
                                         )
+                                        if property_type == PropertyDefinition.Type.EVENT:
+                                            property_query = property_query.exclude(
+                                                name__in=QUERY_DEPRECATED_EVENT_PROPERTIES
+                                            )
 
                                     # One row past the limit sets `incomplete_list` without an unbounded COUNT(*):
                                     # an empty match_term makes the filter `LIKE '%%'`, so that count walked the
@@ -896,9 +928,7 @@ def get_hogql_autocomplete(
                 if node.chain[0] == MATCH_ANY_CHARACTER or (
                     "variables".startswith(str(node.chain[0])) and len(node.chain) == 1
                 ):
-                    insight_variables = InsightVariable.objects.filter(
-                        team_id=team.pk,
-                    ).order_by("name")
+                    insight_variables = insight_variables_for_team(team.pk)
                     code_names = [f"variables.{n.code_name}" for n in insight_variables if n.code_name]
                     extend_responses(
                         keys=code_names,
@@ -907,9 +937,7 @@ def get_hogql_autocomplete(
                         details=["Variable"] * len(code_names),
                     )
                 elif len(node.chain) > 1 and node.chain[0] == "variables":
-                    insight_variables = InsightVariable.objects.filter(
-                        team_id=team.pk,
-                    ).order_by("name")
+                    insight_variables = insight_variables_for_team(team.pk)
                     code_names = [n.code_name for n in insight_variables if n.code_name]
                     extend_responses(
                         keys=code_names,
@@ -952,8 +980,24 @@ def extract_json_row(query_to_try, query_start, query_end):
     return query_to_try, query_start, query_end
 
 
-def add_globals_to_suggestions(globalVars: dict, response: HogQLAutocompleteResponse):
+def chain_index_at_cursor(node: ast.Field, source: str, cursor: int, node_offset: int) -> int:
+    # Which element of `node.chain` the cursor sits on, so callers can resolve the levels before it.
+    # Chain elements carry no positions of their own, so this counts the dots between the start of
+    # the field and the cursor: a quoted key holding a dot lands one level off, showing suggestions
+    # from the wrong level rather than failing. Without a position, assume the last element.
+    last_index = max(0, len(node.chain) - 1)
+    if node.start is None:
+        return last_index
+    field_start = max(0, node.start - node_offset)
+    return max(0, min(source[field_start:cursor].count("."), last_index))
+
+
+def add_globals_to_suggestions(
+    globalVars: dict, response: HogQLAutocompleteResponse, excluded_keys: set[str] | None = None
+):
     if isinstance(globalVars, dict):
+        if excluded_keys:
+            globalVars = {key: value for key, value in globalVars.items() if key not in excluded_keys}
         existing_values = {item.label for item in response.suggestions}
         values: list[str | None] = []
         for key, value in globalVars.items():

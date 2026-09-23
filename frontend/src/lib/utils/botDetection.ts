@@ -344,6 +344,22 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'Selenium',
         definition: { name: 'Selenium', category: 'headless_browser', trafficType: 'Automation', operator: 'Selenium' },
     },
+    {
+        pattern: 'SlimerJS',
+        definition: { name: 'SlimerJS', category: 'headless_browser', trafficType: 'Automation', operator: 'SlimerJS' },
+    },
+    {
+        pattern: 'wkhtmltopdf',
+        definition: {
+            name: 'wkhtmltopdf',
+            category: 'headless_browser',
+            trafficType: 'Automation',
+            operator: 'wkhtmltopdf',
+        },
+    },
+    // Regex-only impossible-UA rules (Spoofed Edge UA, Truncated WebKit UA, and similar) live
+    // only in the server-side `bot_definitions.py`. This livestream mirror matches with
+    // `String.includes`, so it can carry plain-token bots but not regex patterns.
     // Self-declared crawlers observed in production `$http_log` traffic
     // AI crawlers
     {
@@ -699,6 +715,10 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
             operator: 'swissaitalent.ch',
         },
     },
+    {
+        pattern: 'AtlasSearchBot',
+        definition: { name: 'AtlasSearch', category: 'search_crawler', trafficType: 'Bot', operator: 'AtlasSearch' },
+    },
     // SEO / marketing crawlers
     {
         pattern: 'LaunchReadyCodeBot',
@@ -774,6 +794,14 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'BenchRankBot',
         definition: { name: 'BenchRank', category: 'seo_crawler', trafficType: 'Bot', operator: 'BenchRank' },
     },
+    {
+        pattern: 'QlyzeBot',
+        definition: { name: 'Qlyze', category: 'seo_crawler', trafficType: 'Bot', operator: 'Qlyze' },
+    },
+    {
+        pattern: 'AutozellaBot',
+        definition: { name: 'Autozella', category: 'seo_crawler', trafficType: 'Bot', operator: 'Autozella' },
+    },
     // Social / link-preview crawlers
     {
         pattern: 'PagePeeker',
@@ -836,6 +864,15 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     {
         pattern: 'MrAnandPortfolio',
         definition: { name: 'MrAnandPortfolio', category: 'http_client', trafficType: 'Bot', operator: 'mranand.com' },
+    },
+    {
+        pattern: 'PostHogImageFetcherBot',
+        definition: {
+            name: 'PostHog Image Fetcher',
+            category: 'http_client',
+            trafficType: 'Bot',
+            operator: 'PostHog',
+        },
     },
 ]
 

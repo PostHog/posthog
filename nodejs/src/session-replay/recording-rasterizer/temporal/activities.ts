@@ -11,10 +11,12 @@ import { config } from '~/session-replay/recording-rasterizer/config'
 import { asRasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { createLogger } from '~/session-replay/recording-rasterizer/logger'
 import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
-import { computeVideoTimestamps } from '~/session-replay/recording-rasterizer/postprocess'
+import { videoTimestampsFromFrames } from '~/session-replay/recording-rasterizer/postprocess'
 import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
+import { extractThumbnail } from '~/session-replay/recording-rasterizer/thumbnail'
 import {
     ActivityTimings,
+    ExtractThumbnailInput,
     RasterizationProgress,
     RasterizeRecordingInput,
     RasterizeRecordingOutput,
@@ -133,7 +135,12 @@ async function rasterizeRecordingActivity(
         RasterizationMetrics.observeSetup('success', timings.setup_s)
         RasterizationMetrics.observeCapture('success', timings.capture_s)
 
-        const periods = computeVideoTimestamps(result.inactivity_periods)
+        const periods = videoTimestampsFromFrames(
+            result.inactivity_periods,
+            result.frame_session_ms,
+            result.output_fps,
+            result.pre_roll_frames
+        )
 
         progress.phase = 'upload'
         onProgress()
@@ -219,5 +226,22 @@ async function rasterizeRecordingActivity(
 export function createActivities(pool: BrowserPool, playerHtml: string) {
     return {
         'rasterize-recording': (input: RasterizeRecordingInput) => rasterizeRecordingActivity(pool, playerHtml, input),
+        // No browser and no pool: this one reads an MP4 the rasterizer already produced.
+        'extract-thumbnail': async (input: ExtractThumbnailInput) => {
+            // The media path is fail-soft, so these counters are the only sign that the fleet is failing.
+            RasterizationMetrics.activityStarted()
+            try {
+                return await extractThumbnail(input)
+            } catch (err) {
+                const rasterizationError = asRasterizationError(err)
+                RasterizationMetrics.incrementError(
+                    rasterizationError?.code ?? 'UNKNOWN',
+                    rasterizationError?.retryable ?? true
+                )
+                throw toActivityError(rasterizationError ?? err)
+            } finally {
+                RasterizationMetrics.activityFinished()
+            }
+        },
     }
 }

@@ -220,6 +220,17 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
+    def test_cannot_add_recordings_to_synthetic_playlist(self) -> None:
+        base = f"/api/projects/{self.team.id}/session_recording_playlists/synthetic-watch-history/recordings"
+
+        single = self.client.post(f"{base}/session-1")
+        assert single.status_code == status.HTTP_400_BAD_REQUEST
+
+        bulk = self.client.post(f"{base}/bulk_add", {"session_recording_ids": ["session-1"]})
+        assert bulk.status_code == status.HTTP_400_BAD_REQUEST
+
+        assert SessionRecordingPlaylist.objects.count() == 0
+
     def test_pagination_includes_synthetics_only_on_first_page(self) -> None:
         for i in range(25):
             SessionRecordingPlaylist.objects.create(

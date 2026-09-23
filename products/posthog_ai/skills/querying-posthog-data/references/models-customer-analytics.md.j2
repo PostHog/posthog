@@ -1,0 +1,205 @@
+# Customer analytics accounts and feature requests
+
+Customer analytics tracks **accounts**, their owners and custom properties, and the feature requests linked to those accounts.
+
+**Source of truth for account ownership questions** ("who is the CSM of X?", "which accounts does Y own?"): answer them from these tables, not from warehouse CRM columns (`salesforce.*`, `hubspot.*`, ...). Warehouse copies of ownership fields can lag behind reassignments made in PostHog.
+
+Prefer the typed `posthog:accounts-*`, `posthog:account-relationship-definitions-*`, `posthog:custom-property-definitions-*`, and `posthog:feature-request*` MCP tools for writes. Use HogQL for reads and aggregations.
+
+## Account (`system.accounts`)
+
+One row per account.
+
+### Columns
+
+{{ schema_columns('system.accounts') }}
+
+Lazy-joined fields:
+
+- `tags.names`: tag names.
+- `notebooks.count`: number of linked internal notes.
+- `custom_properties.values`: current values keyed by immutable definition ID.
+- `custom_properties_history.values`: numeric value history keyed by immutable definition ID.
+- `relationships.values`: active user IDs keyed by immutable relationship-definition ID.
+- `meetings`: meeting count, latest start time, and the newest 10 meeting summaries.
+- `slack_summaries`: summary count, latest generation time, and the newest 10 Slack summaries.
+- `feature_requests`: active request count, latest update time, and the newest 10 linked requests.
+- `support_tickets`: ticket count, latest message time, and the newest 10 linked tickets. Requires ticket access.
+- `email_threads`: thread count, latest message time, and the newest 10 linked email threads. Requires ticket access.
+
+The `recent` fields are JSON arrays. They hold at most 10 records, newest first. Use the top-level tables when you need complete history.
+
+## Account relationships (`system.account_relationship_definitions`, `system.account_relationships`)
+
+A **relationship definition** is a team-defined relationship type between a PostHog user and an account — CSM (customer success manager), Account executive, Onboarding manager, and so on. An **account relationship** is one assignment of a user to an account for a definition, with its effective range.
+
+### `system.account_relationship_definitions` columns
+
+{{ schema_columns('system.account_relationship_definitions') }}
+
+### `system.account_relationships` columns
+
+{{ schema_columns('system.account_relationships') }}
+
+### Important notes
+
+- Active assignments are `ended_at IS NULL`; ended rows are kept as history.
+- Do not read `csm`, `account_executive`, or `account_owner` from `system.accounts.properties`. These keys are retired, and the relationship backfill removes them. Use `system.account_relationships` for ownership.
+- `system.account_relationships` exposes `user_id`, but the customer analytics HogQL system tables do not expose a current user email field. Use an account API when current organization member details are required.
+
+## Feature requests
+
+A feature request records a customer need across one or more accounts. Evidence belongs to a specific request and account pair. Product areas categorize requests, and history records each successful save.
+
+The tables apply account access rules. `system.feature_requests` includes a request when the caller can access at least one active linked account. The account links and evidence tables exclude inaccessible and unlinked accounts.
+
+### `system.feature_requests` columns
+
+{{ schema_columns('system.feature_requests') }}
+
+### `system.feature_request_account_links` columns
+
+One row per active request and account pair visible to the caller.
+
+{{ schema_columns('system.feature_request_account_links') }}
+
+### `system.feature_request_evidence` columns
+
+{{ schema_columns('system.feature_request_evidence') }}
+
+### Product area tables
+
+`system.feature_request_product_areas` defines the available areas. `system.feature_request_product_area_links` joins visible requests to those areas.
+
+#### `system.feature_request_product_areas` columns
+
+{{ schema_columns('system.feature_request_product_areas') }}
+
+#### `system.feature_request_product_area_links` columns
+
+{{ schema_columns('system.feature_request_product_area_links') }}
+
+### `system.feature_request_history` columns
+
+{{ schema_columns('system.feature_request_history') }}
+
+### Feature request query patterns
+
+**List active requests and their affected accounts:**
+
+```sql
+SELECT r.id, r.title, r.status, r.priority, a.id AS account_id, a.name AS account_name
+FROM system.feature_requests r
+JOIN system.feature_request_account_links l ON l.feature_request_id = r.id
+JOIN system.accounts a ON a.id = l.account_id
+WHERE r.archived_at IS NULL
+ORDER BY r.updated_at DESC
+```
+
+**Count evidence items by request and account:**
+
+```sql
+SELECT r.title, a.name AS account_name, count(e.id) AS evidence_count
+FROM system.feature_requests r
+JOIN system.feature_request_account_links l ON l.feature_request_id = r.id
+JOIN system.accounts a ON a.id = l.account_id
+LEFT JOIN system.feature_request_evidence e ON e.account_link_id = l.id
+GROUP BY r.id, r.title, a.id, a.name
+ORDER BY evidence_count DESC
+```
+
+**List requests for one product area:**
+
+```sql
+SELECT r.id, r.title, r.status, p.name AS product_area
+FROM system.feature_requests r
+JOIN system.feature_request_product_area_links l ON l.feature_request_id = r.id
+JOIN system.feature_request_product_areas p ON p.id = l.product_area_id
+WHERE p.name ILIKE '%analytics%'
+ORDER BY r.updated_at DESC
+```
+
+## Custom properties (`system.custom_property_definitions`)
+
+Custom properties let a team attach typed attributes to accounts. A **definition** is the attribute's shape (its name and how it is typed and rendered); the per-account **values** are queried through `system.accounts` (see below). Definitions are team-scoped — one set per team, shared across all accounts.
+
+### Columns
+
+{{ schema_columns('system.custom_property_definitions') }}
+
+### Important notes
+
+- `is_big_number` surfaces as an integer (`0`/`1`), not a boolean.
+- `display_type` is the rendering hint; effective data type is string for `text`, numeric for `number`/`currency`/`percent`, datetime for `date`/`datetime`, and boolean for `boolean`.
+
+### Reading per-account values (`system.accounts.custom_properties`)
+
+There is no standalone values table. An account's current value for a definition is read through a lazy join on `system.accounts`, keyed by the definition's `id`:
+
+```text
+accounts.custom_properties.values.`<definition_id>`
+```
+
+The `<definition_id>` is a `system.custom_property_definitions.id` (backtick-quoted, since it is a UUID). Only the current value is returned. Superseded values are excluded. The immutable ID keeps saved queries working when a property name changes.
+
+## Common query patterns
+
+**Who is the CSM (or any relationship holder) of an account:**
+
+```sql
+SELECT a.name, d.name AS relationship, r.user_id, r.started_at
+FROM system.account_relationships r
+JOIN system.account_relationship_definitions d ON d.id = r.definition_id
+JOIN system.accounts a ON a.id = r.account_id
+WHERE a.name ILIKE '%acme%'
+  AND d.name = 'CSM'
+  AND r.ended_at IS NULL
+```
+
+Do not use `properties.csm.email` as an email shortcut. The role keys in account properties are retired and are stripped by `backfill_account_relationships`. HogQL relationship tables return `user_id`; use an account API when current organization member details are required.
+
+**All accounts a user holds a relationship on:**
+
+```sql
+SELECT a.name, d.name AS relationship
+FROM system.account_relationships r
+JOIN system.account_relationship_definitions d ON d.id = r.definition_id
+JOIN system.accounts a ON a.id = r.account_id
+WHERE r.user_id = 12345 AND r.ended_at IS NULL
+ORDER BY a.name
+```
+
+**Assignment history of an account (including ended assignments):**
+
+```sql
+SELECT d.name AS relationship, r.user_id, r.started_at, r.ended_at
+FROM system.account_relationships r
+JOIN system.account_relationship_definitions d ON d.id = r.definition_id
+WHERE r.account_id = '0192f000-0000-7000-8000-000000000000'
+ORDER BY r.started_at DESC
+```
+
+**List all custom property definitions for a team:**
+
+```sql
+SELECT id, name, display_type, is_big_number
+FROM system.custom_property_definitions
+ORDER BY name
+```
+
+**Find numeric definitions:**
+
+```sql
+SELECT id, name, display_type
+FROM system.custom_property_definitions
+WHERE display_type IN ('number', 'currency', 'percent')
+ORDER BY name
+```
+
+**Read a specific custom property value across accounts** (substitute a real definition id from the query above):
+
+```sql
+SELECT id, name, custom_properties.values.`0192f000-0000-7000-8000-000000000000` AS plan_tier
+FROM system.accounts
+ORDER BY name
+```

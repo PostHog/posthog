@@ -1,10 +1,8 @@
 {% extends "admin/change_form.html" %}
 {% load loginas_javascript %}
-
 {% block extrahead %}
-  {{ block.super }}
-
-  <style nonce="{{ request.csp_nonce }}">
+    {{ block.super }}
+    <style nonce="{{ request.csp_nonce }}">
     .loginas-disabled {
         opacity: 0.5;
         cursor: not-allowed;
@@ -13,9 +11,8 @@
         background: var(--secondary, #205067);
         color: #fff;
     }
-  </style>
-
-  <script nonce="{{ request.csp_nonce }}">
+    </style>
+    <script nonce="{{ request.csp_nonce }}">
     document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("send_verification_email_button")?.addEventListener("click", (event) => {
             // prevent anchor tag from navigating
@@ -71,54 +68,53 @@
             });
         }
     });
-  </script>
+    </script>
 {% endblock %}
-
 {% block object-tools-items %}
     {{ block.super }}
     {% if original.allow_impersonation == False %}
-        <li><a id="loginas-link" href="#" class="loginas-disabled" title="Disallowed by user">Log in as user</a></li>
+        <li><a id="loginas-link"
+   href="#"
+   class="loginas-disabled"
+   title="Disallowed by user">Log in as user</a></li>
     {% else %}
         <li><a id="loginas-link" href="#">Log in as user</a></li>
     {% endif %}
 {% endblock %}
-
 {% block content %}
     {{ block.super }}
-
     <form method="POST" id="send_verification">
         {% csrf_token %}
         <input type="hidden" name="send_verification" value="1" />
     </form>
-
     <form method="POST" id="revoke_sessions">
         {% csrf_token %}
         <input type="hidden" name="revoke_sessions" value="1" />
     </form>
-
     <form method="POST" id="send_2fa_reset">
         {% csrf_token %}
         <input type="hidden" name="send_2fa_reset" value="1" />
     </form>
-
     <form method="POST" id="send_password_reset">
         {% csrf_token %}
         <input type="hidden" name="send_password_reset" value="1" />
     </form>
-
 {% endblock %}
-
 {% block footer %}
     {{ block.super }}
-
     {% if original.allow_impersonation != False %}
-        <form method="POST" id="loginas-form" action="{% url 'loginas-user-login' object_id %}" style="display: none">
+        <form method="POST"
+              id="loginas-form"
+              action="{% url 'loginas-user-login' object_id %}"
+              style="display: none">
             {% csrf_token %}
             <input type="hidden" name="reason" id="loginas-reason-input" value="">
-            <input type="hidden" name="read_only" id="loginas-read-only-input" value="true">
+            <input type="hidden"
+                   name="read_only"
+                   id="loginas-read-only-input"
+                   value="true">
         </form>
-
         {% modal %}
         {% javascript %}
-    {% endif %}
+{% endif %}
 {% endblock %}

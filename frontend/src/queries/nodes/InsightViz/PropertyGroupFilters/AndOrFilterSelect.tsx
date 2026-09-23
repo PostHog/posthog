@@ -8,6 +8,8 @@ export interface AndOrFilterSelectProps {
     topLevelFilter?: boolean
     prefix?: React.ReactNode
     suffix?: [singular: string, plural: string]
+    /** Shown instead of `suffix` in a narrow editor panel. Needs an `editor-panel` container ancestor */
+    shortSuffix?: string
     disabledReason?: LemonButtonProps['disabledReason']
     size?: LemonButtonProps['size']
 }
@@ -18,6 +20,7 @@ export function AndOrFilterSelect({
     topLevelFilter,
     prefix = 'Match',
     suffix = ['filter in this group', 'filters in this group'],
+    shortSuffix,
     disabledReason,
     size = 'small',
 }: AndOrFilterSelectProps): JSX.Element {
@@ -59,7 +62,10 @@ export function AndOrFilterSelect({
                 optionTooltipPlacement={topLevelFilter ? 'bottom-end' : 'bottom-start'}
                 dropdownMatchSelectWidth={false}
             />
-            {value === FilterLogicalOperator.Or ? suffix[0] : suffix[1]}
+            <span className={shortSuffix ? '@max-[375px]/editor-panel:hidden' : undefined}>
+                {value === FilterLogicalOperator.Or ? suffix[0] : suffix[1]}
+            </span>
+            {shortSuffix && <span className="hidden @max-[375px]/editor-panel:inline">{shortSuffix}</span>}
         </div>
     )
 }

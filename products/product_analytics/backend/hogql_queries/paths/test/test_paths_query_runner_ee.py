@@ -4,7 +4,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -149,7 +149,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        with freeze_time("2012-01-7T03:21:34.000Z"):
+        with time_machine.travel("2012-01-7T03:21:34.000Z", tick=False):
             filter = {"stepLimit": 2}
             result = PathsQueryRunner(query={"kind": "PathsQuery", "pathsFilter": filter}, team=self.team).run()
             assert isinstance(result, CachedPathsQueryResponse)
@@ -169,7 +169,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual([p1.uuid], self._get_people_at_path(filter, "1_/1", "2_/2"))
             self.assertEqual([], self._get_people_at_path(filter, "2_/2", "3_/3"))
 
-        with freeze_time("2012-01-7T03:21:34.000Z"):
+        with time_machine.travel("2012-01-7T03:21:34.000Z", tick=False):
             filter = {"stepLimit": 3}
             result = PathsQueryRunner(query={"kind": "PathsQuery", "pathsFilter": filter}, team=self.team).run()
             assert isinstance(result, CachedPathsQueryResponse)
@@ -194,7 +194,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual([p1.uuid], self._get_people_at_path(filter, "2_/2", "3_/3"))
 
-        with freeze_time("2012-01-7T03:21:34.000Z"):
+        with time_machine.travel("2012-01-7T03:21:34.000Z", tick=False):
             filter = {"stepLimit": 4}
             result = PathsQueryRunner(query={"kind": "PathsQuery", "pathsFilter": filter}, team=self.team).run()
             assert isinstance(result, CachedPathsQueryResponse)
@@ -228,7 +228,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual([p1.uuid], self._get_people_at_path(filter, "3_/3", "4_/4"))
 
     @snapshot_clickhouse_queries
-    @freeze_time("2023-05-23T11:00:00.000Z")
+    @time_machine.travel("2023-05-23T11:00:00.000Z", tick=False)
     def test_step_conversion_times(self):
         _create_person(team_id=self.team.pk, distinct_ids=["fake"])
 
@@ -885,7 +885,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2023-05-23T11:00:00.000Z")
+    @time_machine.travel("2023-05-23T11:00:00.000Z", tick=False)
     def test_event_inclusion_exclusion_filters(self):
         # P1 for pageview event
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
@@ -1108,7 +1108,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2023-05-23T11:00:00.000Z")
+    @time_machine.travel("2023-05-23T11:00:00.000Z", tick=False)
     def test_event_exclusion_filters_with_wildcard_groups(self):
         # P1 for pageview event /2/bar/1/foo
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
@@ -1485,7 +1485,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2023-05-23T11:00:00.000Z")
+    @time_machine.travel("2023-05-23T11:00:00.000Z", tick=False)
     def test_respect_session_limits(self):
         _create_person(team_id=self.team.pk, distinct_ids=["fake"])
 
@@ -1929,7 +1929,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(result, expected)
 
     @snapshot_clickhouse_queries
-    @freeze_time("2023-05-23T11:00:00.000Z")
+    @time_machine.travel("2023-05-23T11:00:00.000Z", tick=False)
     def test_wildcard_groups_across_people(self):
         # P1 for pageview event /2/bar/1/foo
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
@@ -2060,7 +2060,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2023-05-23T11:00:00.000Z")
+    @time_machine.travel("2023-05-23T11:00:00.000Z", tick=False)
     def test_wildcard_groups_evil_input(self):
         evil_string = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
         # P1 for pageview event /2/bar/1/foo
@@ -3048,7 +3048,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @freeze_time("2012-01-01T03:21:34.000Z")
+    @time_machine.travel("2012-01-01T03:21:34.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_recording(self):
         # User with 2 matching paths with recordings
@@ -3206,7 +3206,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([], matched_recordings[1])
 
     @snapshot_clickhouse_queries
-    @freeze_time("2012-01-01T03:21:34.000Z")
+    @time_machine.travel("2012-01-01T03:21:34.000Z", tick=False)
     def test_recording_with_no_window_or_session_id(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
 
@@ -3262,7 +3262,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.timeout(60)
     @snapshot_clickhouse_queries
-    @freeze_time("2012-01-01T03:21:34.000Z")
+    @time_machine.travel("2012-01-01T03:21:34.000Z", tick=False)
     def test_recording_with_start_and_end(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
 
@@ -3367,7 +3367,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.timeout(60)
     @snapshot_clickhouse_queries
-    @freeze_time("2012-01-01T03:21:34.000Z")
+    @time_machine.travel("2012-01-01T03:21:34.000Z", tick=False)
     def test_recording_for_dropoff(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
 
@@ -3691,7 +3691,7 @@ class TestClickhousePathsFunnelSource(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _run_paths_query(self, funnel_source: dict, funnel_path_type: str, funnel_step: int) -> list[tuple]:
-        with freeze_time("2021-05-08T00:00:00.000Z"):
+        with time_machine.travel("2021-05-08T00:00:00.000Z", tick=False):
             result = PathsQueryRunner(
                 query={
                     "kind": "PathsQuery",

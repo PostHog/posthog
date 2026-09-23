@@ -20,30 +20,38 @@ from typing import TYPE_CHECKING, Protocol
 from policy import OwnershipSource, load_policy
 
 if TYPE_CHECKING:
-    from posthog_owners.resolver import OwnersResolver
+    from owners_yaml.resolver import OwnersResolver
 
-# The resolver lives in the posthog-owners package. This script's uv env does not install it, so the
+
+# The resolver lives in the owners-yaml package. This script's uv env does not install it, so the
 # code puts it on the path and imports it as a library. It needs only pyyaml, which review_pr.py
 # declares. _build_hogli_resolver defers the import, because downstream repos vendor this directory
-# (plus .stamphog/) without tools/owners. A module-level import would disable their stamphog copy
+# without the resolver package. A module-level import would disable their stamphog copy
 # before any gate runs. The package is only necessary once a policy declares a hogli-resolver
 # ownership source.
 #
 # There are two candidate locations, and the code puts only the FIRST one that exists on the path.
-# The sibling `owners/` covers two cases: the vendored layout that downstream repos copy, and the
-# review sandbox, which receives this directory at <checkout>/tools/pr-approval-agent with
-# tools/owners beside it. The sandbox therefore never reaches the second entry. The second entry
-# covers a run from this repo, where the engine's own home is under products/stamphog/packages/.
+# The first entry covers a run from this repo, where the resolver is at packages/owners-yaml and the
+# engine's own home is under products/stamphog/packages/. The sibling `owners/` covers two cases:
+# the vendored layout that downstream repos copy, and the review sandbox, which receives this
+# directory at <checkout>/tools/pr-approval-agent with the resolver beside it at
+# <checkout>/tools/owners. Neither of those layouts has a first entry to find, so they fall through
+# to the sibling.
 #
 # Both entries are fixed offsets from this file, and not a discovered repo root.
 # `policy.repo_root()` walks up to find a `.stamphog/` directory, and the PR head is untrusted. A PR
 # that adds `tools/.stamphog/` would move that root and point this code at a directory that the PR
 # controls. The sandbox would then import that directory, and the sandbox holds the run's LLM
 # credentials.
-_OWNERS_PKG_CANDIDATES = (
-    Path(__file__).resolve().parents[1] / "owners",
-    Path(__file__).resolve().parents[4] / "tools" / "owners",
-)
+def _owners_pkg_candidates(engine_file: Path) -> tuple[Path, ...]:
+    engine_dir = engine_file.resolve().parent
+    # engine_dir is products/stamphog/packages/pr-approval-agent in this repo, so the repo root is
+    # four levels up. In the sandbox and in a vendored copy that offset points outside the tree and
+    # finds nothing, which is what makes the sibling the answer there.
+    return (engine_dir.parents[3] / "packages" / "owners-yaml", engine_dir.parent / "owners")
+
+
+_OWNERS_PKG_CANDIDATES = _owners_pkg_candidates(Path(__file__))
 
 # ── Dependency ecosystems ────────────────────────────────────────
 #
@@ -209,11 +217,11 @@ def _build_hogli_resolver(repo_root: Path, source: OwnershipSource) -> _HogliRes
     try:
         # Deferred (PLC0415) because the package is absent in vendored copies and is needed only
         # once a policy declares this ownership format.
-        from posthog_owners.resolver import OwnersResolver  # noqa: PLC0415
+        from owners_yaml.resolver import OwnersResolver  # noqa: PLC0415
     except ImportError as exc:
         raise RuntimeError(
-            "ownership format 'hogli-resolver' requires the posthog-owners package: "
-            "vendor tools/owners alongside this directory, or drop the "
+            "ownership format 'hogli-resolver' requires the owners-yaml package: "
+            "add a pinned owners-yaml from PyPI to this script's dependencies, or drop the "
             "hogli-resolver source from .stamphog/policy.yml"
         ) from exc
     assert source.path is not None  # validated by the loader (hogli-resolver uses `path`)
@@ -247,6 +255,23 @@ def build_ownership(repo_root: Path, sources: tuple[OwnershipSource, ...]) -> li
 # touch was incidental; the full count travels in team_file_counts.
 TEAM_FILE_SAMPLE = 10
 
+# A product's generated API types, which `hogli build:openapi` rewrites whenever any shared
+# serializer changes anywhere in the repo. Owning one says nothing about whether that team was
+# touched by the change. Counted per team below so a consumer gets an exact answer rather than
+# inferring one from the capped sample.
+#
+# Deliberately narrow. This is a "these files carry no news" rule, which AGENTS.md says needs an
+# argument, and the argument only holds for this one directory shape: the repo forbids hand-editing
+# it (root CLAUDE.md, "don't edit them manually, change serializers and rerun"), every product's
+# generated directory has this exact path, and its only consumer decides who hears about a merge
+# rather than whether code is safe to approve. A bare `generated/` match would also catch
+# hand-editable directories elsewhere in the tree, which is the case AGENTS.md warns about.
+#
+# The ownership registry has a `status: generated` value (owners_yaml.schema) that would be the
+# right home for this, but no owners.yaml or product.yaml declares it today, so reading it would
+# exclude nothing.
+_GENERATED_PATH_RE = re.compile(r"^products/[^/]+/frontend/generated/")
+
 
 def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> dict:
     """Aggregate per-file ownership, unioning each source's owners per file.
@@ -255,12 +280,16 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
     bucket: `teams` feeds team-membership checks and the cross-team calculus
     downstream, and a raw handle there would fail membership lookups and inflate
     the team count. `team_files` samples each team's changed paths so a later
-    consumer can tell a change in a team's area from one that merely grazed it."""
+    consumer can tell a change in a team's area from one that merely grazed it,
+    and a generated path is left out of that sample because no person edited it.
+    `team_generated_file_counts` says how many of each team's files a build step
+    wrote, which the capped sample cannot answer."""
     all_teams: set[str] = set()
     all_individuals: set[str] = set()
     owned_files = 0
     unowned_files = 0
     team_file_counts: Counter = Counter()
+    team_generated_counts: Counter = Counter()
     team_files: dict[str, list[str]] = {}
 
     for f in files:
@@ -272,10 +301,15 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
             owned_files += 1
             all_teams.update(teams)
             all_individuals.update(owners - teams)
+            generated = bool(_GENERATED_PATH_RE.search(f))
             for t in teams:
                 team_file_counts[t] += 1
-                # Capped: a sweeping rename can own hundreds of a team's files, and the consumer
-                # (a digest line) only needs enough to tell an incidental touch from a real one.
+                if generated:
+                    team_generated_counts[t] += 1
+                    continue
+                # Capped: a sweeping rename can own hundreds of a team's files and no consumer
+                # needs them all. The cap binds only on a sweep, where the count alone is the
+                # useful signal anyway.
                 paths = team_files.setdefault(t, [])
                 if len(paths) < TEAM_FILE_SAMPLE:
                     paths.append(f)
@@ -289,7 +323,9 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
         "owned_files": owned_files,
         "unowned_files": unowned_files,
         "team_file_counts": dict(team_file_counts.most_common()),
-        "team_files": {t: team_files[t] for t, _ in team_file_counts.most_common()},
+        "team_generated_file_counts": dict(team_generated_counts.most_common()),
+        # Empty for a team whose only files a build step wrote: those are excluded above.
+        "team_files": {t: team_files.get(t, []) for t, _ in team_file_counts.most_common()},
         "cross_team": len(all_teams) > 1,
     }
 

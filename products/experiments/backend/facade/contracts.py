@@ -28,6 +28,17 @@ class ExperimentSummaryData:
     omitted_metric_count: int
 
 
+@frozen
+class TargetableExperiment:
+    """A launched experiment whose exposed sessions a replay surface can narrow to."""
+
+    id: int
+    name: str
+    description: str
+    # The variant keys a caller may ask for, excluded variants already removed.
+    variants: tuple[str, ...]
+
+
 @dataclass(frozen=True)
 class CreateExperimentInput:
     """

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
 import {
     LemonButton,
     LemonCard,
@@ -10,7 +11,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 
@@ -23,12 +24,14 @@ import type {
 
 import { accountEmailThreadsLogic, MESSAGE_PAGE_SIZE, NOT_LOADED, PAGE_SIZE } from './accountEmailThreadsLogic'
 
+const HedgehogBusiness = pngHoggie(businessEvolutionPng)
+
 const COLLAPSED_PARTICIPANT_COUNT = 3
 
 function EmailThreadsEmptyState({ title, detail }: { title: string; detail: string }): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
-            <BigLeaguesHog className="w-24 h-24" />
+            <HedgehogBusiness className="w-24 h-24" />
             <h4 className="mb-0">{title}</h4>
             <p className="text-secondary max-w-sm mb-0">{detail}</p>
         </div>

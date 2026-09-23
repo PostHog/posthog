@@ -74,7 +74,7 @@
                 {
                     "properties": {
                         "source": {
-                            "description": "Hog source code. Must return true (pass), false (fail), or null for N/A.",
+                            "description": "Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.",
                             "minLength": 1,
                             "type": "string"
                         }
@@ -166,11 +166,14 @@
             "type": "string"
         },
         "output_config": {
-            "description": "Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+            "description": "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.",
             "properties": {
                 "allows_na": {
-                    "default": false,
                     "description": "Whether the evaluation can return N/A for non-applicable generations.",
+                    "type": "boolean"
+                },
+                "true_is_failure": {
+                    "description": "Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.",
                     "type": "boolean"
                 }
             },

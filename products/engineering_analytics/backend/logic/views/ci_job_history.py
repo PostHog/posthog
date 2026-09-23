@@ -88,6 +88,10 @@ FIELDS: dict[str, FieldOrTable] = {
     "commit_message": StringDatabaseField(name="commit_message", nullable=True),
     "commit_pr_number": IntegerDatabaseField(name="commit_pr_number", nullable=True),
     "is_merge_queue": BooleanDatabaseField(name="is_merge_queue"),
+    # A job GitHub re-listed under a later run_attempt without re-running it (see the workflow_jobs
+    # builder). Its timestamps and conclusion are the earlier attempt's, so a boundary or duration
+    # read that counts it counts one execution twice.
+    "is_rerun_copy": BooleanDatabaseField(name="is_rerun_copy"),
 }
 
 
@@ -151,7 +155,8 @@ def build_query(*, jobs_table: str, runs_table: str, pull_requests_table: str | 
             r.commit_pr_number AS commit_pr_number,
             -- The run ran on a merge-queue gate branch, so pr_number above is the PR it was landing
             -- rather than an association. Without this the two populations are indistinguishable.
-            r.is_merge_queue AS is_merge_queue
+            r.is_merge_queue AS is_merge_queue,
+            j.is_rerun_copy AS is_rerun_copy
         FROM ({jobs}) AS j
         LEFT JOIN ({runs}) AS r ON j.run_id = r.id
         LEFT JOIN ({head_commits}) AS hc ON j.run_id = hc.run_id

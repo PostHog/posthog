@@ -7,6 +7,12 @@
             "enum": ["full", "preview", "none"],
             "type": "string"
         },
+        "label": {
+            "description": "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+        },
         "search": {
             "description": "Optional substring filter applied to prompt names and prompt content.",
             "type": "string"
