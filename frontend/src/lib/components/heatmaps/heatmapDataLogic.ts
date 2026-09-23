@@ -35,6 +35,8 @@ import { FilterType } from '~/types'
 // The endpoint defaults to a bounded page for API callers; the overlay renders every point.
 const UNBOUNDED_HEATMAP_LIMIT = 0
 
+export const DEFAULT_COMMON_FILTERS: CommonFilters = { date_from: '-7d' }
+
 // Limit canvas height to prevent browser freezing with heatmap.js
 // Large canvases (e.g., 24000px) cause heatmap.js to block the main thread
 export const MAX_HEATMAP_HEIGHT = 8000
@@ -190,6 +192,7 @@ export interface heatmapDataLogicValues {
     rawHeatmapLoading: boolean
     selectedArea: HeatmapArea | null
     showEventsPanel: boolean
+    storedCommonFilters: CommonFilters | null
     viewportRange: {
         max: number
         min: number
@@ -311,6 +314,7 @@ export interface heatmapDataLogicActions {
 export interface heatmapDataLogicMeta {
     key: 'in-app' | 'toolbar'
     __keaTypeGenInternalSelectorTypes: {
+        commonFilters: (storedCommonFilters: CommonFilters | null) => CommonFilters
         dateRange: (commonFilters: CommonFilters) => string | null
         heatmapElements: (rawHeatmap: HeatmapResponseType | null) => HeatmapElement[]
         viewportRange: (
@@ -377,16 +381,21 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         windowWidth: (window: Window) => window.innerWidth,
         windowHeight: (window: Window) => window.innerHeight,
     })),
-    reducers({
+    reducers(({ props }) => ({
         hrefMatchType: [
             'exact' as HrefMatchType,
             {
                 setHrefMatchType: (_, { matchType }) => matchType,
             },
         ],
-        commonFilters: [
-            { date_from: '-7d' } as CommonFilters,
-            { persist: true },
+        storedCommonFilters: [
+            DEFAULT_COMMON_FILTERS as CommonFilters | null,
+            // The storage key kea-localstorage would derive from this reducer's name changed when the
+            // reducer was renamed, so pin the original key and keep the filters people already saved.
+            {
+                persist: true,
+                storageKey: `lib.components.heatmap.heatmapDataLogic.${props.context}.commonFilters`,
+            },
             {
                 setCommonFilters: (_, { filters }) => filters,
             },
@@ -480,7 +489,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 clearSelectedArea: () => null,
             },
         ],
-    }),
+    })),
     loaders(({ values, props, actions }) => ({
         rawHeatmap: [
             null as HeatmapResponseType | null,
@@ -569,6 +578,13 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         ],
     })),
     selectors({
+        commonFilters: [
+            (s) => [s.storedCommonFilters],
+            // The reducer is persisted to the host page's storage, so a stored null would otherwise
+            // survive every reload and break every read of the filters.
+            (storedCommonFilters: CommonFilters | null): CommonFilters => storedCommonFilters ?? DEFAULT_COMMON_FILTERS,
+        ],
+
         dateRange: [
             (s) => [s.commonFilters],
             (commonFilters: Partial<FilterType>) => {

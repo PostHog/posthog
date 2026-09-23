@@ -1,6 +1,13 @@
-import { eventFilterParam, heatmapApiPath, isWithinBounds } from 'lib/components/heatmaps/heatmapDataLogic'
+import {
+    DEFAULT_COMMON_FILTERS,
+    eventFilterParam,
+    heatmapApiPath,
+    heatmapDataLogic,
+    isWithinBounds,
+} from 'lib/components/heatmaps/heatmapDataLogic'
 import { CommonFilters, HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
 
+import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
 describe('isWithinBounds', () => {
@@ -72,5 +79,33 @@ describe('eventFilterParam', () => {
         ],
     ] as const)('%s', (_name, events, expected) => {
         expect(eventFilterParam(events as CommonFilters['events'])).toBe(expected)
+    })
+})
+
+describe('commonFilters persistence', () => {
+    // the toolbar persists the filters to the host page, where a stored null used to survive
+    // every reload and make each read of the filters throw
+    const storageKey = 'lib.components.heatmap.heatmapDataLogic.toolbar.commonFilters'
+
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        window.localStorage.removeItem(storageKey)
+    })
+
+    it.each([
+        ['a stored null falls back to the default', 'null', DEFAULT_COMMON_FILTERS],
+        ['stored filters are kept', '{"date_from":"-30d"}', { date_from: '-30d' }],
+    ])('%s', (_name, stored, expected) => {
+        window.localStorage.setItem(storageKey, stored)
+
+        const logic = heatmapDataLogic({ context: 'toolbar' })
+        logic.mount()
+
+        expect(logic.values.commonFilters).toEqual(expected)
+
+        logic.unmount()
     })
 })
