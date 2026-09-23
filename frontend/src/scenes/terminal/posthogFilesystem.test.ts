@@ -210,6 +210,44 @@ describe('PostHog filesystem projection', () => {
         }
     )
 
+    it('resolves navigation from lazy folders and file identities without reading their contents', async () => {
+        const folder = 'Research & notes'
+        const entries = [
+            entry('folder', folder, 'folder'),
+            entry('note1', `${folder}/Notes`),
+            { ...entry('query', `${folder}/Query.sql`, 'insight'), href: '/insights/query' },
+            entry('12', `${folder}/Overview`, 'dashboard'),
+        ]
+        jest.mocked(fileSystemList).mockImplementation(async (_, params) => {
+            const { parent, depth } = params as { parent?: string; depth?: number }
+            const results = entries.filter(
+                (item) =>
+                    item.path.split('/').length === depth && item.path.split('/').slice(0, -1).join('/') === parent
+            )
+            return { count: results.length, results }
+        })
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        expect(await fs.navigationUrl(folder, '/posthog/files')).toBe('/files?folder=Research%20%26%20notes')
+        expect(fileSystemList).toHaveBeenCalledTimes(1)
+        expect(await fs.navigationUrl('Notes.md', `/posthog/files/${folder}`)).toBe('/notebooks/note1')
+        expect(await fs.navigationUrl('Query.sql.json', `/posthog/files/${folder}`)).toBe('/insights/query')
+        expect(await fs.navigationUrl('Overview.json', `/posthog/files/${folder}`)).toBe('/dashboard/12')
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
+        expect(fileSystemRetrieve).not.toHaveBeenCalled()
+    })
+
+    it.each(['https://example.com', '//example.com', '/\\example.com', 'javascript:alert(1)', '/\n/example.com'])(
+        'rejects a file destination outside PostHog: %j',
+        async (href) => {
+            jest.mocked(fileSystemList).mockResolvedValue({
+                count: 1,
+                results: [{ ...entry('link', 'Link', 'unknown'), href }],
+            })
+            const fs = new PosthogFilesystem('42', new AbortController().signal)
+            await expect(fs.navigationUrl('Link.json', '/posthog/files')).rejects.toThrow('no PostHog page')
+        }
+    )
+
     it('projects markdown without changing the stored path and saves with the version it read', async () => {
         const session = new AbortController()
         const read = new AbortController()
