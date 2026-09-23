@@ -114,21 +114,6 @@ vi.mock("@posthog/agent/agent", () => ({
   Agent: mockAgentConstructor,
 }));
 
-vi.mock("@posthog/agent/browser-mcp", () => ({
-  createBrowserMcpServer: () => ({
-    name: "chrome-devtools",
-    command: "/mock/electron",
-    args: [
-      "/mock/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js",
-      "--auto-connect",
-      "--redact-network-headers",
-      "--no-usage-statistics",
-      "--no-performance-crux",
-    ],
-    env: [{ name: "ELECTRON_RUN_AS_NODE", value: "1" }],
-  }),
-}));
-
 vi.mock("@agentclientprotocol/sdk", () => ({
   ClientSideConnection: mockClientSideConnection,
   ndJsonStream: vi.fn(),
@@ -331,6 +316,16 @@ describe("AgentService", () => {
       deps.workspaceRepository as never,
       deps.workspaceSettings as never,
       deps.loggerFactory as never,
+      {
+        getServer: vi.fn().mockResolvedValue({
+          name: "chrome-devtools",
+          type: "http",
+          url: "http://127.0.0.1:12345/mcp",
+          headers: [],
+        }),
+        releaseSession: vi.fn(),
+        close: vi.fn(),
+      } as never,
     );
     vi.spyOn(service, "emit");
   });
@@ -869,14 +864,8 @@ describe("AgentService", () => {
           expect.arrayContaining([
             expect.objectContaining({
               name: "chrome-devtools",
-              command: "/mock/electron",
-              args: [
-                "/mock/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js",
-                "--auto-connect",
-                "--redact-network-headers",
-                "--no-usage-statistics",
-                "--no-performance-crux",
-              ],
+              type: "http",
+              url: "http://127.0.0.1:12345/mcp",
             }),
           ]),
         );

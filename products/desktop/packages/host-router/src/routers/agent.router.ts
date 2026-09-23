@@ -6,6 +6,7 @@ import type { AgentService } from "@posthog/workspace-server/services/agent/agen
 import { AGENT_SERVICE } from "@posthog/workspace-server/services/agent/identifiers";
 import {
   AgentServiceEvent,
+  browserConnectionStatusOutput,
   cancelPermissionInput,
   cancelPromptInput,
   cancelSessionInput,
@@ -40,6 +41,17 @@ import { SHELL_SERVICE } from "@posthog/workspace-server/services/shell/identifi
 import type { ShellService } from "@posthog/workspace-server/services/shell/shell";
 
 export const agentRouter = router({
+  browserStatus: publicProcedure
+    .output(browserConnectionStatusOutput)
+    .query(({ ctx }) =>
+      ctx.container.get<AgentService>(AGENT_SERVICE).getBrowserStatus(),
+    ),
+  reconnectBrowser: publicProcedure.mutation(({ ctx }) =>
+    ctx.container.get<AgentService>(AGENT_SERVICE).reconnectBrowser(),
+  ),
+  disconnectBrowser: publicProcedure.mutation(({ ctx }) =>
+    ctx.container.get<AgentService>(AGENT_SERVICE).disconnectBrowser(),
+  ),
   start: publicProcedure
     .input(startSessionInput)
     .output(sessionResponseSchema)

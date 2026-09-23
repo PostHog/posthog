@@ -9,7 +9,6 @@ import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingSt
 import {
   SettingsCard,
   SettingsCardRow,
-  SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import {
   DEV_MODE_CLIENT,
@@ -21,8 +20,9 @@ import { useSetupStore } from "@posthog/ui/features/setup/setupStore";
 import { useTourStore } from "@posthog/ui/features/tour/tourStore";
 import { clearApplicationStorage } from "@posthog/ui/utils/clearStorage";
 import { Button, Checkbox, Flex, Switch, Text } from "@radix-ui/themes";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
+import { ChromeBrowserSettings } from "./ChromeBrowserSettings";
 import { OnboardingTestTools } from "./OnboardingTestTools";
 import { SettingsBackup } from "./SettingsBackup";
 
@@ -41,65 +41,15 @@ export function AdvancedSettings() {
   const setRtkEnabledLocal = useSettingsStore((s) => s.setRtkEnabledLocal);
   const rtkEnabledCloud = useSettingsStore((s) => s.rtkEnabledCloud);
   const setRtkEnabledCloud = useSettingsStore((s) => s.setRtkEnabledCloud);
-  const browserIntegrationEnabled = useSettingsStore(
-    (s) => s.browserIntegrationEnabled,
-  );
-  const setBrowserIntegrationEnabled = useSettingsStore(
-    (s) => s.setBrowserIntegrationEnabled,
-  );
   const hostTRPC = useHostTRPC();
   const { data: rtkStatus } = useQuery(hostTRPC.agent.rtkStatus.queryOptions());
-  const openChromeRemoteDebugging = useMutation(
-    hostTRPC.os.openChromeRemoteDebugging.mutationOptions(),
-  );
   const devModeClient = useServiceOptional<DevModeClient>(DEV_MODE_CLIENT);
   const showOnboardingTools = useFeatureFlag(ONBOARDING_TEST_TOOLS_FLAG);
 
   return (
     <div className="flex flex-col gap-7">
       <SettingsBackup />
-      <SettingsSection
-        label="Browser access"
-        description="Manage Chrome access for new local agent sessions"
-      >
-        <SettingsCard>
-          <SettingsCardRow
-            label="Google Chrome"
-            description={
-              <ul className="list-disc space-y-0.5 pl-4">
-                <li>Can access open tabs signed in to your accounts</li>
-                <li>Enable only for agents you trust</li>
-                <li>Applies to new sessions</li>
-              </ul>
-            }
-          >
-            <div className="flex flex-col items-end gap-1">
-              <div className="flex items-center gap-3">
-                <Button
-                  size="1"
-                  variant="soft"
-                  disabled={openChromeRemoteDebugging.isPending}
-                  onClick={() => openChromeRemoteDebugging.mutate()}
-                >
-                  Open Chrome setup
-                </Button>
-                <Switch
-                  aria-label="Enable Google Chrome browser access"
-                  checked={browserIntegrationEnabled}
-                  onCheckedChange={setBrowserIntegrationEnabled}
-                  size="1"
-                />
-              </div>
-              {openChromeRemoteDebugging.isError && (
-                <Text size="1" color="red">
-                  Couldn&apos;t open Chrome setup. Check that Google Chrome is
-                  installed.
-                </Text>
-              )}
-            </div>
-          </SettingsCardRow>
-        </SettingsCard>
-      </SettingsSection>
+      <ChromeBrowserSettings />
       <SettingsCard>
         <SettingsCardRow
           label="Always create pull requests for cloud runs"

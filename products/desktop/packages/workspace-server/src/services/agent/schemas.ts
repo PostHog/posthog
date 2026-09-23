@@ -406,3 +406,10 @@ export const getPreviewConfigOptionsInput = z.object({
 });
 
 export const getPreviewConfigOptionsOutput = z.array(sessionConfigOptionSchema);
+
+export const browserConnectionStatusOutput = z.object({
+  status: z.enum(["idle", "connecting", "connected", "disconnected", "error"]),
+});
+export type BrowserConnectionStatus = z.infer<
+  typeof browserConnectionStatusOutput
+>;

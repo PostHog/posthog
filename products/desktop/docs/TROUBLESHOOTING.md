@@ -1,5 +1,21 @@
 # Troubleshooting
 
+## Chrome asks for permission in each agent session
+
+Desktop shares one Chrome connection across local agent sessions.
+Enable browser access in **Settings > Advanced** before you start a local session.
+Approve the Chrome prompt when the first browser action connects.
+Ending a session does not close the shared connection.
+
+Use **Disconnect Chrome** to stop browser access for all local sessions.
+Use **Reconnect Chrome** to restore access.
+Chrome can ask for approval again after a reconnect or a Desktop restart.
+Turning browser access off also disconnects Chrome.
+The connection ends when Desktop quits.
+
+Agents share the same open tabs.
+Browser actions use explicit page IDs; avoid simultaneous work in the same tab.
+
 ## An image in a local task does not load
 
 Local task messages can show PNG, JPEG, GIF, WebP, and AVIF files that are inside the task workspace. Use an absolute workspace path or a path relative to the workspace. Images outside the workspace and remote image URLs stay blocked.

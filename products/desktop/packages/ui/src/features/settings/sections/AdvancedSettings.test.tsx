@@ -12,7 +12,12 @@ vi.mock("@posthog/di/react", () => ({
 
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
-    agent: { rtkStatus: { queryOptions: () => ({}) } },
+    agent: {
+      rtkStatus: { queryOptions: () => ({}) },
+      browserStatus: { queryOptions: () => ({}) },
+      reconnectBrowser: { mutationOptions: () => ({}) },
+      disconnectBrowser: { mutationOptions: () => ({}) },
+    },
     os: {
       openChromeRemoteDebugging: { mutationOptions: () => ({}) },
     },
@@ -79,6 +84,11 @@ describe("AdvancedSettings", () => {
       screen.getByRole("switch", {
         name: "Enable Google Chrome browser access",
       }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Open Chrome setup, then enable remote debugging and confirm in Chrome",
+      ),
     ).toBeInTheDocument();
   });
 

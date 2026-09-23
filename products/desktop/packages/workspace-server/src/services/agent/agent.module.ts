@@ -1,6 +1,7 @@
 import { ContainerModule } from "inversify";
 import { AgentService } from "./agent";
 import { AgentAuthAdapter } from "./auth-adapter";
+import { BROWSER_CONNECTION, BrowserConnection } from "./browser-connection";
 import {
   AGENT_AUTH_ADAPTER,
   AGENT_SERVICE,
@@ -9,6 +10,7 @@ import {
 } from "./identifiers";
 
 export const agentModule = new ContainerModule(({ bind }) => {
+  bind(BROWSER_CONNECTION).to(BrowserConnection).inSingletonScope();
   bind(AGENT_SERVICE).to(AgentService).inSingletonScope();
   bind(AGENT_AUTH_ADAPTER).to(AgentAuthAdapter).inSingletonScope();
   bind(MCP_SERVER_CONNECTION_SOURCE).toService(AGENT_AUTH_ADAPTER);

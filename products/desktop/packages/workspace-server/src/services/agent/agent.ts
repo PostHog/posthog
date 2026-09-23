@@ -40,7 +40,6 @@ import {
   getReasoningEffortOptions,
 } from "@posthog/agent/adapters/reasoning-effort";
 import { Agent } from "@posthog/agent/agent";
-import { createBrowserMcpServer } from "@posthog/agent/browser-mcp";
 import {
   getAvailableCodexModes,
   getAvailableModes,
@@ -107,6 +106,10 @@ import type { ProcessTrackingService } from "../process-tracking/process-trackin
 import { loadSessionEnvOverrides } from "../session-env/loader";
 import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
+import {
+  BROWSER_CONNECTION,
+  type BrowserConnection,
+} from "./browser-connection";
 import {
   cleanupCodexHome,
   getCodexHomeDir,
@@ -486,6 +489,8 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     private readonly workspaceSettings: IWorkspaceSettings,
     @inject(AGENT_LOGGER)
     loggerFactory: AgentLogger,
+    @inject(BROWSER_CONNECTION)
+    private readonly browserConnection: BrowserConnection,
   ) {
     super();
     this.processTracking = processTracking;
@@ -525,6 +530,18 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       available: binaryPath !== undefined,
       binaryPath: binaryPath ?? null,
     };
+  }
+
+  getBrowserStatus() {
+    return this.browserConnection.getStatus();
+  }
+
+  reconnectBrowser(): Promise<void> {
+    return this.browserConnection.reconnect();
+  }
+
+  disconnectBrowser(): Promise<void> {
+    return this.browserConnection.disconnect();
   }
 
   private getCodexBinaryPath(): string {
@@ -1123,7 +1140,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         toolInstallations,
       } = await this.agentAuthAdapter.buildMcpServers(credentials);
       const sessionMcpServers: McpServer[] = config.browserIntegrationEnabled
-        ? [...mcpServers, createBrowserMcpServer()]
+        ? [...mcpServers, await this.browserConnection.getServer(taskRunId)]
         : mcpServers;
 
       // Store server configs for lazy MCP connections — actual connections
@@ -1865,6 +1882,7 @@ For git operations while detached:
 
   @preDestroy()
   async cleanupAll(): Promise<void> {
+    await this.browserConnection.close();
     await this.codexLogin?.cancel();
     this.codexLogin = undefined;
     for (const { handle } of this.idleTimeouts.values()) clearTimeout(handle);
@@ -1898,6 +1916,7 @@ For git operations while detached:
   }
 
   private async cleanupSession(taskRunId: string): Promise<void> {
+    this.browserConnection.releaseSession(taskRunId);
     const session = this.sessions.get(taskRunId);
     if (session) {
       if (session.promptPending || session.inFlightMcpToolCalls.size > 0) {
