@@ -70,6 +70,9 @@ Browsing `/posthog/files` loads and caches each folder's immediate children; `/p
 Loading another folder leaves cached folders untouched, and API type directories can be opened directly even if they are not listed yet.
 Notebook format detection waits until notebooks are browsed, and object contents load only when opened.
 `ph refresh` reloads the directories already visited, rebuilds the cached tree once, and reloads the connected tool catalog.
+`open <path>` (or `ph open <path>`) opens project folders in Files and mounted files in their PostHog page.
+`open` without a path opens the current folder; relative paths resolve from the shell's working directory.
+Markdown notebooks and JSON representations use the mounted object's identity, including files under `/posthog/api`.
 Running `node`, `nodejs`, or `pi` installs the tool on first use; `pi` also installs Node.js.
 Optional tools come from commit-pinned archives in [PostHog/terminal-assets](https://github.com/PostHog/terminal-assets), separate from the boot assets.
 The browser verifies each archive's SHA-256 and size before making it available to the VM, and caches verified downloads when browser storage is available.
