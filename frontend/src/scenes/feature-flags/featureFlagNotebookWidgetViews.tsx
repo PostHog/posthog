@@ -230,7 +230,7 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
                         flagId={id}
                         filters={featureFlag.filters}
                         onChange={setFeatureFlagFilters}
-                        readOnly={!!editingDisabledReason}
+                        readOnly={!!editingDisabledReason || isSaveInProgress}
                         variants={nonEmptyVariants}
                         isDisabled={!featureFlag.active}
                         bucketingIdentifier={featureFlag.bucketing_identifier}
