@@ -94,12 +94,12 @@ class TestPrepareS3FilesForQuerying:
         # every retry restarting the same doomed copy until the run ran out of attempts.
         file_uris = [f"s3://bucket/job/my_table/part-{index}.parquet" for index in range(2000)]
         peak_tasks = 0
-        copied = 0
+        copied_sources: list[str] = []
 
         async def cp_file(source: str, destination: str) -> None:
-            nonlocal peak_tasks, copied
+            nonlocal peak_tasks
             peak_tasks = max(peak_tasks, len(asyncio.all_tasks()))
-            copied += 1
+            copied_sources.append(source)
             await asyncio.sleep(0)
 
         s3 = _fake_s3(_cp_file=cp_file)
@@ -112,7 +112,9 @@ class TestPrepareS3FilesForQuerying:
                 delete_existing=False,
             )
 
-        assert copied == len(file_uris)
+        # The exact set, not the count: workers sharing one iterator must not hand the same file
+        # to two of them and drop another, which a count-only assertion would pass.
+        assert sorted(copied_sources) == sorted(file_uris)
         # Generous headroom over the concurrency ceiling, so the assertion tracks "bounded" rather
         # than the exact number of tasks the event loop happens to be running.
         assert peak_tasks < util_module._S3_FILE_CONCURRENCY * 4
