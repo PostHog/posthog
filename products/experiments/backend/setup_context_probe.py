@@ -12,6 +12,7 @@ answers, and only the second one means nothing was read.
 import logging
 import dataclasses
 from collections.abc import Iterable, Sequence
+from math import ceil
 from statistics import median
 from typing import Final
 
@@ -246,7 +247,7 @@ class SetupContextProbe:
         if not sorted_values:
             return None
         # Nearest-rank, so a handful of projects still gives an honest tail rather than an average.
-        index = min(len(sorted_values) - 1, round(share * (len(sorted_values) - 1)))
+        index = min(len(sorted_values) - 1, max(0, ceil(share * len(sorted_values)) - 1))
         return sorted_values[index]
 
 
