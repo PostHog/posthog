@@ -15,6 +15,7 @@ class Migration(migrations.Migration):
         ("posthog", "1376_taggeditem_untrack_legacy_keys"),
     ]
 
+    # Existing-parent foreign keys are added in 0053 so their locks can be acquired together without waiting.
     operations = [
         migrations.CreateModel(
             name="OfflineExperiment",
@@ -55,6 +56,7 @@ class Migration(migrations.Migration):
                     "dataset_revision",
                     models.ForeignKey(
                         blank=True,
+                        db_constraint=False,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="+",
@@ -129,6 +131,7 @@ class Migration(migrations.Migration):
                     "dataset_item_version",
                     models.ForeignKey(
                         blank=True,
+                        db_constraint=False,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="+",
@@ -220,8 +223,18 @@ class Migration(migrations.Migration):
                 ("evaluator_trace_id", models.CharField(blank=True, max_length=255, null=True)),
                 ("evaluated_at", models.DateTimeField(blank=True, null=True)),
                 (
+                    "scorer_definition",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.RESTRICT,
+                        related_name="+",
+                        to="ai_observability.scoredefinition",
+                    ),
+                ),
+                (
                     "scorer_version",
                     models.ForeignKey(
+                        db_constraint=False,
                         on_delete=django.db.models.deletion.RESTRICT,
                         related_name="offline_results",
                         to="ai_observability.scoredefinitionversion",

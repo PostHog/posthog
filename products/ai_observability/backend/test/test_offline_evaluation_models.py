@@ -63,6 +63,7 @@ class TestOfflineEvaluationModels(TestCase):
         cls.result = OfflineEvaluationResult.objects.for_team(cls.team.id).create(
             team=cls.team,
             item=cls.item,
+            scorer_definition=cls.scorer,
             scorer_version=cls.scorer_version,
             status=OfflineEvaluationResult.Status.OK,
             numeric_value=0.8,
@@ -174,6 +175,7 @@ class TestOfflineEvaluationModels(TestCase):
             OfflineEvaluationResult.objects.for_team(self.team.id).create(
                 team=self.team,
                 item=self.item,
+                scorer_definition=self.scorer,
                 scorer_version=self.scorer_version,
                 status="ok",
                 numeric_value=0.9,
@@ -183,11 +185,13 @@ class TestOfflineEvaluationModels(TestCase):
         new_result = OfflineEvaluationResult.objects.for_team(self.team.id).create(
             team=self.team,
             item=self.item,
+            scorer_definition=self.scorer,
             scorer_version=next_version,
             status="ok",
             numeric_value=4,
             submission_fingerprint="d" * 64,
         )
+        connection.check_constraints([OfflineEvaluationResult._meta.db_table])
         self.assertNotEqual(new_result.pk, self.result.pk)
         self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).filter(item=self.item).count(), 2)
 
@@ -241,9 +245,11 @@ class TestOfflineEvaluationModels(TestCase):
         if model is OfflineExperimentItem:
             values.update(id=uuid4(), experiment=self.experiment, submission_fingerprint="d" * 64)
         elif model is OfflineEvaluationResult:
-            version = self.scorer.create_new_version(config={"min": 0, "max": 5}, created_by=None)
+            scorer = ScoreDefinition.objects.create(team=other_team, name="Quality", kind="numeric")
+            version = scorer.create_new_version(config={"min": 0, "max": 5}, created_by=None)
             values.update(
                 item=self.item,
+                scorer_definition=scorer,
                 scorer_version=version,
                 status="ok",
                 numeric_value=4,
@@ -259,6 +265,113 @@ class TestOfflineEvaluationModels(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             model.objects.for_team(other_team.id).create(**values)
             connection.check_constraints([model._meta.db_table])
+
+    @parameterized.expand(
+        [
+            ("foreign_scorer_bulk_create", False, "bulk_create"),
+            ("foreign_scorer_update", False, "update"),
+            ("wrong_definition_bulk_create", True, "bulk_create"),
+            ("wrong_definition_update", True, "update"),
+        ]
+    )
+    def test_results_require_a_scorer_version_from_their_team_and_definition(
+        self, _name: str, same_team: bool, operation: str
+    ) -> None:
+        if same_team:
+            scorer_team = self.team
+        else:
+            _, _, scorer_team = Organization.objects.bootstrap(None)
+        scorer = ScoreDefinition.objects.create(team=scorer_team, name="Another quality scorer", kind="numeric")
+        version = scorer.create_new_version(config={"min": 0, "max": 1}, created_by=None)
+        definition = self.scorer if same_team else scorer
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            if operation == "bulk_create":
+                OfflineEvaluationResult.objects.for_team(self.team.id).bulk_create(
+                    [
+                        OfflineEvaluationResult(
+                            team=self.team,
+                            item=self.item,
+                            scorer_definition=definition,
+                            scorer_version=version,
+                            status="ok",
+                            numeric_value=0.5,
+                            submission_fingerprint="d" * 64,
+                        )
+                    ]
+                )
+            else:
+                OfflineEvaluationResult.objects.for_team(self.team.id).filter(pk=self.result.pk).update(
+                    scorer_definition=definition, scorer_version=version
+                )
+            connection.check_constraints([OfflineEvaluationResult._meta.db_table])
+
+    @parameterized.expand([("scorer_team",), ("version_definition",)])
+    def test_referenced_scorer_ownership_cannot_be_reassigned(self, target: str) -> None:
+        if target == "scorer_team":
+            _, _, other_team = Organization.objects.bootstrap(None)
+        else:
+            other_scorer = ScoreDefinition.objects.create(team=self.team, name="Another quality scorer", kind="numeric")
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            if target == "scorer_team":
+                ScoreDefinition.objects.filter(pk=self.scorer.pk).update(team=other_team)
+            else:
+                ScoreDefinitionVersion.objects.filter(pk=self.scorer_version.pk).update(definition=other_scorer)
+            connection.check_constraints([OfflineEvaluationResult._meta.db_table])
+
+    @parameterized.expand(
+        [
+            ("revision_bulk_create", "revision", "bulk_create"),
+            ("revision_update", "revision", "update"),
+            ("item_version_bulk_create", "item_version", "bulk_create"),
+            ("item_version_update", "item_version", "update"),
+        ]
+    )
+    def test_dataset_references_cannot_belong_to_another_team(self, _name: str, target: str, operation: str) -> None:
+        _, _, other_team = Organization.objects.bootstrap(None)
+        dataset = Dataset.objects.for_team(other_team.id).create(team=other_team, name="Examples")
+        revision = DatasetRevision.objects.for_team(other_team.id).create(team=other_team, dataset=dataset, revision=1)
+        instance: OfflineExperiment | OfflineExperimentItem
+        if target == "revision":
+            instance = OfflineExperiment(
+                id=uuid4(),
+                team=self.team,
+                name="Candidate model",
+                started_at=self.experiment.started_at,
+                dataset_revision=revision,
+                submission_fingerprint="d" * 64,
+            )
+        else:
+            dataset_item = DatasetItem.objects.for_team(other_team.id).create(team=other_team, dataset=dataset)
+            item_version = DatasetItemVersion.objects.for_team(other_team.id).create(
+                team=other_team,
+                dataset=dataset,
+                dataset_item=dataset_item,
+                dataset_revision=revision,
+                version=1,
+                input={"question": "A question"},
+            )
+            instance = OfflineExperimentItem(
+                id=uuid4(),
+                team=self.team,
+                experiment=self.experiment,
+                dataset_item_version=item_version,
+                submission_fingerprint="d" * 64,
+            )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            if operation == "bulk_create":
+                type(instance).objects.for_team(self.team.id).bulk_create([instance])
+            elif target == "revision":
+                OfflineExperiment.objects.for_team(self.team.id).filter(pk=self.experiment.pk).update(
+                    dataset_revision=revision
+                )
+            else:
+                OfflineExperimentItem.objects.for_team(self.team.id).filter(pk=self.item.pk).update(
+                    dataset_item_version=item_version
+                )
+            connection.check_constraints([instance._meta.db_table])
 
     def test_deleting_payloads_preserves_scores_and_item_identity(self) -> None:
         OfflineExperimentItemPayload.objects.for_team(self.team.id).filter(item=self.item).delete()
@@ -295,9 +408,11 @@ class TestOfflineEvaluationModels(TestCase):
             dataset_item_identifier=str(dataset_item.pk),
             dataset_item_version_identifier="1",
         )
+        connection.check_constraints()
 
         dataset_id = dataset.pk
         dataset.delete()
+        connection.check_constraints()
 
         self.experiment.refresh_from_db()
         self.item.refresh_from_db()

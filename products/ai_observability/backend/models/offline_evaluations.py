@@ -40,8 +40,14 @@ class OfflineExperiment(TeamScopedRootMixin):
     dataset_source = models.CharField(max_length=255, null=True, blank=True)
     dataset_identifier = models.CharField(max_length=255, null=True, blank=True)
     dataset_revision_identifier = models.CharField(max_length=255, null=True, blank=True)
+    # Composite foreign keys in migrations enforce these resource links and their project ownership.
     dataset_revision = models.ForeignKey(
-        "ai_observability.DatasetRevision", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+        "ai_observability.DatasetRevision",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
     )
     application_version = models.CharField(max_length=255, null=True, blank=True)
     model_version = models.CharField(max_length=255, null=True, blank=True)
@@ -112,7 +118,12 @@ class OfflineExperimentItem(OfflinePayloadOwner):
     dataset_item_identifier = models.CharField(max_length=255, null=True, blank=True)
     dataset_item_version_identifier = models.CharField(max_length=255, null=True, blank=True)
     dataset_item_version = models.ForeignKey(
-        "ai_observability.DatasetItemVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+        "ai_observability.DatasetItemVersion",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
     )
     application_trace_id = models.CharField(max_length=255, null=True, blank=True)
 
@@ -135,9 +146,16 @@ class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
         NOT_APPLICABLE = "not_applicable", "Not applicable"
 
     item = models.ForeignKey(OfflineExperimentItem, on_delete=models.CASCADE, related_name="results", db_index=False)
+    # The definition lets composite foreign keys enforce both version membership and project ownership.
+    scorer_definition = models.ForeignKey(
+        "ai_observability.ScoreDefinition", on_delete=models.RESTRICT, related_name="+", db_constraint=False
+    )
     # RESTRICT preserves scorer history while permitting the team's complete deletion cascade.
     scorer_version = models.ForeignKey(
-        "ai_observability.ScoreDefinitionVersion", on_delete=models.RESTRICT, related_name="offline_results"
+        "ai_observability.ScoreDefinitionVersion",
+        on_delete=models.RESTRICT,
+        related_name="offline_results",
+        db_constraint=False,
     )
     status = models.CharField(max_length=16, choices=Status.choices)
     numeric_value = models.FloatField(null=True, blank=True)
