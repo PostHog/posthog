@@ -25,6 +25,7 @@ permissions:
 jobs:
     workflows:
         name: Push workflows
+        if: github.ref == 'refs/heads/master'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         environment: workflows-as-code

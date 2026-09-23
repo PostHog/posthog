@@ -55,7 +55,7 @@ Leave `status` out of the file. A pushed workflow starts as a draft and sends no
 ## In CI
 
 Frontend CI runs `pnpm --filter=@posthog/workflows test` and `repo:check` on every pull request that touches this folder or the package, offline and without credentials, so a pull request from a fork passes too.
-The `Workflows as code` GitHub Actions job (`.github/workflows/workflows-as-code.yml`) runs on a push to `master` and on manual dispatch. It runs `repo:push` when the repository environment secret `POSTHOG_WORKFLOWS_API_KEY` is set.
+The `Workflows as code` GitHub Actions job (`.github/workflows/workflows-as-code.yml`) runs on a push to `master`. Manual dispatches run only from `master`. It runs `repo:push` when the repository environment secret `POSTHOG_WORKFLOWS_API_KEY` is set.
 The secret holds the project's secret API key (`phs_...`), which needs the workflows scope enabled on the project, once PostHog accepts one on the workflows endpoint ([Silthus/posthog#106](https://github.com/Silthus/posthog/issues/106)). A personal API key with the `hog_flow:write` scope works today and keeps working.
 The push goes to project `2`, PostHog's own project on PostHog Cloud US, unless the repository variable `POSTHOG_WORKFLOWS_PROJECT_ID` names another one.
 The variable `POSTHOG_WORKFLOWS_HOST` is optional too and defaults to `https://us.posthog.com`.

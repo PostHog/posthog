@@ -243,6 +243,8 @@ jobs:
                       workflows_sdk:
                         - 'products/workflows/packages/**'
                         - 'products/workflows/workflows/**'
+                        - 'products/workflows/package.json'
+                        - '.github/actions/pnpm-install/**'
                         - pnpm-workspace.yaml
                         - pnpm-lock.yaml
                         - .nvmrc
@@ -1080,11 +1082,15 @@ jobs:
     workflows-sdk:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
+        permissions:
+            contents: read
         needs: changes
         if: needs.changes.outputs.workflows_sdk == 'true'
         name: Workflows SDK
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
 
             # The workflow files import @posthog/workflows through the devDependency
             # in products/workflows/package.json, and pnpm only creates that link
