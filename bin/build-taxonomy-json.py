@@ -67,6 +67,15 @@ def render_mcp_allowlist() -> str:
     )
 
 
+def outputs() -> list[tuple[Path, str]]:
+    return [(OUTPUT, render()), (MCP_ALLOWLIST_OUTPUT, render_mcp_allowlist())]
+
+
+def read_bytes(path: Path) -> bytes:
+    # Bytes, not text, so no newline translation can hide or invent a difference.
+    return path.read_bytes() if path.exists() else b""
+
+
 def check() -> int:
     stale = [path for path, contents in outputs() if read_bytes(path) != contents.encode()]
     if not stale:
@@ -76,15 +85,6 @@ def check() -> int:
         print(f"{path.relative_to(REPO_ROOT)} is out of date with posthog/taxonomy/taxonomy.py.")
     print("Run `hogli build:taxonomy-json` and commit the result.")
     return 1
-
-
-def outputs() -> list[tuple[Path, str]]:
-    return [(OUTPUT, render()), (MCP_ALLOWLIST_OUTPUT, render_mcp_allowlist())]
-
-
-def read_bytes(path: Path) -> bytes:
-    # Bytes, not text, so no newline translation can hide or invent a difference.
-    return path.read_bytes() if path.exists() else b""
 
 
 def main() -> int:

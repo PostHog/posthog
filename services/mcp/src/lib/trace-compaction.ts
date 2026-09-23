@@ -1,6 +1,5 @@
 import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
-import { formatResponse } from '@/lib/response'
-
+import { assignKey, isRecord } from '@/lib/plain-object'
 /**
  * Bounds the size of LLM trace results before they are serialized toward the MCP
  * client. `query-llm-trace` returns every event in a trace at every nesting
@@ -8,9 +7,9 @@ import { formatResponse } from '@/lib/response'
  * completions, and tool payloads. Left unbounded these responses have reached
  * tens of millions of tokens, which exhausts the calling agent's context window.
  *
- * Two layers keep that in check. `summary` detail replaces event content with
- * short previews so the summary response is trace metadata plus enough of each
- * prompt and output to decide what to read next. On top of that, compaction
+ * Two layers keep that in check. `summary` detail leaves event content out
+ * altogether and reports the omitted names, so the summary response is trace and
+ * event metadata an agent reads to decide what to open. On top of that, compaction
  * walks the result within a character budget, truncating long string values and
  * dropping content that doesn't fit, and stops traversing once the budget is
  * spent so it never materializes a full clone of a pathological trace. A final
@@ -25,8 +24,7 @@ import { formatResponse } from '@/lib/response'
  * or drops is flagged so the agent can narrow the query or open the trace in
  * PostHog.
  */
-
-import { assignKey, isRecord } from '@/lib/plain-object'
+import { formatResponse } from '@/lib/response'
 
 /** Longest single string value kept verbatim; longer values are truncated. */
 export const PER_VALUE_CHAR_LIMIT = 10_000
@@ -443,7 +441,7 @@ function compactTraceWithin(trace: Record<string, unknown>, budget: number, deta
     if (omitted > 0) {
         const note =
             detail === 'full'
-                ? 'Re-run with detail: "summary" for smaller previews. Summary responses can also omit events; narrow the query or open the trace in PostHog for the complete data.'
+                ? 'Re-run with detail: "summary" for metadata alone. Summary responses can also omit events; narrow the query or open the trace in PostHog for the complete data.'
                 : 'Open the trace in PostHog for the complete, untruncated data, or narrow the query to the events you need.'
         assignKey(base, '_truncated', {
             omittedEvents: omitted,

@@ -130,7 +130,7 @@ Generations (`$ai_generation`) and embeddings (`$ai_embedding`) are always leaf 
 
 ## Withheld properties
 
-Only `$ai_*` properties PostHog's taxonomy defines, plus the ones first-party code writes without describing (`$ai_generation_id`, `$ai_cache_read_cost_usd`, `$ai_cache_creation_cost_usd`, `$ai_effort`) and `$session_id`, `$lib`, and `$lib_version`, reach you. Every other event property, and every person property, is withheld whichever `detail` you ask for, and its name is listed in `_redactedKeys` beside the bag. `$ai_base_url` and `$ai_request_url` arrive without their query string.
+Only `$ai_*` properties PostHog's taxonomy defines, plus the ones first-party code writes without describing (`$ai_generation_id`, `$ai_cache_read_cost_usd`, `$ai_cache_creation_cost_usd`, `$ai_effort`) and `$session_id`, `$lib`, and `$lib_version`, reach you. Every other event property, and every person property, is withheld whichever `detail` you ask for, and its name is listed in `_redactedKeys` beside the bag. `$ai_base_url` and `$ai_request_url` arrive as the origin and path only, without the query string a provider key often sits in. A value that is not an `http` or `https` URL is withheld instead, because there is no endpoint to keep.
 
 A withheld property is unchanged in PostHog: it still works as a filter here, and you can read its value in the PostHog UI or with `execute-sql`.
 
@@ -139,7 +139,7 @@ A withheld property is unchanged in PostHog: it still works as a filter here, an
 `detail` controls how much of each event you get back.
 
 - `"full"` (default) returns every retained property in full, subject to response size limits.
-- `"summary"` opts into trace and event metadata only. It carries no free text at all: prompts, outputs, span states, `$ai_error`, and `$ai_feedback_text` are left out, and their names are listed in `_summaryOmittedKeys` beside the bag. Use `$ai_is_error` and `$ai_http_status` to find the failed events, then read their messages with `detail: "full"`. A summarized trace carries `_detail: { "mode": "summary" }`.
+- `"summary"` opts into trace and event metadata only. It carries no conversation content: prompts, outputs, span states, `$ai_error`, and `$ai_feedback_text` are left out, and their names are listed in `_summaryOmittedKeys` beside the bag. The trace and span names (`traceName`, `$ai_span_name`) do come back, and an SDK can write anything into those. Use `$ai_is_error` and `$ai_http_status` to find the failed events, then read their messages with `detail: "full"`. A summarized trace carries `_detail: { "mode": "summary" }`.
 
 Request `detail: "summary"` when finding candidate traces from their metadata; read the one you picked with `query-llm-trace` and `detail: "full"` when you need its content.
 

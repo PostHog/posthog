@@ -50,20 +50,27 @@ const SANITIZED_URL_PROPERTIES = new Set(['$ai_base_url', '$ai_request_url'])
  */
 const REDACTED_KEYS_FIELD = '_redactedKeys'
 
+/**
+ * Reduce an endpoint property to its origin and path, or withhold it. Only an
+ * absolute `http:` or `https:` URL has an origin and a path to keep. `URL`
+ * accepts an opaque scheme too, and there the whole value sits in the path: a
+ * `data:` URL parses, so `origin` is the string `"null"` and `pathname` is the
+ * payload, credential and all. Anything else is withheld rather than guessed at.
+ */
 function sanitizeUrl(value: unknown): string | undefined {
     if (typeof value !== 'string') {
-        // A structured value has no query string to cut off it, and carries a
-        // credential just as well as a string does, so it is withheld instead.
         return undefined
     }
+    let url: URL
     try {
-        const url = new URL(value)
-        return `${url.origin}${url.pathname}`
+        url = new URL(value)
     } catch {
-        // Not absolute, so `URL` cannot split it. Cut at the first query or
-        // fragment marker, which is where a credential would sit.
-        return value.split(/[?#]/)[0]
+        return undefined
     }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return undefined
+    }
+    return `${url.origin}${url.pathname}`
 }
 
 function isRetained(key: string): boolean {
@@ -75,13 +82,26 @@ function isRetained(key: string): boolean {
 }
 
 /**
+ * Empty a property bag that is not a record. The filter decides key by key, so an
+ * array or a string gives it no keys to decide on. Returning such a bag unchanged
+ * would pass every value in it to the client, so it is emptied instead, and the
+ * field itself is named as withheld.
+ */
+function emptiedBag(owner: Record<string, unknown>): Record<string, unknown> {
+    return { ...owner, properties: {}, [REDACTED_KEYS_FIELD]: ['properties'] }
+}
+
+/**
  * Filter an event property bag. Returns the event unchanged when the bag holds
  * nothing to withhold or sanitize, which is the common shape of an SDK trace.
  */
 function redactEventBag(event: Record<string, unknown>): Record<string, unknown> {
+    if (!('properties' in event)) {
+        return event
+    }
     const properties = event.properties
     if (!isRecord(properties)) {
-        return event
+        return emptiedBag(event)
     }
     const keys = Object.keys(properties)
     if (keys.every((key) => isRetained(key) && !SANITIZED_URL_PROPERTIES.has(key))) {
@@ -117,9 +137,12 @@ function redactEventBag(event: Record<string, unknown>): Record<string, unknown>
  * `uuid` and `distinct_id` sit outside the bag, so the person stays navigable.
  */
 function redactPersonBag(person: Record<string, unknown>): Record<string, unknown> {
+    if (!('properties' in person)) {
+        return person
+    }
     const properties = person.properties
     if (!isRecord(properties)) {
-        return person
+        return emptiedBag(person)
     }
     const withheld = Object.keys(properties)
     if (withheld.length === 0) {

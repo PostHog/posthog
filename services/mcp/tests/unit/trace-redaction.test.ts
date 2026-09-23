@@ -135,14 +135,40 @@ describe('trace redaction', () => {
         expect(properties[key]).toContain('https://api.example.com/v1')
     })
 
-    it('withholds a URL property that is not a string, having no query string to cut', () => {
-        const value = { url: `https://api.example.com/v1?api_key=${SECRETS.credential}` }
+    it.each([
+        ['a structured value', { url: `https://api.example.com/v1?api_key=${SECRETS.credential}` }],
+        // `URL` accepts an opaque scheme, and there the whole value is the path,
+        // so an endpoint built from it returns the credential it meant to strip.
+        ['an opaque scheme', `data:text/plain,api_key=${SECRETS.credential}`],
+        ['a value that is not an absolute URL', `api.example.com/v1?api_key=${SECRETS.credential}`],
+    ])('withholds a URL property that is %s, having no endpoint to keep', (_label, value) => {
         const trace = { id: 't1', events: [{ id: 'e1', properties: { $ai_request_url: value } }] }
 
         const event = (redactTrace(trace) as any).events[0]
 
         expect(secretsIn(event)).toEqual([])
         expect(event._redactedKeys).toEqual(['$ai_request_url'])
+    })
+
+    it.each([
+        ['an array', [{ authorization: SECRETS.credential }]],
+        ['a string', SECRETS.credential],
+    ])('empties an event property bag that arrives as %s', (_label, properties) => {
+        const event = (redactTrace({ id: 't1', events: [{ id: 'e1', properties }] }) as any).events[0]
+
+        expect(secretsIn(event)).toEqual([])
+        expect(event.properties).toEqual({})
+        expect(event._redactedKeys).toEqual(['properties'])
+    })
+
+    it('empties a person property bag that is not a record', () => {
+        const trace = { id: 't1', person: { uuid: 'person-1', properties: [{ email: SECRETS.identity }] } }
+
+        const person = (redactTrace(trace) as any).person
+
+        expect(secretsIn(person)).toEqual([])
+        expect(person.properties).toEqual({})
+        expect(person._redactedKeys).toEqual(['properties'])
     })
 
     it('returns a bag that holds only retained properties unchanged', () => {
