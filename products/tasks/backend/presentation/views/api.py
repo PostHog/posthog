@@ -1662,6 +1662,41 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         super().initial(request, *args, **kwargs)
         _ensure_scout_trial_visible(request, self.team_id, self._task_id())
 
+    @staticmethod
+    def _is_trial_lifecycle_update(payload: object) -> bool:
+        if not isinstance(payload, dict) or not payload or set(payload) - {"status", "error_message", "state"}:
+            return False
+        if "status" in payload and (
+            not isinstance(payload["status"], str) or payload["status"] not in {"in_progress", "completed", "failed"}
+        ):
+            return False
+        if "state" in payload:
+            state = payload["state"]
+            if not isinstance(state, dict) or set(state) - {"token_usage", "budget_guard", "benjamin_version"}:
+                return False
+        return True
+
+    def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str] | None:
+        if self.action not in {"append_log", "set_summary", "update", "partial_update"}:
+            return None
+        scopes = get_authenticator_scopes(request.successful_authenticator) or []
+        if "scout_experiment_internal:read" in scopes and (
+            self.action in {"append_log", "set_summary"} or self._is_trial_lifecycle_update(request.data)
+        ):
+            task_id = self._task_id()
+            if _sandbox_bound_task_id(request) == UUID(task_id):
+                try:
+                    run_id = UUID(self.kwargs["pk"])
+                except (ValueError, TypeError, KeyError):
+                    raise NotFound("Task run not found")
+                from products.signals.backend.facade.api import (
+                    is_scout_trial_task_run,  # noqa: PLC0415 -- keeps the scout workflow graph off ordinary API startup
+                )
+
+                if is_scout_trial_task_run(team_id=self.team_id, task_id=UUID(task_id), task_run_id=run_id):
+                    return ["scout_experiment_internal:read"]
+        return ["task:write"]
+
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
@@ -2102,7 +2137,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["patch"],
         url_path="set_summary",
-        required_scopes=["task:write"],
     )
     def set_summary(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -2136,7 +2170,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="append_log",
-        required_scopes=["task:write"],
     )
     def append_log(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()

@@ -28,8 +28,11 @@ They do not use the offline evaluation reporter or its `no_send_logs` switch.
 Launches are disabled unless `SCOUT_LIVE_TRIALS_ENABLED`, `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE`, and `SCOUT_LIVE_TRIALS_GATEWAY_URL` are configured.
 The private-capture setting attests that the selected gateway and query/task data destinations are isolated from the project the scouts inspect.
 Use a dedicated gateway with its PostHog capture token empty; also check warehouse replicas before enabling trials on a deployment.
+Use a hostname reachable from the sandbox for the gateway URL.
+The configured hostname joins the sandbox network policy; local Docker sandboxes translate localhost gateway URLs to `host.docker.internal`.
 Rate limits still apply, but shared generation events cannot supply trial costs when capture is disabled.
 Results report unknown cost as null and retain runtime token counts when available.
+Trial credentials can upload logs and update the summary, status, and usage of their own verified run without general task-write access.
 Operator trial MCP tools also omit analytics payloads.
 Task content retrieval tools retain call metrics but omit content spans and free-text intent, so viewing a private transcript does not publish it through MCP analytics.
 

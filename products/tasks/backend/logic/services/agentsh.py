@@ -88,6 +88,7 @@ _SANDBOX_URL_SETTINGS = (
     "SANDBOX_LLM_GATEWAY_URL",
     "SANDBOX_AI_GATEWAY_URL",
     "SANDBOX_MCP_URL",
+    "SCOUT_LIVE_TRIALS_GATEWAY_URL",
 )
 
 # Sandbox-host URLs that stay out of the enforced rule: telemetry export is not

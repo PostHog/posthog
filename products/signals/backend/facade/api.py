@@ -63,6 +63,25 @@ def is_scout_trial_task(*, team_id: int, task_id: uuid.UUID) -> bool:
     )
 
 
+def is_scout_trial_task_run(*, team_id: int, task_id: uuid.UUID, task_run_id: uuid.UUID) -> bool:
+    run = (
+        SignalScoutRun.objects.for_team(team_id)
+        .select_related("task_run__task")
+        .filter(task_run_id=task_run_id, task_run__task_id=task_id, metadata__scout_trial__version=1)
+        .first()
+    )
+    if run is None:
+        return False
+    marker = (run.metadata or {})["scout_trial"]
+    launch_id = marker.get("launch_id")
+    return (
+        isinstance(launch_id, str)
+        and run.task_run.task.origin_product == "signals_scout"
+        and run.task_run.task.origin_key == f"scout-trial:{launch_id}"
+        and (run.task_run.state or {}).get("scout_trial") == marker
+    )
+
+
 @frozen
 class ScoutTrialSkill:
     name: str
