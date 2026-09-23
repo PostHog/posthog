@@ -44,9 +44,10 @@ Use two complementary ways to compare scout configurations:
 Iterate on saved cases, validate promising changes with parallel live runs, then decide whether to deploy.
 Live copies need the same starting history, private subsequent memory, and complete report capture without downstream delivery.
 Enforce memory isolation on both reads and writes so copies cannot influence one another or the production scout.
-The production safeguards identified in the [round-1 report](FINAL_REPORT.md) remain prerequisites for another live comparison; the isolated runner does not implement those safeguards for production copies.
-The [lightweight live comparison proposal](PLAN.md#proposed-lightweight-live-comparisons) reuses existing run records and storage, with per-run overrides and a coordinating script.
-It describes the memory, report, prompt, and telemetry boundaries needed before those runs, plus the proposed split into offline and live branches.
+The production safeguards identified in the [round-1 report](https://github.com/PostHog/posthog/blob/0dd2387f046/products/signals/eval/experiments/2026-09-long-running-agent-evals/FINAL_REPORT.md) remain prerequisites for another live comparison; the isolated runner does not implement those safeguards for production copies.
+The [lightweight live comparison proposal](https://github.com/PostHog/posthog/blob/0dd2387f046/products/signals/eval/experiments/2026-09-long-running-agent-evals/PLAN.md#proposed-lightweight-live-comparisons) reuses existing run records and storage, with per-run overrides and a coordinating script.
+Live experiments and their production changes continue on `signals/scout-live-experiments`.
+This branch keeps the offline implementation and the pinned fixtures reused by its code case.
 
 For bounded code and feedback investigations, retained inputs and the normal tools appear sufficient for useful comparisons without copying an entire production project.
 Treat that as a working assumption supported by the completed investigations, not a demonstrated guarantee of production performance.
@@ -322,9 +323,9 @@ Reuse the separation of saved data from execution, with Parquet as a possible ev
 3. Clarify severity before a scored model or prompt comparison. These execution checks do not establish an improvement.
 4. Keep the devbox command and private case inputs reproducible. Modal deployment remains outside v0.
 
-The production improvements listed in the round-1 [final report](FINAL_REPORT.md) remain useful, especially memory isolation, effort recording, and complete report capture.
+The production improvements listed in the round-1 [final report](https://github.com/PostHog/posthog/blob/0dd2387f046/products/signals/eval/experiments/2026-09-long-running-agent-evals/FINAL_REPORT.md) remain useful, especially memory isolation, effort recording, and complete report capture.
 The isolated eval path can supply these properties without first implementing every production configuration change.
-The historical round-1 run procedure in [PLAN.md](PLAN.md) remains an execution record, not the recommended setup for reusable data cases.
+The historical [round-1 run procedure](https://github.com/PostHog/posthog/blob/0dd2387f046/products/signals/eval/experiments/2026-09-long-running-agent-evals/PLAN.md) remains an execution record, not the recommended setup for reusable data cases.
 
 Before unattended execution, verify credentials and model-provider access with invented input and establish the run budget.
 If committing or pushing is unavailable, continue independent authorized implementation, tests, and review.
