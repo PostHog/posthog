@@ -2301,29 +2301,98 @@ class TestShellSplitActionArgsCheck:
         derived = derive_shell_split_inputs(tmp_path)
         assert derived.get(".github/actions/singlequoted") == frozenset({"flags"}), derived
 
-    def test_the_shipped_action_hands_semgrep_every_argument_verbatim(self) -> None:
-        # The fix is structural: the action splits the value and passes `"$@"`, so
-        # nothing re-parses it. Execute the SHIPPED splitting and dispatch rather
-        # than a copy, or this passes while the action rots back.
+    @staticmethod
+    def _shipped_split() -> str:
+        """The `set -f` … `set +f` block from the real action, so these cannot drift from it."""
         from hogli.manifest import REPO_ROOT
 
         text = (REPO_ROOT / ".github" / "actions" / "semgrep-ci" / "action.yml").read_text(encoding="utf-8")
-        assert '"$@"' in text and "semgrep_args=($SEMGREP_ARGS)" in text, "action no longer passes args positionally"
+        lines = text.splitlines()
+        first = next(i for i, line in enumerate(lines) if line.strip() == "set -f")
+        last = next(i for i in range(first, len(lines)) if lines[i].strip() == "set +f")
+        return textwrap.dedent("\n".join(line.strip() for line in lines[first : last + 1]))
 
-        script = textwrap.dedent("""
-            set -f
-            semgrep_args=($SEMGREP_ARGS)
-            set +f
-            sh -c 'printf "[%s]" "$@"' sh "${semgrep_args[@]}"
-        """)
-        seen = subprocess.run(
-            ["bash", "-c", script],
-            env={"SEMGREP_ARGS": "--config p/python --include *.py # note --jobs 4", "PATH": "/usr/bin:/bin"},
+    @staticmethod
+    def _dispatch(script: str, args: str) -> str:
+        done = subprocess.run(
+            ["bash", "-c", script + '\nsh -c \'printf "[%s]" "$@"\' sh "${semgrep_args[@]}"'],
+            env={"SEMGREP_ARGS": args, "PATH": "/usr/bin:/bin"},
             capture_output=True,
             text=True,
-        ).stdout
-        # nothing is dropped, and the glob is not expanded on the way through
-        assert seen == "[--config][p/python][--include][*.py][#][note][--jobs][4]", seen
+        )
+        assert done.returncode == 0, done.stderr
+        return done.stdout
+
+    def test_the_shipped_action_still_passes_arguments_positionally(self) -> None:
+        from hogli.manifest import REPO_ROOT
+
+        text = (REPO_ROOT / ".github" / "actions" / "semgrep-ci" / "action.yml").read_text(encoding="utf-8")
+        assert '"$@"' in text, "the action must hand semgrep positional parameters"
+        assert "$SEMGREP_ARGS" not in text.split("docker run")[1], (
+            "the value must not be spliced into the command the container shell parses"
+        )
+
+    @pytest.mark.parametrize(
+        ("args", "expected"),
+        [
+            ("--config p/python --jobs 4", "[--config][p/python][--jobs][4]"),
+            # the three terminators that used to truncate the scan silently
+            ("--config p/python # note --jobs 4", "[--config][p/python][#][note][--jobs][4]"),
+            ("--config p/python ; --jobs 4", "[--config][p/python][;][--jobs][4]"),
+            ("--config p/python\n--jobs 4", "[--config][p/python][--jobs][4]"),
+            # globs reach semgrep unexpanded; semgrep does its own matching
+            ("--include *.py --exclude tests/**", "[--include][*.py][--exclude][tests/**]"),
+            ("--config p/python\t--jobs 4", "[--config][p/python][--jobs][4]"),
+        ],
+    )
+    def test_the_shipped_split_hands_over_every_argument(self, args: str, expected: str) -> None:
+        assert self._dispatch(self._shipped_split(), args) == expected
+
+    @pytest.mark.parametrize("args", ["", "   ", "\n"])
+    def test_an_empty_args_value_passes_no_arguments_at_all(self, args: str) -> None:
+        # An empty string must not become one EMPTY argument: semgrep would read
+        # that as a target path and scan the wrong tree. Count the arguments
+        # rather than rendering them -- `printf "[%s]"` runs its format once even
+        # with nothing to substitute, so a rendering cannot tell 0 from 1 here.
+        script = self._shipped_split() + '\nsh -c \'printf %s "$#"\' sh "${semgrep_args[@]}"'
+        done = subprocess.run(
+            ["bash", "-c", script],
+            env={"SEMGREP_ARGS": args, "PATH": "/usr/bin:/bin"},
+            capture_output=True,
+            text=True,
+        )
+        assert done.stdout == "0", done.stdout
+
+    def test_the_shipped_split_leaves_globbing_enabled_afterwards(self) -> None:
+        # `set -f` suppresses expansion for the split. Leaving it set would change
+        # every later command in the step.
+        script = self._shipped_split() + "\ncase $- in *f*) echo LEAKED ;; *) echo restored ;; esac"
+        done = subprocess.run(
+            ["bash", "-c", script],
+            env={"SEMGREP_ARGS": "--config p/python", "PATH": "/usr/bin:/bin"},
+            capture_output=True,
+            text=True,
+        )
+        assert done.stdout.strip() == "restored", done.stdout
+
+    def test_derivation_follows_an_input_through_an_env_hop(self, tmp_path: Path) -> None:
+        # The shape the real action used: `env:` binds the input, the script reads
+        # the variable. Derivation has to follow that hop, not just direct interpolation.
+        action_dir = tmp_path / ".github" / "actions" / "envhop"
+        action_dir.mkdir(parents=True)
+        (action_dir / "action.yml").write_text(
+            "name: A\ndescription: A\ninputs:\n  flags:\n    description: d\n    required: true\n"
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n      env:\n"
+            "        FLAGS: ${{ inputs.flags }}\n"
+            '      run: sh -c "tool $FLAGS"\n',
+            encoding="utf-8",
+        )
+        assert derive_shell_split_inputs(tmp_path).get(".github/actions/envhop") == frozenset({"flags"})
+
+    def test_reverse_drift_stays_quiet_while_the_action_still_splices(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        issues = self._run(tmp_path, _caller("--config p/python"))
+        assert not any("no longer splices" in issue or "nothing there splices" in issue for issue in issues), issues
 
     def test_flags_a_table_entry_the_tree_no_longer_splices(self, tmp_path: Path) -> None:
         # Reverse drift. Without this, a table entry outlives the hazard and keeps
