@@ -1614,7 +1614,7 @@ class CSPMiddleware:
                 frame_ancestors,
                 # The live debugger's repo browser reads PostHog/posthog from the GitHub API. The path keeps
                 # the rest of the API, and every other repository, out of reach of injected script.
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",
