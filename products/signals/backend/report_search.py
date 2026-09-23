@@ -2,7 +2,8 @@
 
 import re
 
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, F, Func, JSONField, OuterRef, Q, TextField, Value
+from django.db.models.functions import Cast
 
 from products.signals.backend.models import SignalReportArtefact
 
@@ -31,17 +32,29 @@ def report_search_predicate(terms: list[str], evidence_report_ids: set[str]) -> 
 
     A term may match the title, the summary, or a work-log note, and different terms may match
     different fields. A research pass rewrites the summary, so what an earlier pass found can live
-    on only in the work log.
+    on only in the work log. A note is stored as a serialized object, so only the note text is
+    matched: the key names around it are not something the caller can read on the report.
 
     `evidence_report_ids` comes from ClickHouse (`fetch_report_ids_for_search_terms`) and already
     holds only reports matching every term, so it joins as an alternative to the Postgres match.
     """
+    note_text = Func(
+        Cast(F("content"), output_field=JSONField()),
+        Value("note"),
+        function="jsonb_extract_path_text",
+        output_field=TextField(),
+    )
     own_content = Q()
     for term in terms:
-        notes_with_term = SignalReportArtefact.objects.filter(
-            report=OuterRef("pk"),
-            type=SignalReportArtefact.ArtefactType.NOTE,
-            content__icontains=term,
+        notes_with_term = (
+            SignalReportArtefact.objects.filter(
+                report=OuterRef("pk"),
+                type=SignalReportArtefact.ArtefactType.NOTE,
+                # The cast needs an object, and the guard is what the other artefact readers use.
+                content__startswith="{",
+            )
+            .annotate(note_text=note_text)
+            .filter(note_text__icontains=term)
         )
         own_content &= Q(title__icontains=term) | Q(summary__icontains=term) | Q(Exists(notes_with_term))
     if not evidence_report_ids:

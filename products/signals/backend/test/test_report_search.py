@@ -1,10 +1,9 @@
-import json
-
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.signals.backend.artefact_schemas import NoteArtefact
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_search_terms
 
@@ -57,17 +56,27 @@ class TestReportSearch(APIBaseTest):
         self._report("Registration drops for users in Toronto")
         assert self._search("toronto checkout") == []
 
-    def test_search_finds_a_term_that_only_a_work_log_note_holds(self) -> None:
-        # A research pass rewrites the summary, so what an earlier pass found can live on only in
-        # the work log. Without it a second scout files the report the first one already noted.
+    @parameterized.expand(
+        [
+            # A research pass rewrites the summary, so what an earlier pass found can live on only
+            # in the work log. Without this a second scout files the report the first one noted.
+            ("a word of the note text", "toronto", True),
+            # A note is stored as a serialized object, so the names it is stored under sit in the
+            # same column as the text. Matching those would return every researched report to a
+            # caller who meant the word.
+            ("the key the text is stored under", "note", False),
+            ("the key beside it", "author", False),
+        ]
+    )
+    def test_search_matches_the_text_of_a_work_log_note_only(self, _name: str, query: str, matches: bool) -> None:
         report = self._report("Signup funnel regressed")
         SignalReportArtefact.objects.create(
             team=self.team,
             report=report,
             type=SignalReportArtefact.ArtefactType.NOTE,
-            content=json.dumps({"note": "Reproduced against the Toronto region."}),
+            content=NoteArtefact(note="Reproduced against the Toronto region.").model_dump_json(),
         )
-        assert self._search("toronto") == [str(report.id)]
+        assert self._search(query) == ([str(report.id)] if matches else [])
 
     def test_search_finds_a_report_whose_evidence_alone_matches(self) -> None:
         # The identifier a caller searches for is often only in the evidence: an emitter's own
