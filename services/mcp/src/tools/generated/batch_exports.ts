@@ -246,6 +246,12 @@ const fileDownloadBatchExportsCountRowsCreate = (): ToolBase<
         if (params.hogql_query !== undefined) {
             body['hogql_query'] = params.hogql_query
         }
+        if (params.data_interval_start !== undefined) {
+            body['data_interval_start'] = params.data_interval_start
+        }
+        if (params.data_interval_end !== undefined) {
+            body['data_interval_end'] = params.data_interval_end
+        }
         const result = await context.api.request<Schemas.FileDownloadCountRowsResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/file_download_batch_exports/count_rows/`,
@@ -281,10 +287,10 @@ const fileDownloadBatchExportsCreate = (): ToolBase<
         if ('exclude' in params && params.exclude !== undefined) {
             body['exclude'] = params.exclude
         }
-        if ('data_interval_start' in params && params.data_interval_start !== undefined) {
+        if (params.data_interval_start !== undefined) {
             body['data_interval_start'] = params.data_interval_start
         }
-        if ('data_interval_end' in params && params.data_interval_end !== undefined) {
+        if (params.data_interval_end !== undefined) {
             body['data_interval_end'] = params.data_interval_end
         }
         if ('hogql_query' in params && params.hogql_query !== undefined) {

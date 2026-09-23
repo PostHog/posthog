@@ -63,9 +63,9 @@ dependencies = [
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
     "google-genai==1.46.0",
-    # Stay on 2.7.x until the query pool stops relying on a shared TCP accept queue.
-    # 2.8.0 gives each worker its own SO_REUSEPORT socket, so a busy worker holds new connections.
-    "granian[uvloop,reload,pname]==2.7.9",
+    # 2.8+ gives each worker its own SO_REUSEPORT socket on Linux. The query pool runs
+    # bin/granian_shared_socket.py to keep one shared socket; its test must pass on any bump.
+    "granian[uvloop,reload,pname]==2.8.3",
     "grimp~=3.14",
     "grpcio~=1.75.1",
     "gspread==6.2.1",
@@ -76,6 +76,7 @@ dependencies = [
     "jsonref==1.1.0",
     "kafka-python==2.3.0",
     "kombu==5.6.2",
+    "jsonpatch~=1.33",
     "langchain~=0.3.27",
     "langchain-community~=0.3.31",
     "langchain-core~=0.3.81",
@@ -102,7 +103,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.58.0",
+    "posthoganalytics==7.59.0",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
@@ -496,7 +497,7 @@ exclude_gitignore = true
 # packages/owners-yaml: a standalone distribution that must build and run with no Django. This config
 # loads the Django and DRF plugins and the app's settings, so it is the wrong checker for it. ty
 # covers it repo-wide instead, and ci-python builds and exercises the wheel in an empty venv.
-exclude = ["^(bin/.*|tools/.*|packages/owners-yaml/.*|packages/personhog-proto/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|packages/owners-yaml/.*|packages/personhog-proto/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/ml_inference/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
@@ -534,6 +535,7 @@ exclude = [
     "manage.py",
     "posthog/hogql/grammar/**",
     "packages/personhog-proto/**",
+    "products/ml_inference/packages/**",
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
@@ -681,13 +683,10 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.query_validation",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_direct",
-    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_references",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_runs",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_state",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_variables",
-    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
-    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
     # TODO: experiments presentation wave — these were invisible to import-linter until
     # backend/presentation/ got its package marker, so they are newly surfaced debt, not new
     # coupling. experiments is not isolated, so nothing was being skipped on their account.

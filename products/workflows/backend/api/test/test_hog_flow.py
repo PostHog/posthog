@@ -1203,6 +1203,31 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Send webhook" in detail, response.json()
         assert "Invalid template" in detail, response.json()
 
+    def test_activating_refuses_a_step_input_that_reads_an_unavailable_global(self):
+        hog_flow, action = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com/{distinct_id}"}}}
+        )
+        action["name"] = "Send webhook"
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert response.status_code == 400, response.json()
+        assert "Send webhook" in response.json()["detail"]
+        assert "Variable not available in inputs: distinct_id" in response.json()["detail"]
+
+        # A step reading the event or a workflow variable activates.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com/{event.distinct_id}/{variables.total}"}},
+            }
+        )
+        hog_flow["status"] = "active"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_bytecode_compilation(self):
         hog_flow, action = self._create_hog_flow_with_action(
             {
