@@ -86716,6 +86716,18 @@ export namespace Schemas {
     }
 
     /**
+     * One team a member belongs to, from the project's synced team roster.
+     */
+    export interface ScoutMemberTeam {
+      /** The team's slug, lowercased. For example `team-desktop`. */
+      slug: string;
+      /** The team's display name. For example `Team Desktop`. */
+      name: string;
+      /** True when this member maintains the team. Prefer maintainers when you pick reviewers for a team, and treat false as 'not known to maintain it': some rosters sync without roles. */
+      is_maintainer: boolean;
+    }
+
+    /**
      * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
      */
     export interface ScoutMember {
@@ -86732,6 +86744,8 @@ export namespace Schemas {
          * @nullable
          */
       github_login: string | null;
+      /** The teams this member is on, from the project's synced team roster. Empty when no roster is synced, or when the member has no linked GitHub account, since the roster is keyed on that login. The roster is a periodic snapshot, so it can lag the live team. */
+      teams: ScoutMemberTeam[];
     }
 
     /**
@@ -112275,6 +112289,11 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * Team slug (case-insensitive, no `@org/` prefix), for example `team-desktop`. Narrows the roster to the members on that team, maintainers first, so a slug from a scout note, CODEOWNERS, or an owners file resolves to people you can route to. Returns an error, not an empty list, when the project has no synced team roster or the roster holds no rows for the slug.
+     * @minLength 1
+     */
+    team?: string;
     };
 
     export type SignalsScoutNotesListParams = {

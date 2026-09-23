@@ -35,6 +35,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.engineering_analytics.backend.facade.contracts import GitHubTeamMembership, GitHubTeamRoster
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
@@ -4386,6 +4387,15 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         start.assert_not_called()
 
 
+_TEAM_ROSTER = "products.signals.backend.report_generation.team_membership.get_github_team_roster"
+
+
+def _membership(login: str, slug: str, *, is_maintainer: bool = False) -> GitHubTeamMembership:
+    return GitHubTeamMembership(
+        member_handle=login, team_slug=slug, team_name=slug.replace("-", " ").title(), is_maintainer=is_maintainer
+    )
+
+
 class TestScoutHarnessMembersAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -4393,6 +4403,9 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
 
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/members/"
+
+    def _link_github(self, user: User, login: str) -> None:
+        UserSocialAuth.objects.create(user=user, provider="github", uid=f"gh-{login}", extra_data={"login": login})
 
     def test_lists_project_members_with_resolved_github_login(self) -> None:
         # self.user has a GitHub identity (login lowercased on resolution); a second member has
@@ -4433,6 +4446,62 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
         emails = {row["email"] for row in response.json()}
         assert self.user.email in emails
         assert "outsider@example.com" not in emails
+
+    def test_team_filter_returns_the_team_with_its_maintainers_first(self) -> None:
+        # Routing input names a team while the artefact only holds individuals, so the slug has to
+        # resolve to the people on it, ordered so the first few picks are the likeliest owners.
+        # Guards both halves: the filter dropping a non-member, and the maintainer split.
+        self._link_github(self.user, "Plain")
+        maintainer = User.objects.create_and_join(self.organization, "boss@posthog.com", None, first_name="Boss")
+        self._link_github(maintainer, "boss")
+        outsider = User.objects.create_and_join(self.organization, "other@posthog.com", None, first_name="Other")
+        self._link_github(outsider, "other")
+        roster = GitHubTeamRoster(
+            memberships=(
+                _membership("plain", "team-desktop"),
+                _membership("boss", "team-desktop", is_maintainer=True),
+                _membership("other", "team-signals"),
+            ),
+            synced=True,
+        )
+
+        with patch(_TEAM_ROSTER, return_value=roster):
+            response = self.client.get(self._url(), data={"team": "@PostHog/Team-Desktop"})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = response.json()
+        assert [row["email"] for row in rows] == ["boss@posthog.com", self.user.email]
+        assert rows[0]["teams"] == [{"slug": "team-desktop", "name": "Team Desktop", "is_maintainer": True}]
+
+    @parameterized.expand(
+        [
+            # Nothing synced: the slug is unresolvable here, and a 200 with an empty list would read
+            # as "that team has nobody on it".
+            ("unsynced", GitHubTeamRoster(memberships=(), synced=False), "no synced team roster"),
+            # Synced, but this slug has no rows. Teams sync one at a time, so the honest answer is
+            # "not synced here", never "no such team".
+            (
+                "slug_not_covered",
+                GitHubTeamRoster(memberships=(_membership("someone", "team-signals"),), synced=True),
+                "isn't synced here",
+            ),
+        ]
+    )
+    def test_team_filter_that_resolves_nothing_says_why(self, _name: str, roster, expected: str) -> None:
+        with patch(_TEAM_ROSTER, return_value=roster):
+            response = self.client.get(self._url(), data={"team": "team-desktop"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert expected in response.json()["detail"]
+
+    def test_unfiltered_roster_survives_a_failing_membership_read(self) -> None:
+        # Teams ride along on the member list, so a warehouse hiccup resolving them must not take
+        # down the reviewer-routing path the whole tool exists for.
+        with patch(_TEAM_ROSTER, side_effect=RuntimeError("warehouse down")):
+            response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [row["teams"] for row in response.json()] == [[]]
 
     @parameterized.expand([("session", None), ("public_read_token", "read_only")])
     def test_non_scout_auth_cannot_list_members(self, _name: str, scopes: PosthogMcpScopes | None) -> None:

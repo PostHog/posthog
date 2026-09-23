@@ -20,3 +20,22 @@ def build_query(table_name: str) -> str:
         FROM {table_name}
         WHERE ifNull(login, '') != ''
     """
+
+
+def build_roster_query(table_name: str, *, has_role: bool) -> str:
+    """One row per membership, for reading the roster itself rather than joining PR authors to it.
+
+    Logins are lowercased here because a reader matches them against identities stored lowercase.
+    A snapshot without the optional ``role`` column reports every member as a plain member, which is
+    the honest answer: the column's absence says nothing about who maintains the team.
+    """
+    is_maintainer = "lower(ifNull(role, '')) = 'maintainer'" if has_role else "0"
+    return f"""
+        SELECT
+            lower(ifNull(login, '')) AS member_handle,
+            ifNull(team_slug, '') AS team_slug,
+            ifNull(team_name, '') AS team_name,
+            {is_maintainer} AS is_maintainer
+        FROM {table_name}
+        WHERE ifNull(login, '') != '' AND ifNull(team_slug, '') != ''
+    """

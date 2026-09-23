@@ -2277,6 +2277,21 @@ class SignalScoutMetadataViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return Response(ScoutMetadataSerializer(metadata.as_dict()).data)
 
 
+# A team filter that finds nothing has two very different causes, and a scout that reads both as
+# "no such team" stops routing to a team that exists. The roster endpoint is off by default at the
+# GitHub source, so an absent slug is much more often unsynced coverage than a wrong name.
+MEMBERSHIP_NOT_SYNCED = (
+    "This project has no synced team roster, so a team slug can't be resolved to people. Turn on the "
+    "`teams` and `team_members` schemas for the GitHub data warehouse source (they need the "
+    "organization Members permission), or match the owner by name or email instead."
+)
+TEAM_NOT_IN_ROSTER = (
+    "The synced team roster holds no members for '{team}'. Teams sync one by one, so this usually means "
+    "'{team}' isn't synced here rather than that it doesn't exist. Match the owner by name or email "
+    "instead, and don't report the team as missing."
+)
+
+
 class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Project member roster for reviewer routing — sandbox-only.
 
@@ -2321,20 +2336,29 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         summary="List project members for reviewer routing",
         description=(
             "Return the people who can review work on this project — one row per member with access to it, "
-            "each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null "
-            "when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's "
-            "owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` "
-            "memory or inbox precedent, list members, match the owner by email/name, then put their resolved "
-            "`github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow "
-            f"a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. Strictly team-scoped."
+            "each with their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null "
+            "when they have no linked GitHub identity), and the `teams` they're on. The cold-start "
+            "reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` "
+            "and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner "
+            "by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / "
+            "`edit-report`. Pass `team` to resolve a team slug to the people on it, maintainers first. Pass "
+            f"`search` to narrow a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. Strictly "
+            "team-scoped."
         ),
         operation_id="signals_scout_members_list",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
         canonical_team = self.team.parent_team or self.team
-        members = list_project_members(canonical_team, search=validated.get("search") or None)
-        return Response(ScoutMemberSerializer([dataclasses.asdict(member) for member in members], many=True).data)
+        team_slug = (validated.get("team") or "").strip().lstrip("@").rsplit("/", 1)[-1].lower() or None
+        roster = list_project_members(canonical_team, search=validated.get("search") or None, team_slug=team_slug)
+        if team_slug is not None and not roster.membership_synced:
+            raise exceptions.ValidationError({"detail": MEMBERSHIP_NOT_SYNCED})
+        if team_slug is not None and not roster.team_is_covered:
+            raise exceptions.ValidationError({"detail": TEAM_NOT_IN_ROSTER.format(team=team_slug)})
+        return Response(
+            ScoutMemberSerializer([dataclasses.asdict(member) for member in roster.members], many=True).data
+        )
 
 
 def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:
