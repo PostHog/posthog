@@ -1082,6 +1082,8 @@ def send_email_sending_tier_demoted(team_id: int, per_day: int, per_hour: int, d
 def send_batch_export_run_failure(
     batch_export_run_id: str | UUIDT,
     failure_rate: float = 1.0,
+    was_paused: bool = False,
+    failures_until_pause: int | None = None,
 ) -> None:
     logger = structlog.get_logger(__name__)
 
@@ -1111,8 +1113,15 @@ def send_batch_export_run_failure(
     last_updated_at_date = batch_export_run.last_updated_at.strftime("%Y-%m-%d")
 
     campaign_key: str = f"batch_export_run_email_batch_export_{batch_export.id}_last_updated_at_{last_updated_at_date}"
+    if was_paused:
+        # A pause is the one outcome worth a second email on a day that already sent one.
+        campaign_key += "_paused"
 
-    subject = f"PostHog: {batch_export.name} batch export run failure"
+    subject = (
+        f"PostHog: {batch_export.name} batch export paused after repeated failures"
+        if was_paused
+        else f"PostHog: {batch_export.name} batch export run failure"
+    )
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
@@ -1122,6 +1131,8 @@ def send_batch_export_run_failure(
             "team": team,
             "id": batch_export.id,
             "name": batch_export.name,
+            "was_paused": was_paused,
+            "failures_until_pause": failures_until_pause,
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)
@@ -1264,7 +1275,6 @@ MAX_ERROR_CHARS = 255
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
         return
@@ -1327,7 +1337,6 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], suspended_query_ids: list[str]) -> None:
-
     if not is_email_available(with_absolute_urls=True):
         return
 

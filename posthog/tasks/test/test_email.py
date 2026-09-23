@@ -612,9 +612,25 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # should be sent to both
         assert len(mocked_email_messages[1].to) == 2
 
-    def test_send_batch_export_run_failure(self, MockEmailMessage: MagicMock) -> None:
+    @parameterized.expand(
+        [
+            ("paused", True, 0, ["paused this batch export"], ["still running"]),
+            ("two_failures_left", False, 2, ["still running", "2 more failures"], ["paused this batch export"]),
+            ("one_failure_left", False, 1, ["still running", "one more failure"], ["paused this batch export"]),
+            ("pause_attempt_failed", False, 0, ["still running"], ["paused this batch export", "more failures"]),
+        ]
+    )
+    def test_send_batch_export_run_failure(
+        self,
+        MockEmailMessage: MagicMock,
+        _name: str,
+        was_paused: bool,
+        failures_until_pause: int,
+        expected: list[str],
+        not_expected: list[str],
+    ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        _, user = create_org_team_and_user("2022-01-02 00:00:00", f"admin-{_name}@posthog.com")
         batch_export_destination = BatchExportDestination.objects.create(
             type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
         )
@@ -629,11 +645,18 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             data_interval_end=now,
         )
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(
+            batch_export_run.id, was_paused=was_paused, failures_until_pause=failures_until_pause
+        )
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].html_body
+        html_body = mocked_email_messages[0].html_body
+        for fragment in expected:
+            assert fragment in html_body
+        for fragment in not_expected:
+            assert fragment not in html_body
+        assert f"/project/{user.team.project_id}/pipeline/batch-exports/{batch_export.id}" in html_body
 
     def test_does_not_send_batch_export_run_failure_for_on_demand_export(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -2468,7 +2491,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         jobs: list[tuple[str, dt.timedelta, str | None]],
         expect_email: bool,
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2499,7 +2521,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_ignores_managed_warehouse_shadow(self, MockEmailMessage: MagicMock) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2533,7 +2554,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_shows_clickhouse_error_not_newer_shadow(
         self, MockEmailMessage: MagicMock
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2568,7 +2588,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "managed warehouse boom" not in mocked_email_messages[0].html_body
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         # View that would trigger an email (scheduled + recent failed job), but user hasn't opted in.
@@ -2590,7 +2609,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_kitchen_sink_snapshot(self, MockEmailMessage: MagicMock) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2668,7 +2686,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_truncates_long_errors(
         self, MockEmailMessage: MagicMock, name: str, error: str, expected_error: str
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2710,7 +2727,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_immediate_email_includes_the_error(
         self, MockEmailMessage: MagicMock, _name: str, job_error: str, latest_error: str | None, expected_error: str
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {
@@ -2911,7 +2927,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert "suspended_view" not in html
 
     def test_send_matview_failure_digest_caps_the_rows_and_counts_the_rest(self, MockEmailMessage: MagicMock) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2971,7 +2986,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_immediate_email_respects_immediate_preference(
         self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = notification_settings
@@ -3085,7 +3099,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_respects_daily_preference(
         self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
     ) -> None:
-
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = notification_settings

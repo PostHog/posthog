@@ -1,13 +1,13 @@
 {% extends "email/base.html" %}
-{% block preheader %}Failing batch exports are automatically paused{% endblock %}
-{% block heading %}PostHog batch export {{ name }} has failed{% endblock %}
+{% block preheader %}{% if was_paused %}Your batch export is paused after repeated failures{% else %}A batch export run failed{% endif %}{% endblock %}
+{% block heading %}{% if was_paused %}PostHog batch export {{ name }} is paused{% else %}PostHog batch export {{ name }} has failed{% endif %}{% endblock %}
 {% block section %}
     <p>
         Your batch export {{ name }} failed with a fatal error at {{ time }}. We really tried to handle this by ourselves but, due to the nature of the error, we could not automatically recover from it and it requires your manual intervention.
         Please review the batch export for error details:
     </p>
     <div class="mb mt text-center">
-        <a href="{% absolute_uri '/project' %}/{{ team.id }}/batch_exports/{{ id }}"
+        <a href="{% absolute_uri '/project' %}/{{ team.project_id }}/pipeline/batch-exports/{{ id }}"
            target="_blank"><b>Go to the batch export</b></a>
     </div>
     <p>
@@ -15,7 +15,13 @@
         If you can't diagnose the issue or if you think this issue could have been automatically resolved, please contact us.
     </p>
     <p class="mt">
-        Failing batch exports are <b>automatically paused</b> by PostHog
+        {% if was_paused %}
+            PostHog <b>paused this batch export</b> because too many of its recent runs failed. Fix the error, then enable the export again to resume exporting.
+        {% elif failures_until_pause %}
+            This batch export <b>is still running</b>. PostHog pauses it automatically after {% if failures_until_pause == 1 %}one more failure{% else %}{{ failures_until_pause }} more failures{% endif %} in its recent runs.
+        {% else %}
+            This batch export <b>is still running</b>. PostHog pauses a batch export automatically when too many of its recent runs fail.
+        {% endif %}
     </p>
 {% endblock %}
 {% block footer %}
