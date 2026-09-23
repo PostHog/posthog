@@ -27,6 +27,7 @@ Safeguards, in order:
 from __future__ import annotations
 
 import typing
+import datetime as dt
 
 import structlog
 
@@ -101,6 +102,7 @@ def _repair_locked(source: ExternalDataSource) -> int:
         raise CDCRepairError("There are no active CDC schemas on this source to repair.")
 
     _require_broken_evidence(source, adapter, cdc_schemas)
+    _mark_repair_in_progress(source, cdc_schemas)
 
     # Every CDC table, including those with sync off: the new slot cannot replay what the dead one
     # lost, so a table turned back on later must re-snapshot too.
@@ -157,6 +159,18 @@ def _repair_locked(source: ExternalDataSource) -> int:
 
     log.info("cdc_repair_complete", schemas_reset=len(cdc_schemas))
     return len(cdc_schemas)
+
+
+def _mark_repair_in_progress(source: ExternalDataSource, cdc_schemas: list[ExternalDataSchema]) -> None:
+    """Leave a marker on schemas that have none, so a repair allowed by a live probe alone keeps
+    its retry evidence once the new slot exists. Cleared with the other markers when repair ends."""
+    marker = {"reason": "repair_in_progress", "at": dt.datetime.now(tz=dt.UTC).isoformat()}
+
+    def _mark(config: dict[str, typing.Any]) -> None:
+        config.setdefault("cdc_broken", marker)
+
+    for schema in cdc_schemas:
+        update_sync_type_config_keys(schema.id, source.team_id, mutate=_mark)
 
 
 def _require_broken_evidence(

@@ -11733,6 +11733,47 @@ class TestRepairCDC(APIBaseTest):
         assert response.status_code == 200, response.content
         mock_recreate.assert_called_once()
 
+    @patch("products.data_warehouse.backend.logic.data_load.service.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.logic.data_load.service.unpause_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
+    @patch(
+        "products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule",
+        side_effect=[RuntimeError("temporal down"), None],
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        return_value={"cdc_consistent_point": "0/AABBCC"},
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        side_effect=[
+            {"slot_exists": False, "publication_exists": True, "lag_bytes": None},
+            {"slot_exists": True, "publication_exists": True, "lag_bytes": 0},
+        ],
+    )
+    def test_repair_cdc_retry_is_allowed_after_a_failure_once_the_new_slot_exists(
+        self, _status, mock_recreate, _unpause, _trigger, _unpause_ext, _sync_ext
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            sync_type_config={"cdc_mode": "streaming"},
+        )
+
+        assert self._repair(source).status_code != 200
+        schema.refresh_from_db()
+        assert schema.sync_type_config["cdc_broken"]["reason"] == "repair_in_progress"
+
+        response = self._repair(source)
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert "cdc_broken" not in schema.sync_type_config
+        assert mock_recreate.call_count == 2
+
     @patch("products.data_warehouse.backend.logic.data_load.service.cancel_external_data_workflow")
     @patch("products.data_warehouse.backend.logic.data_load.service.sync_cdc_extraction_schedule")
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_cdc_extraction_schedule")
