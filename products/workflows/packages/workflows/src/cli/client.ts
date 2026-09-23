@@ -44,6 +44,45 @@ function packageVersion(): string {
     return '0.0.0'
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function invalidResponse(method: string, path: string, why: string): WorkflowError {
+    const writeWarning =
+        method === 'POST' || method === 'PATCH' ? ` The ${method} to ${path} may already have changed PostHog.` : ''
+    return new WorkflowError({
+        status: 'invalid_response',
+        message: 'PostHog returned a response the CLI could not read.',
+        why: `${why}${writeWarning}`,
+        fix:
+            method === 'POST' || method === 'PATCH'
+                ? 'Check the workflow in PostHog before you run the command again.'
+                : 'Run the command again. If it keeps happening, check that the host is a compatible PostHog.',
+    })
+}
+
+function storedWorkflow(method: string, path: string, value: unknown): StoredWorkflow {
+    if (isObject(value) && typeof value.id === 'string') {
+        return value as StoredWorkflow
+    }
+    throw invalidResponse(method, path, 'The response body did not include a workflow id.')
+}
+
+function describeRedirect(
+    method: string,
+    path: string,
+    status: number,
+    location: string | null
+): { status: string; message: string; why: string; fix: string } {
+    return {
+        status: 'redirect',
+        message: 'PostHog redirected the request.',
+        why: `The ${method} to ${path} returned ${status}${location === null ? '' : ` to ${location}`}. The CLI will not follow redirects with an API key.`,
+        fix: 'Set --host to the final PostHog URL, then run the command again.',
+    }
+}
+
 function describeFailure(status: number, body: string): { status: string; message: string; why: string; fix: string } {
     let detail = body.slice(0, 500)
     try {
@@ -112,7 +151,7 @@ export class Client {
         return `/api/environments/${this.credentials.projectId}/hog_flows/`
     }
 
-    private async request(method: string, path: string, body?: unknown): Promise<StoredWorkflow> {
+    private async request(method: string, path: string, body?: unknown): Promise<unknown> {
         try {
             const response = await fetch(`${this.credentials.host}${path}`, {
                 method,
@@ -122,16 +161,26 @@ export class Client {
                     'User-Agent': userAgent(),
                 },
                 ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+                redirect: 'manual',
                 // A host that accepts the connection and never answers would otherwise hold a
                 // CI job until the runner's own timeout kills it, with no line saying why.
                 signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
             })
             // The signal also governs the body read, so it stays inside the try.
             const text = await response.text()
+            if (response.status >= 300 && response.status < 400) {
+                throw new WorkflowError(
+                    describeRedirect(method, path, response.status, response.headers.get('location'))
+                )
+            }
             if (!response.ok) {
                 throw new WorkflowError(describeFailure(response.status, text))
             }
-            return JSON.parse(text) as StoredWorkflow
+            try {
+                return JSON.parse(text) as unknown
+            } catch {
+                throw invalidResponse(method, path, 'The response body was not valid JSON.')
+            }
         } catch (error) {
             if (error instanceof WorkflowError) {
                 throw error
@@ -163,10 +212,12 @@ export class Client {
      * @param key - The key the workflow file declares, which is the identity PostHog matches on.
      */
     async resolve(key: string): Promise<StoredWorkflow | null> {
-        const page = (await this.request('GET', `${this.base}?key=${encodeURIComponent(key)}`)) as unknown as {
-            results?: StoredWorkflow[]
+        const path = `${this.base}?key=${encodeURIComponent(key)}`
+        const page = await this.request('GET', path)
+        if (!isObject(page) || !Array.isArray(page.results)) {
+            throw invalidResponse('GET', path, 'The list response did not include a results array.')
         }
-        const rows = page.results ?? []
+        const rows = page.results as StoredWorkflow[]
         // A row that carries no key at all means this PostHog does not know the field, so the
         // filter was ignored and nothing here can be resolved. Creating would add a second live
         // workflow on every run, silently, which is worse than stopping.
@@ -191,10 +242,11 @@ export class Client {
     }
 
     async create(body: Readonly<Record<string, unknown>>): Promise<StoredWorkflow> {
-        return await this.request('POST', this.base, body)
+        return storedWorkflow('POST', this.base, await this.request('POST', this.base, body))
     }
 
     async update(id: string, body: Readonly<Record<string, unknown>>): Promise<StoredWorkflow> {
-        return await this.request('PATCH', `${this.base}${id}/`, body)
+        const path = `${this.base}${id}/`
+        return storedWorkflow('PATCH', path, await this.request('PATCH', path, body))
     }
 }

@@ -210,14 +210,27 @@ function resolvedSecrets(file: LoadedFile, env: Readonly<Record<string, string |
     return [...values]
 }
 
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 // `why` and `fix` both carry text PostHog sent back, so both are scrubbed.
 function redacted(error: unknown, secrets: readonly string[]): unknown {
     const fields = (error as { fields?: { why?: unknown; fix?: unknown } } | null)?.fields
     if (typeof fields?.why !== 'string' || typeof fields.fix !== 'string') {
         return error
     }
-    const scrub = (text: string): string =>
-        secrets.reduce((left, secret) => left.split(secret).join('[redacted]'), text)
+    const pattern =
+        secrets.length === 0
+            ? null
+            : new RegExp(
+                  [...secrets]
+                      .sort((left, right) => right.length - left.length)
+                      .map(escapeRegExp)
+                      .join('|'),
+                  'g'
+              )
+    const scrub = (text: string): string => (pattern === null ? text : text.replace(pattern, '[redacted]'))
     const why = scrub(fields.why)
     const fix = scrub(fields.fix)
     return why === fields.why && fix === fields.fix
@@ -282,7 +295,15 @@ export async function runFileCommand(options: RunOptions): Promise<number> {
             }
 
             const move = guardPath(remote, source, options)
-            const diff = diffWorkflow(workflow.emitted.definition, remote, workflow.emitted.secretInputs)
+            const compareSecretInputs = isPush
+                ? workflow.emitted.secretInputs
+                : workflow.emitted.secretInputs.filter((input) => {
+                      const value = options.env[input.envName]
+                      return value !== undefined && value !== ''
+                  })
+            const diff = diffWorkflow(workflow.emitted.definition, remote, workflow.emitted.secretInputs, {
+                compareSecretInputs,
+            })
             const changes = move === null ? diff.changes : [...diff.changes, move]
             const changed = diff.changed || move !== null
 

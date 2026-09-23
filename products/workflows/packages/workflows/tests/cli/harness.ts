@@ -103,6 +103,14 @@ export interface StandInOptions {
     readonly ignoreKeyFilter?: boolean
     /** A PostHog that refuses every write with this status and body, as a validation error does. */
     readonly refuseWrites?: { readonly status: number; readonly body: unknown }
+    /** A PostHog that sends a custom list response. */
+    readonly listResponse?: unknown
+    /** A PostHog that sends a custom write response. */
+    readonly writeResponse?: unknown
+    /** A PostHog that sends a 2xx response body the CLI cannot parse. */
+    readonly rawWriteResponse?: string
+    /** A PostHog that redirects credentialed writes. */
+    readonly redirectWritesTo?: string
 }
 
 /** A PostHog stand-in that serves the three calls `push` makes. */
@@ -140,16 +148,36 @@ export async function startStandIn(options: StandInOptions = {}): Promise<StandI
                 response.writeHead(status, { 'Content-Type': 'application/json' })
                 response.end(JSON.stringify(payload))
             }
+            const sendRaw = (status: number, payload: string): void => {
+                response.writeHead(status, { 'Content-Type': 'application/json' })
+                response.end(payload)
+            }
 
             if (request.method === 'GET') {
                 const key = new URL(url, 'http://stand-in').searchParams.get('key')
-                send(200, {
-                    results: options.ignoreKeyFilter === true ? rows : rows.filter((row) => row.key === key),
-                })
+                send(
+                    200,
+                    options.listResponse ?? {
+                        results: options.ignoreKeyFilter === true ? rows : rows.filter((row) => row.key === key),
+                    }
+                )
+                return
+            }
+            if (options.redirectWritesTo !== undefined && (request.method === 'POST' || request.method === 'PATCH')) {
+                response.writeHead(307, { Location: options.redirectWritesTo })
+                response.end()
                 return
             }
             if (options.refuseWrites !== undefined && (request.method === 'POST' || request.method === 'PATCH')) {
                 send(options.refuseWrites.status, options.refuseWrites.body)
+                return
+            }
+            if (options.rawWriteResponse !== undefined && (request.method === 'POST' || request.method === 'PATCH')) {
+                sendRaw(200, options.rawWriteResponse)
+                return
+            }
+            if (options.writeResponse !== undefined && (request.method === 'POST' || request.method === 'PATCH')) {
+                send(200, options.writeResponse)
                 return
             }
             if (request.method === 'POST' && body !== null) {

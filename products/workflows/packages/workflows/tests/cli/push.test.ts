@@ -153,22 +153,48 @@ describe('push', () => {
         )
     })
 
-    it('redacts a resolved secret out of every field of a refusal PostHog sends back', async (t) => {
+    it('redacts resolved secrets in one pass', async (t) => {
         const standIn = await startStandIn({
             refuseWrites: {
                 status: 400,
-                body: { detail: 'Bad signing secret hunter2.', extra: { fix: 'Do not use hunter2 as a secret.' } },
+                body: {
+                    detail: 'Bad signing secrets abcdef and abc.',
+                    extra: { fix: 'Do not use abcdef or abc as a secret.' },
+                },
             },
         })
         t.after(() => standIn.close())
-        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile({ secret: true }) })
+        const workspace = makeWorkspace({
+            'flows/onboarding.ts': `import { delay, onEvent, path, secret, webhook, workflow } from '@posthog/workflows'
 
-        const result = await push(workspace, standIn, [], { CRM_WEBHOOK_SECRET: 'hunter2' })
+const short = webhook({
+    name: 'Short secret',
+    url: 'https://example.com/hooks/short',
+    signingSecret: secret('SHORT_SECRET'),
+})
+const long = webhook({
+    name: 'Long secret',
+    url: 'https://example.com/hooks/long',
+    signingSecret: secret('LONG_SECRET'),
+})
+
+export const onboarding = workflow({
+    key: 'onboarding-nudge',
+    name: 'Onboarding nudge',
+    status: 'draft',
+    on: onEvent({ event: 'user signed up' }),
+    steps: path(short, long, delay('1d', { name: 'Wait a day' })),
+    exit: { reason: 'Onboarding nudge finished' },
+})
+`,
+        })
+
+        const result = await push(workspace, standIn, [], { SHORT_SECRET: 'abc', LONG_SECRET: 'abcdef' })
 
         assert.equal(result.code, 1)
-        assert.match(result.stderr, /^why: Bad signing secret \[redacted\]\.$/m)
-        assert.match(result.stderr, /^fix: Do not use \[redacted\] as a secret\.$/m)
-        assert.doesNotMatch(result.stderr, /hunter2/)
+        assert.match(result.stderr, /^why: Bad signing secrets \[redacted\] and \[redacted\]\.$/m)
+        assert.match(result.stderr, /^fix: Do not use \[redacted\] or \[redacted\] as a secret\.$/m)
+        assert.doesNotMatch(result.stderr, /abc|def/)
     })
 
     it('refuses a push from a path the workflow was not pushed from', async (t) => {
@@ -262,6 +288,46 @@ describe('push', () => {
         assert.equal(result.code, 1)
         assert.match(result.stderr, /^status: key_not_supported$/m)
         assert.equal(standIn.rows.length, 1)
+    })
+
+    it('refuses a redirect without following it with the API key', async (t) => {
+        const standIn = await startStandIn({ redirectWritesTo: 'https://example.com/steal-token' })
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile() })
+
+        const result = await push(workspace, standIn)
+
+        assert.equal(result.code, 1)
+        assert.match(result.stderr, /^status: redirect$/m)
+        assert.match(result.stderr, /will not follow redirects with an API key/)
+        assert.equal(standIn.requests.filter((request) => request.method === 'POST').length, 1)
+    })
+
+    it('reports a write response without a workflow id as invalid', async (t) => {
+        const standIn = await startStandIn({ writeResponse: { version: 1 } })
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile() })
+
+        const result = await push(workspace, standIn)
+
+        assert.equal(result.code, 1)
+        assert.match(result.stderr, /^status: invalid_response$/m)
+        assert.match(result.stderr, /did not include a workflow id/)
+        assert.match(result.stderr, /may already have changed PostHog/)
+    })
+
+    it('reports unparseable write success as an invalid response with an unknown outcome', async (t) => {
+        const standIn = await startStandIn({ rawWriteResponse: 'not json' })
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile() })
+
+        const result = await push(workspace, standIn)
+
+        assert.equal(result.code, 1)
+        assert.match(result.stderr, /^status: invalid_response$/m)
+        assert.match(result.stderr, /not valid JSON/)
+        assert.match(result.stderr, /may already have changed PostHog/)
+        assert.match(result.stderr, /Check the workflow in PostHog/)
     })
 
     it('compares a secret only when PostHog gives one back to compare', async (t) => {
