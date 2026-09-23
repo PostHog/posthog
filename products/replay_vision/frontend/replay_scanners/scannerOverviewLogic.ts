@@ -97,13 +97,13 @@ export interface scannerOverviewLogicValues {
     scanner: ScannerFormValues // replayScannerLogic
     availableTags: string[]
     classifierTagStats: ClassifierTagStats
+    cohortDisabledReason: string | null
+    cohortWindowDays: number
     coverageStats: CoverageStats
     firstScanCheckFailing: boolean
     firstScanPending: boolean
     firstScanSettled: boolean
     hasActiveOverviewFilters: boolean
-    cohortDisabledReason: string | null
-    cohortWindowDays: number
     monitorStats: MonitorStats
     overviewDateFrom: string | null
     overviewDateTo: string | null
@@ -124,7 +124,7 @@ export interface scannerOverviewLogicActions {
     } // replayScannerLogic
     saveAffectedCohort: (
         windowDays: number,
-        qualifier?: AffectedCohortQualifier
+        qualifier?: AffectedCohortQualifier | undefined
     ) => {
         qualifier: AffectedCohortQualifier
         windowDays: number
