@@ -33,7 +33,12 @@ jobs:
             DOCKERFILE: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
             BRANCH_PREFIX: chore/bump-sandbox-agent-version-
             SLACK_CHANNEL: 'C0C3FBES5ST'
-            AGENT_PATHS: products/desktop/packages/agent products/desktop/packages/enricher products/desktop/packages/git products/desktop/packages/harness products/desktop/packages/shared
+            # Old locations stay so a tag range that spans the move still lists its commits.
+            AGENT_PATHS: >-
+                packages/agent/packages/agent packages/agent/packages/agent-contracts
+                packages/agent/packages/enricher packages/agent/packages/git packages/agent/packages/harness
+                products/desktop/packages/agent products/desktop/packages/enricher
+                products/desktop/packages/git products/desktop/packages/harness products/desktop/packages/shared
 
         steps:
             - name: Guard - only run on master
