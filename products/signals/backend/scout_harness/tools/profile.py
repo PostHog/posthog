@@ -15,6 +15,7 @@ Profile feeds the scratchpad; the scratchpad does not update profile.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -24,9 +25,13 @@ from django.utils import timezone
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
+from posthog.temporal.common.db_errors import is_transient_db_error
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.signals.backend.models import SignalProjectProfile
-from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, build_inventory
+from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, SUMMARY_SECTIONS, build_inventory
+
+logger = logging.getLogger(__name__)
 
 # Soft cache TTL — `get_project_profile` recomputes when the newest row is older than this.
 # Aligned to the coordinator tick (60min in prod, 15min in dev) so an active team's
@@ -50,13 +55,13 @@ PROFILE_KEEP_N = 10
 _PROFILE_LOCK_NAMESPACE = 0x5191A1A6  # "SIGNAL"-ish leetspeak; just needs to be unique enough.
 
 
-# Inventory sections repeated in the response's compact `summary` envelope.
-# `emit_eligibility` is the delivery gate the prompt tells every scout to read before it does
-# any work, and `existing_inbox_reports` is what it dedupes against. Both sit deep inside
-# an inventory large enough that a client can cut the response off before reaching them, so a
-# scout that reads only the prefix cannot tell whether its output would go anywhere. Repeating
-# them up front costs a few hundred bytes and keeps them ahead of any truncation point.
-SUMMARY_SECTIONS = ("emit_eligibility", "existing_inbox_reports")
+class ProfileUnavailable(Exception):
+    """A transient database fault stopped the profile being read or built.
+
+    The read already retried once. Rather than answer an error status, the endpoint degrades to
+    the summary envelope: the profile is a scout's first call, so an error there costs it a whole
+    discovery round trip before it can start work.
+    """
 
 
 @dataclass(frozen=True)
@@ -104,6 +109,28 @@ def get_project_profile(*, team_id: int, force_refresh: bool = False, lazy_build
     build on cache miss would otherwise be CSRF-reachable. The headless scout (internal
     token) and the Temporal workflow keep the default build-on-miss path. `force_refresh`
     always builds, regardless of `lazy_build`.
+
+    The whole read is wrapped rather than the build alone, because a cache hit is the
+    steady-state path and one indexed `SELECT` can hit a recycled pooled connection just as
+    the long build can. `retry_on_db_connection_drop` evicts the dead connection before the
+    second attempt, which a bare retry cannot: Django marks the connection unusable, so
+    retrying on it fails identically. A transient fault that survives the retry becomes
+    `ProfileUnavailable`, which the endpoint degrades rather than raises; every other error
+    propagates, so a missing team or a real bug still reaches error tracking.
+    """
+    try:
+        return retry_on_db_connection_drop(
+            lambda: _read_or_build(team_id=team_id, force_refresh=force_refresh, lazy_build=lazy_build)
+        )
+    except Exception as error:
+        if not is_transient_db_error(error):
+            raise
+        logger.warning("signals.profile.unavailable", extra={"team_id": team_id}, exc_info=True)
+        raise ProfileUnavailable("Project profile could not be read or built") from error
+
+
+def _read_or_build(*, team_id: int, force_refresh: bool, lazy_build: bool) -> ProjectProfile | None:
+    """Cache read, then the build a miss needs. Idempotent, so the retry above can re-run it.
 
     `SignalProjectProfile` is a `TeamScopedRootMixin` model, so `RootTeamMixin.save()`
     stores every row under the *canonical* (root) team. Resolve the requested `team_id`

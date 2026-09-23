@@ -902,3 +902,33 @@ def _top_events(team: Team) -> list[dict[str, Any]] | None:
         }
         for row in rows
     ]
+
+
+# Inventory sections repeated in the response's compact `summary` envelope, paired with the reader
+# that produces each. `emit_eligibility` is the delivery gate the prompt tells every scout to read
+# before it does any work, and `existing_inbox_reports` is what it dedupes against. Both sit deep
+# inside an inventory large enough that a client can cut the response off before reaching them, so
+# a scout that reads only the prefix cannot tell whether its output would go anywhere. Repeating
+# them up front costs a few hundred bytes and keeps them ahead of any truncation point.
+_SUMMARY_READERS = {
+    "emit_eligibility": _emit_eligibility,
+    "existing_inbox_reports": _existing_inbox_reports,
+}
+SUMMARY_SECTIONS = tuple(_SUMMARY_READERS)
+
+
+def build_summary_sections(team: Team) -> dict[str, dict[str, Any] | None]:
+    """Build the `SUMMARY_SECTIONS` alone, for a caller that could not get a full inventory.
+
+    Each section is read on its own and degrades to None when that read fails, so one unavailable
+    source cannot take the other down with it. None reads as "unknown" to the scout, which the
+    summary envelope already documents, and the write path still fails closed on its own.
+    """
+    sections: dict[str, dict[str, Any] | None] = {}
+    for name, reader in _SUMMARY_READERS.items():
+        try:
+            sections[name] = reader(team)
+        except Exception:
+            logger.exception("signals.profile.summary_section_failed", extra={"team_id": team.pk, "section": name})
+            sections[name] = None
+    return sections

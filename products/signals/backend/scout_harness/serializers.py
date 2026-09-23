@@ -2627,6 +2627,20 @@ class ProjectProfileQuerySerializer(serializers.Serializer):
     )
 
 
+class TransientProfileErrorSerializer(serializers.Serializer):
+    """Why a profile response is degraded rather than a 500.
+
+    Present only alongside a thin response: the summary envelope still carries the emit gate, and
+    `payload` is gone. See `tools/profile.ProfileUnavailable` for why this is not an error status.
+    """
+
+    code = serializers.CharField(help_text="Stable machine-readable cause. Currently `profile_build_failed` only.")
+    message = serializers.CharField(help_text="One-line description of what failed and what the response still holds.")
+    retryable = serializers.BooleanField(
+        help_text="Whether another call can be expected to succeed. Always true for a transient build failure.",
+    )
+
+
 class ProjectProfileSerializer(serializers.Serializer):
     """Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.
 
@@ -2646,15 +2660,37 @@ class ProjectProfileSerializer(serializers.Serializer):
             "`payload.inventory`. Declared first so it survives a truncated response."
         ),
     )
-    profile_id = serializers.CharField(help_text="UUID of the `SignalProjectProfile` row.")
-    computed_at = serializers.CharField(help_text="ISO-8601 timestamp the profile was built.")
-    expires_at = serializers.CharField(help_text="ISO-8601 timestamp after which the profile is considered stale.")
+    profile_id = serializers.CharField(
+        allow_null=True,
+        help_text="UUID of the `SignalProjectProfile` row. Null when `transient_error` is set.",
+    )
+    computed_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp the profile was built. Null when `transient_error` is set.",
+    )
+    expires_at = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp after which the profile is considered stale. Null when `transient_error` is set."
+        ),
+    )
     source_version = serializers.CharField(
         help_text="Schema version of the inventory builder. Bumps invalidate older cached rows.",
     )
+    transient_error = TransientProfileErrorSerializer(
+        required=False,
+        help_text=(
+            "Present only when the profile could not be built. The response is degraded: `summary` "
+            "is read straight from source and `payload` is omitted. Retry the call to get the full "
+            "profile; do not treat the degraded response as ground truth about the project."
+        ),
+    )
     payload = ProjectProfilePayloadSerializer(
         required=False,
-        help_text="Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`.",
+        help_text=(
+            "Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`, "
+            "and when `transient_error` is set."
+        ),
     )
 
 

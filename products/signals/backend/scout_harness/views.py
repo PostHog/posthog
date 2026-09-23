@@ -58,6 +58,8 @@ from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.db_errors import is_transient_db_error
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -83,6 +85,11 @@ from products.signals.backend.scout_harness.lazy_seed import (
     scout_skill_origin,
 )
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.profile import (
+    INVENTORY_SOURCE_VERSION,
+    SUMMARY_SECTIONS,
+    build_summary_sections,
+)
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -190,7 +197,7 @@ from products.signals.backend.scout_harness.tools.notes import (
     leave_note,
     list_notes,
 )
-from products.signals.backend.scout_harness.tools.profile import get_project_profile
+from products.signals.backend.scout_harness.tools.profile import ProfileUnavailable, get_project_profile
 from products.signals.backend.scout_harness.tools.report import (
     ReportChartInput,
     ReportEvidence,
@@ -2100,19 +2107,67 @@ def _eligibility_run_id(request: Request, *, team_id: int, supplied: uuid.UUID |
 def _overlay_effective_emit_eligibility(body: dict[str, Any], *, team_id: int, run_id: str | None) -> None:
     """Replace the stored team-wide `emit_eligibility` with the calling scout's effective one.
 
-    Updates both response sections, and no-ops when no scout run resolves or the payload predates the
-    section. The profile row is shared per team, so what it stores can only be the team-wide floor;
-    the scout reading it also has its own config's dry-run toggle to clear. Re-deriving here rather
-    than at build time keeps that answer live too, because the row is cached for up to
-    `PROFILE_TTL` while the gate is re-read from the config on every write.
+    Updates both response sections, and no-ops when no scout run resolves. The profile row is
+    shared per team, so what it stores can only be the team-wide floor; the scout reading it also
+    has its own config's dry-run toggle to clear. Re-deriving here rather than at build time keeps
+    that answer live too, because the row is cached for up to `PROFILE_TTL` while the gate is
+    re-read from the config on every write.
+
+    `payload` is absent on a degraded response, which still carries the summary the gate lives in,
+    so the inventory half is optional and the summary half is not.
     """
     effective = emit_eligibility_for_run(team_id=team_id, run_id=run_id)
     if effective is None:
         return
-    inventory = body["payload"].get("inventory")
-    if isinstance(inventory, dict) and "emit_eligibility" in inventory:
+    inventory = (body.get("payload") or {}).get("inventory")
+    if isinstance(inventory, dict):
         inventory["emit_eligibility"] = effective
-        body["summary"]["emit_eligibility"] = effective
+    body["summary"]["emit_eligibility"] = effective
+
+
+def _degraded_profile_body(*, team_id: int, run_id: str | None, scout_resolved: bool) -> dict[str, Any]:
+    """The response for a team whose profile could not be read, with the emit gate still in it.
+
+    The row metadata is null because no row was read or written, and `payload` is absent, which is
+    what tells the caller this is not ground truth about the project. `transient_error` says so in
+    words a client can branch on.
+
+    Every read here runs against the database that just failed, so a further failure leaves the
+    summary unknown rather than turning the degraded response back into the 500 it exists to avoid.
+
+    `scout_resolved` is False when the lookup of which scout is asking failed. The gate then reads
+    as unknown rather than as the team-wide floor, because the floor ignores a scout's own dry-run
+    toggle and a scout that reads it as permission would investigate for an emit that gets dropped.
+    """
+    body: dict[str, Any] = {
+        "summary": dict.fromkeys(SUMMARY_SECTIONS),
+        "profile_id": None,
+        "computed_at": None,
+        "expires_at": None,
+        "source_version": INVENTORY_SOURCE_VERSION,
+        "transient_error": {
+            "code": "profile_build_failed",
+            "message": (
+                "The project profile could not be built. This response carries the emit gate and the "
+                "inbox report counts only; retry the call for the full profile."
+            ),
+            "retryable": True,
+        },
+    }
+    try:
+        team = Team.objects.filter(id=team_id).first()
+        if team is not None:
+            body["summary"] = build_summary_sections(team)
+        if scout_resolved:
+            _overlay_effective_emit_eligibility(body, team_id=team_id, run_id=run_id)
+        else:
+            body["summary"]["emit_eligibility"] = None
+    except Exception:
+        # `build_summary_sections` may have left the team-wide floor in place before the overlay
+        # failed, so clear it rather than pass a floor off as this scout's own answer.
+        body["summary"]["emit_eligibility"] = None
+        logger.warning("signals.profile.degraded_summary_failed", team_id=team_id, exc_info=True)
+    return ProjectProfileSerializer(body).data
 
 
 class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -2207,19 +2262,31 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # workflow builds out-of-band, so the build path stays covered.
         force_refresh = bool(validated.get("force_refresh", False)) and caller_is_internal_scout
         team_id = _canonical_team_id(self)
-        profile = get_project_profile(
-            team_id=team_id,
-            force_refresh=force_refresh,
-            lazy_build=caller_is_internal_scout,
-        )
+        # Working out which scout is asking is itself a database read, and it runs ahead of the
+        # profile read that carries its own retry. A dropped connection here used to escape as a
+        # 5xx, costing the scout exactly the discovery round trip this endpoint exists to save, so
+        # it retries the same way and degrades when the retry does not clear it.
+        try:
+            run_id = retry_on_db_connection_drop(
+                lambda: _eligibility_run_id(request, team_id=team_id, supplied=validated.get("run_id"))
+            )
+        except Exception as error:
+            if not is_transient_db_error(error):
+                raise
+            logger.warning("signals.profile.run_lookup_unavailable", team_id=team_id, exc_info=True)
+            return Response(_degraded_profile_body(team_id=team_id, run_id=None, scout_resolved=False))
+        try:
+            profile = get_project_profile(
+                team_id=team_id,
+                force_refresh=force_refresh,
+                lazy_build=caller_is_internal_scout,
+            )
+        except ProfileUnavailable:
+            return Response(_degraded_profile_body(team_id=team_id, run_id=run_id, scout_resolved=True))
         if profile is None:
             raise exceptions.NotFound("No project profile has been built for this team yet.")
         body = profile.as_dict()
-        _overlay_effective_emit_eligibility(
-            body,
-            team_id=team_id,
-            run_id=_eligibility_run_id(request, team_id=team_id, supplied=validated.get("run_id")),
-        )
+        _overlay_effective_emit_eligibility(body, team_id=team_id, run_id=run_id)
         if validated.get("summary_only", False):
             # `payload` is `required=False` on the serializer, so dropping the key here omits it
             # from the response rather than rendering it null.

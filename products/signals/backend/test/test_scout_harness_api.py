@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
+from django.db import OperationalError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -60,6 +61,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
 )
 from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
+from products.signals.backend.scout_harness.profile import build_inventory
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
     SignalScoutConfigUpdateSerializer,
@@ -69,7 +71,7 @@ from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SK
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
-from products.signals.backend.scout_harness.tools.profile import compute_project_profile
+from products.signals.backend.scout_harness.tools.profile import compute_project_profile, get_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 
@@ -2279,6 +2281,101 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert "inventory" in body["payload"]
         # And a row was persisted as a side effect of the scout's build.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
+
+    def test_scout_read_retries_a_transient_build_failure(self) -> None:
+        # One dropped connection during the build used to fail the whole orientation call and cost
+        # the scout a discovery round trip. The second attempt succeeds and it sees a full profile.
+        _authenticate_as_scout(self)
+        built = build_inventory(self.team)
+        with patch(
+            "products.signals.backend.scout_harness.tools.profile.build_inventory",
+            side_effect=[OperationalError("server closed the connection unexpectedly"), built],
+        ) as build:
+            response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert build.call_count == 2
+        body = response.json()
+        assert "transient_error" not in body
+        assert "inventory" in body["payload"]
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
+
+    def test_scout_read_degrades_to_the_summary_when_every_build_fails(self) -> None:
+        # Retries exhausted: the scout still gets the emit gate and the dedupe counts rather than
+        # an error status it would have to retry the whole orientation step around.
+        _authenticate_as_scout(self)
+        with patch(
+            "products.signals.backend.scout_harness.tools.profile.build_inventory",
+            side_effect=OperationalError("server closed the connection unexpectedly"),
+        ) as build:
+            response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert build.call_count == 2
+        body = response.json()
+        assert body["transient_error"]["code"] == "profile_build_failed"
+        assert body["transient_error"]["retryable"] is True
+        assert body["transient_error"]["message"]
+        # Degraded, and shaped so a caller can tell: no row was read or written, and no inventory.
+        assert body["profile_id"] is None
+        assert "payload" not in body
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
+        assert body["summary"]["emit_eligibility"]["can_emit"] is True
+        assert body["summary"]["existing_inbox_reports"]["total"] == 0
+
+    def test_scout_read_degrades_when_the_bound_run_lookup_keeps_failing(self) -> None:
+        # Which scout is asking is read before the profile itself, so a dropped connection there
+        # used to escape as a 5xx and cost the scout the round trip the endpoint exists to save.
+        _authenticate_as_scout(self)
+        with patch(
+            "products.signals.backend.scout_harness.views.run_id_for_sandbox_task",
+            side_effect=OperationalError("server closed the connection unexpectedly"),
+        ) as lookup:
+            response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert lookup.call_count == 2
+        body = response.json()
+        assert body["transient_error"]["retryable"] is True
+        # The scout's own dry-run toggle was never read, so the gate is unknown rather than the
+        # team-wide floor, which a dry-run scout would read as permission to emit.
+        assert body["summary"]["emit_eligibility"] is None
+        assert body["summary"]["existing_inbox_reports"]["total"] == 0
+
+    def test_degraded_read_reports_no_gate_when_the_scout_overlay_fails(self) -> None:
+        # The floor ignores the scout's own `emit` toggle, so leaving it in place after the
+        # per-scout re-derivation failed would tell a dry-run scout its findings can land.
+        run = _make_run(self.team)
+        assert run.scout_config is not None
+        SignalScoutConfig.objects.filter(pk=run.scout_config.pk).update(emit=False)
+        _authenticate_as_scout(self, sandbox_task_id=run.task_run.task_id)
+        with (
+            patch(
+                "products.signals.backend.scout_harness.tools.profile.build_inventory",
+                side_effect=OperationalError("server closed the connection unexpectedly"),
+            ),
+            patch(
+                "products.signals.backend.scout_harness.views.emit_eligibility_for_run",
+                side_effect=OperationalError("server closed the connection unexpectedly"),
+            ),
+        ):
+            response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["transient_error"]["retryable"] is True
+        assert body["summary"]["emit_eligibility"] is None
+
+    def test_profile_read_retries_a_transient_cache_read(self) -> None:
+        # The retry has to wrap the cache read, not just the build: a cache hit is the steady-state
+        # path, so a recycled connection meets the indexed SELECT far more often than the build.
+        with patch(
+            "products.signals.backend.scout_harness.tools.profile._latest_fresh_profile",
+            side_effect=[OperationalError("server closed the connection unexpectedly"), None],
+        ) as cache_read:
+            assert get_project_profile(team_id=self.team.id, lazy_build=False) is None
+
+        assert cache_read.call_count == 2
 
     def test_scout_read_returns_cached_profile_on_repeat_call(self) -> None:
         _authenticate_as_scout(self)
