@@ -74,6 +74,10 @@ export const BusinessKnowledgeSourcesListQueryParams = () => zod.object({
         .enum(['file', 'text', 'url'])
         .optional()
         .describe('Filter to a single source type (text, url, or file).'),
+    added_by: zod
+        .enum(['human', 'learned'])
+        .optional()
+        .describe('Filter by who added the source: human (you added it) or learned (from a resolved support ticket).'),
 })
 
 export const BusinessKnowledgeSourcesCreateParams = () => zod.object({

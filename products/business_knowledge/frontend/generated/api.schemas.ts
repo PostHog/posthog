@@ -354,7 +354,19 @@ export type BusinessKnowledgeSourcesListParams = {
      * Filter to a single source type (text, url, or file).
      */
     source_type?: BusinessKnowledgeSourcesListSourceType
+    /**
+     * Filter by who added the source: human (you added it) or learned (from a resolved support ticket).
+     */
+    added_by?: BusinessKnowledgeSourcesListAddedBy
 }
+
+export type BusinessKnowledgeSourcesListAddedBy =
+    (typeof BusinessKnowledgeSourcesListAddedBy)[keyof typeof BusinessKnowledgeSourcesListAddedBy]
+
+export const BusinessKnowledgeSourcesListAddedBy = {
+    Human: 'human',
+    Learned: 'learned',
+} as const
 
 export type BusinessKnowledgeSourcesListSourceType =
     (typeof BusinessKnowledgeSourcesListSourceType)[keyof typeof BusinessKnowledgeSourcesListSourceType]

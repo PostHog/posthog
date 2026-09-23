@@ -87,6 +87,7 @@ const businessKnowledgeSourcesList = (): ToolBase<
                 offset: params.offset,
                 search: params.search,
                 source_type: params.source_type,
+                added_by: params.added_by,
             },
         })
         const filtered = {

@@ -96,6 +96,7 @@ describe('BusinessKnowledgeScene', () => {
             refreshSource: jest.fn(),
             setSearchTerm: jest.fn(),
             setSourceTypeFilter: jest.fn(),
+            setAddedByFilter: jest.fn(),
             push: jest.fn(),
         })
         ;(useValues as jest.Mock).mockReturnValue({
@@ -106,6 +107,7 @@ describe('BusinessKnowledgeScene', () => {
             refreshingIds: [],
             searchTerm: '',
             sourceTypeFilter: 'all',
+            addedByFilter: 'all',
         })
     })
 
