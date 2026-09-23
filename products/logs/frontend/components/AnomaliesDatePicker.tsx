@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useMemo, useState } from 'react'
 
 import { IconCalendar, IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonDivider, Popover } from '@posthog/lemon-ui'
@@ -12,50 +13,60 @@ import type { DateRange } from '~/queries/schema/schema-general'
 import {
     ANOMALIES_ROLLING_OPTIONS,
     MAX_WINDOW_START_AGE_DAYS,
-    WEEK_DAYS,
-    isWindowStartAllowed,
+    oldestAllowedStart,
     resolveAnomaliesWindow,
     stepAnomaliesWindow,
     weekStartingOn,
 } from 'products/logs/frontend/anomaliesDateWindow'
+import { logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
 
-export interface AnomaliesDatePickerProps {
-    dateRange: DateRange
-    setDateRange: (dateRange: DateRange) => void
-    stepDateRange: (direction: -1 | 1) => void
+const LAST_DAY_OF_WEEK = 6
+
+function formatLabel(dateRange: DateRange, now: dayjs.Dayjs): string {
+    const rolling = ANOMALIES_ROLLING_OPTIONS.find((option) => option.dateFrom === dateRange.date_from)
+    if (rolling && !dateRange.date_to) {
+        return `Last ${rolling.label}`
+    }
+    const window = resolveAnomaliesWindow(dateRange, now)
+    if (!window) {
+        return 'Pick a week'
+    }
+    const end = dateRange.date_to ? window.end.format('MMM D, HH:mm') : 'now'
+    return `${window.start.format('MMM D, HH:mm')} - ${end}`
 }
 
-export function AnomaliesDatePicker({ dateRange, setDateRange, stepDateRange }: AnomaliesDatePickerProps): JSX.Element {
+export function AnomaliesDatePicker(): JSX.Element {
+    const { dateRange } = useValues(logsAnomaliesLogic)
+    const { setDateRange, stepDateRange } = useActions(logsAnomaliesLogic)
     const [open, setOpen] = useState(false)
     const now = dayjs()
-    const resolved = resolveAnomaliesWindow(dateRange, now)
-    const rollingOption = ANOMALIES_ROLLING_OPTIONS.find(
-        (option) => option.dateFrom === dateRange.date_from && !dateRange.date_to
-    )
-    const weekStart = resolved && !resolved.rolling ? resolved.start.startOf('day') : null
+    const oldest = oldestAllowedStart(now)
+    const canStepBack = !!stepAnomaliesWindow(dateRange, -1, now)
+    const canStepForward = !!stepAnomaliesWindow(dateRange, 1, now)
 
-    const label = rollingOption
-        ? `Last ${rollingOption.label}`
-        : resolved
-          ? `${resolved.start.format('MMM D, HH:mm')} - ${resolved.rolling ? 'now' : resolved.end.format('MMM D, HH:mm')}`
-          : 'Pick a week'
+    const weekStartMs = dateRange.date_to
+        ? resolveAnomaliesWindow(dateRange, now)?.start.startOf('day').valueOf()
+        : undefined
+    const weekStart = weekStartMs !== undefined ? dayjs(weekStartMs) : null
+    // LemonCalendar resets its month whenever this prop changes identity, so it must not change on every render.
+    const leftmostMonth = useMemo(() => dayjs(weekStartMs).startOf('month'), [weekStartMs])
 
     const getDateState = ({ date }: { date: dayjs.Dayjs }): LemonCalendarDateState => {
-        if (!isWindowStartAllowed(date.startOf('day'), now)) {
-            return {
-                disabledReason: date.isAfter(now)
-                    ? 'This day is in the future'
-                    : `Log volume older than ${MAX_WINDOW_START_AGE_DAYS} days has expired`,
-            }
+        const day = date.startOf('day')
+        if (day.isAfter(now)) {
+            return { disabledReason: 'This day is in the future' }
+        }
+        if (day.isBefore(oldest)) {
+            return { disabledReason: `Log volume older than ${MAX_WINDOW_START_AGE_DAYS} days has expired` }
         }
         if (!weekStart) {
             return {}
         }
-        const offset = date.startOf('day').diff(weekStart, 'day')
+        const offset = day.diff(weekStart, 'day')
         return {
             isStart: offset === 0,
-            isBetween: offset > 0 && offset < WEEK_DAYS - 1,
-            isEnd: offset === WEEK_DAYS - 1,
+            isBetween: offset > 0 && offset < LAST_DAY_OF_WEEK,
+            isEnd: offset === LAST_DAY_OF_WEEK,
         }
     }
 
@@ -72,9 +83,7 @@ export function AnomaliesDatePicker({ dateRange, setDateRange, stepDateRange }: 
                 icon={<IconChevronLeft />}
                 tooltip="Previous window"
                 disabledReason={
-                    stepAnomaliesWindow(dateRange, -1, now)
-                        ? undefined
-                        : `Log volume older than ${MAX_WINDOW_START_AGE_DAYS} days has expired`
+                    canStepBack ? undefined : `Log volume older than ${MAX_WINDOW_START_AGE_DAYS} days has expired`
                 }
                 onClick={() => stepDateRange(-1)}
                 data-attr="logs-anomalies-date-previous"
@@ -88,7 +97,7 @@ export function AnomaliesDatePicker({ dateRange, setDateRange, stepDateRange }: 
                         <div className="flex flex-col gap-1 p-2">
                             <div className="text-xs font-medium text-secondary px-1">Week starting</div>
                             <LemonCalendar
-                                leftmostMonth={(weekStart ?? now).startOf('month')}
+                                leftmostMonth={leftmostMonth}
                                 onDateClick={(date) => select(weekStartingOn(date))}
                                 getDateState={getDateState}
                             />
@@ -100,7 +109,11 @@ export function AnomaliesDatePicker({ dateRange, setDateRange, stepDateRange }: 
                                 <LemonButton
                                     key={option.dateFrom}
                                     size="small"
-                                    type={option === rollingOption ? 'primary' : 'tertiary'}
+                                    type={
+                                        option.dateFrom === dateRange.date_from && !dateRange.date_to
+                                            ? 'primary'
+                                            : 'tertiary'
+                                    }
                                     fullWidth
                                     onClick={() => select({ date_from: option.dateFrom, date_to: null })}
                                 >
@@ -118,7 +131,7 @@ export function AnomaliesDatePicker({ dateRange, setDateRange, stepDateRange }: 
                     onClick={() => setOpen(!open)}
                     data-attr="logs-anomalies-date-picker"
                 >
-                    {label}
+                    {formatLabel(dateRange, now)}
                 </LemonButton>
             </Popover>
             <LemonButton
@@ -126,7 +139,7 @@ export function AnomaliesDatePicker({ dateRange, setDateRange, stepDateRange }: 
                 type="secondary"
                 icon={<IconChevronRight />}
                 tooltip="Next window"
-                disabledReason={stepAnomaliesWindow(dateRange, 1, now) ? undefined : 'This window already ends now'}
+                disabledReason={canStepForward ? undefined : 'This window already ends now'}
                 onClick={() => stepDateRange(1)}
                 data-attr="logs-anomalies-date-next"
             />

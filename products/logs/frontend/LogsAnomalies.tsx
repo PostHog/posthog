@@ -18,8 +18,8 @@ import type { LogsSeriesBandSeriesApi } from 'products/logs/frontend/generated/a
 import { logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
 
 export function LogsAnomalies(): JSX.Element {
-    const { serviceName, dateRange } = useValues(logsAnomaliesLogic)
-    const { setServiceName, setDateRange, stepDateRange } = useActions(logsAnomaliesLogic)
+    const { serviceName } = useValues(logsAnomaliesLogic)
+    const { setServiceName } = useActions(logsAnomaliesLogic)
 
     return (
         <div className="flex flex-col gap-4 flex-1 min-h-0">
@@ -37,11 +37,7 @@ export function LogsAnomalies(): JSX.Element {
                     />
                 </span>
                 <span data-attr="logs-anomalies-date-range">
-                    <AnomaliesDatePicker
-                        dateRange={dateRange}
-                        setDateRange={setDateRange}
-                        stepDateRange={stepDateRange}
-                    />
+                    <AnomaliesDatePicker />
                 </span>
             </div>
             <SeriesBands />
