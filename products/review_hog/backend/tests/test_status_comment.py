@@ -629,7 +629,7 @@ class TestUpdateResolutionStatusComment(BaseTest):
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/777"]
 
     @parameterized.expand([("progress", False, Priority.BATCH), ("closing", True, Priority.CRITICAL)])
-    def test_only_the_closing_section_is_unsheddable_and_raises_a_deferral(
+    def test_only_the_closing_section_takes_the_unsheddable_lane(
         self,
         mock_request: MagicMock,
         mock_paginated: MagicMock,
@@ -645,18 +645,18 @@ class TestUpdateResolutionStatusComment(BaseTest):
         report = self._report()
         report.status_comment_id = 777
         report.save(update_fields=["status_comment_id"])
-        mock_request.side_effect = GitHubEgressBudgetExhausted("budget exhausted for installation 1; deferring")
-        section = render_resolution_final_section(outcomes={"fixed": 1}, failed_turns=0)
+        get_response = MagicMock()
+        get_response.json.return_value = {"body": status_marker(str(report.id))}
+        mock_request.side_effect = [get_response, MagicMock()]
 
-        def update() -> None:
-            update_resolution_status_comment(self.team.id, str(report.id), section, terminal=terminal)
+        update_resolution_status_comment(
+            self.team.id,
+            str(report.id),
+            render_resolution_final_section(outcomes={"fixed": 1}, failed_turns=0),
+            terminal=terminal,
+        )
 
-        if terminal:
-            with pytest.raises(GitHubEgressBudgetExhausted):
-                update()
-        else:
-            update()
-        assert _priorities(mock_request) == [expected_priority]
+        assert _priorities(mock_request) == [expected_priority, expected_priority]
 
 
 class TestFailRun(BaseTest):
