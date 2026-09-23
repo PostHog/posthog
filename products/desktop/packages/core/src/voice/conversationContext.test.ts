@@ -13,6 +13,36 @@ function message(kind: string, text: string, ts: number): SessionActivityEvent {
 }
 
 describe("voiceConversationContext", () => {
+  it("uses Pi conversation text without exposing thoughts", () => {
+    const result = voiceConversationContext([
+      {
+        type: "user_message",
+        id: "user-1",
+        timestamp: 1,
+        content: [{ type: "text", text: "Check the task" }],
+      },
+      {
+        type: "assistant_thought_chunk",
+        timestamp: 2,
+        content: { type: "text", text: "Private reasoning" },
+      },
+      {
+        type: "assistant_message_chunk",
+        timestamp: 3,
+        content: { type: "text", text: "The task " },
+      },
+      {
+        type: "assistant_message_chunk",
+        timestamp: 4,
+        content: { type: "text", text: "is ready." },
+      },
+      { type: "turn_completed", timestamp: 5 },
+    ]);
+    expect(result.context).toBe(
+      "User: Check the task\nAgent: The task is ready.",
+    );
+    expect(result.reply).toBe("The task is ready.");
+  });
   it("omits private reasoning and replaces chunks with the final answer", () => {
     const result = voiceConversationContext([
       message("user_message_chunk", "Check the task", 1),

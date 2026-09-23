@@ -19,6 +19,10 @@ export interface VoiceConversation {
 }
 
 export const CONVERSATION_VOICE_SESSION = Symbol.for("posthog.voice.session");
+export type VoiceSessionFactory = (
+  conversation: VoiceConversation,
+) => ConversationVoiceSession;
+export const VOICE_SESSION_FACTORY = Symbol.for("posthog.voice.sessionFactory");
 export const VOICE_CONVERSATION = Symbol.for("posthog.voice.conversation");
 
 // UTF-8 bytes bound token count, including non-Latin text and emoji.

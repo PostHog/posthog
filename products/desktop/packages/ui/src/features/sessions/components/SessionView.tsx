@@ -79,6 +79,7 @@ import {
 } from "@posthog/ui/features/sessions/sessionViewStore";
 import type { Plan } from "@posthog/ui/features/sessions/types";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { VoiceConversationControl } from "@posthog/ui/features/voice/VoiceConversationControl";
 import { useIsWorkspaceCloudRun } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
@@ -799,6 +800,18 @@ export function SessionView({
                         />
                       )}
                       {taskId && <QueuedMessagesDock taskId={taskId} />}
+                      {taskId && (
+                        <VoiceConversationControl
+                          taskId={taskId}
+                          events={events}
+                          pending={!!isPromptPending}
+                          active={isActiveSession}
+                          disabled={
+                            !isRunning || !isOnline || spendStop !== null
+                          }
+                          onSend={onSendPrompt}
+                        />
+                      )}
                       <PromptInput
                         ref={editorRef}
                         sessionId={sessionId}

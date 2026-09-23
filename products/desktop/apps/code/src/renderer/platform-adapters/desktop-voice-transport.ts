@@ -1,11 +1,10 @@
 import type { LiveVoiceTransport } from "@posthog/platform/speech";
-import type { MediaStream, RTCPeerConnection } from "react-native-webrtc";
 
-export class NativeVoiceTransport implements LiveVoiceTransport {
+export class DesktopVoiceTransport implements LiveVoiceTransport {
   private peer: RTCPeerConnection | null = null;
   private stream: MediaStream | null = null;
-  private channel: ReturnType<RTCPeerConnection["createDataChannel"]> | null =
-    null;
+  private channel: RTCDataChannel | null = null;
+  private audio: HTMLAudioElement | null = null;
   private generation = 0;
   private cancelGathering: (() => void) | undefined;
 
@@ -14,35 +13,40 @@ export class NativeVoiceTransport implements LiveVoiceTransport {
     onDisconnect: () => void,
   ): Promise<string> {
     const generation = ++this.generation;
-    // Older native builds can still open conversations when voice is disabled.
-    const { mediaDevices, RTCPeerConnection } = await import(
-      "react-native-webrtc"
-    );
     const checkActive = (): void => {
       if (generation !== this.generation) throw new Error("Voice was canceled");
     };
-    checkActive();
-    const stream = await mediaDevices.getUserMedia({
-      audio: true,
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true },
       video: false,
     });
     if (generation !== this.generation) {
       for (const track of stream.getTracks()) track.stop();
-      stream.release();
       checkActive();
     }
     this.stream = stream;
-    const peer = new RTCPeerConnection({});
+    const peer = new RTCPeerConnection();
     this.peer = peer;
-    for (const track of stream.getTracks()) peer.addTrack(track, stream);
-    const channel = peer.createDataChannel("oai-events");
-    this.channel = channel;
-    channel.onmessage = (event: { data: unknown }) => {
-      if (generation === this.generation && typeof event.data === "string")
-        onMessage(event.data);
-    };
+    const audio = new Audio();
+    audio.autoplay = true;
+    this.audio = audio;
     const disconnect = (): void => {
       if (generation === this.generation) onDisconnect();
+    };
+    peer.ontrack = (event) => {
+      if (generation !== this.generation) return;
+      audio.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+      void audio.play().catch(disconnect);
+    };
+    for (const track of stream.getTracks()) {
+      track.onended = disconnect;
+      peer.addTrack(track, stream);
+    }
+    const channel = peer.createDataChannel("oai-events");
+    this.channel = channel;
+    channel.onmessage = (event: MessageEvent<unknown>) => {
+      if (generation === this.generation && typeof event.data === "string")
+        onMessage(event.data);
     };
     channel.onclose = disconnect;
     channel.onerror = disconnect;
@@ -53,7 +57,7 @@ export class NativeVoiceTransport implements LiveVoiceTransport {
       )
         disconnect();
     };
-    const offer = await peer.createOffer({});
+    const offer = await peer.createOffer();
     checkActive();
     await peer.setLocalDescription(offer);
     checkActive();
@@ -67,12 +71,6 @@ export class NativeVoiceTransport implements LiveVoiceTransport {
         peer.onicegatheringstatechange = null;
         this.cancelGathering = undefined;
       };
-      const listener = (): void => {
-        if (peer.iceGatheringState === "complete") {
-          cleanup();
-          resolve();
-        }
-      };
       const timer = setTimeout(() => {
         cleanup();
         reject(new Error("Voice connection timed out"));
@@ -81,7 +79,12 @@ export class NativeVoiceTransport implements LiveVoiceTransport {
         cleanup();
         reject(new Error("Voice was canceled"));
       };
-      peer.onicegatheringstatechange = listener;
+      peer.onicegatheringstatechange = () => {
+        if (peer.iceGatheringState === "complete") {
+          cleanup();
+          resolve();
+        }
+      };
     });
     checkActive();
     const sdp = peer.localDescription?.sdp;
@@ -100,16 +103,18 @@ export class NativeVoiceTransport implements LiveVoiceTransport {
 
   mute(): void {
     for (const track of this.stream?.getTracks() ?? []) track.stop();
-    this.stream?.release();
     this.stream = null;
+    this.audio?.pause();
   }
 
   close(): void {
     ++this.generation;
     this.cancelGathering?.();
     this.mute();
+    if (this.audio) this.audio.srcObject = null;
     this.channel?.close();
     this.peer?.close();
+    this.audio = null;
     this.peer = null;
     this.channel = null;
   }

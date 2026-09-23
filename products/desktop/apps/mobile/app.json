@@ -13,7 +13,7 @@
       "bundleIdentifier": "com.posthog.code.mobile",
       "associatedDomains": ["applinks:code.posthog.com"],
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Allow PostHog to use your microphone for dictation and voice conversations",
+        "NSMicrophoneUsageDescription": "Allow PostHog to use your microphone for voice-to-text input",
         "NSSpeechRecognitionUsageDescription": "Allow PostHog to transcribe your voice input on-device",
         "NSPhotoLibraryUsageDescription": "Allow PostHog to access your photos for attaching images to tasks",
         "NSCameraUsageDescription": "Allow PostHog to use your camera to scan QR codes for sign-in",
@@ -53,7 +53,6 @@
     "plugins": [
       "expo-router",
       "expo-audio",
-      "@config-plugins/react-native-webrtc",
       [
         "expo-camera",
         {
@@ -105,7 +104,7 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Allow PostHog to use your microphone for dictation and voice conversations",
+          "microphonePermission": "Allow PostHog to use your microphone for voice-to-text input",
           "speechRecognitionPermission": "Allow PostHog to transcribe your voice input on-device"
         }
       ],

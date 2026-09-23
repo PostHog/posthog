@@ -47,6 +47,8 @@ import { ChatThread } from "@posthog/ui/features/sessions/components/chat-thread
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useMessagingModeStore } from "@posthog/ui/features/sessions/messagingModeStore";
+import { useInUnfocusedTile } from "@posthog/ui/features/tab-tiling/tileContext";
+import { VoiceConversationControl } from "@posthog/ui/features/voice/VoiceConversationControl";
 import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -317,30 +319,34 @@ function usePiSubmit(
   onSuccess: (action: PiSubmitAction) => void,
 ) {
   return useCallback(
-    (text: string) => {
+    async (text: string): Promise<boolean> => {
       const message = text.trim();
-      if (!message) {
-        return;
-      }
+      if (!message) return false;
 
       const action = controller.getSubmitAction(
         message,
         isStreaming,
         messagingMode,
       );
-      void controller
-        .submit(taskId, message, isStreaming, messagingMode, pendingConfig)
-        .then(() => {
-          onSuccess(action);
-        })
-        .catch((error) => {
-          handleControllerError(
-            error,
-            action === "compact"
-              ? "Failed to compact Pi context"
-              : "Failed to send message to Pi",
-          );
-        });
+      try {
+        await controller.submit(
+          taskId,
+          message,
+          isStreaming,
+          messagingMode,
+          pendingConfig,
+        );
+        onSuccess(action);
+        return true;
+      } catch (error) {
+        handleControllerError(
+          error,
+          action === "compact"
+            ? "Failed to compact Pi context"
+            : "Failed to send message to Pi",
+        );
+        return false;
+      }
     },
     [controller, isStreaming, messagingMode, onSuccess, pendingConfig, taskId],
   );
@@ -443,6 +449,7 @@ function usePiRemoveQueue(
 }
 
 export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
+  const inBackgroundTile = useInUnfocusedTile();
   const taskId = task.id;
   const taskRunId = task.latest_run?.id;
   const authenticatedClient = useOptionalAuthenticatedClient();
@@ -682,6 +689,22 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           widgets={currentExtensionState.widgets}
           placement="aboveEditor"
         />
+        <VoiceConversationControl
+          taskId={taskId}
+          active={!inBackgroundTile}
+          events={session.events}
+          pending={controlsPending}
+          disabled={
+            isCompacting ||
+            !sessionAvailable ||
+            !status ||
+            !isOnline ||
+            hasQueuedMessage ||
+            isAuthRestoring ||
+            spendStop !== null
+          }
+          onSend={sendPrompt}
+        />
         {mcpPermission ? (
           isMcpPermissionResponding ? (
             <Skeleton className="h-24 w-full" />
@@ -747,7 +770,9 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
             messagingModeToggle={messagingModeToggle}
             onToggleMessagingMode={toggleMessagingMode}
             onPromptRecall={handlePromptRecall}
-            onSubmit={sendPrompt}
+            onSubmit={(text) => {
+              void sendPrompt(text);
+            }}
             onBashCommand={runBashCommand}
             onCancel={cancelPrompt}
           />

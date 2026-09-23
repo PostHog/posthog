@@ -39,15 +39,12 @@
     }
   },
   "dependencies": {
-    "@config-plugins/react-native-webrtc": "^15.0.2",
     "@expo/metro-runtime": "~57.0.7",
     "@expo/ui": "57.0.7",
-    "@inversifyjs/strongly-typed": "2.2.0",
     "@modelcontextprotocol/ext-apps": "^1.2.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@posthog/api-client": "workspace:*",
     "@posthog/core": "workspace:*",
-    "@posthog/platform": "workspace:*",
     "@posthog/react-native-plugin": "^2.9.4",
     "@posthog/shared": "workspace:*",
     "@react-native-async-storage/async-storage": "^2.2.0",
@@ -83,7 +80,6 @@
     "expo-video": "~57.0.3",
     "expo-web-browser": "^57.0.2",
     "highlight.js": "^11.11.1",
-    "inversify": "catalog:",
     "nativewind": "^4.2.1",
     "phosphor-react-native": "^3.0.2",
     "posthog-react-native": "^4.76.0",
@@ -96,7 +92,6 @@
     "react-native-screens": "~4.26.2",
     "react-native-svg": "^15.15.4",
     "react-native-web": "^0.21.2",
-    "react-native-webrtc": "^124.0.8",
     "react-native-webview": "^13.16.1",
     "react-native-worklets": "0.10.0",
     "zustand": "^4.5.7"
