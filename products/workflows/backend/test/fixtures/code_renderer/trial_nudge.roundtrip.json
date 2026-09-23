@@ -2,12 +2,13 @@
     "key": "trial-nudge-v2",
     "name": "Trial nudge (v2)",
     "description": "",
+    "status": "draft",
     "exit_condition": "exit_only_at_end",
     "variables": [],
     "actions": [
         {
             "id": "trigger_node",
-            "name": "Trigger",
+            "name": "trigger_1",
             "type": "trigger",
             "config": {
                 "type": "event",
@@ -22,7 +23,7 @@
                         }
                     ],
                     "properties": [],
-                    "filter_test_accounts": false
+                    "filter_test_accounts": true
                 }
             }
         },
@@ -139,6 +140,5 @@
             "to": "exit_node",
             "type": "continue"
         }
-    ],
-    "status": "draft"
+    ]
 }
