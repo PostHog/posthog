@@ -88356,6 +88356,14 @@ export namespace Schemas {
       default_open_pull_request_ready?: boolean;
       /** Whether self-driving comments back on a GitHub issue that raised a report, linking to the report so everybody watching the issue knows it is being researched. The comment is public on the issue thread and carries a link only, never report content. False by default. Needs a GitHub integration that can reach the issue's repository. */
       github_issue_writeback_enabled?: boolean;
+      /** Whether self-driving adds a label to every pull request it opens, so GitHub search, saved searches, and notification rules can separate them from other automation on the repository. False by default. Needs a GitHub integration that can reach the repository. */
+      pull_request_label_enabled?: boolean;
+      /**
+         * The label name self-driving applies, at most 50 characters. Null or blank means 'self-driving'. The label is created in the repository when it does not exist yet. Only used while pull_request_label_enabled is true.
+         * @maxLength 50
+         * @nullable
+         */
+      pull_request_label?: string | null;
       /**
          * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
          * @minimum 0
