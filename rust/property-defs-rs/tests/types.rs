@@ -1,7 +1,8 @@
 use chrono::Utc;
 use property_defs_rs::types::{
-    detect_property_type, floor_last_seen, last_seen_jitter_seed, Event, PropertyValueType, Update,
-    DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS, MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS,
+    detect_property_type, floor_last_seen, last_seen_jitter_seed, Event, PropertyParentType,
+    PropertyValueType, Update, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS,
+    MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS,
 };
 use rstest::rstest;
 use serde_json::{json, Map, Number, Value};
@@ -828,16 +829,22 @@ fn test_groupidentify_emits_zero_event_properties() {
     );
 }
 
-#[test]
-fn test_plain_event_properties_still_emitted() {
-    let props = json!({
-        "page": "/home",
-        "referrer": "https://google.com"
-    });
+#[rstest]
+#[case("$pageview", json!({"page": "/home", "referrer": "https://example.com"}))]
+#[case("$ai_generation", json!({
+    "$ai_input": [{"role": "user", "content": "A sample question"}],
+    "$ai_output": "A sample answer",
+    "$ai_output_choices": [{"message": {"content": "A sample answer"}}],
+    "$ai_input_state": {"step": 1},
+    "$ai_output_state": {"step": 2},
+    "$ai_tools": [{"name": "sample_tool"}],
+    "$ai_model": "sample-model"
+}))]
+fn test_plain_event_properties_still_emitted(#[case] name: &str, #[case] props: Value) {
     let event = Event {
         team_id: 1,
         project_id: 1,
-        event: "$pageview".to_string(),
+        event: name.to_string(),
         properties: Some(props.to_string()),
     };
 
@@ -851,13 +858,27 @@ fn test_plain_event_properties_still_emitted() {
         })
         .collect();
 
-    assert_eq!(
-        event_property_keys.len(),
-        2,
-        "expected exactly 2 EventProperty updates: {event_property_keys:?}"
-    );
-    assert!(event_property_keys.contains(&"page"));
-    assert!(event_property_keys.contains(&"referrer"));
+    let expected_keys: Vec<&str> = props
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(event_property_keys, expected_keys);
+    let definitions: Vec<_> = updates
+        .iter()
+        .filter_map(|update| match update {
+            Update::Property(definition) => Some(definition),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(definitions.len(), expected_keys.len());
+    for definition in definitions {
+        assert!(expected_keys.contains(&definition.name.as_str()));
+        assert_eq!(definition.event_type, PropertyParentType::Event);
+        assert_eq!(definition.group_type_index, None);
+        assert_eq!(definition.project_id, 1);
+    }
 }
 
 #[rstest]
