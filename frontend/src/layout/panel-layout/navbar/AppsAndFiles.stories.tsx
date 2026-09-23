@@ -1,5 +1,7 @@
+import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
+import { useActions, useMountedLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -10,11 +12,16 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { NavExperimentTab, panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../ProjectTree/projectTreeDataLogic'
+import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
 import { NavBar } from './NavBar'
 import { navAppsTabLogic } from './tabs/navAppsTabLogic'
+import { FILES_TREE_KEY, navFilesTabLogic } from './tabs/navFilesTabLogic'
 import { navRecentsLogic } from './tabs/navRecentsLogic'
 
 const files: FileSystemEntry[] = [
+    { id: 'users-folder', path: 'Users', type: 'folder' },
+    { id: 'home-folder', path: 'Users/Alex Example', type: 'folder' },
+    { id: 'other-home-folder', path: 'Users/Alex Example (1)', type: 'folder' },
     { id: 'folder-1', path: 'Getting started', type: 'folder' },
     { id: 'dashboard-1', path: 'Getting started/Overview', type: 'dashboard', ref: '1', href: '/dashboard/1' },
     {
@@ -36,6 +43,7 @@ const files: FileSystemEntry[] = [
     { id: 'flag-1', path: 'New checkout', type: 'feature_flag', ref: '1', href: '/feature_flags/1' },
 ]
 const starred: FileSystemEntry[] = [
+    { id: 'star-home', path: 'Alex Example', type: 'folder', ref: 'Users/Alex Example' },
     { id: 'star-1', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
     { id: 'star-2', path: 'Overview', type: 'dashboard', ref: '1', href: '/dashboard/1' },
     { id: 'star-3', path: 'Product research', type: 'folder', ref: 'Product research' },
@@ -46,24 +54,32 @@ function SidebarStory({
     tab = 'home',
     search = '',
     collapsed = false,
+    overlay = false,
     empty = false,
     recentsCollapsed = false,
 }: {
     tab?: NavExperimentTab
     search?: string
     collapsed?: boolean
+    overlay?: boolean
     empty?: boolean
     recentsCollapsed?: boolean
 }): JSX.Element {
-    const { setNavExperimentTab, toggleLayoutNavCollapsed, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { setNavExperimentTab, toggleLayoutNavCollapsed, clearActivePanelIdentifier, setNavOverlayOpen } =
+        useActions(panelLayoutLogic)
     const { setRecentsCollapsed } = useActions(navRecentsLogic)
     const { setSearch } = useActions(navAppsTabLogic)
     const { loadShortcutsSuccess } = useActions(projectTreeDataLogic)
+    useMountedLogic(navFilesTabLogic)
     useOnMountEffect(() => {
         setNavExperimentTab(tab)
         toggleLayoutNavCollapsed(collapsed)
+        setNavOverlayOpen(overlay)
         clearActivePanelIdentifier()
         setSearch(search)
+        if (tab === 'files') {
+            projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).actions.setSearchTerm(search)
+        }
         setRecentsCollapsed(recentsCollapsed)
         loadShortcutsSuccess(empty ? [] : starred)
     })
@@ -102,6 +118,10 @@ const meta: Meta<typeof SidebarStory> = {
                 '/api/environments/:team_id/file_system_shortcut/': [200, { results: starred }],
             },
             post: {
+                '/api/projects/:team_id/file_system/home_folder/': [
+                    200,
+                    { id: 'home-folder', path: 'Users/Alex Example' },
+                ],
                 '/api/environments/:team_id/file_system_shortcut/': async ({ request: req }) => [
                     201,
                     { ...((await req.json()) as object), id: 'star-new' },
@@ -118,9 +138,38 @@ export default meta
 type Story = StoryObj<typeof SidebarStory>
 export const Apps: Story = {}
 export const Files: Story = { args: { tab: 'files' } }
+export const Chat: Story = {
+    args: { tab: 'chat' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/conversations/': [
+                    200,
+                    {
+                        results: ['Review signup trends', 'Explore checkout events'].map((title, index) => ({
+                            id: `chat-${index}`,
+                            title,
+                            status: 'idle',
+                            type: 'assistant',
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
+                            user: MOCK_DEFAULT_BASIC_USER,
+                        })),
+                        next: null,
+                    },
+                ],
+            },
+        }),
+    ],
+}
+export const FilesSearch: Story = { args: { tab: 'files', search: 'Weekly' } }
+export const FilesNoResults: Story = { args: { tab: 'files', search: 'nothing-matches' } }
 export const Search: Story = { args: { search: 'data' } }
 export const NoResults: Story = { args: { search: 'nothing-matches' } }
 export const Collapsed: Story = { args: { collapsed: true } }
+export const FilesCollapsed: Story = { args: { collapsed: true, tab: 'files' } }
+export const AppsOverlay: Story = { args: { collapsed: true, overlay: true } }
+export const FilesOverlay: Story = { args: { collapsed: true, overlay: true, tab: 'files' } }
 export const Narrow: Story = {
     decorators: [
         (Story) => (

@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-    BUFFERED_LANE_KEY,
     COMPANION_WRITE_MODE,
     CONSOLIDATED_WRITE_MODE,
     CDCLane,
@@ -181,9 +180,7 @@ def _schema(**overrides) -> MagicMock:
     schema.cdc_mode = overrides.get("cdc_mode", "streaming")
     schema.cdc_table_mode = overrides.get("cdc_table_mode", "consolidated")
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
-    # A flipped schema carries the opt-in marker; consolidated is served without it.
-    default_config = {} if schema.cdc_table_mode == "consolidated" else {BUFFERED_LANE_KEY: True}
-    schema.sync_type_config = overrides.get("sync_type_config", default_config)
+    schema.sync_type_config = overrides.get("sync_type_config", {})
     schema.source.job_inputs = overrides.get("job_inputs", {})
     schema.primary_key_columns = overrides.get("primary_key_columns", ["id"])
     schema.name = overrides.get("name", "users")
@@ -290,25 +287,6 @@ class TestServedLanes:
         # no query reads — the companion is keyed on `name`, like its snapshot seed.
         schema = _schema(name="public.users", resolved_s3_folder_name="users", cdc_table_mode="both")
         assert [lane.resource_name for lane in served_lanes(schema)] == ["users", "public.users_cdc"]
-
-
-class TestBufferedLaneOptIn:
-    @parameterized.expand(
-        [
-            ("consolidated", False, True),
-            ("cdc_only", False, False),
-            ("both", False, False),
-            ("cdc_only", True, True),
-            ("both", True, True),
-        ]
-    )
-    def test_history_modes_serve_only_once_the_flip_marked_them(self, mode, marked, served):
-        # A source flipped before history modes were served left those schemas on legacy with their
-        # schedules paused. Widening by mode alone would have capture route them into the buffer on
-        # deploy, with nothing scheduled to consume it. Consolidated predates the marker.
-        schema = _schema(cdc_table_mode=mode, sync_type_config={BUFFERED_LANE_KEY: True} if marked else {})
-
-        assert serves_buffered_lane(schema) is served
 
 
 class TestBufferedGating:

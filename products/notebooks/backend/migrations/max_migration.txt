@@ -1,1 +1,1 @@
-0023_generated_widget_generation_cost
+0026_widget_snapshot

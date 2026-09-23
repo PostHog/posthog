@@ -1327,6 +1327,7 @@ class TestTestHogEndpoint(APIBaseTest):
             self.assertEqual(r["output_preview"], "4")
 
         query = mock_query.call_args.kwargs["query"]
+        self.assertEqual(mock_query.call_args.kwargs["user"], self.user)
         self.assertEqual(query.select_from.table.chain, ["posthog", "ai_events"])
         self.assertEqual(query.select[4].chain, ["timestamp"])
         self.assertEqual([field.chain for field in query.select[5:]], [[name] for name in HEAVY_COLUMN_NAMES])
@@ -1417,6 +1418,7 @@ class TestTestHogEndpoint(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_run_over_traces.call_args.kwargs["window_seconds"], 120)
+        self.assertEqual(mock_run_over_traces.call_args.kwargs["user"], self.user)
         # The generation query path must not run for a trace target.
         mock_query.assert_not_called()
         results = response.json()["results"]

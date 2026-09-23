@@ -222,6 +222,20 @@ export const commonConfig = {
                 })
             },
         },
+        // zod re-exports every error-message locale as `z.locales`. Any import that keeps the whole
+        // `z` object (a named `z` import, the default import, a shared chunk anchor) then ships all
+        // of them. We only use `en`, which zod imports directly, so the locales barrel exports `en`
+        // only. The eager graph check has a tripwire for another locale file in case the path moves.
+        {
+            name: 'zod-en-locale-only',
+            setup(build) {
+                build.onLoad({ filter: /[\\/]zod[\\/]v4[\\/]locales[\\/]index\.js$/ }, (args) => ({
+                    contents: 'export { default as en } from "./en.js";',
+                    loader: 'js',
+                    resolveDir: path.dirname(args.path),
+                }))
+            },
+        },
         sassPlugin({
             async transform(source, resolveDir, filePath) {
                 const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
@@ -255,6 +269,7 @@ export const commonConfig = {
     alias: {
         buffer: 'buffer',
         crypto: 'crypto-browserify',
+        'node:crypto': 'crypto-browserify',
         stream: 'stream-browserify',
     },
     tsconfig: tsconfigPath,
@@ -263,6 +278,8 @@ export const commonConfig = {
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
     },
     loader: {
+        '.bin': 'file',
+        '.wasm': 'file',
         '.ttf': 'file',
         '.png': 'file',
         '.gif': 'file',
