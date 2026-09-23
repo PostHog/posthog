@@ -596,6 +596,13 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             ),
             ("hog_json_middle", HogLanguage.HOG_JSON, '{"message": "Hi {person.pro|perties.email}"}', ["properties"]),
             ("hog_json_last", HogLanguage.HOG_JSON, '{"message": "Hi {person.properties.em|ail}"}', ["email", "name"]),
+            # Dots outside the extracted JSON string value must not count as chain levels
+            (
+                "hog_json_after_dotted_rows",
+                HogLanguage.HOG_JSON,
+                '{\n  "url": "https://example.com/a.b",\n  "message": "Hi {person.pro|perties.email}"\n}',
+                ["properties"],
+            ),
         ]
     )
     def test_autocomplete_template_suggests_the_level_of_the_chain_element_under_the_cursor(
