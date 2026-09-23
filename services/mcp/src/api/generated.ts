@@ -60659,18 +60659,6 @@ export namespace Schemas {
       Number9: 9,
     } as const;
 
-    /**
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist
-     */
-    export type OrganizationDefaultExperimentStatsMethodEnum = typeof OrganizationDefaultExperimentStatsMethodEnum[keyof typeof OrganizationDefaultExperimentStatsMethodEnum];
-
-
-    export const OrganizationDefaultExperimentStatsMethodEnum = {
-      Bayesian: 'bayesian',
-      Frequentist: 'frequentist',
-    } as const;
-
     export interface Organization {
       readonly id: string;
       /** @maxLength 64 */
@@ -60735,11 +60723,6 @@ export namespace Schemas {
       readonly is_ai_training_cta_shown: boolean | null;
       /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
       readonly has_signed_baa: boolean;
-      /** Default statistical method for new experiments in this organization.
-       *
-       * * `bayesian` - Bayesian
-       * * `frequentist` - Frequentist */
-      default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnum | BlankEnum | null;
       /** Default setting for 'Discard client IP data' for new projects in this organization. */
       default_anonymize_ips?: boolean;
       /**
@@ -73304,11 +73287,6 @@ export namespace Schemas {
       readonly is_ai_training_cta_shown?: boolean | null;
       /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
       readonly has_signed_baa?: boolean;
-      /** Default statistical method for new experiments in this organization.
-       *
-       * * `bayesian` - Bayesian
-       * * `frequentist` - Frequentist */
-      default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnum | BlankEnum | null;
       /** Default setting for 'Discard client IP data' for new projects in this organization. */
       default_anonymize_ips?: boolean;
       /**
