@@ -273,6 +273,7 @@ class TargetSurface:
     unique_persons: int
     exposures_per_day_estimate: float
     libs: list[LibReach]
+    libs_truncated: bool
     anonymous_share: float | None
     device_id_share: float | None
 
@@ -842,7 +843,7 @@ def _compute_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSur
         """,
         {
             "where": _and(conditions),
-            "limit": ast.Constant(value=TARGET_SURFACE_MAX_LIBS),
+            "limit": ast.Constant(value=TARGET_SURFACE_MAX_LIBS + 1),
         },
     )
     unique_persons, events, device_id_events, anonymous_ids, identity_known_ids, top_libs = (
@@ -873,8 +874,9 @@ def _compute_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSur
                 lib_identity_known_ids,
                 lib_device_id_events,
                 lib_events,
-            ) in top_libs or []
+            ) in (top_libs or [])[:TARGET_SURFACE_MAX_LIBS]
         ],
+        libs_truncated=len(top_libs or []) > TARGET_SURFACE_MAX_LIBS,
         anonymous_share=_share(anonymous_ids, identity_known_ids),
         device_id_share=_share(device_id_events, events),
     )

@@ -51,10 +51,10 @@ Name every unmatched SDK in the report.
 When an unmatched row has `category: "server"`, take step 3: an unread server SDK is the case that breaks both steps, because it may send its flag calls without a device ID and may evaluate them locally.
 Otherwise keep the step's choice and drop the tier to "best guess", naming the SDK that was not checked.
 
-Both lists are capped, so read how many rows came back before you trust a match.
-`target_surface.libs` holds at most the 5 SDKs with the most people on the surface, and the response carries no flag for what the cap dropped.
-Fewer than 5 rows is therefore the whole list and the check above is conclusive; exactly 5 rows can hide a further SDK, a server one included.
-On exactly 5 rows, say the list is at its cap and drop the tier to "best guess" even when every row matched, because "no unmatched SDK" is then unproven rather than true.
+Both lists are capped, so read the truncation flag before you trust a match.
+`target_surface.libs` holds at most the 5 SDKs with the most people on the surface, and `target_surface.libs_truncated` is true when the cap dropped a further SDK.
+When it is false, the list is complete and the check above is conclusive; when it is true, an unseen SDK can reach the surface, a server one included.
+When `target_surface.libs_truncated` is true, say the list is at its cap and drop the tier to "best guess" even when every row matched, because "no unmatched SDK" is then unproven rather than true.
 `sdk_profile.libs` is capped at 10 and does report it, in `sdk_profile.libs_truncated`.
 When that is true, an SDK can read as unmatched only because its own row was dropped, so name the cap alongside it. The cap cannot add a bad matching row, so steps 1 and 2 stay safe on the rows that did come back.
 
