@@ -47,10 +47,11 @@ class EvaluationReportOutcomeDefinition:
             return "pass" if self.numeric_config.passing_rule.passes(score) else "fail"
         if self.passing_result is None:
             return result if isinstance(result, str) and result in self.outcomes else None
-        if applicable is False:
+        if applicable in (False, "false"):
             return "na"
-        # Accepts 1/0 alongside True/False: a ClickHouse UInt8 column can hand back an int
-        # for what is logically a boolean result.
+        # HogQL returns strings after the result property's metadata migration.
+        if result in ("true", "false"):
+            result = result == "true"
         if result not in (True, False):
             return None
         return "pass" if bool(result) is self.passing_result else "fail"
@@ -62,7 +63,7 @@ class EvaluationReportOutcomeDefinition:
 _NOT_SKIPPED_PREDICATE = "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"
 
 _APPLICABLE_PREDICATE = (
-    "(isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)"
+    "(isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')"
 )
 
 
@@ -73,9 +74,9 @@ def _boolean_definition(true_is_failure: bool) -> EvaluationReportOutcomeDefinit
     return EvaluationReportOutcomeDefinition(
         outcomes=("pass", "fail", "na"),
         outcome_predicates={
-            "pass": f"properties.$ai_evaluation_result = {pass_literal} AND {_APPLICABLE_PREDICATE}",
-            "fail": f"properties.$ai_evaluation_result = {fail_literal} AND {_APPLICABLE_PREDICATE}",
-            "na": "properties.$ai_evaluation_applicable = false",
+            "pass": f"properties.$ai_evaluation_result = '{pass_literal}' AND {_APPLICABLE_PREDICATE}",
+            "fail": f"properties.$ai_evaluation_result = '{fail_literal}' AND {_APPLICABLE_PREDICATE}",
+            "na": "properties.$ai_evaluation_applicable = 'false'",
         },
         event_predicate=(
             "(properties.$ai_evaluation_result_type = 'boolean' OR isNull(properties.$ai_evaluation_result_type)) "
@@ -110,7 +111,7 @@ SUPPORTED_EVAL_REPORT_OUTPUT_TYPES = (*_DEFINITION_BUILDERS, "numeric")
 
 def _numeric_definition(output_config: dict | None) -> EvaluationReportOutcomeDefinition:
     config = NumericOutputConfig.model_validate(output_config or {})
-    score = "toFloat(properties.$ai_evaluation_numeric_result)"
+    score = "toFloat(properties.$ai_evaluation_result)"
     applicable = "(isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')"
     passed = failed = "false"
     if config.passing_rule is not None:

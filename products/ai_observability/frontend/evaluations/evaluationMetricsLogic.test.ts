@@ -7,7 +7,11 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { EVALUATION_NOT_SKIPPED_HOGQL, EVALUATION_RESULT_TRUE_HOGQL } from './constants'
+import {
+    EVALUATION_BOOLEAN_GRADED_HOGQL,
+    EVALUATION_NOT_SKIPPED_HOGQL,
+    EVALUATION_RESULT_TRUE_HOGQL,
+} from './constants'
 import { evaluationMetricsLogic, EvaluationStatsRow } from './evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { LLMJudgeEvaluation } from './types'
@@ -161,9 +165,7 @@ describe('evaluationMetricsLogic', () => {
             expect.objectContaining({ value: ['boolean', 'numeric'] }),
         ])
         const math = metricsLogic.values.chartQuery?.series[0].math_hogql ?? ''
-        expect(math).toContain(
-            `toFloat(properties.$ai_evaluation_numeric_result) ${operator === 'gte' ? '>=' : '<='} 0`
-        )
+        expect(math).toContain(`toFloat(properties.$ai_evaluation_result) ${operator === 'gte' ? '>=' : '<='} 0`)
         expect(math).toContain("properties.$ai_evaluation_id = 'numeric'")
         expect(math).toContain('properties.$ai_evaluation_applicable')
         expect(math).toContain(EVALUATION_NOT_SKIPPED_HOGQL)
@@ -272,6 +274,6 @@ describe('evaluationMetricsLogic', () => {
 
         const query = queryMock.mock.calls.at(-1)?.[0]
         expect(query.query).toContain(`IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`)
-        expect(query.query).toContain(`${EVALUATION_RESULT_TRUE_HOGQL} AND ${EVALUATION_NOT_SKIPPED_HOGQL}`)
+        expect(query.query).toContain(`${EVALUATION_RESULT_TRUE_HOGQL} AND ${EVALUATION_BOOLEAN_GRADED_HOGQL}`)
     })
 })

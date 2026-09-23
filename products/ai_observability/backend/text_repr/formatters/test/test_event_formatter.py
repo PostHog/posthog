@@ -208,7 +208,7 @@ class TestEvaluationFormatting:
         event = {
             "properties": {
                 "$ai_evaluation_result_type": "numeric",
-                "$ai_evaluation_numeric_result": score,
+                "$ai_evaluation_result": score,
                 "$ai_evaluation_applicable": applicable,
             }
         }

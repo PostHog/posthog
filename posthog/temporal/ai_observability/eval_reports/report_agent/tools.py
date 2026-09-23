@@ -926,7 +926,7 @@ def get_generation_detail(
             properties.$ai_sentiment_score as sentiment_score,
             properties.$ai_evaluation_reasoning as reasoning,
             properties.$ai_evaluation_applicable as applicable,
-            toFloat(properties.$ai_evaluation_numeric_result) as numeric_score
+            toFloat(properties.$ai_evaluation_result) as numeric_score
         FROM events
         WHERE event = '$ai_evaluation'
             AND properties.$ai_target_event_id = {generation_id}

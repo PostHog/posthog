@@ -87,7 +87,7 @@ posthog:llma-evaluation-list { "enabled": true }
 SELECT toDate(timestamp) AS day, count() AS fails
 FROM events
 WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<uuid>'
-    AND properties.$ai_evaluation_result = false AND timestamp >= now() - INTERVAL 30 DAY
+    AND properties.$ai_evaluation_result = 'false' AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY day ORDER BY day
 ```
 

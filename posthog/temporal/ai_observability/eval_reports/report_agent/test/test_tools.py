@@ -244,7 +244,7 @@ class TestSummaryMetrics(SimpleTestCase):
         current_query = mock_execute_hogql.call_args_list[0].args[1]
         self.assertIn("properties.$ai_sentiment_label = 'positive'", current_query)
         self.assertIn("properties.$ai_evaluation_result_type = 'sentiment'", current_query)
-        self.assertNotIn("properties.$ai_evaluation_result = true", current_query)
+        self.assertNotIn("properties.$ai_evaluation_result = 'true'", current_query)
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_detector_polarity_counts_a_false_result_as_the_pass(self, mock_execute_hogql):
@@ -269,7 +269,7 @@ class TestSummaryMetrics(SimpleTestCase):
         self.assertEqual(result["current_period"]["pass_rate"], 18.37)
         pass_column = re.search(r"countIf\((.*?)\) as pass_count", mock_execute_hogql.call_args_list[0].args[1], re.S)
         assert pass_column is not None
-        self.assertIn("properties.$ai_evaluation_result = false", pass_column.group(1))
+        self.assertIn("properties.$ai_evaluation_result = 'false'", pass_column.group(1))
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_state_without_polarity_counts_a_true_result_as_the_pass(self, mock_execute_hogql):
@@ -292,7 +292,7 @@ class TestSummaryMetrics(SimpleTestCase):
         self.assertEqual(result["current_period"]["result_counts"], {"pass": 80, "fail": 18, "na": 2})
         pass_column = re.search(r"countIf\((.*?)\) as pass_count", mock_execute_hogql.call_args_list[0].args[1], re.S)
         assert pass_column is not None
-        self.assertIn("properties.$ai_evaluation_result = true", pass_column.group(1))
+        self.assertIn("properties.$ai_evaluation_result = 'true'", pass_column.group(1))
 
 
 class TestTargetAwareEvalResults(SimpleTestCase):

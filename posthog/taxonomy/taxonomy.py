@@ -2504,14 +2504,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_evaluation_result": {
             "label": "AI Evaluation Result (LLM)",
-            "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
-            "examples": [True, False],
-        },
-        "$ai_evaluation_numeric_result": {
-            "label": "AI evaluation numeric result",
-            "description": "The raw numeric score returned by an online evaluation.",
-            "examples": [0, 0.75, 10],
-            "type": "Numeric",
+            "description": "The raw evaluation result: a boolean or numeric score, identified by $ai_evaluation_result_type. The evaluation's output config determines whether it passes.",
+            "examples": [True, False, 0, 0.75, 10],
         },
         "$ai_evaluation_reasoning": {
             "label": "AI Evaluation Reasoning (LLM)",

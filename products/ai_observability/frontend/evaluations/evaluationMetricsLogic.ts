@@ -12,7 +12,6 @@ import { ChartDisplayType, HogQLMathType, PropertyFilterType, PropertyOperator }
 import { PASS_RATE_SUCCESS_THRESHOLD } from './components/EvaluationMetrics'
 import {
     EVALUATION_BOOLEAN_GRADED_HOGQL,
-    EVALUATION_NOT_SKIPPED_HOGQL,
     EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_NUMERIC_MEAN_HOGQL,
     numericEvaluationPassedHogQL,
@@ -242,8 +241,8 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                             SELECT
                                 properties.$ai_evaluation_id as evaluation_id,
                                 count() as runs_count,
-                                countIf(properties.$ai_evaluation_result IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}) as applicable_count,
-                                countIf(${EVALUATION_RESULT_TRUE_HOGQL} AND ${EVALUATION_NOT_SKIPPED_HOGQL}) as true_count,
+                                countIf(${EVALUATION_BOOLEAN_GRADED_HOGQL}) as applicable_count,
+                                countIf(${EVALUATION_RESULT_TRUE_HOGQL} AND ${EVALUATION_BOOLEAN_GRADED_HOGQL}) as true_count,
                                 countIf(${EVALUATION_NUMERIC_GRADED_HOGQL}) as score_count,
                                 ${EVALUATION_NUMERIC_MEAN_HOGQL} as score_mean,
                                 countIf((${numericPass}) AND ${EVALUATION_NUMERIC_GRADED_HOGQL}) as numeric_pass_count

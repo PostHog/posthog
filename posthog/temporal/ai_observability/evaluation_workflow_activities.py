@@ -295,7 +295,7 @@ def build_evaluation_event_properties(
             properties["$ai_evaluation_applicable"] = result.get("applicable", not result.get("skipped", False))
         if not result.get("skipped") and result.get("applicable", True):
             if "score" in result:
-                properties["$ai_evaluation_numeric_result"] = result["score"]
+                properties["$ai_evaluation_result"] = result["score"]
             if "score_min" in result:
                 properties["$ai_score_min"] = result["score_min"]
             if "score_max" in result:

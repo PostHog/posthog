@@ -442,6 +442,11 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
         return Some(PropertyValueType::String);
     }
 
+    if key == "$ai_evaluation_result" {
+        // A shared result can contain booleans, scores or labels; a shape-specific cast loses the others.
+        return Some(PropertyValueType::String);
+    }
+
     if key == "$feature_flag_response" {
         // $feature_flag_response properties should always be detected as strings.
         // These are feature flag values, and can be boolean or string.

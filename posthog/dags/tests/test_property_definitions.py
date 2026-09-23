@@ -35,6 +35,12 @@ def test_detect_property_type_expression(cluster: ClickhouseCluster) -> None:
                 # special cases: key patterns
                 PropertyTypeTestData('{"utm_source": 123}', [("utm_source", "String")]),
                 PropertyTypeTestData('{"$feature/a": false}', [("$feature/a", "String")]),
+                *[
+                    PropertyTypeTestData(
+                        json.dumps({"$ai_evaluation_result": value}), [("$ai_evaluation_result", "String")]
+                    )
+                    for value in [True, False, 0, 7.5, "helpful", None]
+                ],
                 PropertyTypeTestData(
                     '{"$survey_response": 1, "$survey_response_2": 2}',
                     [("$survey_response", "String"), ("$survey_response_2", "String")],

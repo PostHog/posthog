@@ -43,3 +43,26 @@ Users do not need to include items that already have a result to retry them.
 
 A provider rejection of an invalid token setting does not count as a truncated reply.
 The playground keeps the provider's explanation so users can correct the setting before trying again.
+
+## Result encoding
+
+Boolean and numeric online evaluations write their raw value to `$ai_evaluation_result`.
+`$ai_evaluation_result_type` distinguishes the shapes; events without it are legacy boolean results.
+Sentiment evaluations keep their `$ai_sentiment_*` properties.
+N/A and skipped numeric runs omit the result, while a score of zero remains a graded result.
+
+The shared property uses String property-definition metadata so HogQL does not discard values whose shape differs from the first ingested event.
+Boolean queries compare against `'true'` and `'false'`; numeric queries filter on result type and cast with `toFloat(properties.$ai_evaluation_result)`.
+Numeric aggregation through custom HogQL remains available, but the property is not offered as a numeric measure in the Insights property picker.
+This does not rewrite historical ClickHouse events or change the JSON values in exports.
+
+Before enabling `llm-analytics-numeric-evaluations`:
+
+1. Deploy the compatible query readers, Rust property inference, and Dagster reconciliation rule.
+2. Check saved custom HogQL that compares this property with boolean literals (`= true` or `= false`); use the string literals above.
+3. Run `python manage.py migrate_evaluation_result_property` in each region to preview the metadata backfill, then add `--apply` to execute it.
+4. Rerun the preview to verify no definitions remain, and verify boolean reports and numeric queries before enabling the flag.
+
+The command updates only event-property definitions, commits in batches, and can resume after interruption.
+It runs after deployment because a pre-deploy Django data migration could expose String metadata to incompatible readers.
+Do not revert the metadata to Boolean after numeric results have been emitted.

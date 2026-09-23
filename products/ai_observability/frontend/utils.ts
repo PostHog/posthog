@@ -9,7 +9,7 @@ import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
-    EVALUATION_NOT_SKIPPED_HOGQL,
+    EVALUATION_BOOLEAN_GRADED_HOGQL,
     EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_NUMERIC_MEAN_HOGQL,
     numericEvaluationPassedHogQL,
@@ -1121,7 +1121,7 @@ type RawEvaluationRunRow = [
     evaluation_name: string | null,
     generation_id: string,
     trace_id: string,
-    result: boolean | string | null,
+    result: boolean | number | string | null,
     reasoning: string | null,
     applicable: boolean | string | null,
     evaluation_type: string | null,
@@ -1130,7 +1130,6 @@ type RawEvaluationRunRow = [
     sentiment_score: number | string | null,
     session_id: string | null,
     skipped: boolean | string | null,
-    score?: number | string | null,
     score_min?: number | string | null,
     score_max?: number | string | null,
 ]
@@ -1179,7 +1178,6 @@ export interface NormalizedEvaluationResultProperties {
     rawResultType?: unknown
     rawSentimentLabel?: unknown
     rawSentimentScore?: unknown
-    rawScore?: unknown
     rawScoreMin?: unknown
     rawScoreMax?: unknown
 }
@@ -1191,7 +1189,6 @@ export function normalizeEvaluationResultProperties({
     rawResultType,
     rawSentimentLabel,
     rawSentimentScore,
-    rawScore,
     rawScoreMin,
     rawScoreMax,
 }: NormalizedEvaluationResultProperties): Pick<
@@ -1232,9 +1229,9 @@ export function normalizeEvaluationResultProperties({
             ? {
                   score:
                       isExplicitEvaluationNotApplicable(rawApplicable) ||
-                      (typeof rawScore !== 'number' && (typeof rawScore !== 'string' || !rawScore.trim()))
+                      (typeof rawResult !== 'number' && (typeof rawResult !== 'string' || !rawResult.trim()))
                           ? null
-                          : normalizeOptionalNumber(rawScore),
+                          : normalizeOptionalNumber(rawResult),
                   score_min: normalizeOptionalNumber(rawScoreMin),
                   score_max: normalizeOptionalNumber(rawScoreMax),
               }
@@ -1251,9 +1248,8 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         rawResultType: row[10],
         rawSentimentLabel: row[11],
         rawSentimentScore: row[12],
-        rawScore: row[15],
-        rawScoreMin: row[16],
-        rawScoreMax: row[17],
+        rawScoreMin: row[15],
+        rawScoreMax: row[16],
     })
 
     return {
@@ -1311,7 +1307,6 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_sentiment_score as sentiment_score,
             properties.$ai_session_id as session_id,
             properties.$ai_evaluation_skipped as skipped,
-            properties.$ai_evaluation_numeric_result as score,
             properties.$ai_score_min as score_min,
             properties.$ai_score_max as score_max
         FROM events
@@ -1366,8 +1361,8 @@ export async function queryEvaluationRunsStats(params: {
     const query = hogql`
         SELECT
             count() as total,
-            countIf(properties.$ai_evaluation_result IS NOT NULL AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as applicable,
-            countIf(${hogql.raw(EVALUATION_RESULT_TRUE_HOGQL)} AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as true_count,
+            countIf(${hogql.raw(EVALUATION_BOOLEAN_GRADED_HOGQL)}) as applicable,
+            countIf(${hogql.raw(EVALUATION_RESULT_TRUE_HOGQL)} AND ${hogql.raw(EVALUATION_BOOLEAN_GRADED_HOGQL)}) as true_count,
             countIf(${hogql.raw(EVALUATION_NUMERIC_GRADED_HOGQL)}) as score_count,
             ${hogql.raw(EVALUATION_NUMERIC_MEAN_HOGQL)} as score_mean,
             countIf(${hogql.raw(evaluation?.output_type === 'numeric' ? numericEvaluationPassedHogQL(evaluation) : 'false')} AND ${hogql.raw(EVALUATION_NUMERIC_GRADED_HOGQL)}) as numeric_pass_count

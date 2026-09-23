@@ -353,16 +353,6 @@
             ],
             "label": "AI Evaluation Name (LLM)"
         },
-        "$ai_evaluation_numeric_result": {
-            "description": "The raw numeric score returned by an online evaluation.",
-            "examples": [
-                0,
-                0.75,
-                10
-            ],
-            "label": "AI evaluation numeric result",
-            "type": "Numeric"
-        },
         "$ai_evaluation_provider": {
             "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
             "examples": [
@@ -381,10 +371,13 @@
             "label": "AI Evaluation Reasoning (LLM)"
         },
         "$ai_evaluation_result": {
-            "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
+            "description": "The raw evaluation result: a boolean or numeric score, identified by $ai_evaluation_result_type. The evaluation's output config determines whether it passes.",
             "examples": [
                 true,
-                false
+                false,
+                0,
+                0.75,
+                10
             ],
             "label": "AI Evaluation Result (LLM)"
         },
@@ -5160,16 +5153,6 @@
             ],
             "label": "AI Evaluation Name (LLM)"
         },
-        "$ai_evaluation_numeric_result": {
-            "description": "The raw numeric score returned by an online evaluation.",
-            "examples": [
-                0,
-                0.75,
-                10
-            ],
-            "label": "AI evaluation numeric result",
-            "type": "Numeric"
-        },
         "$ai_evaluation_provider": {
             "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
             "examples": [
@@ -5188,10 +5171,13 @@
             "label": "AI Evaluation Reasoning (LLM)"
         },
         "$ai_evaluation_result": {
-            "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
+            "description": "The raw evaluation result: a boolean or numeric score, identified by $ai_evaluation_result_type. The evaluation's output config determines whether it passes.",
             "examples": [
                 true,
-                false
+                false,
+                0,
+                0.75,
+                10
             ],
             "label": "AI Evaluation Result (LLM)"
         },

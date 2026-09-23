@@ -41,16 +41,16 @@ export function numericOutputConfigError(config: EvaluationOutputConfig): string
     return null
 }
 
-export const EVALUATION_NUMERIC_GRADED_HOGQL = `properties.$ai_evaluation_result_type = 'numeric' AND properties.$ai_evaluation_numeric_result IS NOT NULL AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false') AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
-export const EVALUATION_BOOLEAN_GRADED_HOGQL = `properties.$ai_evaluation_result IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
-export const EVALUATION_NUMERIC_MEAN_HOGQL = `avgIf(toFloat(properties.$ai_evaluation_numeric_result), ${EVALUATION_NUMERIC_GRADED_HOGQL})`
+export const EVALUATION_NUMERIC_GRADED_HOGQL = `properties.$ai_evaluation_result_type = 'numeric' AND properties.$ai_evaluation_result IS NOT NULL AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false') AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
+export const EVALUATION_BOOLEAN_GRADED_HOGQL = `(isNull(properties.$ai_evaluation_result_type) OR properties.$ai_evaluation_result_type = 'boolean') AND properties.$ai_evaluation_result IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
+export const EVALUATION_NUMERIC_MEAN_HOGQL = `avgIf(toFloat(properties.$ai_evaluation_result), ${EVALUATION_NUMERIC_GRADED_HOGQL})`
 
 export function numericEvaluationPassedHogQL(evaluation: Pick<EvaluationConfig, 'output_config'>): string {
     const rule = evaluation.output_config.passing_rule
     if (!rule || !Number.isFinite(rule.threshold)) {
         return 'false'
     }
-    return `toFloat(properties.$ai_evaluation_numeric_result) ${rule.operator === 'gte' ? '>=' : '<='} ${rule.threshold}`
+    return `toFloat(properties.$ai_evaluation_result) ${rule.operator === 'gte' ? '>=' : '<='} ${rule.threshold}`
 }
 
 /** A detector looks for a problem, so its true result is the undesirable one. */
