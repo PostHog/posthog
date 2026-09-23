@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     _select_incremental_field,
     build_default_schemas,
     build_endpoint_schemas,
+    has_usable_primary_key,
 )
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -90,6 +91,50 @@ class TestBuildDefaultSchemas:
                 "incremental_field_type": "datetime",
             }
         ]
+
+    def test_introspected_keyless_table_falls_back_to_append(self) -> None:
+        schemas = build_default_schemas(
+            [
+                SourceSchema(
+                    name="events_introspected_keyless",
+                    supports_incremental=True,
+                    supports_append=True,
+                    incremental_fields=[_field("created_at")],
+                    columns=[("email", "String", False)],
+                )
+            ]
+        )
+        assert schemas[0]["sync_type"] == "append"
+
+    def test_introspected_id_column_keeps_incremental_default(self) -> None:
+        schemas = build_default_schemas(
+            [
+                SourceSchema(
+                    name="events_with_id",
+                    supports_incremental=True,
+                    supports_append=True,
+                    incremental_fields=[_field("created_at")],
+                    columns=[("id", "Int64", False)],
+                )
+            ]
+        )
+        assert schemas[0]["sync_type"] == "incremental"
+
+    def test_non_introspected_source_keeps_incremental_default(self) -> None:
+        schemas = build_endpoint_schemas(
+            ["events"], {"events": [_field("created_at")]}
+        )
+        assert build_default_schemas(schemas)[0]["sync_type"] == "incremental"
+
+    def test_primary_key_predicate_honors_explicit_keys(self) -> None:
+        schema = SourceSchema(
+            name="events",
+            supports_incremental=True,
+            supports_append=True,
+            columns=[("email", "String", False)],
+        )
+        assert has_usable_primary_key(schema, ["email"])
+
 
     def test_keyless_table_falls_back_to_full_refresh_when_append_unsupported(self) -> None:
         schemas = build_default_schemas(
