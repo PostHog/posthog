@@ -23,6 +23,7 @@ jobs:
     report-migrations:
         if: >-
             github.event.pull_request.head.repo.full_name == github.repository
+            && !startsWith(github.event.pull_request.head.ref, 'trunk-merge/')
             && (github.event.pull_request.draft != true || !contains(github.event.pull_request.labels.*.name, 'no-ci'))
         name: Report Depot migration results
         runs-on: depot-ubuntu-24.04
@@ -244,7 +245,9 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
               with:
                   repository: ${{ github.repository }}
-                  ref: ${{ github.event.pull_request.base.sha }}
+                  # The base branch head this workflow file came from. pull_request.base.sha
+                  # only moves when the PR is opened or force-pushed, so it can predate the scripts.
+                  ref: ${{ github.sha }}
                   path: trusted-reporter
                   sparse-checkout: |
                       .nvmrc
@@ -310,7 +313,6 @@ jobs:
               working-directory: trusted-reporter
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-                  IS_TRUNK: ${{ startsWith(github.event.pull_request.head.ref, 'trunk-merge/') }}
               run: |
                   set -euo pipefail
                   data=/tmp/depot-migration-rendered
@@ -345,7 +347,7 @@ jobs:
                       post_django risk post ok "migration analysis complete" "$data/django-migration-risk.md"
                   fi
 
-                  if [ "$IS_TRUNK" != true ] && [ "$(jq -r '.chAvailable' "$metadata")" = true ]; then
+                  if [ "$(jq -r '.chAvailable' "$metadata")" = true ]; then
                       count=$(jq -r '.chMigrationCount' "$metadata")
                       if [ "$count" -gt 0 ]; then
                           cp "$data/ch-migration-sql.md" ch_migration_sql_comment.md
