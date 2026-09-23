@@ -33,8 +33,8 @@
         "prepack": "pnpm run build",
         "typecheck": "tsc -p tsconfig.json",
         "test": "tsc -p tsconfig.build.json && tsc -p tsconfig.test.json && node --test \".test-build/tests/**/*.test.js\"",
-        "repo:check": "pnpm run build && for file in ../../workflows/*.ts; do node dist/cli/main.js check \"$file\" || exit 1; done",
-        "repo:push": "pnpm run build && for file in ../../workflows/*.ts; do node dist/cli/main.js push \"$file\" || exit 1; done"
+        "repo:check": "pnpm run build && for file in ../../workflows/*.ts; do [ -e \"$file\" ] || continue; node dist/cli/main.js check \"$file\" || exit 1; done",
+        "repo:push": "pnpm run build && for file in ../../workflows/*.ts; do [ -e \"$file\" ] || continue; node dist/cli/main.js push \"$file\" || exit 1; done"
     },
     "dependencies": {
         "jiti": "^2.7.0"
