@@ -3,6 +3,10 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import posthog from 'posthog-js'
 
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
+
+import { initKeaTests } from '~/test/init'
+
 import { FeaturePreviewFeedbackBanner } from './FeaturePreviewFeedbackBanner'
 
 jest.mock('posthog-js')
@@ -11,14 +15,14 @@ const SURVEY_ID = 'survey-1'
 const RATING_QUESTION_ID = 'rating-q'
 const FEEDBACK_QUESTION_ID = 'feedback-q'
 
-const renderBanner = (): void => {
+const renderBanner = (dismissKey = 'test-banner'): void => {
     render(
         <FeaturePreviewFeedbackBanner
             surveyId={SURVEY_ID}
             ratingQuestionId={RATING_QUESTION_ID}
             feedbackQuestionId={FEEDBACK_QUESTION_ID}
             surface="broadcasts"
-            dismissKey="test-banner"
+            dismissKey={dismissKey}
             prompt="Is this doing what you need?"
             modalTitle="Help shape it"
             feedbackPlaceholder="What would you change?"
@@ -31,6 +35,7 @@ const captures = (): [string, Record<string, any>][] => (posthog.capture as jest
 
 describe('FeaturePreviewFeedbackBanner', () => {
     beforeEach(() => {
+        initKeaTests()
         jest.clearAllMocks()
     })
 
@@ -68,6 +73,18 @@ describe('FeaturePreviewFeedbackBanner', () => {
         expect(completed.$survey_submission_id).toBe(ratingProps.$survey_submission_id)
         expect(completed[`$survey_response_${FEEDBACK_QUESTION_ID}`]).toBe('The recipient list matters most')
         expect(completed.$survey_completed).toBe(true)
+    })
+
+    it('does not record an impression for a banner the person already dismissed', () => {
+        // LemonBanner renders nothing once dismissed, so capturing on mount would count an
+        // impression nobody saw and make the response rate read far lower than it is.
+        const logic = lemonBannerLogic({ dismissKey: 'test-banner-dismissed' })
+        logic.mount()
+        logic.actions.dismiss()
+
+        renderBanner('test-banner-dismissed')
+
+        expect(captures().filter(([name]) => name === 'survey shown')).toHaveLength(0)
     })
 
     it('ignores a second rating', () => {

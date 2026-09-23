@@ -1,9 +1,11 @@
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { uuid } from 'lib/utils/dom'
 import { getSurveyIdBasedResponseKey, getSurveyResponseKey } from 'scenes/surveys/utils'
 
@@ -52,13 +54,19 @@ export function FeaturePreviewFeedbackBanner({
     const [submissionId, setSubmissionId] = useState<string | null>(null)
     const [feedbackText, setFeedbackText] = useState('')
     const [feedbackOpen, setFeedbackOpen] = useState(false)
+    // LemonBanner renders nothing once the dismissal is persisted, so without this the impression
+    // is recorded on every visit for a banner nobody sees, and the response rate reads far too low.
+    const { isDismissed } = useValues(lemonBannerLogic({ dismissKey }))
 
     useEffect(() => {
+        if (isDismissed) {
+            return
+        }
         posthog.capture(SurveyEventName.SHOWN, {
             [SurveyEventProperties.SURVEY_ID]: surveyId,
             feedback_surface: surface,
         })
-    }, [surveyId, surface])
+    }, [surveyId, surface, isDismissed])
 
     const ratePreview = (nextRating: Rating): void => {
         if (rating) {
