@@ -267,13 +267,20 @@ _UNATTENDED_RULES = """Rules for this unattended run:
 - If a step fails, record the failure and continue with the next step. Never report a failed step as done."""
 
 _PUBLISH_RULES = """Publish the context page yourself; do not stop to ask for approval:
-1. Call `task-context-wiki-channel-resolve` with channel_id "{channel_id}" and use the returned path exactly.
-2. If the page exists, read it with `task-context-wiki-page-retrieve` (follow next_offset with the same head_sha and limit until complete), keep its frontmatter and anything still true, and pass its `head_sha` as `base_head` to `task-context-wiki-page-update`. If it does not exist, create it at that path with frontmatter `summary`, `status: active`, `team_id: {team_id}`, `channel_id: {channel_id}`, and `sources: space-setup`, and pass no `base_head`.
-3. If the wiki tools are unavailable, call `channel-instructions-update` once with id "{channel_id}", the complete Markdown, and `base_version` set to the current version (0 when none exists).
+1. Call `task-context-wiki-channel-resolve` with channel_id "{channel_id}" and use the returned path exactly. Never derive a path from the space name.
+2. If the page exists, read it with `task-context-wiki-page-retrieve` (follow next_offset with the same head_sha and limit until complete), keep its frontmatter and anything still true, and pass its `head_sha` as `base_head` to `task-context-wiki-page-update`. If it does not exist, create it at that path and pass no `base_head`.
+3. The server binds the write to this space through the frontmatter. The first lines of the page must be exactly these, unquoted, before any other key:
+---
+summary: <one sentence>
+status: active
+team_id: {team_id}
+channel_id: {channel_id}
+sources: space-setup
+A write is refused (HTTP 403) when `channel_id` is missing, quoted, or different, or when the path is not the resolved one. On a 403, fix the frontmatter and the path and retry once.
+4. The wiki tools and the `channel-instructions-*` tools never coexist: the wiki hides the older tools. When only `channel-instructions-*` exist, call `channel-instructions-update` once with id "{channel_id}", the complete Markdown, and `base_version` set to the current version (0 when none exists).
 Do not call any `loop-*` tool; those are for loop runs."""
 
-_CONTEXT_PAGE_SHAPE = """Structure the context page like this. Omit target when no target is known. Start with YAML frontmatter:
----
+_CONTEXT_PAGE_SHAPE = """Structure the context page like this. Omit target when no target is known. The frontmatter starts with the required keys from the publish rules, then:
 goals:
   - id: primary
     name: <short goal name>
@@ -357,10 +364,10 @@ Repository for code changes: {repository}
 
 {_UNATTENDED_RULES}
 
-Do these steps in order.
+Do these steps in order. Steps 3, 4, and 5 are independent: a failure in one never skips the others.
 
 ### Step 1: resolve the measure
-Check the metric catalog with `metric-list` for an approved metric that matches the goal. Otherwise use the existing insight when one is given, otherwise write HogQL after confirming the events with `read-data-schema`. The measure must return one number per {goal_request.period}. Compute the current value and a baseline over the last four complete periods. Record the definition, the population, and the exclusions. A rate with no eligible users is unknown, not zero. Without an observed baseline, do not invent a target. Record what data is missing and leave the loops as drafts until the measure can be verified.
+Check the metric catalog with `metric-list` for an approved metric that matches the goal. Otherwise use the existing insight when one is given, otherwise write HogQL after confirming the events with `read-data-schema`. The measure must return one number per {goal_request.period}. Compute the current value and a baseline over the last four complete periods. Record the definition, the population, and the exclusions. A rate with no eligible users is unknown, not zero. Without an observed baseline, do not invent a target. When the measure cannot be verified yet, record what data is missing on the context page and on the canvas key `todo:metric`; the loops still start, and the goal manager keeps trying to verify the measure on each run.
 
 ### Step 2: find related work
 Search `system.experiments`, `system.feature_flags`, `system.insights`, and `system.dashboards` for objects that touch the goal's events or name. Confirm the columns first. Collect each one as a `watching` entry with its full url.
@@ -368,8 +375,13 @@ Search `system.experiments`, `system.feature_flags`, `system.insights`, and `sys
 ### Step 3: create the tracking canvas
 Create one freeform canvas in this channel with `canvas-create`, named "{channel_name} tracker". Publish its first version with `canvas-publish-create` following the `building-canvases` skill. It shows: the goal value against target and baseline, the checklist from `todo:*`, experiments from `experiment:*`, pull requests from `pr:*`, the daily `summary`, loop cards from `loop:*`, and a pause switch that writes the shared state key `control.paused`. Read shared state with `ph.state` in the canvas and declare the `shared` scope. Show an empty state for keys that do not exist yet. Set `control.paused` to false with `canvas-state-set`. Note the canvas id; it replaces `{canvas_placeholder}` in every loop prompt below.
 
-### Step 4: create the loops
-Create five workflows, one per brief below, with the exact graph in "Loop graph". Fill in the space id, the space name, the repository, the canvas id, and the brief text. Before you create one, call `workflows-list` and reuse a workflow with the same name. For each workflow, call `workflows-create` as a draft. If the measure or baseline is not verified, leave it as a draft without running its actions or creating a schedule. Otherwise call `workflows-test-run` on the trigger step with globals {{"event": {{"event": "$scheduled", "properties": {{}}}}}} and then on the `create_task` step, `workflows-schedule-create` with the brief's rrule, `starts_at` at the next 08:00 in the project timezone (hourly loops start at the next full hour), and the project timezone, then `workflows-enable`. A loop whose test run fails stays a draft; report it and continue with the others.
+### Step 4: create and enable the loops
+Create five workflows, one per brief below, with the exact graph in "Loop graph". Fill in the space id, the space name, the repository, the canvas id, and the brief text. Before you create one, call `workflows-list` and reuse a workflow with the same name. For each workflow, in this order:
+1. `workflows-create` as a draft.
+2. `workflows-schedule-create` with the brief's rrule, `starts_at` at the next 08:00 in the project timezone (hourly loops start at the next full hour), and the project timezone.
+3. `workflows-enable`. Every loop that was created must end enabled, whether or not the measure is verified yet; the space is set up with its loops running.
+4. `workflows-test-run` on the trigger step with globals {{"event": {{"event": "$scheduled", "properties": {{}}}}}} and then on the `create_task` step. The test run is a check, not a gate: record its result on the canvas key `loop:<name>` and in the report, and keep the loop enabled.
+Only a loop whose `workflows-create` was rejected stays missing; report the validation error and continue with the others. After the five, call `workflows-list` and call `workflows-enable` again for any of them that is not enabled.
 
 ### Step 5: publish the context page
 {publish_rules}

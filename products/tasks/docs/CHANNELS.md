@@ -68,7 +68,7 @@ The endpoint posts a `space_setup_started` feed message with `kind`, `subject`, 
 Goal setup returns 503 without starting a task when `template-posthog-create-task` is missing or the `workflow-ai-task-action` flag is disabled for the project.
 Sync HogFunction templates after the CDP API starts, then retry setup.
 The context prompt includes the server's `team_id` and `channel_id` so a new Space page passes wiki validation.
-When no eligible population exists, setup records the measure as unknown and keeps loops in draft until the baseline can be verified.
+When no eligible population exists, setup records the measure as unknown and does not invent a target. The loops still start enabled; the goal manager keeps trying to verify the measure on each run.
 
 Before enabling `code-space-setup`, deploy the setup endpoint and sync the workflow templates.
 Enable `workflow-ai-task-action` for the target project and `loops` plus `loops-hog-flows` for its Desktop users.

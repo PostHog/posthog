@@ -42,6 +42,10 @@ class TestBuildSpaceSetupPrompt(SimpleTestCase):
         assert SUMMARY_LOOP_MODEL in prompt
         assert "template-posthog-create-task" in prompt
         assert "decision rule" in prompt
+        # The wiki refuses a page whose frontmatter does not name the channel, unquoted.
+        assert f"channel_id: {CHANNEL_ID}\n" in prompt
+        assert prompt.index("`workflows-enable`") < prompt.index("`workflows-test-run`")
+        assert "leave the loops as drafts" not in prompt
         assert "team_id: 123" in prompt
 
     def test_feature_prompt_has_no_loops(self):
