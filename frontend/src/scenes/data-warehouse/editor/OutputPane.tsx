@@ -948,7 +948,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         <div className="OutputPane flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
             <QueryIndexUsageBar
                 predicates={metadata?.index_usage ?? []}
-                estimate={metadata?.events_scan_estimate}
+                estimate={metadata?.scan_estimate}
                 refreshing={metadataLoading}
             />
             {outputContent}

@@ -23,7 +23,7 @@ from posthog.hogql.constants import (
     get_default_hogql_global_settings,
     get_default_limit_for_context,
 )
-from posthog.hogql.cost.estimate import estimate_events_scan
+from posthog.hogql.cost.estimate import estimate_scan
 from posthog.hogql.cost.fingerprint import fingerprint_query
 from posthog.hogql.cost.statistics import ClickHouseStatisticsProvider, StatisticsProvider
 from posthog.hogql.database.database import Database
@@ -590,15 +590,19 @@ class HogQLQueryExecutor:
 
     def _estimated_rows(self) -> int | None:
         try:
-            with self.timings.measure("events_scan_estimate"):
+            with self.timings.measure("scan_estimate"):
                 context = self.hogql_context or self.context
                 if context.property_metadata is None and self.clickhouse_context is not None:
                     # Printing already loaded the property definitions onto the ClickHouse context. Sharing
                     # them keeps the estimator from repeating that Postgres read on every execution.
                     context = dataclasses.replace(context, property_metadata=self.clickhouse_context.property_metadata)
                 resolved = resolve_types(clone_expr(self.select_query), context, dialect="clickhouse")
-                estimate = estimate_events_scan(resolved, context, self.statistics_provider)
-                return estimate.rows if estimate is not None else None
+                estimate = estimate_scan(resolved, context, self.statistics_provider)
+                # ``read_rows`` covers every table the query touched, so a total that leaves a table out would
+                # be scored against a number it never tried to predict.
+                if estimate is None or any(table.precision != "measured" for table in estimate.tables):
+                    return None
+                return estimate.rows
         except Exception:
             # Advisory statistics must not prevent an otherwise valid query from running.
             return None

@@ -1,10 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import {
-    EventsScanEstimate,
     PredicateIndexUsage,
     PredicateIndexVerdict,
     PredicateScope,
+    ScanEstimate,
+    ScanEstimatePrecision,
+    ScanEstimateSource,
     ScanEstimateTimeRange,
 } from '~/queries/schema/schema-general'
 
@@ -98,19 +100,57 @@ export const RefreshingAfterAnEdit: Story = {
     ),
 }
 
-const SMALL_SCAN: EventsScanEstimate = {
+const SMALL_SCAN: ScanEstimate = {
     rows: 42_000_000,
-    days: 30,
-    events: ['$pageview'],
-    time_range: ScanEstimateTimeRange.Bounded,
     upper_bound: false,
+    tables: [
+        {
+            name: 'events',
+            source: ScanEstimateSource.Events,
+            precision: ScanEstimatePrecision.Measured,
+            rows: 42_000_000,
+            days: 30,
+            events: ['$pageview'],
+            time_range: ScanEstimateTimeRange.Bounded,
+        },
+    ],
 }
-const LARGE_OPEN_SCAN: EventsScanEstimate = {
+const LARGE_OPEN_SCAN: ScanEstimate = {
     rows: 2_100_000_000,
-    days: 365,
-    events: [],
-    time_range: ScanEstimateTimeRange.Open,
     upper_bound: true,
+    tables: [
+        {
+            name: 'events',
+            source: ScanEstimateSource.Events,
+            precision: ScanEstimatePrecision.Measured,
+            rows: 2_100_000_000,
+            days: 365,
+            events: [],
+            time_range: ScanEstimateTimeRange.Open,
+        },
+    ],
+}
+const MULTI_TABLE_SCAN: ScanEstimate = {
+    rows: 41_000_000,
+    upper_bound: true,
+    tables: [
+        {
+            name: 'events',
+            source: ScanEstimateSource.Events,
+            precision: ScanEstimatePrecision.Measured,
+            rows: 41_000_000,
+            days: 30,
+            events: ['$pageview'],
+            time_range: ScanEstimateTimeRange.Bounded,
+        },
+        {
+            name: 'stripe_charges',
+            source: ScanEstimateSource.Warehouse,
+            precision: ScanEstimatePrecision.SizeOnly,
+            bytes: 356_515_840,
+        },
+        { name: 'persons', source: ScanEstimateSource.Clickhouse, precision: ScanEstimatePrecision.Unknown },
+    ],
 }
 
 export const ScanEstimateWithFilters: Story = {
@@ -125,6 +165,14 @@ export const LargeScanWithoutFilters: Story = {
     render: () => (
         <div className="max-w-3xl">
             <QueryIndexUsageBar predicates={[]} estimate={LARGE_OPEN_SCAN} />
+        </div>
+    ),
+}
+
+export const MultipleTables: Story = {
+    render: () => (
+        <div className="max-w-3xl">
+            <QueryIndexUsageBar predicates={[]} estimate={MULTI_TABLE_SCAN} />
         </div>
     ),
 }

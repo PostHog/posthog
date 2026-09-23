@@ -1,10 +1,13 @@
-import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import { humanFriendlyLargeNumber, humanizeBytes } from 'lib/utils/numbers'
 
 import {
-    EventsScanEstimate,
     PredicateIndexUsage,
     PredicateIndexVerdict,
+    ScanEstimate,
+    ScanEstimatePrecision,
+    ScanEstimateSource,
     ScanEstimateTimeRange,
+    TableScanEstimate,
 } from '~/queries/schema/schema-general'
 
 // Above this many events a query on the default 60 second limit starts to time out on a busy cluster, so
@@ -31,22 +34,61 @@ export function summarizeFilters(predicates: PredicateIndexUsage[]): QueryScanSu
     return { text: `${scanning} of ${total} filters read every row`, warn: true }
 }
 
-export function summarizeScan(estimate: EventsScanEstimate): QueryScanSummary {
+/** Tables the estimate has a row count for. */
+export function estimatedTables(estimate: ScanEstimate): TableScanEstimate[] {
+    return estimate.tables.filter((table) => table.rows !== undefined && table.rows !== null)
+}
+
+function describeRange(table: TableScanEstimate): string | null {
+    if (table.days === undefined || table.days === null) {
+        return null
+    }
+    if (table.time_range === ScanEstimateTimeRange.Open) {
+        return 'no date range, assuming a year'
+    }
+    return table.days >= 2 ? `${Math.round(table.days)} days` : `${Math.round(table.days * 24)} hours`
+}
+
+export function summarizeScan(estimate: ScanEstimate): QueryScanSummary | null {
+    const estimated = estimatedTables(estimate)
+    if (estimated.length === 0) {
+        return null
+    }
     const rows = humanFriendlyLargeNumber(estimate.rows)
-    const range =
-        estimate.time_range === ScanEstimateTimeRange.Open
-            ? 'no date range, assuming a year'
-            : estimate.days >= 2
-              ? `${Math.round(estimate.days)} days`
-              : `${Math.round(estimate.days * 24)} hours`
     // "Up to" when an indexed filter may skip data by an amount the estimate does not model.
     const qualifier = estimate.upper_bound ? 'up to' : 'about'
-    return { text: `Reads ${qualifier} ${rows} events (${range})`, warn: estimate.rows >= LARGE_SCAN_ROWS }
+    const warn = estimate.rows >= LARGE_SCAN_ROWS
+
+    const [only] = estimate.tables
+    if (estimate.tables.length === 1 && only.source === ScanEstimateSource.Events) {
+        return { text: `Reads ${qualifier} ${rows} events (${describeRange(only)})`, warn }
+    }
+    const coverage =
+        estimated.length === estimate.tables.length
+            ? `${estimate.tables.length} tables`
+            : `${estimated.length} of ${estimate.tables.length} tables estimated`
+    return { text: `Reads ${qualifier} ${rows} rows · ${coverage}`, warn }
+}
+
+/** One line for the per-table panel. */
+export function describeTableScan(table: TableScanEstimate): string {
+    if (table.rows !== undefined && table.rows !== null) {
+        const range = describeRange(table)
+        const events = table.events && table.events.length > 0 ? table.events.join(', ') : null
+        const detail = [range, events].filter((part): part is string => part !== null).join(', ')
+        return detail
+            ? `${humanFriendlyLargeNumber(table.rows)} rows (${detail})`
+            : `${humanFriendlyLargeNumber(table.rows)} rows`
+    }
+    if (table.precision === ScanEstimatePrecision.SizeOnly && table.bytes !== undefined && table.bytes !== null) {
+        return `${humanizeBytes(table.bytes)} on disk, read not estimated`
+    }
+    return 'no statistics yet'
 }
 
 export function summarizeQueryScan(
     predicates: PredicateIndexUsage[],
-    estimate: EventsScanEstimate | null | undefined
+    estimate: ScanEstimate | null | undefined
 ): QueryScanSummary | null {
     const parts = [
         estimate ? summarizeScan(estimate) : null,

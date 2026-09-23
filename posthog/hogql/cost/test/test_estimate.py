@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import cast
+from typing import Literal, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -10,7 +10,7 @@ from posthog.schema import HogLanguage, HogQLMetadata
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.cost.estimate import DEFAULT_RANGE_DAYS, EventsScanEstimate, estimate_events_scan
+from posthog.hogql.cost.estimate import DEFAULT_RANGE_DAYS, ScanEstimate, TableScanEstimate, estimate_scan
 from posthog.hogql.cost.statistics import EventVolume, FixedStatisticsProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.metadata import get_hogql_metadata
@@ -24,6 +24,14 @@ NOW = datetime(2026, 9, 11, tzinfo=UTC)
 # 100k events per day, 60% pageviews, 40% signups.
 VOLUME = EventVolume(total=1_000_000, by_event={"$pageview": 600_000, "signup": 400_000}, days=10)
 WHOLE_TABLE_ROWS = 100_000 * DEFAULT_RANGE_DAYS
+
+
+def _events_table(
+    *, rows: int, days: float, events: tuple[str, ...], time_range: Literal["bounded", "open"], name: str = "events"
+) -> TableScanEstimate:
+    return TableScanEstimate(
+        name=name, source="events", precision="measured", rows=rows, days=days, events=events, time_range=time_range
+    )
 
 
 def _materialized(property_name: str, *, minmax: bool = False, bloom: bool = False) -> MaterializedColumn:
@@ -61,116 +69,117 @@ class TestEstimateEventsScan(BaseTest):
             property_ndv={(self.team.pk, "order_id"): 10_000_000, (self.team.pk, "plan"): 50},
         )
 
-    def _estimate(self, sql: str) -> EventsScanEstimate | None:
+    def _estimate(self, sql: str) -> ScanEstimate | None:
         node = cast(ast.SelectQuery, resolve_types(parse_select(sql), self.context, dialect="clickhouse"))
-        return estimate_events_scan(node, self.context, self.provider, now=NOW)
+        return estimate_scan(node, self.context, self.provider, now=NOW)
+
+    def _events(self, sql: str) -> TableScanEstimate:
+        estimate = self._estimate(sql)
+        assert estimate is not None
+        [table] = estimate.tables
+        assert table.rows == estimate.rows
+        return table
 
     @parameterized.expand(
         [
             (
                 "bounded_range_and_one_event",
                 "SELECT count() FROM events WHERE timestamp > '2026-08-12' AND timestamp < '2026-09-11' AND event = '$pageview'",
-                EventsScanEstimate(rows=1_800_000, days=30.0, events=("$pageview",), time_range="bounded"),
+                _events_table(rows=1_800_000, days=30.0, events=("$pageview",), time_range="bounded"),
             ),
             (
                 "relative_lower_bound_only",
                 "SELECT count() FROM events WHERE timestamp > now() - interval 7 day",
-                EventsScanEstimate(rows=700_000, days=7.0, events=(), time_range="open"),
+                _events_table(rows=700_000, days=7.0, events=(), time_range="open"),
             ),
             (
                 "aliased_table_and_in_list_with_an_unseen_event",
                 "SELECT count() FROM events AS e WHERE e.event IN ('signup', 'never_seen')",
-                EventsScanEstimate(
+                _events_table(
                     rows=14_600_000, days=float(DEFAULT_RANGE_DAYS), events=("never_seen", "signup"), time_range="open"
                 ),
             ),
             (
                 "flipped_comparison_and_datetime_literal",
                 "SELECT count() FROM events WHERE '2026-09-01 00:00:00' <= timestamp AND timestamp <= '2026-09-03 12:00:00'",
-                EventsScanEstimate(rows=250_000, days=2.5, events=(), time_range="bounded"),
+                _events_table(rows=250_000, days=2.5, events=(), time_range="bounded"),
             ),
             (
                 "subquery_source_keeps_the_inner_narrowing",
                 "SELECT count() FROM (SELECT event FROM events WHERE event = 'signup' AND timestamp > now() - interval 30 day AND timestamp < now())",
-                EventsScanEstimate(rows=1_200_000, days=30.0, events=("signup",), time_range="bounded"),
+                _events_table(rows=1_200_000, days=30.0, events=("signup",), time_range="bounded"),
             ),
             (
                 "cte_is_followed",
                 "WITH pageviews AS (SELECT event FROM events WHERE event = '$pageview') SELECT count() FROM pageviews",
-                EventsScanEstimate(
+                _events_table(
                     rows=21_900_000, days=float(DEFAULT_RANGE_DAYS), events=("$pageview",), time_range="open"
                 ),
             ),
             (
-                "union_all_sums_both_branches",
+                "indexed_equality_on_a_high_cardinality_property_reads_few_granules",
+                "SELECT count() FROM events WHERE properties.order_id = 'a1'",
+                _events_table(rows=29_888, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
+            ),
+            (
+                "indexed_in_list_scales_with_the_number_of_values",
+                "SELECT count() FROM events WHERE properties.order_id IN ('a1', 'a2', 'a3')",
+                _events_table(rows=89_592, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
+            ),
+            (
+                "indexed_equality_on_a_low_cardinality_property_still_reads_every_granule",
+                "SELECT count() FROM events WHERE properties.plan = 'free'",
+                _events_table(rows=WHOLE_TABLE_ROWS, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
+            ),
+            (
+                "two_indexed_filters_use_the_more_selective_one",
+                "SELECT count() FROM events WHERE properties.plan = 'free' AND properties.order_id = 'a1'",
+                _events_table(rows=29_888, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
+            ),
+        ]
+    )
+    def test_estimates_events_scans(self, _name, sql, expected):
+        assert self._events(sql) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "union_all_lists_and_sums_both_branches",
                 "SELECT event FROM events WHERE event = 'signup' UNION ALL SELECT event FROM events WHERE event = '$pageview'",
-                EventsScanEstimate(
-                    rows=36_500_000, days=float(DEFAULT_RANGE_DAYS), events=("$pageview", "signup"), time_range="open"
-                ),
+                36_500_000,
+                [(14_600_000, ("signup",)), (21_900_000, ("$pageview",))],
             ),
             (
                 "self_join_narrows_each_side_by_its_own_alias",
                 "SELECT count() FROM events a JOIN events b ON a.distinct_id = b.distinct_id"
                 " WHERE a.timestamp > now() - interval 10 day AND a.timestamp < now() AND b.event = 'signup'",
-                EventsScanEstimate(rows=15_600_000, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
-            ),
-            (
-                "indexed_equality_on_a_high_cardinality_property_reads_few_granules",
-                "SELECT count() FROM events WHERE properties.order_id = 'a1'",
-                EventsScanEstimate(rows=29_888, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
-            ),
-            (
-                "indexed_in_list_scales_with_the_number_of_values",
-                "SELECT count() FROM events WHERE properties.order_id IN ('a1', 'a2', 'a3')",
-                EventsScanEstimate(rows=89_592, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
-            ),
-            (
-                "indexed_equality_on_a_low_cardinality_property_still_reads_every_granule",
-                "SELECT count() FROM events WHERE properties.plan = 'free'",
-                EventsScanEstimate(rows=WHOLE_TABLE_ROWS, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
-            ),
-            (
-                "two_indexed_filters_use_the_more_selective_one",
-                "SELECT count() FROM events WHERE properties.plan = 'free' AND properties.order_id = 'a1'",
-                EventsScanEstimate(rows=29_888, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
-            ),
-            (
-                "indexed_filter_without_a_distinct_count_is_an_upper_bound",
-                "SELECT count() FROM events WHERE properties.uncounted = 'x'",
-                EventsScanEstimate(
-                    rows=WHOLE_TABLE_ROWS,
-                    days=float(DEFAULT_RANGE_DAYS),
-                    events=(),
-                    time_range="open",
-                    upper_bound=True,
-                ),
-            ),
-            (
-                "indexed_range_filter_is_an_upper_bound",
-                "SELECT count() FROM events WHERE properties.duration > '100'",
-                EventsScanEstimate(
-                    rows=WHOLE_TABLE_ROWS,
-                    days=float(DEFAULT_RANGE_DAYS),
-                    events=(),
-                    time_range="open",
-                    upper_bound=True,
-                ),
-            ),
-            (
-                "indexed_filter_under_or_does_not_narrow_and_is_an_upper_bound",
-                "SELECT count() FROM events WHERE properties.order_id = 'a1' OR event = 'signup'",
-                EventsScanEstimate(
-                    rows=WHOLE_TABLE_ROWS,
-                    days=float(DEFAULT_RANGE_DAYS),
-                    events=(),
-                    time_range="open",
-                    upper_bound=True,
-                ),
+                15_600_000,
+                [(1_000_000, ()), (14_600_000, ("signup",))],
             ),
         ]
     )
-    def test_estimates_events_scans(self, _name, sql, expected):
-        assert self._estimate(sql) == expected
+    def test_several_events_scans_get_one_entry_each(self, _name, sql, expected_rows, expected_tables):
+        estimate = self._estimate(sql)
+
+        assert estimate is not None
+        assert estimate.rows == expected_rows
+        assert [(table.rows, table.events) for table in estimate.tables] == expected_tables
+
+    @parameterized.expand(
+        [
+            ("indexed_filter_without_a_distinct_count", "SELECT count() FROM events WHERE properties.uncounted = 'x'"),
+            ("indexed_range_filter", "SELECT count() FROM events WHERE properties.duration > '100'"),
+            (
+                "indexed_filter_under_or",
+                "SELECT count() FROM events WHERE properties.order_id = 'a1' OR event = 'signup'",
+            ),
+        ]
+    )
+    def test_reports_an_upper_bound_when_a_read_is_not_modelled(self, _name, sql):
+        estimate = self._estimate(sql)
+
+        assert estimate is not None
+        assert estimate.upper_bound is True
 
     @parameterized.expand(
         [
@@ -183,41 +192,73 @@ class TestEstimateEventsScan(BaseTest):
         ]
     )
     def test_predicates_it_cannot_narrow_on_widen_to_the_whole_table(self, _name, sql):
-        assert self._estimate(sql) == EventsScanEstimate(
+        assert self._events(sql) == _events_table(
             rows=WHOLE_TABLE_ROWS, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"
         )
 
     @parameterized.expand(
         [
-            ("join", "SELECT count() FROM events e JOIN persons p ON p.id = e.person_id"),
-            ("other_table", "SELECT count() FROM persons"),
+            (
+                "join",
+                "SELECT count() FROM events e JOIN persons p ON p.id = e.person_id",
+                [("events", "events", "measured"), ("persons", "clickhouse", "unknown")],
+            ),
             (
                 "join_inside_a_subquery",
                 "SELECT count() FROM (SELECT e.event FROM events e JOIN persons p ON p.id = e.person_id)",
+                [("events", "events", "measured"), ("persons", "clickhouse", "unknown")],
             ),
             (
                 "union_branch_on_another_table",
                 "SELECT distinct_id FROM events UNION ALL SELECT toString(id) FROM persons",
+                [("events", "events", "measured"), ("persons", "clickhouse", "unknown")],
             ),
+            (
+                "self_join_lists_each_scan",
+                "SELECT count() FROM events a JOIN events b ON a.distinct_id = b.distinct_id",
+                [("events", "events", "measured"), ("events", "events", "measured")],
+            ),
+            ("table_function", "SELECT number FROM numbers(10)", [("numbers", "static", "unknown")]),
         ]
     )
-    def test_shapes_that_read_other_tables_return_none(self, _name, sql):
-        with patch.object(self.provider, "event_volume", wraps=self.provider.event_volume) as read_statistics:
-            assert self._estimate(sql) is None
-        read_statistics.assert_not_called()
+    def test_lists_every_table_in_the_from_tree(self, _name, sql, expected):
+        estimate = self._estimate(sql)
 
-    def test_team_without_volume_returns_none(self):
+        assert estimate is not None
+        assert [(table.name, table.source, table.precision) for table in estimate.tables] == expected
+        assert estimate.rows == sum(table.rows for table in estimate.tables if table.rows is not None)
+
+    def test_a_query_over_other_tables_only_does_not_read_event_statistics(self):
+        with patch.object(self.provider, "event_volume", wraps=self.provider.event_volume) as read_statistics:
+            estimate = self._estimate("SELECT count() FROM persons")
+
+        read_statistics.assert_not_called()
+        assert estimate is not None
+        assert estimate.rows == 0
+        assert [table.precision for table in estimate.tables] == ["unknown"]
+
+    def test_team_without_volume_lists_the_events_table_as_unknown(self):
         self.provider = FixedStatisticsProvider()
 
-        assert self._estimate("SELECT count() FROM events") is None
+        estimate = self._estimate("SELECT count() FROM events")
+
+        assert estimate is not None
+        assert estimate.tables == (TableScanEstimate(name="events", source="events", precision="unknown"),)
+
+    def test_a_query_with_no_table_has_no_estimate(self):
+        assert self._estimate("SELECT 1") is None
 
     @parameterized.expand(
         [
-            ("events_only_select", "select count() from events where event = 'signup'", 14_600_000),
-            ("join_has_no_estimate", "select count() from events e join persons p on p.id = e.person_id", None),
+            ("events_only_select", "select count() from events where event = 'signup'", ["events"]),
+            (
+                "join_lists_both_tables",
+                "select count() from events e join persons p on p.id = e.person_id where e.event = 'signup'",
+                ["events", "persons"],
+            ),
         ]
     )
-    def test_metadata_carries_the_estimate_when_the_flag_is_on(self, _name, sql, expected_rows):
+    def test_metadata_carries_the_estimate_when_the_flag_is_on(self, _name, sql, expected_tables):
         with (
             patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=True),
             patch("posthog.hogql.metadata.ClickHouseStatisticsProvider", return_value=self.provider),
@@ -228,12 +269,10 @@ class TestEstimateEventsScan(BaseTest):
             )
 
         assert response.isValid is True
-        if expected_rows is None:
-            assert response.events_scan_estimate is None
-        else:
-            assert response.events_scan_estimate is not None
-            assert response.events_scan_estimate.rows == expected_rows
-            assert response.events_scan_estimate.events == ["signup"]
+        assert response.scan_estimate is not None
+        assert response.scan_estimate.rows == 14_600_000
+        assert [table.name for table in response.scan_estimate.tables] == expected_tables
+        assert response.scan_estimate.tables[0].events == ["signup"]
 
     def test_metadata_omits_the_estimate_when_the_flag_is_off(self):
         with patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=False):
@@ -247,4 +286,4 @@ class TestEstimateEventsScan(BaseTest):
                 self.team,
             )
 
-        assert response.events_scan_estimate is None
+        assert response.scan_estimate is None

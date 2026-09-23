@@ -1,13 +1,16 @@
-"""A first, deliberately crude estimate of how many events a HogQL query will read.
+"""A first, deliberately crude estimate of how much a HogQL query will read, one entry per table it scans.
+
+The FROM tree is walked whole: a plain select, a select over a subquery or CTE, a UNION, or a join, down to the
+physical tables. Each scan gets an entry that says what is known about it, and the entries are summed into one
+headline. What is known depends on the source. For ``events``:
 
     rows = events per day  ×  days in the timestamp range  ×  share of volume carried by the filtered event names
            ×  share of granules the most selective indexed property filter leaves
 
-It covers queries whose only physical table is ``events``: a plain select, a select over a subquery or CTE,
-a UNION of such selects, or a join whose every side is one of those. Each events scan in the tree is estimated
-on its own and the scans are summed. A join to any other table, or a select with no table, gives no estimate.
-The estimate is advisory. It is compared against ``read_rows`` in ``query_log`` (see ``accuracy.py``) and a
-wrong number costs a misleading hint, never a failed query.
+A warehouse table carries the size of its files. Any other table is listed with nothing known about it, so the
+reader sees which part of the query the number does not cover. The estimate is advisory. It is compared against
+``read_rows`` in ``query_log`` (see ``accuracy.py``) and a wrong number costs a misleading hint, never a failed
+query.
 
 The number is rows read, not rows returned, so a property filter counts only when a skip index can rule out
 granules for it. A filter with no usable index reads every row, which the estimate already assumes. An
@@ -28,6 +31,9 @@ from posthog.hogql import ast
 from posthog.hogql.base import CTE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.cost.statistics import EventVolume, StatisticsProvider
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
+from posthog.hogql.database.models import FunctionCallTable, Table
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.index_eligibility import IndexKind, eligibility_from_plan
 from posthog.hogql.property_planner import PropertyScope, plan_property_comparison
@@ -53,32 +59,60 @@ _INTERVAL_DAYS: dict[str, float] = {
 }
 
 
+TableSource = Literal["events", "clickhouse", "warehouse", "direct", "static"]
+# ``measured``: a model of what the query reads, compared against ``read_rows`` in the query log.
+# ``size_only``: the table's size is known, the query's read of it is not.
+# ``unknown``: nothing is known about the table.
+ScanPrecision = Literal["measured", "size_only", "unknown"]
+
+
 @frozen
-class EventsScanEstimate:
-    rows: int
-    days: float
-    # The event names the estimate was narrowed to. Empty means the query reads every event.
-    events: tuple[str, ...]
-    # ``bounded`` when both ends of the timestamp range were understood, ``open`` when the estimate fell back
-    # to DEFAULT_RANGE_DAYS on at least one side.
-    time_range: Literal["bounded", "open"]
-    # True when an indexed filter may narrow the read by an amount the estimator could not model, so the
-    # query reads at most ``rows``. False when every filter was accounted for and ``rows`` is a point estimate.
-    upper_bound: bool = False
+class TableScanEstimate:
+    """What is known about one scan in the FROM tree."""
+
+    name: str
+    source: TableSource
+    precision: ScanPrecision
+    rows: int | None = None
+    bytes: int | None = None
+    # Events only: the timestamp range the rows were scaled to.
+    days: float | None = None
+    # Events only: the event names the estimate was narrowed to. Empty means the scan reads every event.
+    events: tuple[str, ...] | None = None
+    # Events only: ``bounded`` when both ends of the timestamp range were understood, ``open`` when the
+    # estimate fell back to DEFAULT_RANGE_DAYS on at least one side.
+    time_range: Literal["bounded", "open"] | None = None
 
     def __post_init__(self) -> None:
-        if self.rows < 0 or self.days < 0:
-            raise ValueError("EventsScanEstimate values cannot be negative")
+        if (self.rows is not None and self.rows < 0) or (self.bytes is not None and self.bytes < 0):
+            raise ValueError("TableScanEstimate sizes cannot be negative")
+        if self.days is not None and self.days < 0:
+            raise ValueError("TableScanEstimate days cannot be negative")
 
 
-def estimate_events_scan(
+@frozen
+class ScanEstimate:
+    # Sum of the rows of every table entry that has one.
+    rows: int
+    # True when an indexed filter may narrow the read by an amount the estimator could not model, or when a
+    # table is known only by its size, so the query reads at most ``rows`` of the tables that have a number.
+    # False when every table is measured and ``rows`` is a point estimate.
+    upper_bound: bool
+    tables: tuple[TableScanEstimate, ...]
+
+    @property
+    def events(self) -> tuple[TableScanEstimate, ...]:
+        return tuple(table for table in self.tables if table.source == "events")
+
+
+def estimate_scan(
     node: ast.SelectQuery | ast.SelectSetQuery,
     context: HogQLContext,
     provider: StatisticsProvider,
     *,
     now: datetime | None = None,
-) -> EventsScanEstimate | None:
-    """Estimate the events read by a resolved query, or None when it reads anything but the events table."""
+) -> ScanEstimate | None:
+    """Estimate what a resolved query reads, or None when it reads no table or its FROM tree cannot be walked."""
     if context.team_id is None:
         return None
     now = now or datetime.now(UTC)
@@ -89,45 +123,61 @@ def estimate_events_scan(
         from posthog.hogql.transforms.property_types import build_property_swapper  # noqa: PLC0415
 
         build_property_swapper(node, context)
-    scans = _events_scans(node, now, context, ctes={})
+    scans = _table_scans(node, now, context, ctes={})
     if not scans:
         return None
 
-    volume = provider.event_volume(context.team_id)
-    if volume is None or not volume.days:
-        return None
+    volume: EventVolume | None = None
+    if any(isinstance(scan, _EventsScan) for scan in scans):
+        volume = provider.event_volume(context.team_id)
 
-    rows = 0
-    days = 0.0
-    bounded = True
+    tables: list[TableScanEstimate] = []
     upper_bound = False
-    reads_every_event = False
-    narrowed_to: set[str] = set()
     for scan in scans:
-        fraction = _event_fraction(volume, scan.events)
-        granules_read = 1.0
-        for property_filter in scan.property_filters:
-            distinct_values = provider.property_ndv(context.team_id, property_filter.property_name)
-            if distinct_values is None:
-                upper_bound = True
+        if isinstance(scan, _EventsScan):
+            if volume is None or not volume.days:
+                tables.append(TableScanEstimate(name=scan.name, source="events", precision="unknown"))
                 continue
-            # The filters are not multiplied together. Properties on one event are often correlated, and the
-            # product of two fractions that assume independence narrows far more than the data does.
-            granules_read = min(granules_read, _granule_fraction(property_filter.values, distinct_values))
-        rows += int(volume.per_day * scan.days * fraction * granules_read)
-        days = max(days, scan.days)
-        bounded = bounded and scan.bounded
-        upper_bound = upper_bound or scan.unmodelled_filter
-        if fraction < 1:
-            narrowed_to.update(scan.events)
+            estimate, unmodelled = _estimate_events_scan(scan, volume, context.team_id, provider)
+            tables.append(estimate)
+            upper_bound = upper_bound or unmodelled
         else:
-            reads_every_event = True
-    return EventsScanEstimate(
-        rows=rows,
-        days=days,
-        events=() if reads_every_event else tuple(sorted(narrowed_to)),
-        time_range="bounded" if bounded else "open",
+            tables.append(scan.estimate)
+            upper_bound = upper_bound or scan.estimate.precision == "size_only"
+
+    return ScanEstimate(
+        rows=sum(table.rows for table in tables if table.rows is not None),
         upper_bound=upper_bound,
+        tables=tuple(tables),
+    )
+
+
+def _estimate_events_scan(
+    scan: "_EventsScan", volume: EventVolume, team_id: int, provider: StatisticsProvider
+) -> tuple[TableScanEstimate, bool]:
+    """Size one events scan. The bool says whether an indexed filter went unmodelled."""
+    fraction = _event_fraction(volume, scan.events)
+    granules_read = 1.0
+    unmodelled = scan.unmodelled_filter
+    for property_filter in scan.property_filters:
+        distinct_values = provider.property_ndv(team_id, property_filter.property_name)
+        if distinct_values is None:
+            unmodelled = True
+            continue
+        # The filters are not multiplied together. Properties on one event are often correlated, and the
+        # product of two fractions that assume independence narrows far more than the data does.
+        granules_read = min(granules_read, _granule_fraction(property_filter.values, distinct_values))
+    return (
+        TableScanEstimate(
+            name=scan.name,
+            source="events",
+            precision="measured",
+            rows=int(volume.per_day * scan.days * fraction * granules_read),
+            days=scan.days,
+            events=tuple(sorted(scan.events)) if fraction < 1 else (),
+            time_range="bounded" if scan.bounded else "open",
+        ),
+        unmodelled,
     )
 
 
@@ -156,6 +206,7 @@ class _PropertyFilter:
 class _EventsScan:
     """One read of the events table, after the predicates that apply to it were folded in."""
 
+    name: str
     days: float
     bounded: bool
     events: frozenset[str]
@@ -165,26 +216,39 @@ class _EventsScan:
 
 
 @frozen
-class _EventsTableRef:
-    """An events table in a FROM clause. ``alias`` is None when it is joined unaliased."""
+class _OtherScan:
+    """One read of a table that is not events, with whatever the table object itself says about its size."""
 
+    estimate: TableScanEstimate
+
+
+@frozen
+class _TableRef:
+    """A physical table in a FROM clause. ``alias`` is None when it is joined unaliased."""
+
+    table: Table
     alias: str | None
 
 
-def _events_table(table_type: ast.Type | None) -> _EventsTableRef | None:
+def _table_ref(table_type: ast.Type | None) -> _TableRef | None:
     alias: str | None = None
     while isinstance(table_type, ast.TableAliasType):
         alias = table_type.alias
         table_type = table_type.table_type
-    if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
-        return _EventsTableRef(alias=alias)
+    if isinstance(table_type, ast.TableType | ast.LazyTableType):
+        return _TableRef(table=table_type.table, alias=alias)
     return None
 
 
-def _events_scans(
+def _events_table(table_type: ast.Type | None) -> _TableRef | None:
+    ref = _table_ref(table_type)
+    return ref if ref is not None and isinstance(ref.table, EventsTable) else None
+
+
+def _table_scans(
     node: ast.Expr, now: datetime, context: HogQLContext, ctes: Mapping[str, CTE]
-) -> list[_EventsScan] | None:
-    """Every events scan a query's FROM clause performs, or None when any part of it reads another table.
+) -> list[_EventsScan | _OtherScan] | None:
+    """Every table scan a query's FROM clause performs, or None when the FROM tree cannot be walked.
 
     ``ctes`` are the subquery CTEs in scope. The resolver leaves a CTE reference in the FROM clause typed
     as ``CTETableType`` and keeps the body on the select that declared it, so the body is followed here.
@@ -192,10 +256,10 @@ def _events_scans(
     skipping them undercounts, which the "up to" wording does not promise against.
     """
     if isinstance(node, ast.SelectSetQuery):
-        scans: list[_EventsScan] = []
+        scans: list[_EventsScan | _OtherScan] = []
         in_scope = dict(ctes)
         for branch in node.select_queries():
-            branch_scans = _events_scans(branch, now, context, in_scope)
+            branch_scans = _table_scans(branch, now, context, in_scope)
             if branch_scans is None:
                 return None
             scans.extend(branch_scans)
@@ -203,8 +267,10 @@ def _events_scans(
             if isinstance(branch, ast.SelectQuery) and branch.ctes:
                 in_scope.update(branch.ctes)
         return scans
-    if not isinstance(node, ast.SelectQuery) or node.select_from is None:
+    if not isinstance(node, ast.SelectQuery):
         return None
+    if node.select_from is None:
+        return []
     if node.ctes:
         ctes = {**ctes, **node.ctes}
 
@@ -218,10 +284,14 @@ def _events_scans(
         source = _join_source(join, ctes)
         if source is None:
             return None
-        if isinstance(source, _EventsTableRef):
-            scans.append(predicates.scan_for(source.alias))
+        if isinstance(source, _TableRef):
+            name = _scan_name(join, source)
+            if isinstance(source.table, EventsTable):
+                scans.append(predicates.scan_for(name, source.alias))
+            else:
+                scans.append(_OtherScan(estimate=_other_table_estimate(name, source.table)))
         else:
-            inner = _events_scans(source, now, context, ctes)
+            inner = _table_scans(source, now, context, ctes)
             if inner is None:
                 return None
             scans.extend(inner)
@@ -231,8 +301,8 @@ def _events_scans(
 
 def _join_source(
     join: ast.JoinExpr, ctes: Mapping[str, CTE]
-) -> ast.SelectQuery | ast.SelectSetQuery | _EventsTableRef | None:
-    """What one side of a FROM clause reads: a subquery to descend into, an events table, or None."""
+) -> ast.SelectQuery | ast.SelectSetQuery | _TableRef | None:
+    """What one side of a FROM clause reads: a subquery to descend into, a table, or None when unknown."""
     if isinstance(join.table, ast.SelectQuery | ast.SelectSetQuery):
         return join.table
     table_type = join.type
@@ -243,7 +313,30 @@ def _join_source(
         if cte is None or cte.cte_type != "subquery" or cte.recursive:
             return None
         return cte.expr if isinstance(cte.expr, ast.SelectQuery | ast.SelectSetQuery) else None
-    return _events_table(join.type)
+    return _table_ref(join.type)
+
+
+def _scan_name(join: ast.JoinExpr, ref: _TableRef) -> str:
+    """The table as the query names it, so the breakdown reads like the SQL the person wrote."""
+    if isinstance(join.table, ast.Field):
+        return ".".join(str(part) for part in join.table.chain)
+    return ref.table.to_printed_hogql()
+
+
+def _other_table_estimate(name: str, table: Table) -> TableScanEstimate:
+    if isinstance(table, S3Table):
+        # Every sync records the size of the files. There is no model of how much of them a query reads.
+        size_mib = table.table_size_mib
+        if size_mib is None:
+            return TableScanEstimate(name=name, source="warehouse", precision="unknown")
+        return TableScanEstimate(
+            name=name, source="warehouse", precision="size_only", bytes=int(size_mib * 1024 * 1024)
+        )
+    if isinstance(table, DirectSQLTable):
+        return TableScanEstimate(name=name, source="direct", precision="unknown")
+    if isinstance(table, FunctionCallTable):
+        return TableScanEstimate(name=name, source="static", precision="unknown")
+    return TableScanEstimate(name=name, source="clickhouse", precision="unknown")
 
 
 def _event_fraction(volume: EventVolume, events: frozenset[str]) -> float:
@@ -275,13 +368,14 @@ class _WherePredicates(TraversingVisitor):
         # the select, because a filter under OR or on a joined table cannot be attributed to one alias.
         self._unmodelled_filter = False
 
-    def scan_for(self, alias: str | None) -> _EventsScan:
+    def scan_for(self, name: str, alias: str | None) -> _EventsScan:
         since = self._lower_bounds.get(alias)
         until = self._upper_bounds.get(alias)
         bounded = since is not None and until is not None
         since = since or (self._now - timedelta(days=DEFAULT_RANGE_DAYS))
         until = until or self._now
         return _EventsScan(
+            name=name,
             days=max((until - since).total_seconds() / 86_400, 0.0),
             bounded=bounded,
             events=frozenset(self._events.get(alias, ())),

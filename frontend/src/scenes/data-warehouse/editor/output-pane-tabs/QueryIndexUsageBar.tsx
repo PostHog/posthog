@@ -4,14 +4,15 @@ import { IconInfo, IconWarning } from '@posthog/icons'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
-import { EventsScanEstimate, PredicateIndexUsage } from '~/queries/schema/schema-general'
+import { PredicateIndexUsage, ScanEstimate, ScanEstimateSource } from '~/queries/schema/schema-general'
 
 import { QueryIndexUsageTable } from './QueryIndexUsageTable'
 import { summarizeQueryScan } from './queryScanSummary'
+import { QueryScanTablesTable } from './QueryScanTablesTable'
 
 interface QueryIndexUsageBarProps {
     predicates: PredicateIndexUsage[]
-    estimate?: EventsScanEstimate | null
+    estimate?: ScanEstimate | null
     /** A refresh is in flight, so the report still describes the SQL the server last saw. */
     refreshing?: boolean
 }
@@ -33,8 +34,14 @@ export function QueryIndexUsageBar({ predicates, estimate, refreshing }: QueryIn
         </span>
     )
 
-    // With no filters there is nothing to expand, so the header stands alone instead of opening an empty panel.
-    if (predicates.length === 0) {
+    // A single events scan is fully described by the header, so the table list only appears when there is a
+    // second table, or a table the header's number does not cover.
+    const showTables =
+        !!estimate &&
+        (estimate.tables.length > 1 || estimate.tables.some((table) => table.source !== ScanEstimateSource.Events))
+
+    // With nothing to expand, the header stands alone instead of opening an empty panel.
+    if (predicates.length === 0 && !showTables) {
         return (
             <div
                 className={clsx('border-b px-2 py-1.5', refreshing && 'opacity-60')}
@@ -55,7 +62,12 @@ export function QueryIndexUsageBar({ predicates, estimate, refreshing }: QueryIn
                     key: 'index-usage',
                     dataAttr: 'sql-editor-index-usage',
                     header,
-                    content: <QueryIndexUsageTable predicates={predicates} />,
+                    content: (
+                        <>
+                            {showTables && estimate ? <QueryScanTablesTable estimate={estimate} /> : null}
+                            <QueryIndexUsageTable predicates={predicates} />
+                        </>
+                    ),
                 },
             ]}
         />

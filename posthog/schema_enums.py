@@ -2643,6 +2643,20 @@ class RetentionType(StrEnum):
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 
+class ScanEstimatePrecision(StrEnum):
+    MEASURED = "measured"
+    SIZE_ONLY = "size_only"
+    UNKNOWN = "unknown"
+
+
+class ScanEstimateSource(StrEnum):
+    EVENTS = "events"
+    CLICKHOUSE = "clickhouse"
+    WAREHOUSE = "warehouse"
+    DIRECT = "direct"
+    STATIC = "static"
+
+
 class ScanEstimateTimeRange(StrEnum):
     BOUNDED = "bounded"
     OPEN = "open"

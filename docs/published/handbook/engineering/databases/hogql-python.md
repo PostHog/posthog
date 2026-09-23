@@ -61,10 +61,16 @@ For non-nullable materialized columns, patterns above 16,384 characters skip the
 
 ## Scan estimate accuracy
 
-ClickHouse execution records `estimated_rows` alongside `plan_fingerprint` in the query's `log_comment` when the events scan estimator supports the query and team statistics are available.
+ClickHouse execution records `estimated_rows` alongside `plan_fingerprint` in the query's `log_comment` when at least one table in the query has a measured estimate.
 This uses the same estimator as the SQL editor, independently of the editor's display flag.
 Missing statistics, unsupported queries, and estimator failures leave the estimate tag absent and do not prevent execution.
-The `events_scan_estimate` timing measures the added planning work.
+The `scan_estimate` timing measures the added planning work.
+
+The estimate has one entry per table in the FROM tree, each labeled with its source and precision.
+An `events` scan is `measured`: it has a model of what the query reads and is scored by the accuracy query.
+A warehouse table is `size_only`: the size of its files is known from the last sync, the query's read of it is not.
+Any other table is `unknown` until its source gets a statistic.
+The headline `rows` sums the entries that have a number, and `upper_bound` says whether that sum is a ceiling.
 
 The estimate counts rows read, not rows returned, so a property filter lowers it only when a skip index can drop granules.
 An equality or `IN` filter on an event property with a bloom filter index is scaled by the share of granules expected to hold a match.

@@ -74,6 +74,7 @@ import {
     HogQLQuery,
     NodeKind,
     PredicateIndexVerdict,
+    ScanEstimateSource,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlResourceType,
@@ -119,7 +120,7 @@ import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
 import { IncrementalConfigFields } from './IncrementalConfigFields'
 import { findInnermostSelectAtOffset } from './multiQueryUtils'
-import { LARGE_SCAN_ROWS } from './output-pane-tabs/queryScanSummary'
+import { LARGE_SCAN_ROWS, estimatedTables } from './output-pane-tabs/queryScanSummary'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
@@ -1752,15 +1753,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
         return {
             setMetadata: ({ metadata }) => {
-                const estimate = metadata?.events_scan_estimate
+                const estimate = metadata?.scan_estimate
                 if (!estimate) {
                     return
                 }
+                const eventsScan = estimate.tables.find((table) => table.source === ScanEstimateSource.Events)
                 // pinned: analytics event name, the cost planner's adoption insight reads it
                 posthog.capture('sql editor scan estimate shown', {
                     estimated_rows: estimate.rows,
-                    estimated_days: estimate.days,
-                    time_range: estimate.time_range,
+                    estimated_days: eventsScan?.days,
+                    time_range: eventsScan?.time_range,
+                    upper_bound: estimate.upper_bound,
+                    tables: estimate.tables.length,
+                    tables_not_estimated: estimate.tables.length - estimatedTables(estimate).length,
                     large_scan: estimate.rows >= LARGE_SCAN_ROWS,
                     filters_reading_every_row: (metadata?.index_usage ?? []).filter(
                         (predicate) => predicate.verdict !== PredicateIndexVerdict.Indexed

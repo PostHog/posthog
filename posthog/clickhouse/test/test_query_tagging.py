@@ -468,7 +468,7 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
             assert "estimated_rows" not in comment
         else:
             assert comment["estimated_rows"] == expected_rows
-        assert any(key.endswith("/events_scan_estimate") for key in comment["timings"])
+        assert any(key.endswith("/scan_estimate") for key in comment["timings"])
 
     @parameterized.expand([("approved", True), ("not_approved", False)])
     def test_sync_execute_preserves_ai_data_processing_approved_tag(self, _name, approved):
