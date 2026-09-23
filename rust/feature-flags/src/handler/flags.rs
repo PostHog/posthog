@@ -73,6 +73,10 @@ impl From<&str> for EvaluationRuntime {
 /// Determines the evaluation runtime based on request characteristics.
 /// Uses explicit runtime if provided; otherwise analyzes user-agent and headers
 /// to detect if the request is from a client-side (browser/mobile) or server-side SDK.
+///
+/// Every input here is caller-controlled, so the result filters which flags an SDK
+/// receives and never authorizes access. Restricting flag data needs a credential the
+/// caller cannot mint, the way `override_flags_definitions` needs an internal request.
 fn detect_evaluation_runtime_from_request(
     headers: &axum::http::HeaderMap,
     explicit_runtime: Option<EvaluationRuntime>,

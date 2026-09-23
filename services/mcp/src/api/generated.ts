@@ -33924,7 +33924,7 @@ export namespace Schemas {
          * @nullable
          */
       version?: number | null;
-      /** Specifies where this feature flag should be evaluated
+      /** Filters which SDKs receive this flag from /flags, based on the runtime the caller reports. Local evaluation loads flag definitions for all runtimes. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.
        *
        * * `server` - Server
        * * `client` - Client
@@ -45197,7 +45197,7 @@ export namespace Schemas {
       /** @nullable */
       has_encrypted_payloads?: boolean | null;
       readonly status: string;
-      /** Specifies where this feature flag should be evaluated
+      /** Filters which SDKs receive this flag from /flags, based on the runtime the caller reports. Local evaluation loads flag definitions for all runtimes. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.
        *
        * * `server` - Server
        * * `client` - Client
@@ -45407,7 +45407,7 @@ export namespace Schemas {
          * @nullable
          */
       ensure_experience_continuity?: boolean | null;
-      /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+      /** Filters which SDKs receive this flag from /flags, based on the runtime the caller reports: 'server' (server SDKs only), 'client' (client SDKs only), or 'all' (both). Defaults to 'all'. Local evaluation loads flag definitions for all runtimes. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.
        *
        * * `server` - Server
        * * `client` - Client
@@ -45600,7 +45600,7 @@ export namespace Schemas {
       is_remote_configuration?: boolean | null;
       /** @nullable */
       has_encrypted_payloads?: boolean | null;
-      /** Specifies where this feature flag should be evaluated
+      /** Filters which SDKs receive this flag from /flags, based on the runtime the caller reports. Local evaluation loads flag definitions for all runtimes. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.
        *
        * * `server` - Server
        * * `client` - Client
@@ -71830,7 +71830,7 @@ export namespace Schemas {
          * @nullable
          */
       ensure_experience_continuity?: boolean | null;
-      /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+      /** Filters which SDKs receive this flag from /flags, based on the runtime the caller reports: 'server' (server SDKs only), 'client' (client SDKs only), or 'all' (both). Defaults to 'all'. Local evaluation loads flag definitions for all runtimes. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.
        *
        * * `server` - Server
        * * `client` - Client
