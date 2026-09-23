@@ -407,14 +407,23 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         assert used, "the precomputed path was not used, so this proves nothing"
         assert "was_a_campaign" not in rows, f"the superseded campaign survived the exclusion: {rows}"
 
-    @parameterized.expand([(version,) for version in (SessionTableVersion.V2, SessionTableVersion.V3)])
+    @parameterized.expand(
+        [
+            (version, before_hours)
+            for version in (SessionTableVersion.V2, SessionTableVersion.V3)
+            for before_hours in (48, 120)
+        ]
+    )
     def test_session_starting_before_reachback_preserves_cached_and_live_reach(
-        self, version: SessionTableVersion
+        self, version: SessionTableVersion, before_hours: int
     ) -> None:
         self.team.modifiers = {"sessionTableVersion": version}
         create_person(team=self.team, distinct_ids=["long-session"])
         self._session(
-            "long-session", WINDOW_START - timedelta(hours=48), campaign="long", event_offsets_minutes=[0, 49 * 60]
+            "long-session",
+            WINDOW_START - timedelta(hours=before_hours),
+            campaign="long",
+            event_offsets_minutes=[0, (before_hours + 1) * 60],
         )
         self._conversion("long-session", datetime(2023, 1, 12, 12, tzinfo=UTC))
         create_person(team=self.team, distinct_ids=["short-session"])
@@ -427,7 +436,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         self._materialize()
         pre, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
         assert used
-        assert live.get("long") == _AttributionCounts(visitors=1, conversions=0)
+        assert live.get("long") == (_AttributionCounts(visitors=1, conversions=0) if before_hours == 48 else None)
         assert live.get("short") == _AttributionCounts(visitors=1, conversions=1)
         assert pre == live
 
@@ -447,7 +456,8 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         for name, duration_days in (("member-a", 0), ("member-b", 5)):
             create_person(team=self.team, distinct_ids=[name])
             opened_at = datetime(2023, 1, 7, 9, tzinfo=UTC)
-            session_id = str(uuid7(opened_at.strftime("%Y-%m-%dT%H:%M:%SZ")))
+            session_id_timestamp = opened_at + timedelta(days=duration_days / 2)
+            session_id = str(uuid7(session_id_timestamp.strftime("%Y-%m-%dT%H:%M:%SZ")))
             for offset in (0, max(10, duration_days * 1440)):
                 _create_event(
                     team=self.team,

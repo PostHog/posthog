@@ -34,34 +34,53 @@ _DIMENSION_FIELDS = {
 def _exceptional_dimensions(
     modifiers: HogQLQueryModifiers, columns: set[str], start: datetime, end: datetime
 ) -> ast.SelectQuery:
-    candidates = parse_select(
-        """
-        SELECT session_id_v7 FROM sessions
-        WHERE $end_timestamp >= {start} AND $start_timestamp <= {end}
-            AND ($start_timestamp < {reachback}
-                OR $end_timestamp > $start_timestamp + toIntervalSecond({max_seconds}))
-        """,
-        placeholders={
-            "start": ast.Constant(value=start),
-            "end": ast.Constant(value=end),
-            "reachback": ast.Constant(value=start - timedelta(days=SESSION_READ_REACHBACK_DAYS)),
-            "max_seconds": ast.Constant(value=MAX_PRECOMPUTED_SESSION_SECONDS),
-        },
-    )
-    fields = ["$start_timestamp", *[field for column, field in _DIMENSION_FIELDS.items() if column in columns]]
-    context = HogQLContext(modifiers=modifiers)
     is_v3 = modifiers.sessionTableVersion == SessionTableVersion.V3
-    select_sessions = select_from_sessions_table_v3 if is_v3 else select_from_sessions_table_v2
-    source = select_sessions(
-        {field: [field] for field in fields}, ast.SelectQuery(select=[ast.Constant(value=1)]), context
-    )
-    assert isinstance(source, ast.SelectQuery)
     table = "raw_sessions_v3" if is_v3 else "raw_sessions"
     timestamp = (
         ast.Field(chain=[table, "session_timestamp"])
         if is_v3
         else uuid_uint128_expr_to_timestamp_expr_v2(ast.Field(chain=[table, "session_id_v7"]))
     )
+    # Use the live join's ID timestamp window so both paths count the same sessions.
+    bounds: dict[str, ast.Expr] = {
+        "start": ast.Constant(value=start),
+        "end": ast.Constant(value=end),
+        "reachback": ast.Constant(value=start - timedelta(days=SESSION_READ_REACHBACK_DAYS)),
+        "max_seconds": ast.Constant(value=MAX_PRECOMPUTED_SESSION_SECONDS),
+    }
+    # Split the duration budget around the ID timestamp to keep long sessions even when IDs and first events disagree.
+    # An earlier start either has an older ID with overlapping activity or crosses the earlier limit.
+    candidates = parse_select(
+        """
+        SELECT DISTINCT session_id_v7 FROM {table}
+        WHERE {timestamp} >= {lower} AND {timestamp} <= {upper}
+            AND ((max_timestamp >= {start} AND {timestamp} < {start})
+                OR min_timestamp < {timestamp} - toIntervalDay({reachback_days})
+                OR max_timestamp > {timestamp} + toIntervalSecond({remaining_budget}))
+        """,
+        placeholders={
+            "table": ast.Field(chain=[table]),
+            "timestamp": timestamp,
+            "lower": ast.Constant(value=start - timedelta(days=SESSION_BUFFER_DAYS)),
+            "upper": ast.Constant(value=end + timedelta(days=SESSION_BUFFER_DAYS)),
+            "start": bounds["start"],
+            "reachback_days": ast.Constant(value=SESSION_READ_REACHBACK_DAYS),
+            "remaining_budget": ast.Constant(
+                value=MAX_PRECOMPUTED_SESSION_SECONDS - int(timedelta(days=SESSION_READ_REACHBACK_DAYS).total_seconds())
+            ),
+        },
+    )
+    fields = [
+        "$start_timestamp",
+        "$end_timestamp",
+        *[field for column, field in _DIMENSION_FIELDS.items() if column in columns],
+    ]
+    context = HogQLContext(modifiers=modifiers)
+    select_sessions = select_from_sessions_table_v3 if is_v3 else select_from_sessions_table_v2
+    source = select_sessions(
+        {field: [field] for field in fields}, ast.SelectQuery(select=[ast.Constant(value=1)]), context
+    )
+    assert isinstance(source, ast.SelectQuery)
     # Filter IDs before merging entry properties; a HAVING alone classifies every session in the range.
     # GLOBAL IN sends the complete set to each shard without depending on session sharding.
     source.where = ast.And(
@@ -80,6 +99,14 @@ def _exceptional_dimensions(
                 right=ast.Constant(value=end + timedelta(days=SESSION_BUFFER_DAYS)),
             ),
         ]
+    )
+    source.having = parse_expr(
+        """
+        $end_timestamp >= {start} AND $start_timestamp <= {end}
+        AND ($start_timestamp < {reachback}
+            OR $end_timestamp > $start_timestamp + toIntervalSecond({max_seconds}))
+        """,
+        placeholders=bounds,
     )
     # Empty slots preserve tuple positions without reading unused entry properties.
     dimensions: list[ast.Expr] = [
