@@ -63,7 +63,7 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
 import { humanizeEventColumnValue } from './eventColumnLabels'
-import { parseSeriesValue } from './seriesValues'
+import { sumSeriesValues } from './seriesValues'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
@@ -308,12 +308,7 @@ export const columnsFromResponse = (response: AnyResponseType | null): Column[] 
     )
 }
 
-type DataVisualizationResponse = dataVisualizationLogicValues['response']
-
-interface XAxisBucket {
-    xValue: any
-    rows: any[]
-}
+type DataVisualizationResponse = AnyResponseType | null
 
 const resultRowsFromResponse = (response: DataVisualizationResponse): any[] => {
     if (!response) {
@@ -707,7 +702,7 @@ export interface dataVisualizationLogicValues {
     tabularColumns: AxisSeries<any>[]
     tabularData: TableDataCell<any>[][]
     visualizationType: ChartDisplayType
-    xAxisBuckets: XAxisBucket[] | null
+    xAxisBuckets: Map<any, any[]> | null
     xData: AxisSeries<string> | null
     yData: AxisSeries<number | null>[]
 }
@@ -1513,7 +1508,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 response: DataVisualizationResponse,
                 columns: Column[],
                 visualizationType: ChartDisplayType
-            ): XAxisBucket[] | null => {
+            ): Map<any, any[]> | null => {
                 if (!response || xSeries === null || visualizationType === ChartDisplayType.ScatterPlot) {
                     return null
                 }
@@ -1526,15 +1521,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 const buckets = new Map<any, any[]>()
                 for (const row of resultRowsFromResponse(response)) {
                     const xValue = row[column.dataIndex]
-                    const rows = buckets.get(xValue)
-                    if (rows) {
-                        rows.push(row)
-                    } else {
-                        buckets.set(xValue, [row])
-                    }
+                    const rows = buckets.get(xValue) ?? []
+                    rows.push(row)
+                    buckets.set(xValue, rows)
                 }
 
-                return Array.from(buckets, ([xValue, rows]) => ({ xValue, rows }))
+                return buckets
             },
         ],
         yData: [
@@ -1552,15 +1544,16 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 columns: Column[],
                 chartSettings: ChartSettings,
                 visualizationType: ChartDisplayType,
-                xAxisBuckets: XAxisBucket[] | null
+                xAxisBuckets: Map<any, any[]> | null
             ): AxisSeries<number | null>[] => {
                 if (!response || ySeries === null || ySeries.length === 0) {
                     return [EmptyYAxisSeries]
                 }
 
                 const showNullsAsZero = chartSettings.showNullsAsZero ?? false
-                const data = resultRowsFromResponse(response)
-                const rowsPerPoint = xAxisBuckets ? xAxisBuckets.map((bucket) => bucket.rows) : data.map((n) => [n])
+                const rowsPerPoint: any[][] = xAxisBuckets
+                    ? Array.from(xAxisBuckets.values())
+                    : resultRowsFromResponse(response).map((row) => [row])
 
                 const mappedSeries = visualizationType === ChartDisplayType.Metric ? ySeries.slice(0, 1) : ySeries
                 const seriesData = mappedSeries
@@ -1576,17 +1569,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                         return {
                             column,
-                            data: rowsPerPoint.map((rows) => {
-                                const values = rows
-                                    .map((n) => parseSeriesValue(n[column.dataIndex], series.settings.formatting))
-                                    .filter((value): value is number => value !== null)
-
-                                if (values.length === 0) {
-                                    return showNullsAsZero ? 0 : null
-                                }
-
-                                return values.reduce((a, b) => a + b, 0)
-                            }),
+                            data: rowsPerPoint.map((rows) =>
+                                sumSeriesValues(rows, column.dataIndex, series.settings.formatting, showNullsAsZero)
+                            ),
                             settings: series.settings,
                         }
                     })
@@ -1601,7 +1586,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 xSeries: string | null,
                 response: DataVisualizationResponse,
                 columns: Column[],
-                xAxisBuckets: XAxisBucket[] | null
+                xAxisBuckets: Map<any, any[]> | null
             ): AxisSeries<string> | null => {
                 if (!response) {
                     return {
@@ -1640,13 +1625,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return null
                 }
 
-                const xValues = xAxisBuckets
-                    ? xAxisBuckets.map((bucket) => bucket.xValue)
-                    : data.map((n: any) => n[column.dataIndex])
-
                 return {
                     column,
-                    data: xValues.map((value) => humanizeEventColumnValue(column.name, value)),
+                    data: xAxisBuckets
+                        ? Array.from(xAxisBuckets.keys(), (xValue) => humanizeEventColumnValue(column.name, xValue))
+                        : data.map((n: any) => humanizeEventColumnValue(column.name, n[column.dataIndex])),
                 }
             },
         ],

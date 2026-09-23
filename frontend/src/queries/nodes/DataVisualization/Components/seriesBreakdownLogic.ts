@@ -23,7 +23,7 @@ import type { TraceSpansTreeQueryResponse } from '../../../schema/schema-general
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { Column } from '../dataVisualizationLogic'
 import { humanizeEventColumnValue } from '../eventColumnLabels'
-import { parseSeriesValue } from '../seriesValues'
+import { sumSeriesValues } from '../seriesValues'
 
 /**
  * Sentinel used to key result customizations for null / undefined breakdown values.
@@ -408,18 +408,14 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
 
                         // Missing buckets should remain null unless the chart explicitly
                         // requests zero-filling, matching the non-breakdown series path.
-                        const dataset = xData.map((xValue) => {
-                            const numericValues = filteredData
-                                .filter((n) => n[xColumn.dataIndex] === xValue)
-                                .map((n) => parseSeriesValue(n[yColumn.dataIndex], selectedYAxis.settings.formatting))
-                                .filter((value): value is number => value !== null)
-
-                            if (numericValues.length === 0) {
-                                return showNullsAsZero ? 0 : null
-                            }
-
-                            return numericValues.reduce((a, b) => a + b, 0)
-                        })
+                        const dataset = xData.map((xValue) =>
+                            sumSeriesValues(
+                                filteredData.filter((n) => n[xColumn.dataIndex] === xValue),
+                                yColumn.dataIndex,
+                                selectedYAxis.settings.formatting,
+                                showNullsAsZero
+                            )
+                        )
 
                         return {
                             name: seriesName,
