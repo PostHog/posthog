@@ -3,6 +3,7 @@ import uuid
 import pytest
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -24,9 +25,13 @@ class _Recorder:
         *,
         cell_statuses: dict[int, list[str]] | None = None,
         run_statuses: list[str] | None = None,
+        fail_dispatch: bool = False,
     ) -> None:
         self.cell_statuses = cell_statuses or {}
         self.run_statuses = list(run_statuses or [])
+        self.run_status: str = NotebookRun.Status.RUNNING
+        self.fail_dispatch = fail_dispatch
+        self.running: set[str] = set()
         self.dispatched: list[int] = []
         self.finished: list[NotebookRunFinishInput] = []
         self.checks: list[str] = []
@@ -40,8 +45,8 @@ class _Recorder:
         @activity.defn(name="notebook-run-read-status")
         async def read_status(input: NotebookRunInput) -> str:
             if recorder.run_statuses:
-                return recorder.run_statuses.pop(0)
-            return NotebookRun.Status.RUNNING
+                recorder.run_status = recorder.run_statuses.pop(0)
+            return recorder.run_status
 
         @activity.defn(name="notebook-run-advance")
         async def advance(input: NotebookRunCellInput) -> None:
@@ -51,9 +56,12 @@ class _Recorder:
         async def dispatch_cell(input: NotebookRunCellInput) -> str:
             recorder.dispatched.append(input.index)
             node_run_id = f"run-{input.index}"
+            recorder.running.add(node_run_id)
             recorder._pending[node_run_id] = list(
                 recorder.cell_statuses.get(input.index, [NotebookNodeRun.Status.DONE])
             )
+            if recorder.fail_dispatch:
+                raise ApplicationError("Dispatch acknowledgement lost")
             return node_run_id
 
         @activity.defn(name="notebook-run-check-cell")
@@ -69,6 +77,7 @@ class _Recorder:
         @activity.defn(name="notebook-run-stop-cell")
         async def stop_cell(input: NotebookRunInput) -> None:
             recorder.stopped += 1
+            recorder.running.clear()
 
         return [read_status, advance, dispatch_cell, check_cell, finish, stop_cell]
 
@@ -113,14 +122,32 @@ async def test_a_failing_cell_stops_the_ones_after_it() -> None:
 
 
 @pytest.mark.asyncio
-async def test_an_interrupt_stops_the_loop_before_the_next_dispatch() -> None:
+@pytest.mark.parametrize("cell_status", [NotebookNodeRun.Status.RUNNING, NotebookNodeRun.Status.DONE])
+async def test_an_interrupt_stops_the_loop_before_the_next_dispatch(cell_status: str) -> None:
     # The endpoint writes the outcome, so the loop must leave the record alone.
-    recorder = _Recorder(run_statuses=[NotebookRun.Status.RUNNING, NotebookRun.Status.INTERRUPTED])
+    recorder = _Recorder(
+        cell_statuses={0: [cell_status]},
+        run_statuses=[NotebookRun.Status.RUNNING, NotebookRun.Status.RUNNING, NotebookRun.Status.INTERRUPTED],
+    )
 
     await _run_workflow(recorder, ["a", "b", "c"])
 
     assert recorder.dispatched == [0]
+    assert recorder.checks == ["run-0"]
     assert recorder.finished == []
+
+
+@pytest.mark.asyncio
+async def test_exhausted_dispatch_retries_stop_the_child_that_was_submitted() -> None:
+    recorder = _Recorder(fail_dispatch=True)
+
+    await _run_workflow(recorder, ["a", "b"])
+
+    assert recorder.dispatched
+    assert set(recorder.dispatched) == {0}
+    assert [(f.status, f.failed_node_id) for f in recorder.finished] == [(NotebookRun.Status.FAILED, "a")]
+    assert recorder.stopped == 1
+    assert recorder.running == set()
 
 
 @pytest.mark.asyncio

@@ -1,19 +1,25 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.scoping import team_scope
 from posthog.models.utils import UUIDT
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.notebook_run import node_run_request_for, plan_notebook_cells
-from products.notebooks.backend.temporal.notebook_run import NotebookRunCellInput, dispatch_notebook_cell_activity
+from products.notebooks.backend.temporal.notebook_run import (
+    NotebookRunCellInput,
+    NotebookRunInput,
+    dispatch_notebook_cell_activity,
+    read_notebook_run_status_activity,
+)
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput, dispatch_sql_v2_run_activity
 
 _RUN_CELLS = (
@@ -347,6 +353,52 @@ class TestNotebookRunEndpoints(APIBaseTest):
 
         assert first.json() == {"interrupted": True, "status": "interrupted"}
         assert second.json() == {"interrupted": False, "status": "interrupted"}
+
+    @parameterized.expand(
+        [
+            ("poll_sql", "poll", NotebookNodeRun.NodeType.HOGQL),
+            ("poll_python", "poll", NotebookNodeRun.NodeType.PYTHON),
+            ("dispatch_sql", "dispatch", NotebookNodeRun.NodeType.HOGQL),
+            ("dispatch_python", "dispatch", NotebookNodeRun.NodeType.PYTHON),
+        ]
+    )
+    def test_deleting_the_notebook_stops_its_run_and_child(
+        self, _name: str, phase: str, node_type: str, _start: MagicMock, _flag: MagicMock
+    ) -> None:
+        run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
+        cell = NotebookNodeRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            notebook=self.notebook,
+            notebook_run_id=run_id,
+            node_id="s1",
+            code="select 1",
+            node_type=node_type,
+            status=NotebookNodeRun.Status.RUNNING,
+        )
+        self.notebook.deleted = True
+        self.notebook.save(update_fields=["deleted"])
+        inputs = NotebookRunInput(notebook_run_id=run_id, team_id=self.team.id, node_ids=["s1", "p1"])
+
+        with (
+            patch("products.notebooks.backend.notebook_run.cancel_direct_run"),
+            patch("products.notebooks.backend.notebook_run.interrupt_sql_v2_run", return_value=False),
+            patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run") as enqueue,
+        ):
+            if phase == "dispatch":
+                with self.assertRaises(ApplicationError) as raised:
+                    dispatch_notebook_cell_activity(
+                        NotebookRunCellInput(notebook_run_id=run_id, team_id=self.team.id, index=0)
+                    )
+                assert raised.exception.non_retryable
+            assert read_notebook_run_status_activity(inputs) == NotebookRun.Status.INTERRUPTED
+            assert read_notebook_run_status_activity(inputs) == NotebookRun.Status.INTERRUPTED
+
+        enqueue.assert_not_called()
+        cell.refresh_from_db()
+        assert cell.status == NotebookNodeRun.Status.INTERRUPTED
+        run = NotebookRun.objects.for_team(self.team.id).get(id=run_id)
+        assert run.finished_at is not None
+        assert run.error == "The notebook was deleted."
 
     def test_a_stopped_run_leaves_the_notebook_free_to_run_again(self, _start, _flag) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]

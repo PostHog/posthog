@@ -100,9 +100,20 @@ def _load_run(team_id: int, notebook_run_id: str) -> NotebookRun | None:
     )
 
 
+def _stop_deleted_notebook_run(notebook_run: NotebookRun) -> bool:
+    if not notebook_run.notebook.deleted:
+        return False
+    finish_notebook_run(notebook_run, NotebookRun.Status.INTERRUPTED, error="The notebook was deleted.")
+    # A retry must still stop the child if the parent transition succeeded before cleanup failed.
+    stop_current_cell(notebook_run.notebook, notebook_run)
+    return True
+
+
 @activity.defn(name="notebook-run-read-status")
 def read_notebook_run_status_activity(input: NotebookRunInput) -> str:
     notebook_run = _load_run(input.team_id, input.notebook_run_id)
+    if notebook_run is not None:
+        _stop_deleted_notebook_run(notebook_run)
     # A missing record can only mean somebody deleted it, which tells the workflow the same
     # thing an interrupt does: stop.
     return notebook_run.status if notebook_run is not None else NotebookRun.Status.INTERRUPTED
@@ -120,6 +131,8 @@ def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
     notebook_run = _load_run(input.team_id, input.notebook_run_id)
     if notebook_run is None:
         raise ApplicationError("The run record is gone.", type=_UNRECOVERABLE, non_retryable=True)
+    if _stop_deleted_notebook_run(notebook_run):
+        raise ApplicationError("The notebook was deleted.", type=_UNRECOVERABLE, non_retryable=True)
     # The workflow checked this before scheduling the activity, but an interrupt can land in
     # between. Without this re-check the endpoint would find no cell to stop, report success,
     # and then this dispatch would start one anyway — burning compute and holding the
@@ -181,6 +194,9 @@ def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
     # under a run the user was told had stopped. The row exists now, so reconcile against the
     # parent: every interleaving is covered, because a Stop later than this finds the row.
     notebook_run.refresh_from_db(fields=["status"])
+    notebook_run.notebook.refresh_from_db(fields=["deleted"])
+    if _stop_deleted_notebook_run(notebook_run):
+        return str(dispatch.run_id)
     if notebook_run.status != NotebookRun.Status.RUNNING:
         with team_scope(notebook_run.team_id, canonical=True):
             stop_current_cell(notebook_run.notebook, notebook_run)
@@ -301,11 +317,14 @@ class NotebookRunWorkflow(PostHogWorkflow):
             await self._finish(
                 input, NotebookRun.Status.FAILED, failed_node_id=node_id, error=_dispatch_error_message(e)
             )
+            await self._stop_cell(input)
             return None
 
     async def _await_cell(self, input: NotebookRunInput, node_run_id: str) -> str:
         check = NotebookRunCellCheckInput(node_run_id=node_run_id, team_id=input.team_id)
         while True:
+            if await self._run_status(input) != NotebookRun.Status.RUNNING:
+                return NotebookNodeRun.Status.INTERRUPTED
             status = await workflow.execute_activity(
                 check_notebook_cell_activity,
                 check,
