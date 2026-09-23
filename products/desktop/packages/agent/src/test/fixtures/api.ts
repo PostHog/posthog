@@ -62,7 +62,11 @@ export async function createTestRepo(prefix = "test-repo"): Promise<TestRepo> {
     tmpdir(),
     `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
-  await cp(await getTemplateRepo(), repoPath, { recursive: true });
+  // fs.cp cannot copy the socket that git's fsmonitor daemon leaves behind.
+  await cp(await getTemplateRepo(), repoPath, {
+    recursive: true,
+    filter: (source) => !source.endsWith("fsmonitor--daemon.ipc"),
+  });
 
   const git = async (args: string[]): Promise<string> => {
     const { stdout } = await execFileAsync("git", args, { cwd: repoPath });
