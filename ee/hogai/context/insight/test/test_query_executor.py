@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -322,6 +323,26 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("max execution time", str(context.exception))
+
+    @parameterized.expand(
+        [
+            ("zero rows", [], True),
+            ("some rows", [{"count": 3}], False),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_zero_row_response_is_called_out_to_the_model(
+        self, _name: str, results: list, expected: bool, mock_process_query: Mock
+    ) -> None:
+        # Every formatter renders zero rows as a header-only table, so without this the model reads
+        # an empty result as a small one and runs near-identical queries again.
+        mock_process_query.return_value = {"results": results, "columns": ["count"]}
+
+        result = await execute_and_format_query(
+            self.team, AssistantHogQLQuery(query="SELECT count() FROM events"), user=self.user
+        )
+
+        self.assertEqual("This query matched no rows." in result, expected)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")

@@ -50,6 +50,9 @@ Do not copy the results table as the user sees it in the UI.
 {{#has_truncated_values}}
 Some JSON/array values were truncated. You can write a more specific SQL query to explore individual properties or array elements if needed.
 {{/has_truncated_values}}
+{{#has_no_results}}
+This query matched no rows. The events, properties, or date range in it have no data in this project. Tell the user that the data is not there. Do not run the same query again with small changes. Run a different query only if you have a clear reason to think that another event, property, or date range is the one the user means.
+{{/has_no_results}}
 {{#has_null_values}}
 Cells shown as `(null)` are SQL NULL: the column had no value for those rows, usually because the property is absent on that event. Treat them as missing data. Never report `(null)` as a value, and never conclude a property is set to "null" or "None" from them.
 {{/has_null_values}}
