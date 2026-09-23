@@ -1328,6 +1328,22 @@ snapshots:
         hash: v1.k794b7964.569cfd0e730a83543813b1eafb440926aa4609bb0152eb181dc59fee1ea5dfd3.45sa4VsBQ3Ff-WeTTpiTNY4rF2ENc8DS-adghxL68Bw
     components-insighttooltip--math-tags-single-series--light:
         hash: v1.k794b7964.7b71a93bc37c46ac51efcb9f53cd989daade7490f30ebde795b0b918e59d25e2.Y0ThCO5-ePDvaf3o5da7LvN_1quQ_FXQEnTSm5TCvog
+    components-integrations-github-suggestions--multiple--dark:
+        hash: v1.k794b7964.fdd0edd3da576b292f0626930557bc4b395e257caafc9fa28111faf2e580979a.otTmyNsIxocnVyu5Vd5sZlxcYcGAgbzShAidGTDTzEk
+    components-integrations-github-suggestions--multiple--light:
+        hash: v1.k794b7964.d6c629b46cbb54eae46fbe57941e81ceebd61e004d7b10c99cb7dcef3c8d7de5.bV-SuN-48HsN6cx9NuUf-yg0Vlh3ZbrzmRe_D90D-JQ
+    components-integrations-github-suggestions--narrow--dark:
+        hash: v1.k794b7964.42879a3b4aaad2abb2d325dc06c820207384015ef8c84415965860e5b3f02e56.uy4rMiXR74BPJeUoyW0E93-bMP4MKbsHZ1Zd-t3cjlA
+    components-integrations-github-suggestions--narrow--light:
+        hash: v1.k794b7964.b4bef7501ef61f9e455b9f125f15510882a96799bd53a04e8b0a22ffaabadd9a.fYE1eJNI_PQw7cGfybxYS7AR4rXZMXOt3fCaq-gU5cs
+    components-integrations-github-suggestions--personal-unavailable--dark:
+        hash: v1.k794b7964.fe0bf2106dc915d46dd58774c57f73167084a622f444c82db7fda3487bbbfd14.7EZkCpDNSYXi1Sn5peWNbUw6P87pb_1ZoIdnDvRKDt4
+    components-integrations-github-suggestions--personal-unavailable--light:
+        hash: v1.k794b7964.e8ab4bc0f40d17c3c6b986e317b8583474ba9835e69a9fd69e895a9021ddedce.oTEKdkZmvyrdBDvN3yxfp1aJAUmSYoLcqincwrKuE7g
+    components-integrations-github-suggestions--single--dark:
+        hash: v1.k794b7964.bbc1214c9b3a2835f137dcb6951a408a9bfbb0bdb365713b6c73aa14322b402a.sQJuuLerKZpVLWOAzo52eVwc-A3wlgdvCstA-92E2TA
+    components-integrations-github-suggestions--single--light:
+        hash: v1.k794b7964.af98410b1acf3a20e61c3c7ac1d366cefd9ae7c5b2f930212a9cd2cda7c49310.40gZvIrwfFuoTOVOZacm1NnU4aXCMOGAraRvx7TYH5E
     components-integrations-githubreposummary--all-repositories--dark:
         hash: v1.k794b7964.ad87b61d12c16bbe594c68eede01d3e9e279a7dfd08bcce06c734ea7ade4c9cb.iOP_47ViGava56NrIa0Sn2daPDaCDikXL9e_fXtcKgo
     components-integrations-githubreposummary--all-repositories--light:
