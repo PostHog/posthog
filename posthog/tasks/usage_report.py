@@ -1757,6 +1757,7 @@ POSTHOG_AI_PRODUCTS = [
     "workflows",
     "subscriptions",
     "alert_investigation_agent",
+    "alert_llm_detector",
     "product_analytics",
     "surveys",
     "replay_vision",
