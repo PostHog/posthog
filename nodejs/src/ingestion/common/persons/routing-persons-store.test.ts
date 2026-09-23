@@ -747,14 +747,10 @@ describe('RoutingPersonsStore', () => {
                 if (applied) {
                     expect(stores.personhogMock.applyEventOps).toHaveBeenCalledWith(
                         shadowPerson,
-                        expect.objectContaining({ set: { plan: 'pro' }, shouldForceUpdate: true }),
+                        expect.objectContaining({ setOnce: { plan: 'pro' }, shouldForceUpdate: true }),
                         'd1',
                         0
                     )
-                    expect(personhogStoreShadowDivergenceCounter.labels).toHaveBeenCalledWith({
-                        verb: 'createPerson',
-                        field: 'created',
-                    })
                 }
             }
         )

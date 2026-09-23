@@ -353,7 +353,6 @@ export class RoutingPersonsStore implements PersonsStore {
                     batchId
                 ),
             {
-                compare: (authoritative, shadow) => this.compareCreate(authoritative, shadow as CreatePersonResult),
                 after: (authoritative, shadow, abandoned) =>
                     this.reconcileShadowCreate(
                         authoritative,
@@ -367,19 +366,9 @@ export class RoutingPersonsStore implements PersonsStore {
         )
     }
 
-    private compareCreate(authoritative: CreatePersonResult, shadow: CreatePersonResult): void {
-        personhogStoreShadowComparedCounter.labels({ verb: 'createPerson' }).inc()
-        if (authoritative.success !== shadow.success) {
-            this.recordDivergence('createPerson', 'success')
-        } else if (authoritative.success && shadow.success && authoritative.created !== shadow.created) {
-            this.recordDivergence('createPerson', 'created')
-        }
-    }
-
     /**
-     * Shadow mode follows the Postgres verdict, so a person Postgres created and personhog
-     * only found gets its creation properties there, as the personhog path's found-existing
-     * create does through the event's own update.
+     * Shadow mode follows the Postgres verdict, so a person Postgres created and personhog only
+     * found gets its creation properties there. Set-once, so another creator's values stand.
      */
     private async reconcileShadowCreate(
         authoritative: CreatePersonResult,
@@ -397,8 +386,8 @@ export class RoutingPersonsStore implements PersonsStore {
             return
         }
         const ops: EventOps = {
-            set: properties,
-            setOnce: {},
+            set: {},
+            setOnce: properties,
             unset: [],
             denied: false,
             shouldForceUpdate: true,

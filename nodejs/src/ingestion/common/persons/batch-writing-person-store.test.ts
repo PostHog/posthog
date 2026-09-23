@@ -2997,7 +2997,7 @@ describe('BatchWritingPersonStore', () => {
             return () => release()
         }
 
-        it('settles the live entry when another batch replaces it during the write', async () => {
+        it('a read that replaces the entry during the write keeps the sent changes drained', async () => {
             const personStore = getPersonsStore()
             await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(person, { x: '1' }, [], {}, 'distinct_id_1')
@@ -3030,41 +3030,48 @@ describe('BatchWritingPersonStore', () => {
             expect(entry).toMatchObject({ id: person.id, uuid: person.uuid })
         })
 
-        it('a second flush leaves an entry whose write is in flight for the next flush', async () => {
+        it('a second flush during the write sends only the sets added since the first', async () => {
             const personStore = getPersonsStore()
             await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'free' }, [], {}, 'distinct_id_1')
 
             const release = holdNextWrite()
             const first = personStore.flush()
-            // A newer value arrives and another batch flushes while the first write is still out.
-            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'pro' }, [], {}, 'distinct_id_1')
+            // Another batch sets a second key and flushes while the first write is still out.
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { tier: 'gold' }, [], {}, 'distinct_id_1')
             await personStore.flush()
-            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
-
             release()
             await first
-            await personStore.flush()
 
             expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
-            expect(mockRepo.updatePersonsBatch.mock.calls[1][0][0].properties_to_set).toEqual({ plan: 'pro' })
+            expect(mockRepo.updatePersonsBatch.mock.calls[0][0][0].properties_to_set).toEqual({ plan: 'free' })
+            expect(mockRepo.updatePersonsBatch.mock.calls[1][0][0].properties_to_set).toEqual({ tier: 'gold' })
         })
 
-        it('an entry whose write is in flight outlives its batch until the write settles', async () => {
-            const personStore = getPersonsStore()
-            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
-            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { plan: 'free' }, [], {}, 'distinct_id_1')
+        it.each([
+            [
+                'properties',
+                { plan: 'free' },
+                ['old'],
+                {},
+                { properties_to_set: { plan: 'free' }, properties_to_unset: ['old'] },
+            ],
+            ['a scalar', {}, [], { is_identified: true }, { is_identified: true }],
+        ])(
+            'a failed flush keeps %s it took pending and the next flush sends it',
+            async (_case, set, unset, other, sent) => {
+                const personStore = getPersonsStore()
+                await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person, set, unset, other, 'distinct_id_1')
 
-            const release = holdNextWrite()
-            const flushing = personStore.flush()
-            personStore.releaseBatch(0)
-            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeDefined()
+                mockRepo.updatePersonsBatch.mockRejectedValueOnce(new Error('connection lost'))
+                await expect(personStore.flush()).rejects.toThrow('connection lost')
+                await personStore.flush()
 
-            release()
-            await flushing
-
-            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeUndefined()
-        })
+                expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
+                expect(mockRepo.updatePersonsBatch.mock.calls[1][0][0]).toMatchObject(sent)
+            }
+        )
 
         it('two distinct_ids pointing to the same person share a single cache entry across batches', async () => {
             const personStore = getPersonsStore()

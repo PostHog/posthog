@@ -1,4 +1,3 @@
-import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
@@ -425,7 +424,7 @@ class BatchWritingPersonsCache {
             }
             const personIdKey = this.getPersonIdCacheKey(teamId, personId)
             const update = this.personUpdateCache.get(personIdKey)
-            if (!update || (!update.needs_write && !update.write_in_flight)) {
+            if (!update || !update.needs_write) {
                 this.personUpdateCache.delete(personIdKey)
                 this.distinctIdToPersonId.delete(distinctKey)
                 this.deferredEvictions.delete(distinctKey)
@@ -454,7 +453,7 @@ class BatchWritingPersonsCache {
         if (personId !== undefined) {
             const personIdKey = this.getPersonIdCacheKey(teamId, personId)
             const update = this.personUpdateCache.get(personIdKey)
-            if (!update || (!update.needs_write && !update.write_in_flight)) {
+            if (!update || !update.needs_write) {
                 this.personUpdateCache.delete(personIdKey)
                 this.distinctIdToPersonId.delete(distinctKey)
             } else {
@@ -696,9 +695,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // that mutate an entry between this clear and the async DB write
         // will re-set `needs_write=true` and be picked up by the next flush.
         // DO NOT introduce any `await` inside this block.
-        // Write records are copies taken here; the settle step below mutates only the cache entry.
+        // Write records are copies taken here, and the entry drains what they carry.
         const updateEntries: [string, PersonUpdate][] = []
-        const keysByUuid = new Map<string, string>()
         for (const [key, update] of this.personCache.getUpdateCacheEntries()) {
             // Skip null entries - these are deleted persons or cleared cache entries
             if (!update) {
@@ -708,11 +706,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             // Skip entries not marked for write - these are read-only cache entries from fetchForUpdate
             // that were cached but never modified (no events tried to update their properties)
             if (!update.needs_write) {
-                continue
-            }
-            // One write in flight per entry: two unordered statements could land the
-            // older one last, and the settle would then keep the older value.
-            if (update.write_in_flight) {
                 continue
             }
 
@@ -737,11 +730,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         ...update,
                         properties_to_set: { ...update.properties_to_set },
                         properties_to_unset: [...update.properties_to_unset],
-                        write_in_flight: false,
                     },
                 ])
-                keysByUuid.set(update.uuid, key)
-                update.write_in_flight = true
+                this.drainSentChanges(update)
             }
 
             // Clear needs_write for every dirty entry we considered, including
@@ -784,20 +775,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 }
             }
 
-            // A cache write replaces the entry object, so the entry is looked up by key now;
-            // one without the flag is a fresh entry the record did not come from.
-            const recordsByUuid = new Map(updateEntries.map(([, record]) => [record.uuid, record]))
-            const cache = this.personCache.getUpdateCache()
-            for (const result of allKafkaMessages) {
-                const key = result.uuid === undefined ? undefined : keysByUuid.get(result.uuid)
-                const entry = key === undefined ? undefined : cache.get(key)
-                const record = result.uuid === undefined ? undefined : recordsByUuid.get(result.uuid)
-                if (entry?.write_in_flight && record) {
-                    this.settleWrittenChanges(entry, record)
-                }
-            }
-            this.clearWritesInFlight(updateEntries)
-
             // Record successful flush
             const flushLatency = (performance.now() - flushStartTime) / 1000
             personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, flushLatency)
@@ -816,43 +793,49 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 errorMessage: error instanceof Error ? error.message : String(error),
                 errorStack: error instanceof Error ? error.stack : undefined,
             })
-            this.clearWritesInFlight(updateEntries)
+            this.restoreUnsentChanges(updateEntries)
             throw error
         }
     }
 
-    private clearWritesInFlight(updateEntries: [string, PersonUpdate][]): void {
+    /** Folds the pending changes a record carries into the entry's base, so only later changes stay pending. */
+    private drainSentChanges(entry: PersonUpdate): void {
+        entry.properties = { ...entry.properties, ...entry.properties_to_set }
+        for (const key of entry.properties_to_unset) {
+            delete entry.properties[key]
+        }
+        entry.properties_to_set = {}
+        entry.properties_to_unset = []
+        entry.original_is_identified = entry.is_identified
+        entry.original_created_at = entry.created_at
+        entry.original_last_seen_at = entry.last_seen_at
+    }
+
+    /** Puts a failed flush's records back into pending under whatever the entries changed since. */
+    private restoreUnsentChanges(updateEntries: [string, PersonUpdate][]): void {
         const cache = this.personCache.getUpdateCache()
-        for (const [key] of updateEntries) {
+        for (const [key, record] of updateEntries) {
             const entry = cache.get(key)
-            if (entry) {
-                entry.write_in_flight = false
+            if (!entry) {
+                continue
             }
+            const toSet = { ...record.properties_to_set, ...entry.properties_to_set }
+            for (const unsetKey of entry.properties_to_unset) {
+                delete toSet[unsetKey]
+            }
+            entry.properties_to_set = toSet
+            entry.properties_to_unset = [
+                ...new Set([...record.properties_to_unset, ...entry.properties_to_unset]),
+            ].filter((unsetKey) => !(unsetKey in entry.properties_to_set))
+            entry.original_is_identified = record.original_is_identified
+            entry.original_created_at = record.original_created_at
+            entry.original_last_seen_at = record.original_last_seen_at
+            entry.needs_write = true
         }
     }
 
     getFlushStats(): BatchWritingStoreFlushStats {
         return this.personCache.getFlushStats()
-    }
-
-    /** Folds a landed write into the entry's base and out of its pending maps; a key re-set since keeps its newer value pending. */
-    private settleWrittenChanges(entry: PersonUpdate, written: PersonUpdate): void {
-        entry.properties = { ...entry.properties, ...written.properties_to_set }
-        for (const key of written.properties_to_unset) {
-            delete entry.properties[key]
-        }
-        for (const [key, value] of Object.entries(written.properties_to_set)) {
-            if (isEqual(entry.properties_to_set[key], value)) {
-                delete entry.properties_to_set[key]
-            }
-        }
-        entry.properties_to_unset = entry.properties_to_unset.filter(
-            (key) => !written.properties_to_unset.includes(key)
-        )
-        // The originals are what last landed; a scalar changed since the record was taken still differs.
-        entry.original_is_identified = written.is_identified
-        entry.original_created_at = written.created_at
-        entry.original_last_seen_at = written.last_seen_at
     }
 
     /**

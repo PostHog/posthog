@@ -144,11 +144,7 @@ interface MergeParticipant {
     pending?: PendingPersonChanges
 }
 
-/**
- * What a merge changes on the target: the keys it sets to a value the target did not
- * already hold, and the keys the event's ops removed. Only these travel to the row, so
- * the target's own snapshot never overwrites a write that landed since it was read.
- */
+/** Only the keys a merge changes travel to the row, so its snapshot never overwrites a later write. */
 function propertyChanges(before: Properties, after: Properties): { toSet: Properties; toUnset: string[] } {
     const toSet: Properties = {}
     for (const [key, value] of Object.entries(after)) {
@@ -256,13 +252,8 @@ export class PostgresPersonMerge {
     }
 
     /**
-     * The merge's property outcome, read from the rows as they stand under the
-     * transaction's lock rather than from the reads that chose the merge. A flush
-     * that landed on a source since those reads is carried; one that lands later
-     * waits for the lock and then re-targets through the tombstone. The target's
-     * view also carries what this batch has buffered for it, so an earlier merge
-     * in the batch keeps its precedence. Precedence is the target's, then earlier
-     * sources over later ones, with the event's ops on top.
+     * The property outcome from the rows as they stand under the transaction's lock, with the
+     * store's pending changes on top. Precedence: target, then earlier sources, then the event's ops.
      */
     private async lockedMergeOutcome(
         tx: PersonsStoreTransactionForBatch,
