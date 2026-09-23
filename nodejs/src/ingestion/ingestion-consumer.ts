@@ -1,4 +1,4 @@
-import { Message } from 'node-rdkafka'
+import { Assignment, Message } from 'node-rdkafka'
 import { Gauge, Histogram } from 'prom-client'
 
 import { CommonConfig } from '~/common/config'
@@ -341,15 +341,18 @@ export class IngestionConsumer {
         }
         this.joinedPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
 
-        await this.kafkaConsumer.connect(async (messages) => {
-            return await instrumentFn(
-                {
-                    key: `ingestionConsumer.handleEachBatch`,
-                    sendException: false,
-                },
-                async () => await this.handleKafkaBatch(messages)
-            )
-        })
+        await this.kafkaConsumer.connect(
+            async (messages) => {
+                return await instrumentFn(
+                    {
+                        key: `ingestionConsumer.handleEachBatch`,
+                        sendException: false,
+                    },
+                    async () => await this.handleKafkaBatch(messages)
+                )
+            },
+            (revokedPartitions) => this.onPartitionsRevoked(revokedPartitions)
+        )
     }
 
     public async stop(): Promise<void> {
@@ -461,6 +464,15 @@ export class IngestionConsumer {
                 await timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll())
             }),
         }
+    }
+
+    // Otherwise this pod keeps exporting the partition's last timestamp. The value ages, so it raises
+    // a false per-partition delay alert while the new owner has not yet reported a timestamp.
+    private onPartitionsRevoked(partitions: Assignment[]): Promise<void> {
+        for (const { topic, partition } of partitions) {
+            latestOffsetTimestampGauge.remove({ topic, partition, groupId: this.groupId })
+        }
+        return Promise.resolve()
     }
 
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
