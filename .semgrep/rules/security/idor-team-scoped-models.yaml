@@ -1264,6 +1264,7 @@ rules:
                       regex: |
                           (?x)(
                               AgentMemory
+                              |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
                               |InsightViewed
@@ -1338,6 +1339,7 @@ rules:
                 regex: |
                     (?x)(
                         AgentMemory
+                        |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
                         |InsightViewed
