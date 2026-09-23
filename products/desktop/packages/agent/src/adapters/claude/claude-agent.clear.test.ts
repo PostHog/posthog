@@ -2,7 +2,9 @@ import * as fs from "node:fs";
 import type { AgentSideConnection } from "@agentclientprotocol/sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POSTHOG_METHODS, POSTHOG_NOTIFICATIONS } from "../../acp-extensions";
+import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
+import { DEFAULT_MODEL_PRICES, RunBudgetGuard } from "./session/budget-guard";
 import { getSessionJsonlPath } from "./session/jsonl-hydration";
 import { FALLBACK_MODEL } from "./session/models";
 
@@ -730,19 +732,39 @@ describe("ClaudeAcpAgent /clear", () => {
     );
   });
 
-  it("resets pre-clear plan and notification state so it can't resurface after /clear", async () => {
+  it("resets pre-clear plan, notification and background-turn state so it can't resurface after /clear", async () => {
     const { agent } = makeAgent();
     const { session } = installFakeSession(agent, "s-plan");
     (session as unknown as { lastPlanFilePath?: string }).lastPlanFilePath =
       "/tmp/repo/.claude/plans/old.md";
     session.notificationHistory.push({ type: "assistant", text: "old" });
     agent.fileContentCache["/tmp/repo/.claude/plans/old.md"] = "stale content";
+    const live = session as unknown as {
+      backgroundTurnActive?: boolean;
+      budgetGuard?: RunBudgetGuard;
+    };
+    live.backgroundTurnActive = true;
+    const guard = new RunBudgetGuard(
+      1,
+      DEFAULT_MODEL_PRICES,
+      new Logger({ debug: false }),
+    );
+    guard.recordAssistantMessage({
+      id: "m1",
+      model: "claude-opus-5",
+      usage: { input_tokens: 0, output_tokens: 40_000 },
+    });
+    expect(guard.takePendingSteer()).toBe("critical");
+    guard.recordSteer("critical", true);
+    live.budgetGuard = guard;
 
     await agent.prompt({
       sessionId: "s-plan",
       prompt: [{ type: "text", text: "/clear" }],
     });
 
+    expect(live.backgroundTurnActive).toBe(false);
+    expect(guard.takePendingSteer()).toBe("critical");
     expect(
       (session as unknown as { lastPlanFilePath?: string }).lastPlanFilePath,
     ).toBeUndefined();

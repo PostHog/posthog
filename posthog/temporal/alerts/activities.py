@@ -60,7 +60,7 @@ from posthog.temporal.common.metrics import get_metric_meter
 
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
-from products.alerts.backend.evaluation.validation import validate_alert_config
+from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
 from products.alerts.backend.facade.api import (
     MAX_CONCURRENT_MODEL_CALLS,
     LLMDetectorMisconfiguredError,
@@ -292,6 +292,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 if insight.query is None:
                     raise ValueError("Alert's insight has no valid query")
                 threshold_config = alert.threshold.configuration if alert.threshold else None
+                validate_alert_insight_query(insight.query, team=alert.team, user=alert.created_by)
                 validate_alert_config(
                     insight.query,
                     alert.condition,

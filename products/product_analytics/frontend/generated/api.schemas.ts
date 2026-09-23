@@ -4311,9 +4311,11 @@ export interface ErrorTrackingExternalReferenceIntegrationApi {
 }
 
 export interface ErrorTrackingExternalReferenceApi {
+    external_id: string
     external_url: string
     id: string
     integration: ErrorTrackingExternalReferenceIntegrationApi
+    title: string
 }
 
 export interface FirstEventApi {
