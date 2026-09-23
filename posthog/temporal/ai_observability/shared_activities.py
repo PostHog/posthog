@@ -33,6 +33,21 @@ async def fetch_all_clustering_filters_activity(
     return await asyncio.to_thread(_fetch_filters)
 
 
+def consented_team_ids(team_ids: list[int]) -> set[int]:
+    """Of the given teams, the ones whose organization approved third-party AI data processing.
+
+    The flag is nullable, and every reader treats an unset flag as not approved. A team that
+    no longer exists is absent from the result, so a caller fails closed on both.
+    """
+    from posthog.models import Team
+
+    return set(
+        Team.objects.filter(id__in=team_ids, organization__is_ai_data_processing_approved=True).values_list(
+            "id", flat=True
+        )
+    )
+
+
 @dataclass
 class TeamAIConsentInput:
     team_id: int
@@ -40,26 +55,9 @@ class TeamAIConsentInput:
 
 @activity.defn
 async def check_ai_data_processing_consent_activity(inputs: TeamAIConsentInput) -> bool:
-    """Report whether the team's organization approved third-party AI data processing.
-
-    Returns False for a team that no longer exists, so a caller that acts on the answer
-    fails closed.
-    """
-
-    def _is_approved() -> bool:
-        from posthog.models import Team
-
-        rows = list(
-            Team.objects.filter(id=inputs.team_id).values_list(
-                "organization__is_ai_data_processing_approved", flat=True
-            )[:1]
-        )
-        if not rows:
-            return False
-        # The field is nullable with a default of True, so null counts as approved.
-        return rows[0] is not False
-
-    return await asyncio.to_thread(_is_approved)
+    """Report whether the team's organization approved third-party AI data processing."""
+    consented = await asyncio.to_thread(consented_team_ids, [inputs.team_id])
+    return inputs.team_id in consented
 
 
 @dataclass

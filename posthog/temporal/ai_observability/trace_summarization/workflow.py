@@ -26,7 +26,6 @@ from posthog.temporal.ai_observability.trace_summarization import constants
 from posthog.temporal.ai_observability.trace_summarization.constants import (
     CONSENT_CHECK_PATCH_ID,
     CONSENT_CHECK_RETRY_POLICY,
-    CONSENT_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT,
     CONSENT_CHECK_START_TO_CLOSE_TIMEOUT,
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
@@ -199,7 +198,6 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 check_ai_data_processing_consent_activity,
                 TeamAIConsentInput(team_id=inputs.team_id),
                 start_to_close_timeout=CONSENT_CHECK_START_TO_CLOSE_TIMEOUT,
-                schedule_to_close_timeout=CONSENT_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT,
                 retry_policy=CONSENT_CHECK_RETRY_POLICY,
             )
             if not consented:

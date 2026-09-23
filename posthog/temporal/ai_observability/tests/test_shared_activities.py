@@ -22,7 +22,7 @@ class TestCheckAIDataProcessingConsentActivity:
     @parameterized.expand(
         [
             ("approved", True, True),
-            ("null_counts_as_approved", None, True),
+            ("null_is_not_approved", None, False),
             ("not_approved", False, False),
         ]
     )
