@@ -80,6 +80,7 @@ export function BillingAlertNotifications(props: BillingAlertNotificationLogicPr
                 }}
                 slack={{
                     notificationType: 'slack',
+                    connectSurface: 'billing_alert_notification_destination',
                     integrationsLoading,
                     integrationsFailed,
                     onRetryIntegrations: loadIntegrations,

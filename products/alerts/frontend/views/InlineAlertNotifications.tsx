@@ -247,6 +247,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                 }}
                 slack={{
                     notificationType: ALERT_NOTIFICATION_TYPE_SLACK,
+                    connectSurface: 'insight_alert_notification_destination',
                     integrationsLoading,
                     integrationsFailed,
                     onRetryIntegrations: loadIntegrations,
