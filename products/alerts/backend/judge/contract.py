@@ -46,6 +46,13 @@ class LLMDetectorUnavailableError(LLMDetectorError):
     """A transport failure, timeout, or unusable model output. Worth retrying."""
 
 
+class LLMDetectorMisconfiguredError(LLMDetectorError):
+    """The judge cannot run as configured, so retrying cannot help.
+
+    The creator is missing, AI data processing consent is withdrawn, or the rollout is disabled.
+    """
+
+
 # What the alert's owner reads on a check the judge could not reach a verdict for. The raw
 # transport error can carry an internal detail, so the check history and the error email show
 # this instead, and the code is what lets it past the serializer's allowlist.
@@ -54,13 +61,6 @@ LLM_DETECTOR_UNAVAILABLE_MESSAGE = (
     "The AI detector could not reach its model provider, so this check did not run. "
     "The alert is still on and the next check tries again."
 )
-
-
-class LLMDetectorMisconfiguredError(LLMDetectorError):
-    """The judge cannot run as configured, so retrying cannot help.
-
-    The creator is missing, AI data processing consent is withdrawn, or the rollout is disabled.
-    """
 
 
 @frozen

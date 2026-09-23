@@ -152,8 +152,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
 
             # Phase 2 — evaluate: CH query + state machine + persist AlertCheck
             # An AI detector calls a model, and only the AI worker holds the provider
-            # credentials, so that check evaluates on the AI queue. Every other alert stays
-            # on this workflow's own queue.
+            # credentials, so that check evaluates on the AI queue.
             evaluate_task_queue = (
                 settings.MAX_AI_TASK_QUEUE
                 if prepare_result.uses_llm_detector
