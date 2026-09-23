@@ -535,8 +535,7 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_sends_an_encodable_prompt(self, setup_data, active_key_config):
-        # An unpaired surrogate in captured content makes the request body unencodable, so every
-        # attempt fails until the judge repairs it.
+        # An unpaired surrogate makes the body unencodable, so every attempt fails unrepaired.
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
 

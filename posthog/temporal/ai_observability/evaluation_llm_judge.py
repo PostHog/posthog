@@ -405,8 +405,7 @@ def call_llm_judge(
     is_byok = resolved.is_byok
     key_id = str(provider_key.id) if provider_key else None
 
-    # Captured content reaches the judge as it was ingested, so an unpaired surrogate can make the
-    # request body unencodable and fail every attempt. Trace summarization repairs the same way.
+    # Content reaches the judge as ingested, so an unpaired surrogate makes the body unencodable.
     system_prompt = sanitize_surrogates(system_prompt)
     user_prompt = sanitize_surrogates(user_prompt)
 
@@ -532,10 +531,9 @@ def call_llm_judge(
         )
 
     except ProviderBadRequestError as e:
-        # A 400 is the provider's verdict on this request, so every retry collects the same
-        # refusal. One refusal cannot say whether the model is wrong for every unit or only for
-        # this unit's content, and disabling the evaluation over one bad unit costs every verdict
-        # after it. The `provider_bad_request` metric is where a whole-evaluation failure shows up.
+        # Every retry collects the same refusal, and one refusal cannot say whether the model is
+        # wrong for every unit or only for this unit's content. Disabling the evaluation over one
+        # bad unit costs every verdict after it, so watch the metric for the systemic case.
         increment_errors("provider_bad_request", provider=provider)
         detail = truncate_error_detail(str(e))
         logger.warning(
@@ -548,7 +546,6 @@ def call_llm_judge(
         )
         reasoning = "The model provider rejected this evaluation request; evaluation skipped."
         if detail:
-            # The provider's sentence is the only description of what was wrong.
             reasoning = f"{reasoning} {detail}"
         return _build_judge_skip_result(
             allows_na,

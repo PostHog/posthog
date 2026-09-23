@@ -172,8 +172,6 @@ def user_facing_error_message(error: Exception | None) -> str:
     if isinstance(error, ProviderConnectionError):
         return "Could not reach the model provider. Try again."
     if isinstance(error, ProviderBadRequestError):
-        # The request itself caused the 400, so "try again" is advice that cannot work. The
-        # provider's reason is the only actionable thing left.
         return f"The model provider rejected this request: {error}"
     if isinstance(error, StructuredOutputParseError):
         return "The model returned a response we could not read. Try again."
