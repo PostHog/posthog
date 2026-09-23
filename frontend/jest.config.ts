@@ -316,6 +316,7 @@ const config: Config = {
         '/services/mcp/',
         '/products/[^/]+/frontend/e2e/',
         '/products/visual_review/cli/',
+        '/products/workflows/packages/',
         '/products/desktop/',
     ],
 
