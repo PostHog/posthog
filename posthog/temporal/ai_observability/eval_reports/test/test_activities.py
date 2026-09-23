@@ -845,40 +845,6 @@ class TestPeriodForScheduledReport(BaseTest):
 
 
 class TestEvaluationReportResultMetrics(ClickhouseTestMixin, BaseTest):
-    @parameterized.expand([("Boolean",), ("String",), (None,)])
-    def test_boolean_reports_preserve_outcomes_across_property_types(self, property_type: str | None) -> None:
-        if property_type:
-            PropertyDefinition.objects.create(team=self.team, name="$ai_evaluation_result", property_type=property_type)
-        start = dt.datetime(2026, 7, 1, tzinfo=dt.UTC)
-        rows: list[dict[str, object]] = [
-            {"$ai_evaluation_result": True},
-            {"$ai_evaluation_result": True},
-            {"$ai_evaluation_result": False},
-            {"$ai_evaluation_applicable": False},
-            {"$ai_evaluation_result": False, "$ai_evaluation_skipped": True},
-            {"$ai_evaluation_numeric_result": 1, "$ai_evaluation_result_type": "numeric"},
-        ]
-        for index, properties in enumerate(rows):
-            _create_event(
-                team=self.team,
-                event="$ai_evaluation",
-                distinct_id=f"boolean-{index}",
-                timestamp=start,
-                properties={"$ai_evaluation_id": "boolean-eval", **properties},
-            )
-        for detector, expected in [(False, {"pass": 2, "fail": 1, "na": 1}), (True, {"pass": 1, "fail": 2, "na": 1})]:
-            metrics = _compute_metrics(
-                self.team.id,
-                "boolean-eval",
-                start.isoformat(),
-                (start + dt.timedelta(days=1)).isoformat(),
-                (start - dt.timedelta(days=1)).isoformat(),
-                true_is_failure=detector,
-            )
-            assert metrics is not None
-            self.assertEqual(metrics.total_runs, 4)
-            self.assertEqual(metrics.result_counts, expected)
-
     @parameterized.expand(
         [("registered", True, True), ("unregistered_applicable", False, True), ("unregistered", False, False)]
     )

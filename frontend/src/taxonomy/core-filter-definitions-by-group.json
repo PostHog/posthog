@@ -363,6 +363,16 @@
             "label": "AI evaluation numeric result",
             "type": "Numeric"
         },
+        "$ai_evaluation_numeric_result_max": {
+            "description": "The configured maximum score for an online evaluation.",
+            "label": "AI evaluation numeric result maximum",
+            "type": "Numeric"
+        },
+        "$ai_evaluation_numeric_result_min": {
+            "description": "The configured minimum score for an online evaluation.",
+            "label": "AI evaluation numeric result minimum",
+            "type": "Numeric"
+        },
         "$ai_evaluation_provider": {
             "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
             "examples": [
@@ -5168,6 +5178,16 @@
                 10
             ],
             "label": "AI evaluation numeric result",
+            "type": "Numeric"
+        },
+        "$ai_evaluation_numeric_result_max": {
+            "description": "The configured maximum score for an online evaluation.",
+            "label": "AI evaluation numeric result maximum",
+            "type": "Numeric"
+        },
+        "$ai_evaluation_numeric_result_min": {
+            "description": "The configured minimum score for an online evaluation.",
+            "label": "AI evaluation numeric result minimum",
             "type": "Numeric"
         },
         "$ai_evaluation_provider": {

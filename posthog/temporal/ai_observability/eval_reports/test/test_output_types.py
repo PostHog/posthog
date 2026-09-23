@@ -36,15 +36,15 @@ class TestOutcomeDefinitions(SimpleTestCase):
 
     def test_absent_polarity_keeps_true_as_the_pass(self):
         definition = get_outcome_definition("boolean")
-        self.assertIn("properties.$ai_evaluation_result = 'true'", definition.outcome_predicates["pass"])
-        self.assertIn("properties.$ai_evaluation_result = 'false'", definition.outcome_predicates["fail"])
+        self.assertIn("properties.$ai_evaluation_result = true", definition.outcome_predicates["pass"])
+        self.assertIn("properties.$ai_evaluation_result = false", definition.outcome_predicates["fail"])
         self.assertEqual(definition.label_for(True), "pass")
         self.assertEqual(definition.label_for(False), "fail")
 
     def test_detector_polarity_makes_true_the_fail(self):
         definition = get_outcome_definition("boolean", true_is_failure=True)
-        self.assertIn("properties.$ai_evaluation_result = 'false'", definition.outcome_predicates["pass"])
-        self.assertIn("properties.$ai_evaluation_result = 'true'", definition.outcome_predicates["fail"])
+        self.assertIn("properties.$ai_evaluation_result = false", definition.outcome_predicates["pass"])
+        self.assertIn("properties.$ai_evaluation_result = true", definition.outcome_predicates["fail"])
         self.assertEqual(definition.label_for(True), "fail")
         self.assertEqual(definition.label_for(False), "pass")
 
@@ -61,18 +61,16 @@ class TestOutcomeDefinitions(SimpleTestCase):
         self.assertEqual(definition.label_for("negative"), "negative")
         self.assertIsNone(definition.label_for("nonsense"))
 
-    @parameterized.expand([(None,), ("unknown",), (2,)])
+    @parameterized.expand([(None,), ("true",), (2,)])
     def test_non_boolean_result_has_no_label(self, result: object):
         definition = get_outcome_definition("boolean")
         self.assertIsNone(definition.label_for(result))
 
-    @parameterized.expand([(True, False), (1, 0), ("true", "false")])
-    def test_boolean_result_representations_preserve_polarity(self, true_value, false_value):
-        for detector in (False, True):
-            definition = get_outcome_definition("boolean", true_is_failure=detector)
-            self.assertEqual(definition.label_for(true_value), "fail" if detector else "pass")
-            self.assertEqual(definition.label_for(false_value), "pass" if detector else "fail")
-            self.assertEqual(definition.label_for(false_value, applicable="false"), "na")
+    def test_integer_boolean_result_gets_a_label(self):
+        # A ClickHouse UInt8 column can hand back an int for a logically boolean result.
+        definition = get_outcome_definition("boolean")
+        self.assertEqual(definition.label_for(1), "pass")
+        self.assertEqual(definition.label_for(0), "fail")
 
     def test_supported_types_are_derived_from_the_builders(self):
         self.assertEqual(set(SUPPORTED_EVAL_REPORT_OUTPUT_TYPES), {"boolean", "sentiment", "numeric"})

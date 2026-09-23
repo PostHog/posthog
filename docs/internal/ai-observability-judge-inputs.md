@@ -47,7 +47,7 @@ The playground keeps the provider's explanation so users can correct the setting
 ## Result encoding
 
 Boolean online evaluations write their raw verdict to `$ai_evaluation_result`.
-Numeric evaluations write their score to `$ai_evaluation_numeric_result`, with optional `$ai_score_min` and `$ai_score_max` bounds.
+Numeric evaluations write their score to `$ai_evaluation_numeric_result`, with optional `$ai_evaluation_numeric_result_min` and `$ai_evaluation_numeric_result_max` bounds.
 `$ai_evaluation_result_type` identifies the output type; events without it are legacy boolean results.
 Sentiment evaluations keep their `$ai_sentiment_*` properties.
 N/A and skipped numeric runs omit the score, while zero remains a graded result.

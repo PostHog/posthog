@@ -2642,7 +2642,11 @@ class TestEvalResultModels:
         [
             (
                 {"score": 0, "score_min": 0, "score_max": 1},
-                {"$ai_evaluation_numeric_result": 0, "$ai_score_min": 0, "$ai_score_max": 1},
+                {
+                    "$ai_evaluation_numeric_result": 0,
+                    "$ai_evaluation_numeric_result_min": 0,
+                    "$ai_evaluation_numeric_result_max": 1,
+                },
             ),
             ({"applicable": False}, {}),
             ({"skipped": True, "skip_reason": "trace_not_found"}, {}),
@@ -2666,10 +2670,17 @@ class TestEvalResultModels:
         assert properties["$ai_evaluation_result_type"] == "numeric"
         assert "$ai_evaluation_result" not in properties
         assert "$ai_score" not in properties
+        assert "$ai_score_min" not in properties
+        assert "$ai_score_max" not in properties
         assert {
             key: value
             for key, value in properties.items()
-            if key in ("$ai_evaluation_numeric_result", "$ai_score_min", "$ai_score_max")
+            if key
+            in (
+                "$ai_evaluation_numeric_result",
+                "$ai_evaluation_numeric_result_min",
+                "$ai_evaluation_numeric_result_max",
+            )
         } == expected
 
     def test_boolean_eval_result(self):

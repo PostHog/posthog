@@ -3006,5 +3006,7 @@ describe('queryEvaluationRuns', () => {
 
         expect(queryHogQL.mock.calls[0][0]).not.toContain('$ai_evaluation_backfill_id')
         expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result as score')
+        expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result_min as score_min')
+        expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result_max as score_max')
     })
 })

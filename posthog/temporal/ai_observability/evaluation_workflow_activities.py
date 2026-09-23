@@ -297,9 +297,9 @@ def build_evaluation_event_properties(
             if "score" in result:
                 properties["$ai_evaluation_numeric_result"] = result["score"]
             if "score_min" in result:
-                properties["$ai_score_min"] = result["score_min"]
+                properties["$ai_evaluation_numeric_result_min"] = result["score_min"]
             if "score_max" in result:
-                properties["$ai_score_max"] = result["score_max"]
+                properties["$ai_evaluation_numeric_result_max"] = result["score_max"]
     elif result["result_type"] == "sentiment":
         if not result.get("skipped"):
             properties["$ai_sentiment_label"] = result.get("sentiment_label")

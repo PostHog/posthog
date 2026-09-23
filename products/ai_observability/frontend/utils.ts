@@ -1313,8 +1313,8 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_session_id as session_id,
             properties.$ai_evaluation_skipped as skipped,
             properties.$ai_evaluation_numeric_result as score,
-            properties.$ai_score_min as score_min,
-            properties.$ai_score_max as score_max
+            properties.$ai_evaluation_numeric_result_min as score_min,
+            properties.$ai_evaluation_numeric_result_max as score_max
         FROM events
         WHERE
             event = '$ai_evaluation'

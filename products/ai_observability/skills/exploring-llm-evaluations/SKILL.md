@@ -33,7 +33,7 @@ Results from all types land in ClickHouse as `$ai_evaluation` events. Boolean
 evaluations (`llm_judge` and `hog`) set `$ai_evaluation_result`; sentiment
 evaluations set `$ai_sentiment_*` properties instead.
 Both `hog` and `llm_judge` also support `output_type: "numeric"`.
-Numeric runs store their raw score in `$ai_evaluation_numeric_result`, with optional `$ai_score_min` and `$ai_score_max`.
+Numeric runs store their raw score in `$ai_evaluation_numeric_result`, with optional `$ai_evaluation_numeric_result_min` and `$ai_evaluation_numeric_result_max`.
 They never set `$ai_evaluation_result`.
 Use `output_config.passing_rule` to interpret scores: `gte` means at least the threshold and `lte` means at most.
 Changing the rule reinterprets historical scores. Saved reports retain the rule and metrics used when generated.
@@ -112,16 +112,16 @@ before assuming the failure is in the generation.
 ```sql
 posthog:execute-sql
 SELECT
-    countIf(properties.$ai_evaluation_applicable = 'false') AS na_count,
+    countIf(properties.$ai_evaluation_applicable = false) AS na_count,
     countIf(
         (properties.$ai_evaluation_applicable IS NULL
-            OR properties.$ai_evaluation_applicable != 'false')
-        AND properties.$ai_evaluation_result = 'true'
+            OR properties.$ai_evaluation_applicable != false)
+        AND properties.$ai_evaluation_result = true
     ) AS pass_count,
     countIf(
         (properties.$ai_evaluation_applicable IS NULL
-            OR properties.$ai_evaluation_applicable != 'false')
-        AND properties.$ai_evaluation_result = 'false'
+            OR properties.$ai_evaluation_applicable != false)
+        AND properties.$ai_evaluation_result = false
     ) AS fail_count
 FROM events
 WHERE event = '$ai_evaluation'
@@ -148,10 +148,10 @@ SELECT
 FROM events
 WHERE event = '$ai_evaluation'
     AND properties.$ai_evaluation_id = '<evaluation_uuid>'
-    AND properties.$ai_evaluation_result = 'false'
+    AND properties.$ai_evaluation_result = false
     AND (
         properties.$ai_evaluation_applicable IS NULL
-        OR properties.$ai_evaluation_applicable != 'false'
+        OR properties.$ai_evaluation_applicable != false
     )
     AND timestamp >= now() - INTERVAL 7 DAY
 ORDER BY timestamp DESC
@@ -326,7 +326,7 @@ identical.
    FROM events
    WHERE event = '$ai_evaluation'
        AND properties.$ai_evaluation_id = '<uuid>'
-       AND properties.$ai_evaluation_result = 'false'
+       AND properties.$ai_evaluation_result = false
        AND timestamp >= now() - INTERVAL 30 DAY
    GROUP BY day
    ORDER BY day

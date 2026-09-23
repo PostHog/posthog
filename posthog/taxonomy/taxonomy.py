@@ -2513,6 +2513,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": [0, 0.75, 10],
             "type": "Numeric",
         },
+        "$ai_evaluation_numeric_result_min": {
+            "label": "AI evaluation numeric result minimum",
+            "description": "The configured minimum score for an online evaluation.",
+            "type": "Numeric",
+        },
+        "$ai_evaluation_numeric_result_max": {
+            "label": "AI evaluation numeric result maximum",
+            "description": "The configured maximum score for an online evaluation.",
+            "type": "Numeric",
+        },
         "$ai_evaluation_reasoning": {
             "label": "AI Evaluation Reasoning (LLM)",
             "description": "The LLM's explanation for why the evaluation passed or failed.",

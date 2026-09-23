@@ -25,8 +25,8 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
         skipped: isExplicitEvaluationPass(eventProperties.$ai_evaluation_skipped),
         ...normalizeEvaluationResultProperties({
             rawScore: eventProperties.$ai_evaluation_numeric_result,
-            rawScoreMin: eventProperties.$ai_score_min,
-            rawScoreMax: eventProperties.$ai_score_max,
+            rawScoreMin: eventProperties.$ai_evaluation_numeric_result_min,
+            rawScoreMax: eventProperties.$ai_evaluation_numeric_result_max,
             rawResult: eventProperties.$ai_evaluation_result,
             rawApplicable: eventProperties.$ai_evaluation_applicable,
             rawEvaluationType: eventProperties.$ai_evaluation_runtime,
