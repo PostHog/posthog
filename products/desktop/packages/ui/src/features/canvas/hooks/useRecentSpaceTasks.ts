@@ -101,6 +101,7 @@ export const NO_TASKS: SpaceTasks = { items: [], total: 0 };
 /** What a space's rows were built from, so they can be reused unchanged. */
 interface CachedSpaceTasks {
   page: SpaceTaskPage;
+  dataUpdatedAt: number;
   archivedTaskIds: ReadonlySet<string>;
   pinnedTaskIds: ReadonlySet<string>;
   blockedTaskIds: ReadonlySet<string>;
@@ -161,9 +162,12 @@ function spaceTreeOrder(
  * them the item models and every row's props.
  */
 function combineTaskPages(
-  queries: { data?: SpaceTaskPage }[],
-): SpaceTaskPage[] {
-  return queries.map((query) => query.data ?? NO_PAGE);
+  queries: { data?: SpaceTaskPage; dataUpdatedAt: number }[],
+): { page: SpaceTaskPage; dataUpdatedAt: number }[] {
+  return queries.map((query) => ({
+    page: query.data ?? NO_PAGE,
+    dataUpdatedAt: query.dataUpdatedAt,
+  }));
 }
 
 // Slower than the open channel's own feed (5s): the tree is a glance at what's
@@ -213,11 +217,14 @@ export function useRecentSpaceTasks(
   return useMemo(() => {
     const bySpace = new Map<string, SpaceTasks>();
     spaceIds.forEach((spaceId, index) => {
-      const page = pagePerSpace[index] ?? NO_PAGE;
+      const page = pagePerSpace[index]?.page ?? NO_PAGE;
+      const dataUpdatedAt = pagePerSpace[index]?.dataUpdatedAt ?? 0;
       const cached = cache.current.get(spaceId);
       if (
         cached &&
         cached.page === page &&
+        // A successful poll can keep the same page reference.
+        cached.dataUpdatedAt === dataUpdatedAt &&
         cached.archivedTaskIds === archivedTaskIds &&
         cached.pinnedTaskIds === pinnedTaskIds &&
         cached.blockedTaskIds === blockedTaskIds
@@ -250,6 +257,7 @@ export function useRecentSpaceTasks(
       };
       cache.current.set(spaceId, {
         page,
+        dataUpdatedAt,
         archivedTaskIds,
         pinnedTaskIds,
         blockedTaskIds,

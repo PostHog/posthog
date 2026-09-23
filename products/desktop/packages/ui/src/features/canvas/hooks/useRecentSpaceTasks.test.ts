@@ -144,20 +144,25 @@ describe("useRecentSpaceTasks", () => {
     expect(rowsOf(view)).toEqual(["unread", "fresh"]);
   });
 
-  it("takes the viewed state again when the space's sessions change", async () => {
-    const view = await openSpace();
+  it.each([
+    { name: "unchanged", freshTask: FRESH },
+    { name: "updated", freshTask: spaceTask("fresh", Date.UTC(2026, 0, 5)) },
+  ])(
+    "takes the viewed state again after an $name page is fetched",
+    async ({ freshTask }) => {
+      const view = await openSpace();
 
-    mocks.timestamps = {
-      ...mocks.timestamps,
-      unread: { lastViewedAt: OPENED_AT },
-    };
-    // New activity on the other session, which is what a refreshed list is.
-    mocks.getTasksPage.mockResolvedValue({
-      tasks: [spaceTask("fresh", Date.UTC(2026, 0, 5)), UNREAD],
-      count: 2,
-    });
-    await queryClient.refetchQueries();
+      mocks.timestamps = {
+        ...mocks.timestamps,
+        unread: { lastViewedAt: OPENED_AT },
+      };
+      mocks.getTasksPage.mockResolvedValue({
+        tasks: [freshTask, UNREAD],
+        count: 2,
+      });
+      await queryClient.refetchQueries();
 
-    await waitFor(() => expect(rowsOf(view)).toEqual(["fresh", "unread"]));
-  });
+      await waitFor(() => expect(rowsOf(view)).toEqual(["fresh", "unread"]));
+    },
+  );
 });
