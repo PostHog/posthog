@@ -1077,6 +1077,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     request=request,
                     context={
                         "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
+                        "add_safe_og_tags": resource.insight or resource.dashboard,
                         "add_og_tags": None,
                     },
                 )

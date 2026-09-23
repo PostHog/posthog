@@ -193,12 +193,20 @@ class TestSharing(APIBaseTest):
             sharing_configuration=sharing_configuration,
             created_by=self.user,
         )
+        mock_render_template.return_value = HttpResponse("")
+        share_url = f"/shared_dashboard/{sharing_configuration.access_token}"
+
+        unlock_response = self.client.get(share_url)
+
+        assert unlock_response.status_code == status.HTTP_200_OK
+        assert mock_render_template.call_args.kwargs["context"]["add_safe_og_tags"] == self.dashboard
+        assert mock_render_template.call_args.kwargs["context"]["add_og_tags"] is None
+
         self.client.cookies["posthog_sharing_token"] = sharing_configuration.generate_password_protected_token(
             share_password
         )
-        mock_render_template.return_value = HttpResponse("")
 
-        response = self.client.get(f"/shared_dashboard/{sharing_configuration.access_token}")
+        response = self.client.get(share_url)
 
         assert response.status_code == status.HTTP_200_OK
         assert mock_render_template.call_args.kwargs["context"]["add_safe_og_tags"] == self.dashboard
