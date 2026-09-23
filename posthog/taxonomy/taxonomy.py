@@ -148,6 +148,9 @@ _ERROR_TRACKING_PROPERTIES_SENTENCE = (
     + ", ".join(f"`{name}`" for name in ERROR_TRACKING_ISSUE_NOTIFICATION_PROPERTIES)
     + "."
 )
+_ERROR_TRACKING_OVERSIZED_SENTENCE = (
+    "If the event is too large for Kafka, `exception_props` is dropped and `message_was_too_large` is set instead."
+)
 _ERROR_TRACKING_ASSIGNEE_SENTENCE = (
     '`assignee` is set only while the issue has an assignee, and is a JSON string such as `{"type":"user","id":123}`.'
 )
@@ -499,15 +502,15 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$error_tracking_issue_created": {
             "label": "Error tracking issue created",
-            "description": f"Fires when a new error tracking issue is created from an incoming exception. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `status`, `exception_timestamp` and `exception_props` from the triggering exception. `status` holds the raw value (`active`) on this event, while the other lifecycle events send the display label (`Active`). {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
+            "description": f"Fires when a new error tracking issue is created from an incoming exception. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `status`, `exception_timestamp` and `exception_props` from the triggering exception. {_ERROR_TRACKING_OVERSIZED_SENTENCE} `status` holds the raw value (`active`) on this event, while the other lifecycle events send the display label (`Active`). {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
         },
         "$error_tracking_issue_reopened": {
             "label": "Error tracking issue reopened",
-            "description": f"Fires when a previously resolved error tracking issue is seen again and reopened, either by an incoming exception or by a manual status change. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `status`, plus `previous_status` on a manual reopen and `exception_timestamp` and `exception_props` on an ingestion-driven reopen. {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
+            "description": f"Fires when a previously resolved error tracking issue is seen again and reopened, either by an incoming exception or by a manual status change. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `status`, plus `previous_status` on a manual reopen and `exception_timestamp` and `exception_props` on an ingestion-driven reopen. {_ERROR_TRACKING_OVERSIZED_SENTENCE} {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
         },
         "$error_tracking_issue_spiking": {
             "label": "Error tracking issue spiking",
-            "description": f"Fires when an error tracking issue's volume spikes above its expected rate. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `computed_baseline`, `current_bucket_value`, `exception_timestamp` and `exception_props`. It sends no `status`. {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
+            "description": f"Fires when an error tracking issue's volume spikes above its expected rate. {_ERROR_TRACKING_PROPERTIES_SENTENCE} It also carries `computed_baseline`, `current_bucket_value`, `exception_timestamp` and `exception_props`. {_ERROR_TRACKING_OVERSIZED_SENTENCE} It sends no `status`. {_ERROR_TRACKING_ASSIGNEE_SENTENCE}",
         },
         "$error_tracking_issue_resolved": {
             "label": "Error tracking issue resolved",
