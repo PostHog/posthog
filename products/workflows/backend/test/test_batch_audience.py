@@ -1,9 +1,15 @@
+from datetime import UTC, datetime
+
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
+from posthog.clickhouse.client import sync_execute
+
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons
 from products.workflows.backend.services.batch_audience import get_batch_audience_count, get_batch_audience_person_ids
 
@@ -86,3 +92,82 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
                 cursor = page[-1]
 
         assert collected == [_uuid(i) for i in expected_indices]
+
+    def _create_realtime_cohort(self, backfilled: bool = True) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name="power-users",
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            },
+            last_backfill_events_at=datetime(2024, 1, 1, tzinfo=UTC) if backfilled else None,
+        )
+
+    def _add_membership(
+        self, cohort_id: int, person_uuid: str, status: str, at: datetime, team_id: int | None = None
+    ) -> None:
+        sync_execute(
+            "INSERT INTO cohort_membership (team_id, cohort_id, person_id, status, last_updated) VALUES",
+            [(team_id if team_id is not None else self.team.pk, cohort_id, person_uuid, status, at)],
+        )
+
+    def _realtime_cohort_filters(self, cohort_id: int, extra_properties: list | None = None) -> dict:
+        return {
+            "properties": [
+                {"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"},
+                *(extra_properties or []),
+            ]
+        }
+
+    def test_realtime_cohort_audience_returns_current_members_only(self):
+        self._create_audience(["a@x.com", "b@x.com", "c@x.com"])
+        cohort = self._create_realtime_cohort()
+        t0, t1 = datetime(2024, 6, 1, tzinfo=UTC), datetime(2024, 6, 2, tzinfo=UTC)
+        self._add_membership(cohort.pk, _uuid(1), "entered", t0)
+        # Entered then left: only the latest status counts.
+        self._add_membership(cohort.pk, _uuid(2), "entered", t0)
+        self._add_membership(cohort.pk, _uuid(2), "left", t1)
+        # Same cohort id, different team: must never leak across the tenant boundary.
+        self._add_membership(cohort.pk, _uuid(3), "entered", t0, team_id=self.team.pk + 1)
+
+        filters = self._realtime_cohort_filters(cohort.pk)
+
+        assert get_batch_audience_person_ids(self.team, filters) == [_uuid(1)]
+        assert get_batch_audience_count(self.team, filters, dedupe_key="email") == 1
+
+    def test_realtime_cohort_intersects_with_person_property_filters(self):
+        self._create_audience(["a@x.com", "b@x.com"])
+        _create_person(team=self.team, distinct_ids=["user-3"], uuid=_uuid(3), properties={"subscribed": "false"})
+        flush_persons_and_events()
+        cohort = self._create_realtime_cohort()
+        for index in (1, 2, 3):
+            self._add_membership(cohort.pk, _uuid(index), "entered", datetime(2024, 6, 1, tzinfo=UTC))
+
+        filters = self._realtime_cohort_filters(
+            cohort.pk,
+            extra_properties=[{"key": "email", "type": "person", "value": "a@x.com", "operator": "exact"}],
+        )
+
+        # Person 2 is a member but fails the property filter; person 3 fails both.
+        assert get_batch_audience_person_ids(self.team, filters) == [_uuid(1)]
+
+    def test_realtime_cohort_that_lost_eligibility_fails_loudly(self):
+        # Trigger filters are snapshotted onto batch jobs, so the cohort can lose its backfill
+        # stamps between save and run; enumerating it anyway would send to the wrong people.
+        cohort = self._create_realtime_cohort(backfilled=False)
+
+        with pytest.raises(ValidationError, match="isn't ready for realtime evaluation"):
+            get_batch_audience_person_ids(self.team, self._realtime_cohort_filters(cohort.pk))
