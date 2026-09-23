@@ -59,3 +59,4 @@ class RuleType(models.TextChoices):
 # uses the support identity instead, so a customer never sees this label.
 WORKFLOW_AUTHOR_TYPE = "workflow"
 WORKFLOW_AUTHOR_NAME = "Workflow"
+WORKFLOW_DISPATCH_KEY = "workflow_dispatch_key"

@@ -77,7 +77,10 @@ class TestInternalTicketAPI(BaseTest):
 
     def test_post_sends_a_public_message(self):
         response = self.client.post(
-            self.url, {"message": "  We are on it.  "}, content_type="application/json", **self._headers()
+            self.url,
+            {"message": "  We are on it.  ", "idempotency_key": "run-1:send:0"},
+            content_type="application/json",
+            **self._headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         body = response.json()
@@ -93,7 +96,7 @@ class TestInternalTicketAPI(BaseTest):
     def test_post_private_note(self):
         response = self.client.post(
             self.url,
-            {"message": "Internal only", "is_private": True},
+            {"message": "Internal only", "is_private": True, "idempotency_key": "run-1:note:0"},
             content_type="application/json",
             **self._headers(),
         )
@@ -103,27 +106,37 @@ class TestInternalTicketAPI(BaseTest):
         self.assertTrue(comment.item_context["is_private"])
         self.assertEqual(comment.item_context["author_type"], WORKFLOW_AUTHOR_TYPE)
 
-    def test_post_replays_an_identical_message(self):
-        payload = {"message": "We are on it.", "is_private": False}
+    def test_post_deduplicates_by_workflow_step_execution(self):
+        payload = {"message": "We are on it.", "is_private": False, "idempotency_key": "run-1:send:0"}
         first = self.client.post(self.url, payload, content_type="application/json", **self._headers())
-        second = self.client.post(self.url, payload, content_type="application/json", **self._headers())
+        second = self.client.post(
+            self.url,
+            {**payload, "message": "Changed after retry"},
+            content_type="application/json",
+            **self._headers(),
+        )
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertEqual(second.json()["id"], first.json()["id"])
         self.assertEqual(Comment.objects.filter(team_id=self.team.id, item_id=str(self.ticket.id)).count(), 1)
 
-        private = self.client.post(
+        next_run = self.client.post(
             self.url,
-            {"message": "We are on it.", "is_private": True},
+            {"message": "We are on it.", "is_private": False, "idempotency_key": "run-2:send:0"},
             content_type="application/json",
             **self._headers(),
         )
-        self.assertEqual(private.status_code, status.HTTP_201_CREATED)
-        self.assertNotEqual(private.json()["id"], first.json()["id"])
+        self.assertEqual(next_run.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(next_run.json()["id"], first.json()["id"])
         self.assertEqual(Comment.objects.filter(team_id=self.team.id, item_id=str(self.ticket.id)).count(), 2)
 
     def test_post_rejects_blank_message(self):
-        response = self.client.post(self.url, {"message": "   "}, content_type="application/json", **self._headers())
+        response = self.client.post(
+            self.url,
+            {"message": "   ", "idempotency_key": "run-1:send:0"},
+            content_type="application/json",
+            **self._headers(),
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(Comment.objects.filter(team_id=self.team.id, item_id=str(self.ticket.id)).exists())
 
@@ -131,7 +144,12 @@ class TestInternalTicketAPI(BaseTest):
         missing = uuid.uuid4()
         url = f"/api/projects/{self.team.id}/internal/conversations/tickets/{missing}"
         headers = self._headers({"team_id": self.team.id, "ticket_id": str(missing)})
-        response = self.client.post(url, {"message": "hello"}, content_type="application/json", **headers)
+        response = self.client.post(
+            url,
+            {"message": "hello", "idempotency_key": "run-1:send:0"},
+            content_type="application/json",
+            **headers,
+        )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(Comment.objects.filter(team_id=self.team.id, item_id=str(missing)).exists())
 

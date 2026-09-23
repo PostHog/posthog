@@ -34,6 +34,7 @@ from posthog.models.comment import Comment
 from posthog.redis import get_client
 
 from products.conversations.backend.models import Channel, Ticket
+from products.conversations.backend.models.constants import WORKFLOW_DISPATCH_KEY
 
 logger = structlog.get_logger(__name__)
 
@@ -129,6 +130,7 @@ class ReplyFingerprint:
     content: str
     rich_content: Any
     item_context: dict[str, Any]
+    idempotency_key: str | None
 
     @classmethod
     def build(
@@ -169,17 +171,20 @@ class ReplyFingerprint:
             content=content,
             rich_content=rich_content,
             item_context=item_context,
+            idempotency_key=None,
         )
 
     @classmethod
     def for_workflow(
-        cls, *, team_id: int, item_id: str, content: str, item_context: dict[str, Any]
+        cls,
+        *,
+        team_id: int,
+        item_id: str,
+        content: str,
+        item_context: dict[str, Any],
+        idempotency_key: str,
     ) -> "ReplyFingerprint":
-        """Fingerprint for a workflow send, which has no PostHog user.
-
-        ``build`` refuses these: it only collapses human replies. The worker retries a dropped
-        response, and without this a retry delivers the message again.
-        """
+        """Fingerprint a workflow step by its stable dispatch key."""
         return cls(
             team_id=team_id,
             scope=SUPPORT_TICKET_SCOPE,
@@ -189,12 +194,19 @@ class ReplyFingerprint:
             content=content,
             rich_content=None,
             item_context=item_context,
+            idempotency_key=idempotency_key,
         )
 
     @property
     def key(self) -> str:
-        canonical = json.dumps(
+        identity = (
             {
+                "team_id": self.team_id,
+                "scope": self.scope,
+                "idempotency_key": self.idempotency_key,
+            }
+            if self.idempotency_key is not None
+            else {
                 "team_id": self.team_id,
                 "scope": self.scope,
                 "item_id": self.item_id,
@@ -203,7 +215,10 @@ class ReplyFingerprint:
                 "content": self.content,
                 "rich_content": self.rich_content,
                 "item_context": self.item_context,
-            },
+            }
+        )
+        canonical = json.dumps(
+            identity,
             sort_keys=True,
             separators=(",", ":"),
             default=str,
@@ -215,6 +230,14 @@ class ReplyFingerprint:
         """Whether this persisted comment is the message this request asked for."""
         if comment.deleted or comment.version != 0:
             return False
+        if self.idempotency_key is not None:
+            context = comment.item_context or {}
+            return (
+                comment.team_id == self.team_id
+                and comment.scope == self.scope
+                and comment.item_id == self.item_id
+                and context.get(WORKFLOW_DISPATCH_KEY) == self.idempotency_key
+            )
         if (
             comment.team_id != self.team_id
             or comment.scope != self.scope
@@ -242,11 +265,14 @@ class ReplyFingerprint:
             scope=self.scope,
             item_id=self.item_id,
             created_by_id=self.created_by_id,
-            content=self.content,
             deleted=False,
             version=0,
-            created_at__gte=created_after,
-        ).order_by("-created_at")[:20]
+        )
+        if self.idempotency_key is not None:
+            candidates = candidates.filter(**{f"item_context__{WORKFLOW_DISPATCH_KEY}": self.idempotency_key})
+        else:
+            candidates = candidates.filter(content=self.content, created_at__gte=created_after)
+        candidates = candidates.order_by("-created_at")[:20]
         return next((comment for comment in candidates if self.matches(comment)), None)
 
     def load_replay_target(self, comment_id: str | None) -> Comment | None:

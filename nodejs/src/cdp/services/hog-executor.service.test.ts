@@ -696,19 +696,28 @@ describe('Hog Executor', () => {
             it('postHogSendTicketMessage posts the message and only marks a private note when the flag is true', async () => {
                 const fetchSpy = jest
                     .spyOn(requestModule, 'internalFetch')
+                    .mockResolvedValueOnce(mockInternalResponse(409, { error: 'Message is still being created' }))
                     .mockResolvedValue(mockInternalResponse(201, { id: 'message-1', is_private: true }))
 
                 mockExecHogForAsyncFunction('postHogSendTicketMessage', [
                     { ticket_id: TICKET_UUID, message: '  Internal only  ', is_private: true },
                 ])
-                const result = await executor.execute(createTicketInvocation())
+                const invocation = createTicketInvocation()
+                invocation.state.actionId = 'send_message'
+                invocation.state.actionStepCount = 0
+                const result = await executor.execute(invocation)
 
-                const [url, options] = fetchSpy.mock.calls[0] as unknown as [string, FetchOptions]
+                expect(fetchSpy).toHaveBeenCalledTimes(2)
+                const [url, options] = fetchSpy.mock.calls[1] as unknown as [string, FetchOptions]
                 expect(url).toEqual(
                     `${hub.INTERNAL_API_BASE_URL}/api/projects/1/internal/conversations/tickets/${TICKET_UUID}`
                 )
                 expect(options.method).toEqual('POST')
-                expect(options.body).toEqual(JSON.stringify({ message: 'Internal only', is_private: true }))
+                expect(parseJSON(options.body as string)).toEqual({
+                    message: 'Internal only',
+                    is_private: true,
+                    idempotency_key: `${invocation.id}:send_message:0`,
+                })
                 expect(result.invocation.state.vmState!.stack).toEqual([
                     { status: 201, body: { id: 'message-1', is_private: true } },
                 ])
@@ -910,6 +919,13 @@ describe('Hog Executor', () => {
 
             const result = await executor.execute(createTicketInvocation())
             expect(result.error).toContain("missing 'message'")
+        })
+
+        it('postHogSendTicketMessage errors outside a workflow step', async () => {
+            mockExecHogForAsyncFunction('postHogSendTicketMessage', [{ ticket_id: TICKET_UUID, message: 'hello' }])
+
+            const result = await executor.execute(createTicketInvocation())
+            expect(result.error).toContain('only runs inside a workflow')
         })
     })
 

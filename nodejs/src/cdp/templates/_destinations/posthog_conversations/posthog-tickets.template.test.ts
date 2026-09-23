@@ -14,22 +14,25 @@ describe('posthog conversations ticket templates', () => {
             template: getTicketTemplate,
             inputs: { ticket_id: TICKET_UUID },
             failurePrefix: 'Failed to fetch ticket (401):',
+            actionId: undefined,
         },
         {
             name: 'update ticket',
             template: updateTicketTemplate,
             inputs: { ticket_id: TICKET_UUID, status: 'new' },
             failurePrefix: 'Failed to update ticket (401):',
+            actionId: undefined,
         },
         {
             name: 'send message',
             template: sendTicketMessageTemplate,
             inputs: { ticket_id: TICKET_UUID, message: 'We are on it.' },
             failurePrefix: 'Failed to send message (401):',
+            actionId: 'send_message',
         },
     ]
 
-    describe.each(cases)('$name', ({ template, inputs, failurePrefix }) => {
+    describe.each(cases)('$name', ({ template, inputs, failurePrefix, actionId }) => {
         const tester = new TemplateTester(template)
 
         beforeEach(async () => {
@@ -41,7 +44,11 @@ describe('posthog conversations ticket templates', () => {
             // the bare status code alone gave the customer nothing to act on.
             tester.mockInternalFetchResponse({ status: 401, body: { error: 'Invalid API key' } })
 
-            let response = await tester.invoke(inputs)
+            let response = await tester.invoke(
+                inputs,
+                undefined,
+                actionId ? { actionId, actionStepCount: 0 } : undefined
+            )
             expect(response.error).toBeUndefined()
             response = await tester.resumeInvocation(response.invocation)
 
@@ -51,7 +58,11 @@ describe('posthog conversations ticket templates', () => {
         it('returns the ticket body on success', async () => {
             tester.mockInternalFetchResponse({ status: 200, body: { id: TICKET_UUID, status: 'new' } })
 
-            let response = await tester.invoke(inputs)
+            let response = await tester.invoke(
+                inputs,
+                undefined,
+                actionId ? { actionId, actionStepCount: 0 } : undefined
+            )
             response = await tester.resumeInvocation(response.invocation)
 
             expect(response.error).toBeUndefined()
@@ -68,22 +79,32 @@ describe('posthog conversations ticket templates', () => {
             tester.mockInternalFetchResponse({ status: 201, body: { id: 'message-1', is_private: false } })
         })
 
-        const postedBody = (): { message: string; is_private: boolean } => {
+        const postedBody = (): { message: string; is_private: boolean; idempotency_key: string } => {
             const [, options] = tester.mockInternalFetch.mock.calls[0] as unknown as [string, { body: string }]
             return parseJSON(options.body)
         }
 
         it('posts a public reply by default and treats 201 as success', async () => {
-            let response = await tester.invoke({ ticket_id: TICKET_UUID, message: 'We are on it.' })
+            let response = await tester.invoke({ ticket_id: TICKET_UUID, message: 'We are on it.' }, undefined, {
+                actionId: 'send_message',
+                actionStepCount: 0,
+            })
             response = await tester.resumeInvocation(response.invocation)
 
             expect(response.error).toBeUndefined()
             expect(response.finished).toBe(true)
-            expect(postedBody()).toEqual({ message: 'We are on it.', is_private: false })
+            expect(postedBody()).toEqual({
+                message: 'We are on it.',
+                is_private: false,
+                idempotency_key: expect.stringMatching(/:send_message:0$/),
+            })
         })
 
         it('sends the private-note flag when the checkbox is on', async () => {
-            await tester.invoke({ ticket_id: TICKET_UUID, message: 'Internal only', is_private: true })
+            await tester.invoke({ ticket_id: TICKET_UUID, message: 'Internal only', is_private: true }, undefined, {
+                actionId: 'send_message',
+                actionStepCount: 0,
+            })
             expect(postedBody().is_private).toBe(true)
         })
     })

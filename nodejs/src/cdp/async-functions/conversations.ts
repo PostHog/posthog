@@ -5,6 +5,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { AsyncFunctionContext } from '../async-function-registry'
 import { registerAsyncFunction } from '../async-function-registry'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
+import { workflowStepDispatchKeyFromInvocation } from '../utils/workflow-step-dispatch-key'
 import { UUID_RE, callInternalApi } from './internal-api-call'
 
 const TICKET_ACTIONS = 'ticket workflow actions'
@@ -18,7 +19,13 @@ async function callInternalTicketApi(
     context: AsyncFunctionContext,
     result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
     ticketId: string,
-    options: { method: 'GET' | 'PATCH' | 'POST'; query?: string; body?: string; extraHeaders?: Record<string, string> }
+    options: {
+        method: 'GET' | 'PATCH' | 'POST'
+        query?: string
+        body?: string
+        extraHeaders?: Record<string, string>
+        retriableStatuses?: number[]
+    }
 ): Promise<void> {
     // Reaches the operator verbatim in the workflow logs. Keep it free of square brackets,
     // which the log viewer parses as entity chips and would swallow.
@@ -167,12 +174,19 @@ registerAsyncFunction('postHogSendTicketMessage', {
             throw new Error("[HogFunction] - postHogSendTicketMessage call missing 'message' property")
         }
 
+        const idempotencyKey = workflowStepDispatchKeyFromInvocation(context.invocation)
+        if (!idempotencyKey) {
+            throw new Error('[HogFunction] - postHogSendTicketMessage only runs inside a workflow')
+        }
+
         await callInternalTicketApi(context, result, ticketId, {
             method: 'POST',
             body: JSON.stringify({
                 message,
                 is_private: opts?.is_private === true,
+                idempotency_key: idempotencyKey,
             }),
+            retriableStatuses: [409],
         })
     },
 

@@ -32,6 +32,7 @@ from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import (
     WORKFLOW_AUTHOR_NAME,
     WORKFLOW_AUTHOR_TYPE,
+    WORKFLOW_DISPATCH_KEY,
     Channel,
     Priority,
     Status,
@@ -109,6 +110,10 @@ class TicketActionMessageSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="When true, store an internal note. The customer does not see it and it is not delivered.",
+    )
+    idempotency_key = serializers.CharField(
+        max_length=500,
+        help_text="Stable identity of this workflow step execution.",
     )
 
     def validate_message(self, value: str) -> str:
@@ -591,10 +596,12 @@ def handle_ticket_message(request: Request, team: Team, ticket_id: str | uuid.UU
 
     is_private = serializer.validated_data["is_private"]
     content = serializer.validated_data["message"]
+    idempotency_key = serializer.validated_data["idempotency_key"]
     item_context = {
         "author_type": WORKFLOW_AUTHOR_TYPE,
         "author_name": WORKFLOW_AUTHOR_NAME,
         "is_private": is_private,
+        WORKFLOW_DISPATCH_KEY: idempotency_key,
     }
 
     def create_comment() -> Comment:
@@ -611,7 +618,11 @@ def handle_ticket_message(request: Request, team: Team, ticket_id: str | uuid.UU
 
     # The worker retries a dropped response. Without this, that retry delivers the message again.
     fingerprint = ReplyFingerprint.for_workflow(
-        team_id=team.id, item_id=str(ticket.id), content=content, item_context=item_context
+        team_id=team.id,
+        item_id=str(ticket.id),
+        content=content,
+        item_context=item_context,
+        idempotency_key=idempotency_key,
     )
     guarded = create_deduplicated(fingerprint, create_comment)
     comment = guarded.comment
