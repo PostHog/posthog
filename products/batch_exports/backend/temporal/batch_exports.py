@@ -164,6 +164,7 @@ def default_fields() -> list[BatchExportField]:
             alias="set_once",
         ),
         BatchExportField(expression="person_properties", alias="person_properties"),
+        BatchExportField(expression="person_id", alias="person_id"),
     ]
 
 
@@ -182,6 +183,7 @@ def events_model_default_fields() -> list[BatchExportField]:
         BatchExportField(expression="properties", alias="properties"),
         BatchExportField(expression="distinct_id", alias="distinct_id"),
         BatchExportField(expression="person_properties", alias="person_properties"),
+        BatchExportField(expression="person_id", alias="person_id"),
     ]
 
 
