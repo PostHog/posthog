@@ -38,6 +38,7 @@ export interface inboxUsageLogicValues {
     canAccessBilling: boolean // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
+    createdPrs: number
     creditsPerPr: number | null
     customLimitUsd: number | null
     estimatedBudgetUsd: number | null
@@ -68,7 +69,6 @@ export interface inboxUsageLogicValues {
         },
         ValidationErrorType
     >
-    createdPrs: number
     limitPrs: number | null
     percentage: number
     pricePerPrUsd: number | null
