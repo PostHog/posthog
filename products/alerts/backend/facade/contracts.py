@@ -300,6 +300,19 @@ class EventKindSpec:
 
 
 @frozen
+class RenderedMessage:
+    """One alert message, rendered for one provider.
+
+    `payload` is the provider's own body shape rather than a fixed set of fields, so a native
+    transport sends it as it stands and the HogFunction path wraps each entry as a template
+    input.
+    """
+
+    provider: DestinationType
+    payload: dict[str, Any]
+
+
+@frozen
 class AlertDestinationConfig:
     """One destination, built and ready to persist as a HogFunction."""
 

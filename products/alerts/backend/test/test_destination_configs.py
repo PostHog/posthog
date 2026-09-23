@@ -105,8 +105,22 @@ _TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTION_TEMPLATES
 _TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-slack", "template-webhook"}
 
 _DESTINATION_DATA: dict[DestinationType, AlertDestinationData] = {
+    DestinationType.SLACK: {
+        "type": DestinationType.SLACK,
+        "slack_workspace_id": 42,
+        "slack_channel_id": "C123",
+    },
     DestinationType.DISCORD: {"type": DestinationType.DISCORD, "webhook_url": "https://discord.example.com/hook"},
     DestinationType.TEAMS: {"type": DestinationType.TEAMS, "webhook_url": "https://teams.example.com/hook"},
+    DestinationType.WEBHOOK: {"type": DestinationType.WEBHOOK, "webhook_url": "https://hooks.example.com/hook"},
+}
+
+# The types whose template is defined in Python. A template defined in Node.js has no
+# `inputs_schema` here to filter its inputs through.
+_DESTINATION_DATA_WITH_A_PYTHON_TEMPLATE = {
+    destination_type: data
+    for destination_type, data in _DESTINATION_DATA.items()
+    if DESTINATION_SPECS[destination_type].template_id in _TEMPLATES_BY_ID
 }
 
 
@@ -120,12 +134,12 @@ class TestDestinationTemplateContract:
 
         assert unreachable == _TEMPLATE_IDS_DEFINED_IN_NODEJS
 
-    @pytest.mark.parametrize("destination_type", list(_DESTINATION_DATA))
+    @pytest.mark.parametrize("destination_type", list(_DESTINATION_DATA_WITH_A_PYTHON_TEMPLATE))
     def test_a_config_read_back_from_the_inputs_a_template_keeps_equals_the_config_built(
         self, destination_type: DestinationType
     ) -> None:
         template = _TEMPLATES_BY_ID[DESTINATION_SPECS[destination_type].template_id]
-        data = _DESTINATION_DATA[destination_type]
+        data = _DESTINATION_DATA_WITH_A_PYTHON_TEMPLATE[destination_type]
         config = build_alert_destination_config(
             spec=DEFAULT_SPEC,
             alert_id="alert-1",
@@ -159,3 +173,20 @@ class TestDestinationTemplateContract:
             "slack_workspace_id": 42,
             "slack_channel_id": "C123",
         }
+
+
+class TestRenderedMessageReachesEveryPath:
+    @pytest.mark.parametrize("destination_type", list(_DESTINATION_DATA))
+    def test_every_rendered_field_survives_into_the_hog_function_inputs(
+        self, destination_type: DestinationType
+    ) -> None:
+        spec = DESTINATION_SPECS[destination_type]
+        context_elements = ("Project: PostHog",)
+
+        rendered = spec.render(DEFAULT_SPEC, slack_context_elements=context_elements)
+        inputs = spec.build_inputs(
+            DEFAULT_SPEC, _DESTINATION_DATA[destination_type], slack_context_elements=context_elements
+        )
+
+        assert rendered.provider == destination_type
+        assert {key: inputs[key]["value"] for key in rendered.payload} == rendered.payload

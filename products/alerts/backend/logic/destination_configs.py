@@ -14,6 +14,7 @@ from products.alerts.backend.facade.contracts import (
     AlertDestinationValidationError,
     DestinationType,
     EventKindSpec,
+    RenderedMessage,
 )
 
 WEBHOOK_HEADERS = {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}
@@ -100,8 +101,9 @@ def _input_value(inputs: dict[str, Any], key: str) -> Any:
 
 
 class DestinationSpec(ABC):
-    """Everything one destination type knows about itself: how it is stored as a
-    HogFunction, how it is read back, and how it is safe to show in a read response."""
+    """Everything one destination type knows about itself: how its message is rendered, how it
+    is stored as a HogFunction, how it is read back, and how it is safe to show in a read
+    response."""
 
     type: ClassVar[DestinationType]
     template_id: ClassVar[str]
@@ -111,19 +113,32 @@ class DestinationSpec(ABC):
     def build_name(self, data: AlertDestinationData) -> str: ...
 
     @abstractmethod
-    def build_inputs(
-        self,
-        event_kind_spec: EventKindSpec,
-        data: AlertDestinationData,
-        *,
-        slack_context_elements: tuple[str, ...],
-    ) -> dict[str, Any]: ...
+    def render(self, event_kind_spec: EventKindSpec, *, slack_context_elements: tuple[str, ...]) -> RenderedMessage: ...
+
+    @abstractmethod
+    def target_inputs(self, data: AlertDestinationData) -> dict[str, Any]: ...
 
     @abstractmethod
     def read(self, inputs: dict[str, Any]) -> AlertDestinationData: ...
 
     def redact(self, data: AlertDestinationData) -> AlertDestinationData:
         return data
+
+    def build_inputs(
+        self,
+        event_kind_spec: EventKindSpec,
+        data: AlertDestinationData,
+        *,
+        slack_context_elements: tuple[str, ...],
+    ) -> dict[str, Any]:
+        """The message and the destination together, in the shape a HogFunction stores.
+
+        Derived from `render` rather than written once per provider, so a destination that a
+        transport contacts directly and the same destination as a HogFunction cannot state
+        different things.
+        """
+        rendered = self.render(event_kind_spec, slack_context_elements=slack_context_elements)
+        return {key: {"value": value} for key, value in {**rendered.payload, **self.target_inputs(data)}.items()}
 
 
 class SlackDestination(DestinationSpec):
@@ -134,19 +149,17 @@ class SlackDestination(DestinationSpec):
     def build_name(self, data: AlertDestinationData) -> str:
         return f"Slack #{data.get('slack_channel_name') or 'channel'}"
 
-    def build_inputs(
-        self,
-        event_kind_spec: EventKindSpec,
-        data: AlertDestinationData,
-        *,
-        slack_context_elements: tuple[str, ...],
-    ) -> dict[str, Any]:
-        return {
-            "blocks": {"value": slack_blocks(event_kind_spec, slack_context_elements)},
-            "text": {"value": event_kind_spec.header},
-            "slack_workspace": {"value": data["slack_workspace_id"]},
-            "channel": {"value": data["slack_channel_id"]},
-        }
+    def render(self, event_kind_spec: EventKindSpec, *, slack_context_elements: tuple[str, ...]) -> RenderedMessage:
+        return RenderedMessage(
+            provider=self.type,
+            payload={
+                "blocks": slack_blocks(event_kind_spec, slack_context_elements),
+                "text": event_kind_spec.header,
+            },
+        )
+
+    def target_inputs(self, data: AlertDestinationData) -> dict[str, Any]:
+        return {"slack_workspace": data["slack_workspace_id"], "channel": data["slack_channel_id"]}
 
     def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
         data: AlertDestinationData = {"type": self.type}
@@ -164,6 +177,9 @@ class _WebhookUrlDestination(DestinationSpec):
 
     required_fields = ("webhook_url",)
     url_input_key: ClassVar[str]
+
+    def target_inputs(self, data: AlertDestinationData) -> dict[str, Any]:
+        return {self.url_input_key: data["webhook_url"]}
 
     def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
         data: AlertDestinationData = {"type": self.type}
@@ -189,18 +205,11 @@ class WebhookDestination(_WebhookUrlDestination):
     def build_name(self, data: AlertDestinationData) -> str:
         return f"Webhook {data['webhook_url']}"
 
-    def build_inputs(
-        self,
-        event_kind_spec: EventKindSpec,
-        data: AlertDestinationData,
-        *,
-        slack_context_elements: tuple[str, ...],
-    ) -> dict[str, Any]:
-        return {
-            "body": {"value": event_kind_spec.webhook_body},
-            "url": {"value": data["webhook_url"]},
-            "headers": {"value": WEBHOOK_HEADERS},
-        }
+    def render(self, event_kind_spec: EventKindSpec, *, slack_context_elements: tuple[str, ...]) -> RenderedMessage:
+        return RenderedMessage(
+            provider=self.type,
+            payload={"body": event_kind_spec.webhook_body, "headers": WEBHOOK_HEADERS},
+        )
 
 
 class DiscordDestination(_WebhookUrlDestination):
@@ -211,17 +220,8 @@ class DiscordDestination(_WebhookUrlDestination):
     def build_name(self, data: AlertDestinationData) -> str:
         return "Discord"
 
-    def build_inputs(
-        self,
-        event_kind_spec: EventKindSpec,
-        data: AlertDestinationData,
-        *,
-        slack_context_elements: tuple[str, ...],
-    ) -> dict[str, Any]:
-        return {
-            "content": {"value": teams_text(event_kind_spec)},
-            "webhookUrl": {"value": data["webhook_url"]},
-        }
+    def render(self, event_kind_spec: EventKindSpec, *, slack_context_elements: tuple[str, ...]) -> RenderedMessage:
+        return RenderedMessage(provider=self.type, payload={"content": teams_text(event_kind_spec)})
 
 
 class TeamsDestination(_WebhookUrlDestination):
@@ -232,17 +232,8 @@ class TeamsDestination(_WebhookUrlDestination):
     def build_name(self, data: AlertDestinationData) -> str:
         return "Microsoft Teams"
 
-    def build_inputs(
-        self,
-        event_kind_spec: EventKindSpec,
-        data: AlertDestinationData,
-        *,
-        slack_context_elements: tuple[str, ...],
-    ) -> dict[str, Any]:
-        return {
-            "webhookUrl": {"value": data["webhook_url"]},
-            "text": {"value": teams_text(event_kind_spec)},
-        }
+    def render(self, event_kind_spec: EventKindSpec, *, slack_context_elements: tuple[str, ...]) -> RenderedMessage:
+        return RenderedMessage(provider=self.type, payload={"text": teams_text(event_kind_spec)})
 
 
 DESTINATION_SPECS: dict[DestinationType, DestinationSpec] = {
