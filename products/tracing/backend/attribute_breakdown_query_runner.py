@@ -21,6 +21,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.tracing.backend.aggregation_query_runner import _ROW_LIMIT, _SpanAggregationMixin
 from products.tracing.backend.logic import TIME_BUCKET_DATE_RANGE_WHERE
+from products.tracing.backend.span_identity import str_attr_field
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -97,11 +98,8 @@ class TraceSpansAttributeBreakdownQueryRunner(
             # resource_attributes' property group matches any key as-is.
             breakdown_field = ast.Field(chain=["resource_attributes", self.query.breakdownKey])
         else:
-            # Span attribute keys carry a type suffix in the physical map (attributes_map_str);
-            # the property-group resolver only rewrites suffixed keys to map access — a bare key
-            # falls through to a JSON read, which is illegal on the Map column. Every value is
-            # present in the __str map (the float/datetime maps are derived from it).
-            breakdown_field = ast.Field(chain=["attributes", f"{self.query.breakdownKey}__str"])
+            # Every value is present in the __str map (the float/datetime maps are derived from it).
+            breakdown_field = str_attr_field(self.query.breakdownKey)
         order_column = _ORDER_COLUMNS[self.query.orderBy or TraceSpanBreakdownOrderBy.COUNT]
 
         where: ast.Expr = self._where_without_date_range()

@@ -204,7 +204,7 @@ This covers a push to the PR's own branch only. Trunk tearing down its own shado
 
 `state=conflict` or `state=blocked`, or `mergeable_state` is `dirty`/`blocked`, or `draft` is true. A PR that is not mergeable is not admitted to the queue at all, so requeueing changes nothing.
 
-**Verdict: hold — fix the PR first.** Merge `master` in (or let the conflict autoresolver handle it), fix or wait for required checks, apply the `stamphog` label if approval is missing, then submit again.
+**Verdict: hold — fix the PR first.** Merge `master` in (or let the conflict autoresolver handle it), fix or wait for required checks, request a stamphog review if approval is missing (`/merging-prs` has the MCP-first route), then submit again.
 
 ### 3. Did a gate fail because its run was cancelled?
 

@@ -16,6 +16,7 @@ import type {
     ChannelInstructionsDTOApi,
     ChannelInstructionsWriteApi,
     ChannelMembersWriteApi,
+    ChannelSetupWriteApi,
     ChannelStarWriteApi,
     ChannelWriteApi,
     ConnectionTokenResponseApi,
@@ -72,6 +73,7 @@ import type {
     SandboxEnvironmentWriteApi,
     SandboxListParams,
     SlackThreadContextResponseApi,
+    SpaceSetupStartedDTOApi,
     StreamReadTokenResponseApi,
     TaskActivityListParams,
     TaskActivityMarkReadApi,
@@ -1136,6 +1138,28 @@ export const taskChannelsMembersUpdate = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(channelMembersWriteApi),
+    })
+}
+
+export const getTaskChannelsSetupCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/setup/`
+}
+
+/**
+ * Starts one unattended task in the channel that resolves the metric, writes the context page and, for a goal, creates the tracking canvas and the loops. The task becomes the channel's context generation task.
+ * @summary Set a space up for a goal or a feature
+ */
+export const taskChannelsSetupCreate = async (
+    projectId: string,
+    id: string,
+    channelSetupWriteApi: ChannelSetupWriteApi,
+    options?: RequestInit
+): Promise<SpaceSetupStartedDTOApi> => {
+    return apiMutator<SpaceSetupStartedDTOApi>(getTaskChannelsSetupCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelSetupWriteApi),
     })
 }
 
@@ -2862,7 +2886,7 @@ export const getTasksRepoRoutingRulesListUrl = (projectId: string) => {
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -2885,7 +2909,7 @@ export const getTasksRepoRoutingRulesCreateUrl = (projectId: string) => {
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -2911,7 +2935,7 @@ export const getTasksRepoRoutingRulesRetrieveUrl = (projectId: string, id: strin
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -2935,7 +2959,7 @@ export const getTasksRepoRoutingRulesUpdateUrl = (projectId: string, id: string)
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -2962,7 +2986,7 @@ export const getTasksRepoRoutingRulesPartialUpdateUrl = (projectId: string, id: 
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -2989,7 +3013,7 @@ export const getTasksRepoRoutingRulesDestroyUrl = (projectId: string, id: string
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the

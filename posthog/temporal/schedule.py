@@ -127,6 +127,7 @@ from products.replay_vision.backend.temporal.reconciler import create_replay_vis
 from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
+from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
@@ -147,6 +148,12 @@ async def cleanup_sync_vectors_schedule(client: Client):
     """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
     if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
         await a_delete_schedule(client, "ai-sync-vectors-schedule")
+
+
+async def cleanup_replay_vision_media_backfill_schedule(client: Client):
+    """Retired: delete the Replay Vision poster backfill schedule, whose workflow no worker registers anymore."""
+    if await a_schedule_exists(client, "replay-vision-media-backfill-schedule"):
+        await a_delete_schedule(client, "replay-vision-media-backfill-schedule")
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -896,6 +903,7 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
 
 schedules = [
     cleanup_sync_vectors_schedule,
+    cleanup_replay_vision_media_backfill_schedule,
     create_run_quota_limiting_schedule,
     create_schedule_due_billing_alert_checks_schedule,
     create_context_layer_dream_schedule,
@@ -956,6 +964,7 @@ schedules = [
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
     create_reconcile_metric_schedules_schedule,
+    create_sync_access_rules_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in

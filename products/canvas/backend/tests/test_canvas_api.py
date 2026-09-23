@@ -33,6 +33,7 @@ from products.tasks.backend.facade.access import DesktopAccessDecision
 from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
+from products.workflows.backend.models import HogFlow
 
 
 class InMemoryStorage:
@@ -2134,6 +2135,8 @@ class TestCanvasActions(CanvasAPIBaseTest):
             ("canvas_scope_only", "tasks.create", ["canvas:write"], status.HTTP_403_FORBIDDEN),
             ("target_scope_held", "tasks.create", ["canvas:write", "task:write"], status.HTTP_200_OK),
             ("cloud_canvas_scope_only", "tasks.create_and_run", ["canvas:write"], status.HTTP_403_FORBIDDEN),
+            ("workflow_canvas_scope_only", "workflows.pause", ["canvas:write"], status.HTTP_403_FORBIDDEN),
+            ("workflow_scope_held", "workflows.pause", ["canvas:write", "hog_flow:write"], status.HTTP_200_OK),
         ]
     )
     def test_scoped_keys_need_the_verbs_target_scope(self, _name, verb, scopes, expected_status):
@@ -2143,15 +2146,89 @@ class TestCanvasActions(CanvasAPIBaseTest):
             label="canvas-actions", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes
         )
         self.client.logout()
+        workflow = HogFlow.objects.create(
+            team=self.team, name="Loop", status="active", trigger={}, actions=[], edges=[]
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/actions/invoke/",
-            {"verb": verb, "payload": {"title": "Scoped", "description": "", "idempotency_key": str(uuid4())}},
+            {
+                "verb": verb,
+                "payload": {
+                    "title": "Scoped",
+                    "description": "",
+                    "idempotency_key": str(uuid4()),
+                    "workflow_ids": [str(workflow.id)],
+                },
+            },
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {raw_key}",
         )
 
         assert response.status_code == expected_status, response.json()
+
+    def test_workflow_verbs_flip_status_and_refuse_other_projects(self):
+        canvas_id = self._actions_canvas(verbs=("workflows.pause", "workflows.resume"))
+        loop = HogFlow.objects.create(
+            team=self.team,
+            name="Plan",
+            status="active",
+            trigger={"type": "schedule"},
+            actions=[{"id": "trigger", "type": "trigger", "name": "Scheduled", "config": {"type": "schedule"}}],
+            edges=[],
+        )
+        other_team = self.organization.teams.create(name="other")
+        foreign = HogFlow.objects.create(
+            team=other_team, name="Elsewhere", status="active", trigger={}, actions=[], edges=[]
+        )
+
+        paused = self._invoke(canvas_id, "workflows.pause", {"workflow_ids": [str(loop.id)]})
+        assert paused.status_code == status.HTTP_200_OK, paused.json()
+        assert paused.json()["result"] == {"workflows": [{"id": str(loop.id), "status": "draft"}]}
+        loop.refresh_from_db()
+        assert loop.status == "draft"
+
+        resumed = self._invoke(canvas_id, "workflows.resume", {"workflow_ids": [str(loop.id)]})
+        assert resumed.status_code == status.HTTP_200_OK, resumed.json()
+        loop.refresh_from_db()
+        assert loop.status == "active"
+
+        refused = self._invoke(canvas_id, "workflows.pause", {"workflow_ids": [str(loop.id), str(foreign.id)]})
+        assert refused.status_code == status.HTTP_404_NOT_FOUND, refused.json()
+        foreign.refresh_from_db()
+        assert foreign.status == "active"
+        loop.refresh_from_db()
+        assert loop.status == "active"
+
+    @parameterized.expand(
+        [
+            ([],),
+            (
+                [
+                    {
+                        "id": "trigger",
+                        "type": "trigger",
+                        "name": "Slack",
+                        "config": {
+                            "type": "internal-event",
+                            "filters": {"events": [{"id": "$slack_message_received", "type": "events"}]},
+                        },
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_resume_rejects_an_invalid_draft(self, actions):
+        canvas_id = self._actions_canvas(verbs=("workflows.resume",))
+        loop = HogFlow.objects.create(
+            team=self.team, name="Invalid", status="draft", trigger={}, actions=actions, edges=[]
+        )
+
+        response = self._invoke(canvas_id, "workflows.resume", {"workflow_ids": [str(loop.id)]})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        loop.refresh_from_db()
+        assert loop.status == "draft"
 
     def test_registry_lists_every_verb_with_authoring_docs(self):
         # Agents build against this endpoint instead of a skill file, so a verb
@@ -2176,8 +2253,37 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert task.title == "Follow up"
         assert not task.runs.exists()
 
-    @parameterized.expand([("without_repository", []), ("space_repositories", ["example/app", "example/api"])])
-    def test_cloud_task_uses_space_and_viewer_defaults_once(self, _name: str, repositories: list[str]) -> None:
+    @parameterized.expand(
+        [
+            (
+                "without_repository",
+                [],
+                {},
+                {"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "medium"},
+            ),
+            (
+                "space_repositories",
+                ["example/app", "example/api"],
+                {},
+                {"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "medium"},
+            ),
+            (
+                "selected_model",
+                [],
+                {"model": "claude-opus-4-8", "reasoning_effort": "high"},
+                {"runtime_adapter": "claude", "model": "claude-opus-4-8", "reasoning_effort": "high"},
+            ),
+            (
+                "selected_model_default_effort",
+                [],
+                {"model": "claude-opus-4-8"},
+                {"runtime_adapter": "claude", "model": "claude-opus-4-8", "reasoning_effort": None},
+            ),
+        ]
+    )
+    def test_cloud_task_uses_space_and_viewer_defaults_once(
+        self, _name: str, repositories: list[str], selection: dict[str, str], expected_state: dict[str, str | None]
+    ) -> None:
         canvas_id = self._actions_canvas(verbs=("tasks.create_and_run",))
         integration = Integration.objects.create(team=self.team, kind="github", config={})
         self.channel.repositories = repositories
@@ -2202,6 +2308,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
             "title": "Review the signup flow",
             "description": "Check the empty state.",
             "idempotency_key": str(uuid4()),
+            **selection,
         }
 
         with (
@@ -2217,7 +2324,9 @@ class TestCanvasActions(CanvasAPIBaseTest):
         ):
             response = self._invoke(canvas_id, "tasks.create_and_run", payload)
             usage.return_value = SimpleNamespace(is_rate_limited=True, limit_type="burst", reset_at=None, is_pro=False)
-            retry = self._invoke(canvas_id, "tasks.create_and_run", payload)
+            retry = self._invoke(
+                canvas_id, "tasks.create_and_run", {**payload, "model": "gpt-5.5", "reasoning_effort": "low"}
+            )
             new_request = self._invoke(canvas_id, "tasks.create_and_run", {**payload, "idempotency_key": str(uuid4())})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -2231,11 +2340,40 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert task.repositories == repositories
         assert task.github_integration_id == integration.id
         assert run.environment == TaskRun.Environment.CLOUD
-        assert run.state["model"] == "gpt-5.5"
-        assert run.state["runtime_adapter"] == "codex"
-        assert run.state["reasoning_effort"] == "medium"
+        assert {key: run.state.get(key) for key in expected_state} == expected_state
         assert task.runs.count() == 1
         dispatch.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("unknown_model", {"model": "unknown-model"}),
+            ("unsupported_effort", {"model": "gpt-5.5", "reasoning_effort": "invalid"}),
+            ("effort_without_model", {"reasoning_effort": "high"}),
+        ]
+    )
+    def test_cloud_task_rejects_invalid_model_selection_without_creating_work(
+        self, _name: str, selection: dict[str, str]
+    ) -> None:
+        canvas_id = self._actions_canvas(verbs=("tasks.create_and_run",))
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+                return_value=DesktopAccessDecision.ALLOWED,
+            ),
+            patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None),
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as dispatch,
+        ):
+            response = self._invoke(
+                canvas_id,
+                "tasks.create_and_run",
+                {"title": "Review", "idempotency_key": str(uuid4()), **selection},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not Task.objects.exists()
+        assert not TaskRun.objects.exists()
+        dispatch.assert_not_called()
 
     @parameterized.expand([("access_denied", False, False, 403), ("usage_limited", True, True, 429)])
     def test_cloud_task_checks_access_and_usage_before_creating_work(

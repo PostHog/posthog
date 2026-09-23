@@ -331,6 +331,9 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
   browser through the chrome-devtools MCP. `status.depot.dev` covers the case
   where Depot itself is the outage, and the `depot-github-runners` skill owns
   runner troubleshooting beyond triage.
+- A PR can route its backend tests to Depot CI. Then `Django Tests Pass` only
+  relays the Depot result, and `gh run rerun` reads the same failure again.
+  The log of its `Relay the Depot verdict` step lists the retry options.
 - If a job fails before `Checkout` completes (no app code ran), classify as
   `infra / runner`. Do not propose code fixes.
 - PostHog CI frequently parallelizes the same test class across N shards

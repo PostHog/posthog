@@ -5,6 +5,7 @@ use tracing::info;
 
 use crate::discovery::DiscoveryMode;
 use crate::routing::RoutingStrategy;
+use crate::scheduler::SchedulerKind;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 
 /// Configuration for the ingestion consumer.
@@ -163,6 +164,13 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
+    /// How often the key-table scheduler retries its parked keys
+    /// (milliseconds). Matches the flush driver's retry cadence, so the
+    /// scheduler switch does not regress recovery latency. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PARKED_RETRY_INTERVAL_MS", default = "200")]
+    pub parked_retry_interval_ms: u64,
+
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
@@ -272,6 +280,12 @@ pub struct Config {
     /// (power-of-two-choices — herd-resistant for a shared worker pool).
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
+
+    /// Which scheduler orders and places runs: `pin_stash` (default, sticky
+    /// pins with a per-batch stash) or `key_table` (at most one in-flight
+    /// request per key). The switch back is the rollback.
+    #[envconfig(from = "INGESTION_SCHEDULER", default = "pin_stash")]
+    pub scheduler: SchedulerKind,
 
     /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
     /// many workers this dispatcher's ring slice spans. The effective width

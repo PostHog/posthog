@@ -12,7 +12,7 @@ ci = "github"
 # Keep generated release workflows off tag-push publishing; Release CLI owns publishing
 dispatch-releases = true
 # The installers to generate for each app
-installers = ["shell", "powershell", "npm"]
+installers = ["shell", "powershell", "npm", "homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = [
     "aarch64-apple-darwin",
@@ -29,6 +29,9 @@ install-path = "~/.posthog"
 install-updater = true
 # A namespace to use when publishing this package to the npm registry
 npm-scope = "@posthog"
+# The tap the generated formula is published to. It has to exist already,
+# and it is the same one phrocs and hogland use.
+tap = "PostHog/homebrew-tap"
 # Publish jobs to run in CI
 publish-jobs = ["npm"]
 unix-archive = ".tar.gz"

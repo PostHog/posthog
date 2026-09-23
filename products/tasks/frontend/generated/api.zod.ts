@@ -1070,6 +1070,96 @@ export const TaskChannelsMembersUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Starts one unattended task in the channel that resolves the metric, writes the context page and, for a goal, creates the tracking canvas and the loops. The task becomes the channel's context generation task.
+ * @summary Set a space up for a goal or a feature
+ */
+export const taskChannelsSetupCreateBodyGoalOneStatementMax = 2000
+
+export const taskChannelsSetupCreateBodyGoalOnePeriodDefault = `week`
+export const taskChannelsSetupCreateBodyGoalOneDirectionDefault = `at_least`
+export const taskChannelsSetupCreateBodyGoalOneTargetMax = 64
+
+export const taskChannelsSetupCreateBodyGoalOneInsightShortIdMax = 64
+
+export const taskChannelsSetupCreateBodyFeatureOneNameMax = 200
+
+export const taskChannelsSetupCreateBodyFeatureOneDescriptionDefault = ``
+export const taskChannelsSetupCreateBodyFeatureOneDescriptionMax = 2000
+
+export const taskChannelsSetupCreateBodyFeatureOneFlagKeyMax = 400
+
+export const taskChannelsSetupCreateBodyRepositoryMax = 255
+
+export const TaskChannelsSetupCreateBody = /* @__PURE__ */ zod
+    .object({
+        kind: zod
+            .enum(['goal', 'feature'])
+            .describe('\* `goal` - Goal\n\* `feature` - Feature')
+            .describe('What the space is set up for.\n\n\* `goal` - Goal\n\* `feature` - Feature'),
+        goal: zod
+            .object({
+                statement: zod
+                    .string()
+                    .max(taskChannelsSetupCreateBodyGoalOneStatementMax)
+                    .describe("The goal in one or two sentences, e.g. 'Increase the weekly activation rate'."),
+                period: zod
+                    .enum(['day', 'week', 'month'])
+                    .describe('\* `day` - Day\n\* `week` - Week\n\* `month` - Month')
+                    .default(taskChannelsSetupCreateBodyGoalOnePeriodDefault)
+                    .describe(
+                        'How often the metric is measured.\n\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month'
+                    ),
+                direction: zod
+                    .enum(['at_least', 'at_most'])
+                    .describe('\* `at_least` - At least\n\* `at_most` - At most')
+                    .default(taskChannelsSetupCreateBodyGoalOneDirectionDefault)
+                    .describe(
+                        "Whether the target is a floor ('at_least') or a ceiling ('at_most').\n\n\* `at_least` - At least\n\* `at_most` - At most"
+                    ),
+                target: zod
+                    .string()
+                    .max(taskChannelsSetupCreateBodyGoalOneTargetMax)
+                    .nullish()
+                    .describe("Target value as typed, e.g. '20%' or '1500'."),
+                deadline: zod.iso.date().nullish().describe('Date the target should be reached.'),
+                insight_short_id: zod
+                    .string()
+                    .max(taskChannelsSetupCreateBodyGoalOneInsightShortIdMax)
+                    .nullish()
+                    .describe('Short id of an existing insight that measures the goal, when there is one.'),
+            })
+            .describe('The metric a goal space should move.')
+            .optional()
+            .describe("Required when kind is 'goal'."),
+        feature: zod
+            .object({
+                name: zod
+                    .string()
+                    .max(taskChannelsSetupCreateBodyFeatureOneNameMax)
+                    .describe('Feature name as people call it.'),
+                description: zod
+                    .string()
+                    .max(taskChannelsSetupCreateBodyFeatureOneDescriptionMax)
+                    .default(taskChannelsSetupCreateBodyFeatureOneDescriptionDefault)
+                    .describe('What the feature does, in a sentence.'),
+                flag_key: zod
+                    .string()
+                    .max(taskChannelsSetupCreateBodyFeatureOneFlagKeyMax)
+                    .nullish()
+                    .describe('Key of the feature flag that gates it, if any.'),
+            })
+            .describe('The feature a feature space is set up around.')
+            .optional()
+            .describe("Required when kind is 'feature'."),
+        repository: zod
+            .string()
+            .max(taskChannelsSetupCreateBodyRepositoryMax)
+            .nullish()
+            .describe("Repository the loops work in, as 'owner\/name'. Defaults to the channel's first repository."),
+    })
+    .describe('Request body for starting the task that sets a space up for a goal or a feature.')
+
+/**
  * @summary Star or unstar a channel for the requesting user
  */
 export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
@@ -1210,13 +1300,14 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             'signals_chat',
             'task_analysis',
             'workflow',
+            'space_setup',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
         ),
     repository: zod
         .string()
@@ -1398,13 +1489,14 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
             'signals_chat',
             'task_analysis',
             'workflow',
+            'space_setup',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
         ),
     repository: zod
         .string()
@@ -1550,13 +1642,14 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'signals_chat',
             'task_analysis',
             'workflow',
+            'space_setup',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup'
         ),
     repository: zod
         .string()
@@ -3529,7 +3622,7 @@ export const TasksConfigCreateBody = /* @__PURE__ */ zod
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -3555,7 +3648,7 @@ export const TasksRepoRoutingRulesCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -3581,7 +3674,7 @@ export const TasksRepoRoutingRulesUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
- * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
  * reads them ordered by priority when picking a repository for a task. Rules whose
  * repository is not connected to the project are ignored at selection time, so a
  * stale rule is inert rather than harmful — which is why writes here don't check the
@@ -3696,11 +3789,13 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
                 "Optional custom base image to provision before the task is submitted; takes precedence over the environment's image."
             ),
         origin_product: zod
-            .enum(['user_created', 'posthog_ai'])
-            .describe('\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai')
+            .enum(['user_created', 'posthog_ai', 'signal_report'])
+            .describe(
+                '\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai\n\* `signal_report` - signal_report'
+            )
             .default(tasksWarmCreateBodyOriginProductDefault)
             .describe(
-                'Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.\n\n\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai'
+                'Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.\n\n\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai\n\* `signal_report` - signal_report'
             ),
         initial_permission_mode: zod
             .union([
@@ -3714,6 +3809,12 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+            ),
+        signal_report: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "Inbox report the warm discussion is about. Required with origin_product `signal_report`, where the warm Run boots repo-less and the submit that creates the report's discussion task activates it."
             ),
     })
     .describe(

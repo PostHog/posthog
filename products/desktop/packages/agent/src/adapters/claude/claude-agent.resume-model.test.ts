@@ -336,8 +336,8 @@ describe("ClaudeAcpAgent session creation", () => {
       name: "pins the default model explicitly when resuming without meta.model",
       sessionId: "0197a000-0000-7000-8000-000000000002",
       model: undefined,
-      expectedSetModel: "claude-opus-4-8",
-      expectedCurrentValue: "claude-opus-4-8",
+      expectedSetModel: "claude-opus-5-5",
+      expectedCurrentValue: "claude-opus-5-5",
     },
   ])(
     "$name",

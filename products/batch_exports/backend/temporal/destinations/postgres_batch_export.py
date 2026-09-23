@@ -183,6 +183,7 @@ class _PostgreSQLClientInputsProtocol(typing.Protocol):
 class PostgresInsertInputs(BatchExportInsertInputs):
     """Inputs for Postgres."""
 
+    data_interval_end: str
     database: str
     table_name: str
     schema: str = "public"
