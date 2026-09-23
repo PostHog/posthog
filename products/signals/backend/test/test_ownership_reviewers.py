@@ -8,7 +8,7 @@ from posthog.models.organization import OrganizationMembership
 
 from products.engineering_analytics.backend.facade.contracts import PathOwnership
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import SuggestedReviewers
+from products.signals.backend.artefact_schemas import SignalFinding, SuggestedReviewers
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.ownership_reviewers import (
     OwnershipReviewer,
@@ -173,7 +173,13 @@ def test_codeowners_routes_without_owners_yaml_only_to_a_project_member(team):
 def test_ownership_suggestions_follow_repository_owners_then_commit_authors():
     author = _ResolvedReviewer(login="author", name=None, commits=[], weight=1.0)
     resolution = SimpleNamespace(reviewers=[author], diagnostics=SimpleNamespace(outcome="resolved"))
-    finding = SimpleNamespace(relevant_commit_hashes={"abcdef0": "fix"}, relevant_code_paths=["src/app.py"])
+    finding = SignalFinding(
+        signal_id="sig-1",
+        relevant_commit_hashes={"abcdef0": "fix"},
+        relevant_code_paths=["src/app.py"],
+        data_queried="",
+        verified=True,
+    )
     with (
         patch(
             "products.signals.backend.temporal.agentic.report.resolve_suggested_reviewers_with_diagnostics",
