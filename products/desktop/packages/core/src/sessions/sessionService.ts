@@ -4052,6 +4052,7 @@ export class SessionService {
   private handleCloudPermissionRequest(
     taskRunId: string,
     update: DerivedPermissionRequest,
+    { isLive = false }: { isLive?: boolean } = {},
   ): void {
     this.d.log.info("Cloud permission request received", {
       taskRunId,
@@ -4102,7 +4103,11 @@ export class SessionService {
     });
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
-    this.d.taskViewedApi.markActivity(session.taskId);
+    // A request replayed from the log is history the reader is opening, not
+    // something that just happened, so only a live one moves the activity clock.
+    if (isLive) {
+      this.d.taskViewedApi.markActivity(session.taskId);
+    }
     this.notifyNeedsInput(taskRunId, session, "cloud_permission_request");
   }
 
@@ -8825,7 +8830,7 @@ export class SessionService {
     }
 
     if (update.kind === "permission_request") {
-      this.handleCloudPermissionRequest(taskRunId, update);
+      this.handleCloudPermissionRequest(taskRunId, update, { isLive: true });
       return;
     }
 
