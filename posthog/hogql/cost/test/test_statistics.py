@@ -4,6 +4,7 @@ from uuid import uuid4
 from posthog.test.base import ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -122,6 +123,29 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
 
         assert provider.property_ndv(self.team_id, "plan") == 2
         assert provider.property_ndv(self.team_id, "never_sent") is None
+
+    def test_table_rows_counts_the_teams_rows_once_a_day(self):
+        cache.delete(f"hogql_cost:table_rows:{self.team_id}:person")
+        sync_execute(
+            "INSERT INTO person (id, created_at, team_id, properties, is_identified, is_deleted, version) VALUES "
+            f"(generateUUIDv4(), now(), {self.team_id}, '{{}}', 0, 0, 0), "
+            f"(generateUUIDv4(), now(), {self.team_id}, '{{}}', 0, 0, 0), "
+            f"(generateUUIDv4(), now(), {self.team_id + 1}, '{{}}', 0, 0, 0)"
+        )
+
+        with patch("posthog.hogql.cost.statistics.sync_execute", wraps=sync_execute) as execute:
+            first = ClickHouseStatisticsProvider(today=TODAY).table_rows(self.team_id, "person")
+            # A second provider, as a later request would build, reads the shared cache instead of counting again.
+            second = ClickHouseStatisticsProvider(today=TODAY).table_rows(self.team_id, "person")
+
+        assert first == 2
+        assert second == 2
+        assert execute.call_count == 1
+
+    def test_table_rows_refuses_a_table_it_does_not_count(self):
+        with patch("posthog.hogql.cost.statistics.sync_execute", wraps=sync_execute) as execute:
+            assert ClickHouseStatisticsProvider(today=TODAY).table_rows(self.team_id, "events") is None
+        execute.assert_not_called()
 
     def test_team_without_data_yields_none(self):
         assert ClickHouseStatisticsProvider(today=TODAY).event_volume(self.team_id) is None

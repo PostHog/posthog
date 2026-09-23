@@ -7,8 +7,9 @@ headline. What is known depends on the source. For ``events``:
     rows = events per day  ×  days in the timestamp range  ×  share of volume carried by the filtered event names
            ×  share of granules the most selective indexed property filter leaves
 
-A warehouse table carries the size of its files. Any other table is listed with nothing known about it, so the
-reader sees which part of the query the number does not cover. The estimate is advisory. It is compared against
+A warehouse table carries the rows and bytes of its last sync, and persons and groups a count of the team's rows.
+Any other table is listed with nothing known about it, so the reader sees which part of the query the number does
+not cover. The estimate is advisory. It is compared against
 ``read_rows`` in ``query_log`` (see ``accuracy.py``) and a wrong number costs a misleading hint, never a failed
 query.
 
@@ -35,11 +36,15 @@ from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import FunctionCallTable, Table
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
+from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.index_eligibility import IndexKind, eligibility_from_plan
 from posthog.hogql.property_planner import PropertyScope, plan_property_comparison
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
+from posthog.models.group.sql import GROUPS_TABLE
+from posthog.models.person.sql import PERSONS_TABLE
 
 # A team's retention rarely exceeds this, and a query with no timestamp bound reads whatever exists.
 DEFAULT_RANGE_DAYS = 365
@@ -142,8 +147,9 @@ def estimate_scan(
             tables.append(estimate)
             upper_bound = upper_bound or unmodelled
         else:
-            tables.append(scan.estimate)
-            upper_bound = upper_bound or scan.estimate.precision == "size_only"
+            estimate = _other_table_estimate(scan, context.team_id, provider)
+            tables.append(estimate)
+            upper_bound = upper_bound or estimate.precision == "size_only"
 
     return ScanEstimate(
         rows=sum(table.rows for table in tables if table.rows is not None),
@@ -217,9 +223,10 @@ class _EventsScan:
 
 @frozen
 class _OtherScan:
-    """One read of a table that is not events, with whatever the table object itself says about its size."""
+    """One read of a table that is not events. Sized once the statistics provider is at hand."""
 
-    estimate: TableScanEstimate
+    name: str
+    table: Table
 
 
 @frozen
@@ -289,7 +296,7 @@ def _table_scans(
             if isinstance(source.table, EventsTable):
                 scans.append(predicates.scan_for(name, source.alias))
             else:
-                scans.append(_OtherScan(estimate=_other_table_estimate(name, source.table)))
+                scans.append(_OtherScan(name=name, table=source.table))
         else:
             inner = _table_scans(source, now, context, ctes)
             if inner is None:
@@ -323,7 +330,18 @@ def _scan_name(join: ast.JoinExpr, ref: _TableRef) -> str:
     return ref.table.to_printed_hogql()
 
 
-def _other_table_estimate(name: str, table: Table) -> TableScanEstimate:
+# HogQL tables whose physical rows live in one replicated ClickHouse table keyed by team. The lazy tables read
+# their raw counterpart, so both map to the same count.
+_COUNTED_CLICKHOUSE_TABLES: dict[type[Table], str] = {
+    PersonsTable: PERSONS_TABLE,
+    RawPersonsTable: PERSONS_TABLE,
+    GroupsTable: GROUPS_TABLE,
+    RawGroupsTable: GROUPS_TABLE,
+}
+
+
+def _other_table_estimate(scan: _OtherScan, team_id: int, provider: StatisticsProvider) -> TableScanEstimate:
+    name, table = scan.name, scan.table
     if isinstance(table, DataWarehouseTable) and (table.row_count is not None or table.size_in_s3_mib is not None):
         # Every sync records the table's rows and bytes. There is no model of how much of them a query reads.
         return TableScanEstimate(
@@ -339,7 +357,12 @@ def _other_table_estimate(name: str, table: Table) -> TableScanEstimate:
         return TableScanEstimate(name=name, source="direct", precision="unknown")
     if isinstance(table, FunctionCallTable):
         return TableScanEstimate(name=name, source="static", precision="unknown")
-    return TableScanEstimate(name=name, source="clickhouse", precision="unknown")
+    counted = _COUNTED_CLICKHOUSE_TABLES.get(type(table))
+    rows = provider.table_rows(team_id, counted) if counted is not None else None
+    if rows is None:
+        return TableScanEstimate(name=name, source="clickhouse", precision="unknown")
+    # A count of the team's rows, not of what the query reads: a filter on a person property cannot narrow it.
+    return TableScanEstimate(name=name, source="clickhouse", precision="size_only", rows=rows)
 
 
 def _event_fraction(volume: EventVolume, events: frozenset[str]) -> float:

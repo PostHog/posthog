@@ -71,6 +71,11 @@ class TestEstimateEventsScan(BaseTest):
             property_ndv={(self.team.pk, "order_id"): 10_000_000, (self.team.pk, "plan"): 50},
         )
 
+    def _with_table_rows(self, **rows: int) -> None:
+        self.provider = FixedStatisticsProvider(
+            event_volume={self.team.pk: VOLUME}, table_rows={(self.team.pk, table): n for table, n in rows.items()}
+        )
+
     def _estimate(self, sql: str) -> ScanEstimate | None:
         node = cast(ast.SelectQuery, resolve_types(parse_select(sql), self.context, dialect="clickhouse"))
         return estimate_scan(node, self.context, self.provider, now=NOW)
@@ -249,6 +254,45 @@ class TestEstimateEventsScan(BaseTest):
 
     def test_a_query_with_no_table_has_no_estimate(self):
         assert self._estimate("SELECT 1") is None
+
+    @parameterized.expand(
+        [
+            ("persons", "SELECT count() FROM persons", "persons", 2_400_000),
+            ("raw_persons", "SELECT count() FROM raw_persons", "raw_persons", 2_400_000),
+            ("groups", "SELECT count() FROM groups WHERE index = 0", "groups", 3_000),
+            (
+                "person_property_filter_does_not_narrow",
+                "SELECT count() FROM persons WHERE properties.plan = 'enterprise'",
+                "persons",
+                2_400_000,
+            ),
+        ]
+    )
+    def test_persons_and_groups_are_sized_by_the_teams_row_count(self, _name, sql, name, expected_rows):
+        self._with_table_rows(person=2_400_000, groups=3_000)
+
+        estimate = self._estimate(sql)
+
+        assert estimate is not None
+        assert estimate.rows == expected_rows
+        assert estimate.upper_bound is True
+        assert estimate.tables == (
+            TableScanEstimate(name=name, source="clickhouse", precision="size_only", rows=expected_rows),
+        )
+
+    def test_a_join_to_persons_adds_the_teams_persons_to_the_ceiling(self):
+        self._with_table_rows(person=2_400_000)
+
+        estimate = self._estimate(
+            "SELECT count() FROM events e JOIN persons p ON p.id = e.person_id WHERE e.event = 'signup'"
+        )
+
+        assert estimate is not None
+        assert estimate.rows == 14_600_000 + 2_400_000
+        assert [(table.name, table.precision) for table in estimate.tables] == [
+            ("events", "measured"),
+            ("persons", "size_only"),
+        ]
 
     def test_a_synced_warehouse_table_counts_its_rows_as_a_ceiling(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)

@@ -14,6 +14,7 @@ from datetime import date, timedelta
 from typing import Protocol
 
 from django.conf import settings
+from django.core.cache import cache
 
 import structlog
 
@@ -22,6 +23,8 @@ from posthog.clickhouse.property_values import DISTRIBUTED_TABLE_NAME as PROPERT
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.models.group.sql import GROUPS_TABLE
+from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.usage_report_events_preagg.sql import (
     USAGE_REPORT_EVENTS_PREAGG_TABLE,
     USAGE_REPORT_EVENTS_PREAGG_TTL_DAYS,
@@ -33,6 +36,12 @@ logger = structlog.get_logger(__name__)
 # because it is still filling, and a team that stopped sending has fewer days than the window, so callers
 # scale by ``EventVolume.days`` rather than dividing by the window they asked for.
 EVENT_VOLUME_WINDOW_DAYS = USAGE_REPORT_EVENTS_PREAGG_TTL_DAYS - 1
+
+# Tables whose size is one count by team, keyed on their sort key. The count is shared across processes for a
+# day: a team's persons or groups do not change enough within a day to move an estimate that is only good to
+# a few times, and the alternative is one scan of the team's rows per query.
+COUNTED_TABLES: frozenset[str] = frozenset({PERSONS_TABLE, GROUPS_TABLE})
+TABLE_ROWS_CACHE_SECONDS = 24 * 60 * 60
 
 
 @frozen
@@ -69,6 +78,10 @@ class StatisticsProvider(Protocol):
         """How many distinct values an event property took recently."""
         ...
 
+    def table_rows(self, team_id: int, table: str) -> int | None:
+        """How many rows a ClickHouse table holds for the team. ``table`` is one of ``COUNTED_TABLES``."""
+        ...
+
 
 class ClickHouseStatisticsProvider:
     """Reads statistics from the rollups ClickHouse already maintains.
@@ -81,6 +94,7 @@ class ClickHouseStatisticsProvider:
         self._today = today
         self._event_volume: dict[int, EventVolume | None] = {}
         self._property_ndv: dict[tuple[int, str], int | None] = {}
+        self._table_rows: dict[tuple[int, str], int | None] = {}
 
     def event_volume(self, team_id: int) -> EventVolume | None:
         if team_id not in self._event_volume:
@@ -92,6 +106,48 @@ class ClickHouseStatisticsProvider:
         if key not in self._property_ndv:
             self._property_ndv[key] = self._load_property_ndv(team_id, property_name)
         return self._property_ndv[key]
+
+    def table_rows(self, team_id: int, table: str) -> int | None:
+        key = (team_id, table)
+        if key not in self._table_rows:
+            self._table_rows[key] = self._load_table_rows(team_id, table)
+        return self._table_rows[key]
+
+    def _load_table_rows(self, team_id: int, table: str) -> int | None:
+        """Count the team's rows in a replicated table, once a day.
+
+        The count runs without FINAL. A person or group that was updated has one row per version until the
+        parts merge, so the count is an overcount, which is the right side to err on for a ceiling.
+        """
+        if table not in COUNTED_TABLES:
+            return None
+        cache_key = f"hogql_cost:table_rows:{team_id}:{table}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return int(cached)
+        try:
+            with tags_context(
+                product=Product.INTERNAL,
+                feature=Feature.SCHEMA_INTROSPECTION,
+                team_id=team_id,
+                plan_fingerprint=None,
+                estimated_rows=None,
+                estimated_bytes=None,
+            ):
+                # nosemgrep: clickhouse-fstring-param-audit - the f-string only interpolates a table name checked against COUNTED_TABLES; team_id is bound as a parameter
+                rows = sync_execute(
+                    f"SELECT count() FROM {settings.CLICKHOUSE_DATABASE}.{table} WHERE team_id = %(team_id)s",
+                    {"team_id": team_id},
+                    workload=Workload.OFFLINE,
+                    team_id=team_id,
+                    readonly=True,
+                )
+        except Exception:
+            logger.warning("hogql_cost_table_rows_unavailable", team_id=team_id, table=table, exc_info=True)
+            return None
+        count = int(rows[0][0]) if rows else 0
+        cache.set(cache_key, count, timeout=TABLE_ROWS_CACHE_SECONDS)
+        return count
 
     def _load_event_volume(self, team_id: int) -> EventVolume | None:
         today = self._today or date.today()
@@ -178,12 +234,17 @@ class FixedStatisticsProvider:
         *,
         event_volume: Mapping[int, EventVolume] | None = None,
         property_ndv: Mapping[tuple[int, str], int] | None = None,
+        table_rows: Mapping[tuple[int, str], int] | None = None,
     ) -> None:
         self._event_volume = dict(event_volume or {})
         self._property_ndv = dict(property_ndv or {})
+        self._table_rows = dict(table_rows or {})
 
     def event_volume(self, team_id: int) -> EventVolume | None:
         return self._event_volume.get(team_id)
 
     def property_ndv(self, team_id: int, property_name: str) -> int | None:
         return self._property_ndv.get((team_id, property_name))
+
+    def table_rows(self, team_id: int, table: str) -> int | None:
+        return self._table_rows.get((team_id, table))
