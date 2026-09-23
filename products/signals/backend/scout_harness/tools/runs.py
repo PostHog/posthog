@@ -16,7 +16,8 @@ findings (and so left no `Signal` row to query against) — plus the
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from collections.abc import Iterable
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -29,7 +30,7 @@ from django.utils import timezone
 import structlog
 from croniter import CroniterError, croniter
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -225,7 +226,7 @@ def search_recent_runs(
     if skill_version is not None:
         qs = qs.filter(skill_version=skill_version)
     qs = qs[:clamped_limit]
-    return [_to_summary(row, team_id=team_id) for row in qs]
+    return _without_deleted_reports([_to_summary(row, team_id=team_id) for row in qs], team_id=team_id)
 
 
 def _schedule_gap_minutes(config: SignalScoutConfig) -> int:
@@ -373,7 +374,7 @@ def recent_runs_per_scout(
         .select_related("task_run")
         .order_by("-created_at")
     )
-    return [_to_summary(row, team_id=team_id) for row in rows]
+    return _without_deleted_reports([_to_summary(row, team_id=team_id) for row in rows], team_id=team_id)
 
 
 @dataclass(frozen=True)
@@ -450,9 +451,21 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     # Distinct touched reports, most recently touched first (rows are newest-first), capped at the
     # same 50 the findings page keeps (`MAX_FLEET_TOUCHED_REPORTS`) — so the callout never
     # advertises reports the page has sliced away. Dict preserves insertion (recency) order.
+    # Deleted reports are unreachable by id, so the page can't list one however recently it was
+    # touched — counting it here would advertise a row that silently never renders.
+    deleted_report_ids = _deleted_report_ids(
+        {
+            report_id
+            for _, _, _, emitted_report_ids, edited_report_ids in materialized
+            for report_id in [*(edited_report_ids or []), *(emitted_report_ids or [])]
+        },
+        team_id=team_id,
+    )
     kept_report_ids: dict[str, None] = {}
     for _, _, _, emitted_report_ids, edited_report_ids in materialized:
         for report_id in [*(edited_report_ids or []), *(emitted_report_ids or [])]:
+            if report_id in deleted_report_ids:
+                continue
             if report_id not in kept_report_ids and len(kept_report_ids) < FLEET_FINDINGS_SUMMARY_REPORT_CAP:
                 kept_report_ids[report_id] = None
     for _, skill_name, _, emitted_report_ids, edited_report_ids in materialized:
@@ -536,8 +549,50 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
 
 
 def _to_detail(row: SignalScoutRun, *, team_id: int) -> RunDetail:
-    summary = _to_summary(row, team_id=team_id)
+    summary = _without_deleted_reports([_to_summary(row, team_id=team_id)], team_id=team_id)[0]
     return RunDetail(**asdict(summary))
+
+
+def _without_deleted_reports(rows: list[RunSummary], *, team_id: int) -> list[RunSummary]:
+    """Drop deleted reports out of the touched-report lists a run exposes.
+
+    Deletion is terminal and the report endpoints subtract the deleted status from the statuses
+    they serve, so a deleted id is unreachable by id for good. The run row keeps naming it, so a
+    reader that resolves these ids — the inbox roster above all — asks for the same dead ids on
+    every load and every poll. One query per rollup keeps them out of the response instead.
+    """
+    touched = {report_id for row in rows for report_id in (*row.emitted_report_ids, *row.edited_report_ids)}
+    if not touched:
+        return rows
+    deleted = _deleted_report_ids(touched, team_id=team_id)
+    if not deleted:
+        return rows
+    return [
+        replace(
+            row,
+            emitted_report_ids=[report_id for report_id in row.emitted_report_ids if report_id not in deleted],
+            edited_report_ids=[report_id for report_id in row.edited_report_ids if report_id not in deleted],
+        )
+        for row in rows
+    ]
+
+
+def _deleted_report_ids(report_ids: Iterable[str], *, team_id: int) -> set[str]:
+    """Which of these ids belong to a deleted report of this team. Unparseable ids are left alone."""
+    candidates: list[UUID] = []
+    for report_id in report_ids:
+        try:
+            candidates.append(UUID(str(report_id)))
+        except ValueError:
+            continue
+    if not candidates:
+        return set()
+    return {
+        str(report_id)
+        for report_id in SignalReport.objects.filter(
+            team_id=team_id, id__in=candidates, status=SignalReport.Status.DELETED
+        ).values_list("id", flat=True)
+    }
 
 
 def _derive_failure(task_run: TaskRun | None) -> tuple[str | None, str | None]:
