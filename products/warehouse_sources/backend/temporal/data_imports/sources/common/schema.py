@@ -92,6 +92,22 @@ def _select_incremental_field(incremental_fields: list[IncrementalField]) -> Inc
     return candidates[0]
 
 
+def has_usable_primary_key(
+    source_schema: SourceSchema | None, primary_key_columns: Collection[str] | None = None
+) -> bool:
+    """Return whether an incremental schema can resolve a primary key safely.
+
+    Introspected tables need either a discovered key or an ``id`` column. Sources that do not
+    expose columns during discovery resolve their key at sync time, so the absence of a detected
+    key is not evidence that they are keyless.
+    """
+    if primary_key_columns or source_schema is None or not source_schema.columns:
+        return True
+    if source_schema.detected_primary_keys:
+        return True
+    return any(str(column[0]).lower() == "id" for column in source_schema.columns)
+
+
 def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
     """Default sync settings for one discovered table.
 
@@ -102,7 +118,7 @@ def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
     and explicit opt-in.
     """
     chosen = _select_incremental_field(source_schema.incremental_fields)
-    has_primary_keys = bool(source_schema.detected_primary_keys)
+    has_primary_keys = has_usable_primary_key(source_schema)
     if source_schema.supports_incremental and chosen is not None and has_primary_keys:
         sync_type = "incremental"
     elif source_schema.supports_append and chosen is not None:
