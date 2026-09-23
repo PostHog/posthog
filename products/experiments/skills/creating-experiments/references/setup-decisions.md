@@ -62,6 +62,7 @@ If `sdk_profile.libs` is empty, read `sdk_profile.libs_on_any_event`.
 The endpoint fills that field only on an empty profile, so a profile that holds rows and matches none of them to `target_surface.libs` is not this branch: the unmatched-SDK rules above decide that case, and the field reads null there.
 It is null on an empty profile too when its own query timed out. Nothing then names the platforms, so none of the reads below apply: say so and stay on user-id bucketing, marked "not decided".
 It names the platforms the project sends from, which settles one case and no other: a project that sends only from mobile SDKs can never reach the share step 1 needs, so the choice there is persistence or user-id bucketing.
+Trust that mobile-only read only when `sdk_profile.libs_on_any_event_truncated` is false. When it is true, the cap dropped the SDKs that sent the fewest events, so the project can also send from a web or server SDK that the list does not show.
 Every other platform mix stays open, a server-only project included. A server SDK that forwards the browser's device ID puts one on every flag call, and this fallback cannot see whether it does.
 It says nothing about device IDs on flag calls or about local evaluation, so steps 1 and 2 still do not pass. Keep user-id bucketing and mark it "not decided".
 Say which platforms the project sends from. When `target_surface.device_id_share` is near 1, `target_surface.libs` lists no server SDK, and `target_surface.libs_truncated` is false, say device-id bucketing is the likely fit: with no server SDK in the mix, nothing has to forward the device ID for the flag call to carry one. A mobile-only project never reaches that share, so it is settled above rather than here.
@@ -99,6 +100,7 @@ Keep the test-account filter on and say so. `team_defaults.new_experiments_filte
    - An empty `shared_metrics.metrics[].metric_event_roles` with a true match is not a rejection. The metric does count the event, but it is stored in a shape the role reader does not parse, which its `shared_metrics.metrics[].metric_type` shows as null or as a type not listed above. Retrieve it and read the query.
    - When the role fits, load the metric with `experiment-saved-metrics-retrieve` and check its `metric_type` and `math` against what the user asked for. The role alone does not prove those, so the tier stays best guess until you have read the query.
    - If it matches, link it after creation through `experiment-update` with `saved_metrics_ids`. Tier: confident. When the user asked for no questions, link it and report it rather than asking first.
+   - When no listed metric fits and `shared_metrics.metric_event_match_truncated` is true, the match read only the newest shared metrics, so an older metric that counts the event shows `matches_metric_event` false. Call `experiment-saved-metrics-list` with `event` set to the metric event before you build an inline metric. That filter reads every shared metric.
    - If it doesn't, build an inline metric.
 3. Otherwise pick a shape from the metric templates in `configuring-experiment-analytics` (`references/metric-templates.md`). Tier: best guess.
 
