@@ -465,6 +465,36 @@ class TestSharing(APIBaseTest):
     @parameterized.expand(["insights", "dashboards"])
     @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_shared_thing_uses_placeholder_while_open_graph_image_is_pending(
+        self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
+    ) -> None:
+        target = self.insight if type == "insights" else self.dashboard
+        share_response = self.client.patch(
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
+            {"enabled": True},
+        )
+        image_url = f"/shared/{share_response.json()['access_token']}.png"
+
+        pending_response = self.client.get(image_url)
+
+        assert pending_response.status_code == 302
+        assert pending_response["Location"] == "http://testserver/static/blank-dashboard-hog.png"
+        assert pending_response["Cache-Control"] == "no-store"
+        patched_exporter_task.assert_called_once()
+
+        exported_asset = ExportedAsset.objects.get(team_id=self.team.id)
+        exported_asset.content_location = "some object url"
+        exported_asset.save(update_fields=["content_location"])
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
+
+        ready_response = self.client.get(image_url)
+
+        assert ready_response.status_code == 302
+        assert ready_response["Location"] == "https://s3.example.com/presigned-url"
+
+    @parameterized.expand(["insights", "dashboards"])
+    @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_shared_thing_can_reuse_existing_generated_open_graph_image(
         self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
     ) -> None:

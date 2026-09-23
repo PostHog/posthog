@@ -6,7 +6,9 @@ from urllib.parse import urlparse, urlunparse
 from django.core.exceptions import ImproperlyConfigured
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Model, Q
+from django.http import HttpResponseRedirect
 from django.shortcuts import render
+from django.templatetags.static import static
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -1133,7 +1135,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_asset = self.exported_asset_for_sharing_configuration(resource)
             if not exported_asset:
                 raise NotFound()
-            return get_content_response(exported_asset, False)
+            try:
+                return get_content_response(exported_asset, False)
+            except NotFound:
+                fallback = HttpResponseRedirect(request.build_absolute_uri(static("blank-dashboard-hog.png")))
+                fallback["Cache-Control"] = "no-store"
+                return fallback
         elif isinstance(resource, SharingConfiguration):
             exported_data["accessToken"] = resource.access_token
         elif isinstance(resource, ExportedAsset):
