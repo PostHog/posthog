@@ -78,6 +78,8 @@ Canceled removals return a nonzero exit status without sending delete requests; 
 Invalid removals report the affected path and a readable reason, such as a missing file or a directory requiring `-r`.
 If a delete request fails, the terminal reports the affected path and API error; use `ph refresh` to check the remaining files before retrying a batch.
 Local scratch files retain normal Linux behavior, and mixed local/PostHog batches must be split into separate commands.
+The `rm` wrapper refuses the filesystem root (`/`) and the PostHog mount (`/posthog`) before deleting any targets, including local files in the same command.
+Paths with parents that cannot be resolved also stop the command before deletion.
 Running `node`, `nodejs`, or `pi` installs the tool on first use; `pi` also installs Node.js.
 Optional tools come from commit-pinned archives in [PostHog/terminal-assets](https://github.com/PostHog/terminal-assets), separate from the boot assets.
 The browser verifies each archive's SHA-256 and size before making it available to the VM, and caches verified downloads when browser storage is available.
