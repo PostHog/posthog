@@ -1476,11 +1476,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                         serializer.is_valid(raise_exception=True)
                         # The builder refuses this; the API and MCP paths did not. Stored without a
                         # target the trigger has no bytecode and fails on every event, or compiles to
-                        # match-all once the serializer drops what its source does not support.
-                        if not _event_trigger_targets_something(serializer.validated_data):
+                        # match-all once the serializer drops what its source does not support. A
+                        # draft is not running yet, so an agent can still build the flow up in steps.
+                        if not is_draft and not _event_trigger_targets_something(serializer.validated_data):
                             raise serializers.ValidationError({"filters": _EVENT_TRIGGER_NEEDS_A_TARGET})
                         data["config"]["filters"] = serializer.validated_data
-                elif strict:
+                elif not is_draft:
                     raise serializers.ValidationError({"filters": _EVENT_TRIGGER_NEEDS_A_TARGET})
             elif data.get("config", {}).get("type") == "batch":
                 filters = data.get("config", {}).get("filters", {})
