@@ -5,10 +5,6 @@ import {
   type CanvasBuildRecord,
   canvasBuildRecordSchema,
 } from "./canvasBuildSchemas";
-import type {
-  PublishProjectInput,
-  PublishProjectResult,
-} from "./canvasProjectSave";
 import {
   type CanvasActionDefinition,
   type CanvasActionResult,
@@ -23,6 +19,8 @@ import {
   type CanvasView,
   canvasSourceProjectSchema,
   type DashboardRecord,
+  type PublishProjectInput,
+  type PublishProjectResult,
 } from "./dashboardSchemas";
 import {
   type CanvasAgentRequestResult,

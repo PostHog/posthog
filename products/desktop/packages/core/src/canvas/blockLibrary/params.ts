@@ -1,14 +1,17 @@
-export type ParamKind =
-  | "text"
-  | "longtext"
-  | "number"
-  | "boolean"
-  | "select"
-  | "event"
-  | "events"
-  | "property"
-  | "insight"
-  | "color";
+const PARAM_KINDS = [
+  "text",
+  "longtext",
+  "number",
+  "boolean",
+  "select",
+  "event",
+  "events",
+  "property",
+  "insight",
+  "color",
+] as const;
+
+export type ParamKind = (typeof PARAM_KINDS)[number];
 
 export interface ParamOption {
   value: string;
@@ -28,18 +31,7 @@ export interface ParamSpec {
 
 export type ParamSchema = Array<{ name: string; spec: ParamSpec }>;
 
-const KINDS = new Set<ParamKind>([
-  "text",
-  "longtext",
-  "number",
-  "boolean",
-  "select",
-  "event",
-  "events",
-  "property",
-  "insight",
-  "color",
-]);
+const KINDS = new Set<string>(PARAM_KINDS);
 
 function humanize(name: string): string {
   const spaced = name

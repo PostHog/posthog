@@ -4,10 +4,6 @@ import {
   canvasBuildRecordSchema,
 } from "@posthog/core/canvas/canvasBuildSchemas";
 import {
-  publishProjectInput,
-  publishProjectResultSchema,
-} from "@posthog/core/canvas/canvasProjectSave";
-import {
   canvasActionDefinitionSchema,
   canvasActionInvokeInput,
   canvasActionResultSchema,
@@ -29,6 +25,8 @@ import {
   listComponentsInput,
   listDashboardsInput,
   promoteCanvasInput,
+  publishProjectInput,
+  publishProjectResultSchema,
   renameDashboardInput,
   reportCanvasErrorInput,
   requestCanvasAgentInput,

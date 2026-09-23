@@ -1,16 +1,14 @@
 import {
-  BLOCK_DEFINITIONS,
   type BlockPropsRecord,
   blockDefinition,
   freshBlockProps,
 } from "@posthog/core/canvas/blockLibrary/blockDefinitions";
 import { syncBlockLibrary } from "@posthog/core/canvas/blockLibrary/blockLibrarySync";
 import {
+  blockRanges,
   duplicateRange,
-  firstBlockRange,
   insertBlock,
   isJsxRange,
-  lastControlRange,
   moveRange,
   newBlockId,
   placeableTarget,
@@ -55,12 +53,6 @@ function isFresh(canvasId: string, rev: number): boolean {
   const entry = current(canvasId);
   return !!entry && entry.mountedRev === entry.rev && rev === entry.rev;
 }
-
-const DATA_COMPONENTS = BLOCK_DEFINITIONS.flatMap((definition) =>
-  definition.group === "Data" && definition.component
-    ? [definition.component]
-    : [],
-);
 
 const SIDE_BY_SIDE_BLOCKS = new Set(["Metric", "TopList", "Funnel"]);
 
@@ -128,9 +120,11 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
         !!root &&
         selection.source.start === root.start &&
         selection.source.file === root.file;
-      const addingControl = blockDefinition(blockType)?.group === "Controls";
+      const group = blockDefinition(blockType)?.group;
       const control =
-        addingControl && root ? lastControlRange(entry.files, root.file) : null;
+        group === "Controls" && root
+          ? blockRanges(entry.files, root.file, "Controls").at(-1)
+          : undefined;
       if (control) {
         insert(blockType, { ...control, place: "after" });
         return;
@@ -138,7 +132,7 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
       const controlSelected =
         !!selection?.blockType &&
         blockDefinition(selection.blockType)?.group === "Controls";
-      const besideAllowed = addingControl || !controlSelected;
+      const besideAllowed = group === "Controls" || !controlSelected;
       if (
         selection?.source &&
         !rootSelected &&
@@ -149,9 +143,9 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
         return;
       }
       const firstData =
-        blockDefinition(blockType)?.group === "Data" && root
-          ? firstBlockRange(entry.files, root.file, DATA_COMPONENTS)
-          : null;
+        group === "Data" && root
+          ? blockRanges(entry.files, root.file, "Data")[0]
+          : undefined;
       if (firstData) {
         insert(blockType, { ...firstData, place: "before" });
         return;

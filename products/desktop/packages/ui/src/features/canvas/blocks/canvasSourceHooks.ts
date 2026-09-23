@@ -1,10 +1,8 @@
 import {
   CANVAS_ENTRY_PATH,
   type CanvasStarter,
-  completeCapabilities,
+  canvasCapabilities,
   starterProject,
-  usesBlocks,
-  withBlockCapabilities,
 } from "@posthog/core/canvas/blockLibrary/blockProject";
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
@@ -100,9 +98,10 @@ export function useCanvasSourceAutosave(canvasId: string): void {
       const project = {
         ...snapshot.project,
         files: snapshot.files,
-        capabilities: usesBlocks(snapshot.files)
-          ? withBlockCapabilities(snapshot.project.capabilities, snapshot.files)
-          : completeCapabilities(snapshot.project.capabilities),
+        capabilities: canvasCapabilities(
+          snapshot.project.capabilities,
+          snapshot.files,
+        ),
       };
       const save = async (
         expected: string | null,

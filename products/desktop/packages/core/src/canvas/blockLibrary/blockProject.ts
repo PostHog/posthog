@@ -130,24 +130,6 @@ interface Capabilities {
   connectors?: unknown[];
 }
 
-export function completeCapabilities(
-  capabilities: unknown,
-): Capabilities | undefined {
-  if (!capabilities || typeof capabilities !== "object") return undefined;
-  const current = capabilities as Capabilities;
-  if (!current.posthog) return current;
-  return {
-    ...current,
-    posthog: {
-      insights: [],
-      captureEvents: [],
-      actions: [],
-      agentRequests: false,
-      ...current.posthog,
-    },
-  };
-}
-
 const INSIGHT_BLOCK_ID = /<Insight\b[^>]*?\bshortId="([^"]+)"/g;
 
 function insightBlockIds(files: Record<string, string>): string[] {
@@ -156,30 +138,42 @@ function insightBlockIds(files: Record<string, string>): string[] {
   );
 }
 
-export function withBlockCapabilities(
+export function usesBlocks(files: Record<string, string>): boolean {
+  return BLOCK_RUNTIME_PATH in files;
+}
+
+const POSTHOG_DEFAULTS = {
+  insights: [] as string[],
+  captureEvents: [] as string[],
+  actions: [] as string[],
+  agentRequests: false,
+};
+
+export function canvasCapabilities(
   capabilities: unknown,
-  files: Record<string, string> = {},
-): Capabilities {
-  const current = (capabilities ?? {}) as Capabilities;
-  const posthog = current.posthog ?? {};
-  const state = new Set(posthog.state ?? []);
-  state.add("user");
-  const insights = new Set([
-    ...(posthog.insights ?? []),
-    ...insightBlockIds(files),
-  ]);
+  files: Record<string, string>,
+): Capabilities | undefined {
+  const current =
+    capabilities && typeof capabilities === "object"
+      ? (capabilities as Capabilities)
+      : undefined;
+  if (!usesBlocks(files)) {
+    return current?.posthog
+      ? { ...current, posthog: { ...POSTHOG_DEFAULTS, ...current.posthog } }
+      : current;
+  }
+  const posthog = { ...POSTHOG_DEFAULTS, ...current?.posthog };
   return {
     ...current,
     posthog: {
-      captureEvents: posthog.captureEvents ?? [],
-      actions: posthog.actions ?? [],
-      agentRequests: posthog.agentRequests ?? false,
       ...posthog,
-      insights: Array.from(insights),
+      insights: Array.from(
+        new Set([...posthog.insights, ...insightBlockIds(files)]),
+      ),
       inlineQueries: true,
-      state: Array.from(state),
+      state: Array.from(new Set([...(posthog.state ?? []), "user"])),
     },
-    network: current.network ?? { origins: [] },
+    network: current?.network ?? { origins: [] },
   };
 }
 
@@ -198,10 +192,6 @@ export function starterProject(starter: CanvasStarter): CanvasSourceProject {
     files,
     dependencies: platformDependencies(),
     canvasSdkVersion: CANVAS_PLATFORM_MANIFEST.canvasSdkVersion,
-    capabilities: withBlockCapabilities(undefined),
+    capabilities: canvasCapabilities(undefined, files),
   };
-}
-
-export function usesBlocks(files: Record<string, string>): boolean {
-  return BLOCK_RUNTIME_PATH in files;
 }

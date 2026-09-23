@@ -3,10 +3,6 @@ import type {
   CanvasBuildLifecycle,
   CanvasBuildRecord,
 } from "./canvasBuildSchemas";
-import type {
-  PublishProjectInput,
-  PublishProjectResult,
-} from "./canvasProjectSave";
 import type { ChannelTaskRecord } from "./channelTaskSchemas";
 import type {
   CanvasActionDefinition,
@@ -19,6 +15,8 @@ import type {
   CanvasVersion,
   CanvasView,
   DashboardRecord,
+  PublishProjectInput,
+  PublishProjectResult,
 } from "./dashboardSchemas";
 import type {
   CanvasAgentRequestResult,

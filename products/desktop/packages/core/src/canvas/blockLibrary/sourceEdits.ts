@@ -1,7 +1,9 @@
 import {
+  BLOCK_DEFINITIONS,
   BLOCK_ICONS_PATH,
   BLOCK_RUNTIME_PATH,
   type BlockDefinition,
+  type BlockGroup,
   type BlockPropsRecord,
   type BlockPropValue,
   componentPath,
@@ -509,44 +511,24 @@ export function replaceElementText(
   return replaceRange(files, range, `${match[1]}${safe}${match[3]}`);
 }
 
-export function elementTextEditable(
-  files: SourceFiles,
-  range: SourceRange,
-): boolean {
-  return /^<[a-z][a-z0-9]*\b[^>]*>[^<{}]*<\/[a-z][a-z0-9]*>$/.test(
-    rangeText(files, range),
-  );
-}
-
-const CONTROL_ELEMENT =
-  /<(?:DateRange|Interval|PropertyFilter|Filters|Compare|Refresh)\b[^>]*\/>/g;
-
-export function lastControlRange(
+export function blockRanges(
   files: SourceFiles,
   file: string,
-): SourceRange | null {
+  group: BlockGroup,
+): SourceRange[] {
   const source = files[file];
-  if (source === undefined) return null;
-  let last: SourceRange | null = null;
-  for (const match of source.matchAll(CONTROL_ELEMENT)) {
-    last = { file, start: match.index, end: match.index + match[0].length };
-  }
-  return last;
-}
-
-export function firstBlockRange(
-  files: SourceFiles,
-  file: string,
-  components: string[],
-): SourceRange | null {
-  const source = files[file];
-  if (source === undefined || components.length === 0) return null;
-  const match = new RegExp(`<(?:${components.join("|")})\\b[^>]*/>`).exec(
-    source,
+  const components = BLOCK_DEFINITIONS.flatMap((definition) =>
+    definition.group === group && definition.component
+      ? [definition.component]
+      : [],
   );
-  return match
-    ? { file, start: match.index, end: match.index + match[0].length }
-    : null;
+  if (source === undefined || components.length === 0) return [];
+  const element = new RegExp(`<(?:${components.join("|")})\\b[^>]*/>`, "g");
+  return Array.from(source.matchAll(element), (match) => ({
+    file,
+    start: match.index,
+    end: match.index + match[0].length,
+  }));
 }
 
 export function isJsxRange(files: SourceFiles, range: SourceRange): boolean {

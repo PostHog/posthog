@@ -395,24 +395,11 @@ function ComponentFields({
       return (
         <>
           <TitleField props={props} onChange={onChange} />
-          <InspectorField
-            label="HogQL query"
-            hint={
-              <>
-                Put <code className="font-mono">{"{filters}"}</code> in the
-                WHERE clause to use the canvas date range and filters. ⌘↵ runs
-                it.
-              </>
-            }
-          >
-            <DraftTextarea
-              value={asString(props.query)}
-              ariaLabel="HogQL query"
-              mono
-              rows={9}
-              onCommit={(query) => onChange({ ...props, query })}
-            />
-          </InspectorField>
+          <SqlField
+            type="SqlTable"
+            sql={asString(props.query)}
+            onCommit={(query) => onChange({ ...props, query })}
+          />
         </>
       );
     case "PropertyFilter":

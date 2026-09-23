@@ -10,6 +10,7 @@ export const SQL_BLOCK_TYPES = new Set([
 ]);
 
 export const SQL_COLUMN_HINTS: Record<string, string> = {
+  SqlTable: "Any columns. Each row of the result is a row of the table.",
   Metric:
     "Return one row. The first column is the value. An optional second column is the previous value, for the change badge.",
   Goal: "Return one row with the value in the first column.",
