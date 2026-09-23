@@ -223,7 +223,7 @@ export async function startStandIn(options: StandInOptions = {}): Promise<StandI
 
 /** A workflow file in the shape a customer writes, with whatever the case needs changed. */
 export function workflowFile(
-    options: { key?: string; name?: string; status?: string; wait?: string; secret?: boolean } = {}
+    options: { key?: string; name?: string; status?: string | null; wait?: string; secret?: boolean } = {}
 ): string {
     const secretImport = options.secret === true ? ', secret, webhook' : ''
     const secretStep = options.secret === true ? 'notify, ' : ''
@@ -242,7 +242,7 @@ ${webhook}
 export const onboarding = workflow({
     key: '${options.key ?? 'onboarding-nudge'}',
     name: '${options.name ?? 'Onboarding nudge'}',
-    status: '${options.status ?? 'draft'}',
+    ${options.status === null ? '' : `status: '${options.status ?? 'draft'}',`}
     on: onEvent({ event: 'user signed up' }),
     steps: path(${secretStep}delay('${options.wait ?? '1d'}', { name: 'Wait a day' })),
     exit: { reason: 'Onboarding nudge finished' },

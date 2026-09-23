@@ -16,7 +16,7 @@ function push(workspace: Workspace, standIn: StandIn, args: readonly string[] = 
 }
 
 describe('push', () => {
-    it('creates a workflow PostHog does not have, sending the key and the source', async (t) => {
+    it('creates a workflow PostHog does not have, sending the key and source fields', async (t) => {
         const standIn = await startStandIn()
         t.after(() => standIn.close())
         const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile() })
@@ -40,13 +40,7 @@ describe('push', () => {
 
         const created = standIn.requests.find((request) => request.method === 'POST')
         assert.equal(created?.body?.key, 'onboarding-nudge')
-        assert.deepEqual(created?.body?.source, {
-            commit: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
-            ref: 'main',
-            repository: 'github.com/acme/flows',
-            run_url: 'https://github.com/acme/flows/actions/runs/42',
-            path: 'flows/onboarding.ts',
-        })
+        assert.equal(created?.body?.source, undefined)
         assert.equal(created?.body?.source_path, 'flows/onboarding.ts')
         assert.equal(created?.body?.source_repository, 'github.com/acme/flows')
         assert.equal(created?.body?.source_ref, 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678')
@@ -91,6 +85,61 @@ describe('push', () => {
         const updated = standIn.requests.find((request) => request.method === 'PATCH')
         assert.equal(updated?.body?.key, undefined)
         assert.equal(standIn.rows.length, 1)
+    })
+
+    it('updates when only a step description changes', async (t) => {
+        const standIn = await startStandIn()
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile() })
+        await push(workspace, standIn)
+
+        const described = makeWorkspace({
+            'flows/onboarding.ts': workflowFile().replace(
+                "delay('1d', { name: 'Wait a day' })",
+                "delay('1d', { name: 'Wait a day', description: 'Give the customer one day.' })"
+            ),
+        })
+        const result = await runCli(['push', 'flows/onboarding.ts'], {
+            workspace: described,
+            env: credentials(standIn),
+        })
+
+        assert.equal(result.code, 0)
+        assert.match(result.stdout, /^ {4}result {3}updated$/m)
+        assert.match(result.stdout, /^ {13}~ step "Wait a day"$/m)
+    })
+
+    it('does not send or compare status when the file sets none', async (t) => {
+        const standIn = await startStandIn()
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile({ status: null }) })
+
+        const created = await push(workspace, standIn)
+        assert.equal(created.code, 0)
+        assert.equal(standIn.requests.find((request) => request.method === 'POST')?.body?.status, undefined)
+
+        assert.ok(standIn.rows[0] !== undefined)
+        standIn.rows[0].status = 'active'
+        const again = await push(workspace, standIn)
+
+        assert.equal(again.code, 0)
+        assert.match(again.stdout, /^ {4}result {3}unchanged$/m)
+        assert.equal(standIn.requests.filter((request) => request.method === 'PATCH').length, 0)
+    })
+
+    it('sends and compares status when the file sets it', async (t) => {
+        const standIn = await startStandIn()
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile({ status: 'active' }) })
+        await push(workspace, standIn)
+
+        const disabled = makeWorkspace({ 'flows/onboarding.ts': workflowFile({ status: 'draft' }) })
+        const result = await runCli(['push', 'flows/onboarding.ts'], { workspace: disabled, env: credentials(standIn) })
+
+        assert.equal(result.code, 0)
+        assert.match(result.stdout, /^ {13}~ status: active -> draft$/m)
+        const patches = standIn.requests.filter((request) => request.method === 'PATCH')
+        assert.equal(patches.at(-1)?.body?.status, 'draft')
     })
 
     it('claims code ownership on the create and on the update', async (t) => {
@@ -301,6 +350,32 @@ export const onboarding = workflow({
         assert.match(result.stderr, /^status: redirect$/m)
         assert.match(result.stderr, /will not follow redirects with an API key/)
         assert.equal(standIn.requests.filter((request) => request.method === 'POST').length, 1)
+    })
+
+    it('includes the backend field name when PostHog refuses a workflow definition', async (t) => {
+        const standIn = await startStandIn({
+            refuseWrites: { status: 400, body: { attr: 'actions.0.config', detail: 'This field is invalid.' } },
+        })
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile() })
+
+        const result = await push(workspace, standIn)
+
+        assert.equal(result.code, 1)
+        assert.match(result.stderr, /^status: http_400$/m)
+        assert.match(result.stderr, /^why: actions\.0\.config: This field is invalid\.$/m)
+    })
+
+    it('uses API key in the permission fix', async (t) => {
+        const standIn = await startStandIn({ refuseWrites: { status: 403, body: { detail: 'Forbidden.' } } })
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile() })
+
+        const result = await push(workspace, standIn)
+
+        assert.equal(result.code, 1)
+        assert.match(result.stderr, /^status: http_403$/m)
+        assert.match(result.stderr, /^fix: Give the API key the hog_flow:write scope for this project\.$/m)
     })
 
     it('reports a write response without a workflow id as invalid', async (t) => {

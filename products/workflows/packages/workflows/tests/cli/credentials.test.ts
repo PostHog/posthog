@@ -98,6 +98,28 @@ describe('credentials', () => {
         assert.equal(credentials?.projectId, '2')
     })
 
+    it('validates the project id from the environment and credentials file', () => {
+        const refusal = (error: unknown): boolean =>
+            (error as { fields: { status: string } }).fields.status === 'invalid_project'
+
+        assert.throws(
+            () =>
+                resolveCredentials(
+                    { POSTHOG_CLI_API_KEY: 'phx_from_env', POSTHOG_CLI_PROJECT_ID: '../2' },
+                    homeWithCredentials(FILE)
+                ),
+            refusal
+        )
+        assert.throws(
+            () =>
+                resolveCredentials(
+                    {},
+                    homeWithCredentials(JSON.stringify({ token: 'phx_from_file', env_id: '../99' }))
+                ),
+            refusal
+        )
+    })
+
     it('keeps the key and the project together rather than mixing two sources', () => {
         const credentials = resolveCredentials({ POSTHOG_CLI_API_KEY: 'phx_from_env' }, homeWithCredentials(FILE))
 

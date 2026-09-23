@@ -60,7 +60,9 @@ function printWorkflow(report: Report, source: Source | null, command: RunOption
     const definition = workflow.emitted.definition
     io.out(`  ${workflow.exportName} -> "${definition.name}"`)
     io.out(`    key      ${definition.key}`)
-    io.out(`    status   ${definition.status}`)
+    if (definition.status !== undefined) {
+        io.out(`    status   ${definition.status}`)
+    }
     const types = definition.actions.map((action) => action.type)
     io.out(`    steps    ${types.length} (${types.join(', ')})`)
     for (const secret of workflow.emitted.secretInputs) {
@@ -181,7 +183,6 @@ function bodyFor(workflow: LoadedWorkflow, source: Source | null, forUpdate: boo
         source === null
             ? {}
             : {
-                  source,
                   ...(source.repository === undefined ? {} : { source_repository: source.repository }),
                   ...(source.path === undefined ? {} : { source_path: source.path }),
                   // The pointer on the workflow is the newest push, so the sha is the better value

@@ -97,6 +97,22 @@ export interface CredentialOverrides {
     readonly host?: string | undefined
 }
 
+export function assertProjectId(value: string, source: string): string {
+    if (/^[0-9]+$/.test(value)) {
+        return value
+    }
+    throw new WorkflowError({
+        status: 'invalid_project',
+        message: `${source} must be an ASCII decimal number.`,
+        why: `The project ID must contain only the digits 0 through 9, and "${value}" contains something else.`,
+        fix: 'Use the numeric project ID from PostHog, for example 2.',
+    })
+}
+
+function validatedProject(value: string | undefined, source: string): string | undefined {
+    return value === undefined ? undefined : assertProjectId(value, source)
+}
+
 function present(value: string | null | undefined): value is string {
     return value !== undefined && value !== null && value !== ''
 }
@@ -187,7 +203,10 @@ export function resolveCredentials(
     const host = (): string | undefined =>
         secureHost(overrides.host, '--host') ?? secureHost(env.POSTHOG_CLI_HOST, 'POSTHOG_CLI_HOST')
     const apiKey = firstPresent(env.POSTHOG_CLI_API_KEY, env.POSTHOG_CLI_TOKEN)
-    const projectId = firstPresent(overrides.project, env.POSTHOG_CLI_PROJECT_ID, env.POSTHOG_CLI_ENV_ID)
+    const projectId =
+        validatedProject(overrides.project, '--project') ??
+        validatedProject(env.POSTHOG_CLI_PROJECT_ID, 'POSTHOG_CLI_PROJECT_ID') ??
+        validatedProject(env.POSTHOG_CLI_ENV_ID, 'POSTHOG_CLI_ENV_ID')
 
     if (apiKey !== undefined && projectId !== undefined) {
         return { apiKey, projectId, host: host() ?? DEFAULT_HOST, source: describeSource('the environment', overrides) }
@@ -196,7 +215,7 @@ export function resolveCredentials(
     const path = credentialsPath(env, homeDir)
     const shownPath = shown(path, homeDir)
     const file = readFile(path, shownPath)
-    const fileProjectId = firstPresent(overrides.project, file?.env_id)
+    const fileProjectId = validatedProject(overrides.project, '--project') ?? validatedProject(file?.env_id, 'env_id')
     if (present(file?.token) && fileProjectId !== undefined) {
         return {
             apiKey: file.token,
@@ -220,7 +239,7 @@ export function requireCredentials(
     throw new WorkflowError({
         status: 'missing_credentials',
         message: 'No PostHog credentials.',
-        why: `push writes to a project, so it needs a personal API key with hog_flow:write and the project to write into. Neither the environment nor ${shown(credentialsPath(env, homeDir), homeDir)} carried both.`,
+        why: `push writes to a project, so it needs an API key with hog_flow:write and the project to write into. Neither the environment nor ${shown(credentialsPath(env, homeDir), homeDir)} carried both.`,
         fix: 'In CI set POSTHOG_CLI_API_KEY, POSTHOG_CLI_PROJECT_ID and POSTHOG_CLI_HOST, or set the key and pass --project. On your own machine run posthog-cli login once.',
     })
 }

@@ -85,14 +85,16 @@ function describeRedirect(
 
 function describeFailure(status: number, body: string): { status: string; message: string; why: string; fix: string } {
     let detail = body.slice(0, 500)
+    let attr: string | undefined
     try {
-        const parsed = JSON.parse(body) as { detail?: string; extra?: { fix?: string } }
+        const parsed = JSON.parse(body) as { attr?: string; detail?: string; extra?: { fix?: string } }
         detail = parsed.detail ?? detail
+        attr = parsed.attr
         if (parsed.extra?.fix !== undefined) {
             return {
                 status: `http_${status}`,
                 message: 'PostHog refused the write.',
-                why: detail,
+                why: attr === undefined ? detail : `${attr}: ${detail}`,
                 fix: parsed.extra.fix,
             }
         }
@@ -112,14 +114,14 @@ function describeFailure(status: number, body: string): { status: string; messag
             status: 'http_403',
             message: 'The API key may not write workflows in this project.',
             why: detail,
-            fix: 'Give the personal API key the hog_flow:write scope for this project.',
+            fix: 'Give the API key the hog_flow:write scope for this project.',
         }
     }
     if (status === 400) {
         return {
             status: 'http_400',
             message: 'PostHog refused the workflow definition.',
-            why: detail,
+            why: attr === undefined ? detail : `${attr}: ${detail}`,
             fix: 'Fix the step the message names. PostHog validates templates and inputs that check does not.',
         }
     }

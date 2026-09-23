@@ -4,6 +4,7 @@
 import { homedir } from 'node:os'
 
 import { WorkflowError } from '../errors.js'
+import { assertProjectId } from './credentials.js'
 import { runInit } from './init.js'
 import { runFileCommand } from './run.js'
 
@@ -39,18 +40,6 @@ function isOption(name: string): name is keyof typeof OPTIONS {
     return Object.hasOwn(OPTIONS, name)
 }
 
-function assertProject(value: string): string {
-    if (/^[0-9]+$/.test(value)) {
-        return value
-    }
-    throw new WorkflowError({
-        status: 'invalid_project',
-        message: '--project must be an ASCII decimal number.',
-        why: `The project ID must contain only the digits 0 through 9, and "${value}" contains something else.`,
-        fix: 'Use the numeric project ID from PostHog, for example --project 2.',
-    })
-}
-
 export function parseArguments(argv: readonly string[]): Arguments {
     const positional: string[] = []
     const values: { project?: string; host?: string } = {}
@@ -70,7 +59,7 @@ export function parseArguments(argv: readonly string[]): Arguments {
                     fix: `Pass the value after the option, for example ${name === '--project' ? '--project 2' : '--host https://us.posthog.com'}.`,
                 })
             }
-            values[OPTIONS[name]] = name === '--project' ? assertProject(value) : value
+            values[OPTIONS[name]] = name === '--project' ? assertProjectId(value, '--project') : value
             continue
         }
         if (FLAGS.has(argument)) {

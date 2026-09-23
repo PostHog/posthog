@@ -28,7 +28,7 @@ export interface DiffOptions {
 }
 
 /** The fields the CLI sends. `key` identifies the row and `source` describes the push, so neither is content. */
-const CONTENT_FIELDS = ['name', 'description', 'status', 'exit_condition'] as const
+const CONTENT_FIELDS = ['name', 'description', 'exit_condition'] as const
 
 /** Keys PostHog derives from what it was sent, on either side of the comparison. */
 const DERIVED_KEYS = new Set(['bytecode', 'bytecode_error', 'transpiled', 'order', 'secret'])
@@ -103,7 +103,11 @@ function sameAction(
     secretKeys: ReadonlySet<string>,
     comparableSecretKeys: ReadonlySet<string>
 ): boolean {
-    if (mine.type !== theirs.type || mine.name !== theirs.name) {
+    if (
+        mine.type !== theirs.type ||
+        mine.name !== theirs.name ||
+        (mine.description ?? '') !== (theirs.description ?? '')
+    ) {
         return false
     }
     if (!same(configWithoutInputs(mine.config), configWithoutInputs(theirs.config), true)) {
@@ -180,6 +184,9 @@ export function diffWorkflow(
         if (local[field] !== remote[field]) {
             changes.push({ kind: 'changed', what: field, before: short(remote[field]), after: short(local[field]) })
         }
+    }
+    if (local.status !== undefined && local.status !== remote.status) {
+        changes.push({ kind: 'changed', what: 'status', before: short(remote.status), after: short(local.status) })
     }
 
     if (!same(local.variables, remote.variables ?? [], true)) {

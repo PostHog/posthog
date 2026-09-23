@@ -80,16 +80,16 @@ posthog-workflows push flows/onboarding.ts    # create or update every workflow 
 ```
 
 `check` runs without credentials, skips the comparison and says so, so a pull request from a fork is not blocked by a secret it cannot read.
-`push` needs a personal API key with the `hog_flow:write` scope. It reads `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_PROJECT_ID` and `POSTHOG_CLI_HOST`, and falls back to the `~/.posthog/credentials.json` that `posthog-cli login` writes.
+`push` needs an API key with the `hog_flow:write` scope. It reads `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_PROJECT_ID` and `POSTHOG_CLI_HOST`, and falls back to the `~/.posthog/credentials.json` that `posthog-cli login` writes.
 `POSTHOG_CLI_API_KEY` also accepts the project's secret API key (`phs_...`), once PostHog accepts one on the workflows endpoint ([Silthus/posthog#106](https://github.com/Silthus/posthog/issues/106)).
 `--project <id>` and `--host <url>` win over both, so one file reaches another project without a change to the environment. The key is never a flag.
 
 A push writes nothing when nothing changed. `--force` pushes anyway, which is how a rotated secret lands, because the comparison never looks at a secret input.
 A push from a path the workflow was not pushed from is refused, so a copied file cannot replace a live workflow. `--allow-move` records the new path.
 
-Each push records the commit it came from, taken from GitHub Actions, GitLab CI, or the local checkout. Outside all three the push still works and says that the version will not name a commit.
+Each push records the repository, path, and commit or branch when the CLI can resolve them from GitHub Actions, GitLab CI, or the local checkout. Outside all three the push still works and says that the version will not name a commit.
 
-The recorded commit and the path guard both need a PostHog that stores the source fields. Until your PostHog does, it drops them: the commit is sent and not kept, and a copied file resolves the same workflow rather than being refused.
+The recorded source fields need a PostHog that stores them. Until your PostHog does, it drops them, and a copied file resolves the same workflow rather than being refused.
 Every push that writes also claims the workflow as managed by code, which makes it read-only in the PostHog UI; an older PostHog drops that claim too, so the workflow stays editable there.
 
 ## Common questions
@@ -100,7 +100,7 @@ The questions that come up first when a team moves workflows into a repository. 
 
 Run `posthog-workflows push flows/onboarding.ts`.
 The CLI resolves each workflow's `key` in the target project, creates or updates the workflow, and marks it as managed by code on every push.
-It prints one result per workflow, `created`, `updated` or `unchanged`, with the version PostHog stored and the commit it recorded, and it exits non-zero when any workflow failed.
+It prints one result per workflow, `created`, `updated` or `unchanged`, with the version PostHog stored and the commit or branch it recorded, and it exits non-zero when any workflow failed.
 There is nothing to sync back: the file is the source of truth, the next push wins, and PostHog shows the workflow as read-only with a link to the file.
 
 ### Which CI step do I set up?
@@ -112,7 +112,7 @@ Both are plain commands, so any CI system works, and the PostHog repository runs
 
 ### Which auth do I use, and which permissions does the key need?
 
-A personal API key with the `hog_flow:write` scope, which includes `hog_flow:read`, for the project you push to.
+An API key with the `hog_flow:write` scope, which includes `hog_flow:read`, for the project you push to.
 The CLI reads `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_PROJECT_ID` and `POSTHOG_CLI_HOST` from the environment, and otherwise the `~/.posthog/credentials.json` file that `posthog-cli login` writes, so one login serves both tools.
 The key and the project id always come from the same source, so a key from the environment is never paired with a project id from the file.
 Nothing else is needed: the push creates and updates workflows only inside that project.
@@ -120,7 +120,7 @@ Nothing else is needed: the push creates and updates workflows only inside that 
 ### How do I roll back?
 
 Revert the commit and push.
-Every push that changes the definition writes a new revision in PostHog, and the revision names the commit, branch, author and subject line it came from, so the history in PostHog reads like the history in git.
+Every push that changes the definition writes a new revision in PostHog, and the workflow stores the commit or branch it came from when the CLI can resolve one.
 Revisions are never deleted, so every version stays readable, but the only way to make an older one live again is a commit: the restore control in the UI is disabled on a code-managed workflow, because a restore made there would be undone by the next push.
 A push that changes nothing writes no revision, so the revision history is a history of definition changes, not of deploys.
 
@@ -137,7 +137,7 @@ The other options considered: `check` prints the impact and fails CI, or best ef
 
 One file, one CI job per environment.
 A workflow's `key` is unique within a project, not across PostHog, so the same file reaches dev, staging and prod without a change.
-Use one personal API key per project, scoped to that project only, and store one secret per environment; each job sets `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` for its own project.
+Use one API key per project, scoped to that project only, and store one secret per environment; each job sets `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` for its own project.
 The environment is a variable of the job, never a value in the file, so a promotion from staging to prod is the same commit pushed with a different key.
 
 ## v1 surface
