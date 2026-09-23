@@ -65,7 +65,8 @@ jobs:
 
                   handoff_url=$(check_url "$GITHUB_ACTIONS_APP_ID" "$HANDOFF_CHECK")
                   handoff=absent
-                  for _ in $(seq 1 45); do
+                  # Matches the hand-off wait in ci-backend.yml: after it, Depot runs nothing to report.
+                  for _ in $(seq 1 30); do
                       if read_check "$handoff_url" /tmp/handoff-checks.json; then
                           handoff=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '
                               [.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))]
@@ -74,26 +75,24 @@ jobs:
                           ' /tmp/handoff-checks.json)
                       fi
                       case "$handoff" in
-                          success) break ;;
                           absent|queued|in_progress|pending|waiting|requested) sleep 20 ;;
-                          *)
-                              echo "handed_off=false" >> "$GITHUB_OUTPUT"
-                              echo "GitHub Actions kept the backend tests (hand-off check: $handoff)."
-                              exit 0
-                              ;;
+                          *) break ;;
                       esac
                   done
-                  # GitHub runs no pull_request workflow for a PR with merge conflicts, so no
-                  # hand-off check ever appears, but this pull_request_target run still starts.
-                  if [ "$handoff" = absent ]; then
-                      echo "handed_off=false" >> "$GITHUB_OUTPUT"
-                      echo "GitHub Actions never routed this event (no hand-off check after 15 minutes)."
-                      exit 0
-                  fi
-                  if [ "$handoff" != success ]; then
-                      echo "::error::Backend routing did not resolve within 15 minutes"
-                      exit 1
-                  fi
+                  case "$handoff" in
+                      success) ;;
+                      queued|in_progress|pending|waiting|requested)
+                          echo "::error::Backend routing did not resolve within 10 minutes"
+                          exit 1
+                          ;;
+                      *)
+                          # `absent` covers a PR with merge conflicts: GitHub runs no pull_request
+                          # workflow for it, but this pull_request_target run still starts.
+                          echo "handed_off=false" >> "$GITHUB_OUTPUT"
+                          echo "GitHub Actions kept the backend tests (hand-off check: $handoff)."
+                          exit 0
+                          ;;
+                  esac
                   echo "handed_off=true" >> "$GITHUB_OUTPUT"
 
                   migration_url=$(check_url "$DEPOT_APP_ID" "$MIGRATION_CHECK")
