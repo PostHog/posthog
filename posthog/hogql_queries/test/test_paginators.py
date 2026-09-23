@@ -5,6 +5,10 @@ from typing import cast
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.schema import ActorsQuery, PersonPropertyFilter, PropertyOperator
 
 from posthog.hogql.ast import And, CompareOperation, Constant, SelectQuery
@@ -547,3 +551,29 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(paginator.secondary_sort_field, "uuid")
         self.assertEqual(paginator.order_field, "timestamp")
+
+
+class TestAlertPaginator(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("SELECT 1 LIMIT {n}",),
+            ("SELECT 1 LIMIT 0",),
+            ("SELECT 1 LIMIT 50000",),
+            ("SELECT 1 LIMIT 3 OFFSET {n}",),
+            ("SELECT 1 UNION ALL SELECT 2",),
+            ("SELECT 1 ORDER BY 1 LIMIT 3 WITH TIES",),
+        ]
+    )
+    def test_unsupported_limits_do_not_claim_completeness(self, sql):
+        assert HogQLHasMorePaginator.for_alert_query(parse_select(sql), limit_context=LimitContext.SQL_ALERT) is None
+
+    def test_only_the_outer_limit_is_changed(self):
+        query = cast(
+            SelectQuery, parse_select("SELECT value FROM (SELECT 1 AS value LIMIT 2) ORDER BY value LIMIT 3 OFFSET 1")
+        )
+        paginator = HogQLHasMorePaginator.for_alert_query(query, limit_context=LimitContext.SQL_ALERT)
+        assert paginator is not None
+        paginated = cast(SelectQuery, paginator.paginate(query))
+        assert paginated.limit == Constant(value=4)
+        assert paginated.offset == Constant(value=1)
+        assert paginated.select_from.table.limit.value == 2

@@ -5,7 +5,7 @@ from typing import Any
 from posthog.schema import AlertCondition, AlertConditionType, HogQLAlertConfig, HogQLAlertEvaluation
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_select
 
@@ -13,6 +13,7 @@ from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
+from posthog.hogql_queries.paginators import get_query_limit
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 
 from products.alerts.backend.evaluation.contract import (
@@ -52,11 +53,7 @@ _TRUNCATION_FIX = "Add an explicit SQL LIMIT that covers the full history, or re
 
 
 def _explicit_limit(insight: Insight) -> int | None:
-    """The constant LIMIT the saved SQL carries, or None.
-
-    The query layer only reports ``has_more`` under its default limit, so a result cut by an
-    author-written LIMIT comes back unmarked and this is the only way to notice.
-    """
+    """Read the saved query's constant row limit for detector validation."""
     query = insight.query or {}
     source = query.get("source") if query.get("kind") == "DataVisualizationNode" else query
     if not isinstance(source, dict) or not isinstance(source.get("query"), str):
@@ -65,10 +62,7 @@ def _explicit_limit(insight: Insight) -> int | None:
         parsed = parse_select(source["query"])
     except BaseHogQLError:
         return None
-    limit = getattr(parsed, "limit", None)
-    if isinstance(limit, ast.Constant) and type(limit.value) is int and limit.value > 0:
-        return limit.value
-    return None
+    return get_query_limit(parsed) if isinstance(parsed, ast.SelectQuery | ast.SelectSetQuery) else None
 
 
 @frozen
@@ -76,7 +70,6 @@ class _FetchedRows:
     rows: list
     column_names: list[str] | None
     truncated: bool
-    at_explicit_limit: bool
 
 
 def _calculate_rows_and_columns(
@@ -97,6 +90,7 @@ def _calculate_rows_and_columns(
         execution_mode=execution_mode,
         user=user,
         analytics_props={"source": EventSource.ALERT},
+        limit_context=LimitContext.SQL_ALERT,
     )
     truncated = calculation_result.has_more is True
     rows = calculation_result.result
@@ -104,31 +98,22 @@ def _calculate_rows_and_columns(
         raise RuntimeError(f"No results found for insight with id = {insight.id}")
     if not isinstance(rows, list):
         raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
-    explicit_limit = _explicit_limit(insight)
-    at_explicit_limit = not truncated and explicit_limit is not None and len(rows) >= explicit_limit
     if require_complete_result:
         if truncated:
-            # A cut result cannot be trusted: last-row evaluation scores a row that is not the
-            # real last one, and any-row evaluation can miss a breaching row past the cut. This
-            # recurs identically on every check until the query is edited, so it is a
-            # configuration error: the caller disables the alert and emails the owner rather
-            # than retrying forever at full scan cost.
+            # Missing tail rows can change last-row and any-row results. The owner must adjust
+            # the query before checks can safely resume.
             raise AlertExtractionError(
                 "The query returns more rows than its row limit, so the result is incomplete. "
                 "Add an explicit SQL LIMIT that covers everything the alert evaluates, or aggregate the query."
             )
-        if at_explicit_limit:
-            # A result at exactly its author-written LIMIT is ambiguous: the data may hold
-            # exactly that many rows, or the LIMIT may have cut it. Nothing proves either way
-            # (has_more only exists under the default limit), so this stays a retryable error
-            # instead of a disable.
+        if calculation_result.has_more is not False:
             raise AlertDataUnavailableError(
-                f"The query returned exactly its LIMIT of {explicit_limit} rows, so the result may be cut. "
-                "Raise the LIMIT above what the query can return."
+                "The query's completeness could not be checked. Use a simple SELECT with a constant LIMIT "
+                f"below {MAX_SELECT_RETURNED_ROWS}, or use first-row evaluation if only the first rows matter."
             )
     columns = calculation_result.columns if isinstance(calculation_result.columns, list) else None
     column_names = [str(c) for c in columns] if columns else None
-    return _FetchedRows(rows=rows, column_names=column_names, truncated=truncated, at_explicit_limit=at_explicit_limit)
+    return _FetchedRows(rows=rows, column_names=column_names, truncated=truncated)
 
 
 def _check_row_caps(rows: list, evaluation: HogQLAlertEvaluation) -> None:
@@ -275,19 +260,21 @@ def extract_hogql_detector_series(
     execution_mode: ExecutionMode,
     user: Any = None,
 ) -> ExtractionResult:
-    """Build the full ordered value series an anomaly detector scores from a SQL/HogQL insight.
-
-    Shared by the alert-check extractor and the read-only simulation. Unlike trends, a SQL query is
-    self-contained — its rows *are* the history, so there's no wider lookback window to refetch; the
-    query must return enough rows for the detector's window. Only ``last_row``/``first_row`` apply:
-    ``any_row`` rows are unrelated entities, not a time axis, so scoring change across them is
-    meaningless. Too few rows to fill the window reports unavailable data; an empty result
-    yields an empty series flagged ``empty_query_result`` (the metric is genuinely 0).
+    """Extract SQL history for checks and simulation. Invalid limits disable checks; short uncapped
+    histories remain retryable. Empty results retain the zero-result semantics.
     """
     if config.evaluation == HogQLAlertEvaluation.ANY_ROW:
         raise AlertExtractionError(
             "Anomaly detection isn't supported for any-row SQL alerts — its rows are unrelated "
             "entities, not a time series. Use last-row or first-row evaluation."
+        )
+
+    min_samples = _compute_min_samples_for_detector(detector_config)
+    explicit_limit = _explicit_limit(insight)
+    if explicit_limit is not None and explicit_limit < min_samples:
+        raise AlertExtractionError(
+            f"The query's LIMIT of {explicit_limit} rows cannot supply the detector's required history "
+            f"of at least {min_samples} rows. " + _TRUNCATION_FIX
         )
 
     fetched = _calculate_rows_and_columns(
@@ -321,7 +308,6 @@ def extract_hogql_detector_series(
 
     # SQL rows are the series verbatim, so the detector's minimum is the exact cutoff.
     # A short series cannot establish that the alert is not firing.
-    min_samples = _compute_min_samples_for_detector(detector_config)
     if len(values) < min_samples:
         if fetched.truncated:
             # The history is short because the row limit provably cut it, not because the data
@@ -330,11 +316,6 @@ def extract_hogql_detector_series(
             raise AlertExtractionError(
                 f"The detector needs at least {min_samples} rows, but the row limit cut the result to {len(values)}. "
                 + _TRUNCATION_FIX
-            )
-        if fetched.at_explicit_limit:
-            raise AlertDataUnavailableError(
-                f"The detector needs at least {min_samples} rows, but the query returned exactly its LIMIT of "
-                f"{len(values)}. " + _TRUNCATION_FIX
             )
         raise AlertDataUnavailableError(
             f"The SQL anomaly alert needs at least {min_samples} rows, but the query returned {len(values)}. "

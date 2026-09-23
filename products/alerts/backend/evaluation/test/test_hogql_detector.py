@@ -11,6 +11,7 @@ from products.alerts.backend.evaluation.detector import evaluate_with_detector
 from products.alerts.backend.evaluation.hogql import (
     LAST_ROW_MAX_ROWS,
     HogQLDetectorExtractor,
+    _explicit_limit,
     extract_hogql_detector_series,
 )
 
@@ -34,7 +35,7 @@ def _alert(rows_config: dict | None = None, detector_config: dict | None = ZSCOR
 def _extract(values, *, columns=None, rows_config=None, detector_config=ZSCORE):
     rows = [[v] for v in values] if columns is None else values
     with patch(CALC_PATH) as calc:
-        calc.return_value = MagicMock(result=rows, columns=columns)
+        calc.return_value = MagicMock(result=rows, columns=columns, has_more=False)
         return HogQLDetectorExtractor().extract(
             _alert(rows_config, detector_config), MagicMock(), MagicMock(), EXEC_MODE
         )
@@ -142,9 +143,37 @@ def test_extract_hogql_detector_series_is_alert_less():
     # The simulation reuses the alert-less builder directly (no AlertConfiguration).
     config = HogQLAlertConfig(type="HogQLAlertConfig", evaluation="last_row")
     with patch(CALC_PATH) as calc:
-        calc.return_value = MagicMock(result=[[v] for v in [*STABLE_HISTORY, 100.0]], columns=None)
+        calc.return_value = MagicMock(result=[[v] for v in [*STABLE_HISTORY, 100.0]], columns=None, has_more=False)
         result = extract_hogql_detector_series(
             MagicMock(), MagicMock(), config, ZSCORE, user=None, execution_mode=EXEC_MODE
         )
     assert len(result.series[0].points) == _compute_min_samples_for_detector(ZSCORE)  # bounded to the minimum
     assert evaluate_with_detector(result, ZSCORE).value == 100.0
+
+
+@pytest.mark.parametrize("evaluation", ["last_row", "first_row"])
+@pytest.mark.parametrize("row_count", [0, 5, 25])
+def test_explicit_limit_below_detector_minimum_is_a_configuration_error(evaluation, row_count):
+    insight = MagicMock(query={"kind": "HogQLQuery", "query": "SELECT 1 AS value LIMIT 25"})
+    with patch(CALC_PATH, return_value=MagicMock(result=[[1.0]] * row_count, columns=["value"], has_more=False)):
+        with pytest.raises(AlertExtractionError, match="LIMIT.*25.*at least 31") as exc:
+            HogQLDetectorExtractor().extract(_alert({"evaluation": evaluation}), insight, insight.query, EXEC_MODE)
+    assert type(exc.value) is AlertExtractionError
+
+
+@pytest.mark.parametrize(
+    "sql,expected",
+    [
+        ("SELECT 1 LIMIT 25", 25),
+        ("SELECT 1", None),
+        ("SELECT 1 LIMIT {n}", None),
+        ("not valid sql", None),
+        ("SELECT 1 LIMIT 0", 0),
+    ],
+)
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_saved_query_explicit_limit(sql, expected, wrapped):
+    query = {"kind": "HogQLQuery", "query": sql}
+    if wrapped:
+        query = {"kind": "DataVisualizationNode", "source": query}
+    assert _explicit_limit(MagicMock(query=query)) == expected

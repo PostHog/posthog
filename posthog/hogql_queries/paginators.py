@@ -15,6 +15,16 @@ from posthog.hogql.constants import (
 from posthog.hogql.query import execute_hogql_query
 
 
+def get_query_limit(query: ast.SelectQuery | ast.SelectSetQuery) -> int | None:
+    """Return a constant row limit, excluding percentage and WITH TIES limits."""
+    if query.limit_percent or query.limit_with_ties:
+        return None
+    limit = query.limit
+    if isinstance(limit, ast.Constant) and type(limit.value) is int and limit.value >= 0:
+        return limit.value
+    return None
+
+
 class HogQLHasMorePaginator:
     """
     Paginator that fetches one more result than requested to determine if there are more results.
@@ -38,6 +48,25 @@ class HogQLHasMorePaginator:
         default_rows = get_default_limit_for_context(limit_context)
         limit = min(max_rows, default_rows if (limit is None or limit <= 0) else limit)
         return cls(limit=limit, offset=offset, limit_context=limit_context)
+
+    @classmethod
+    def for_alert_query(
+        cls, query: ast.SelectQuery | ast.SelectSetQuery, *, limit_context: LimitContext
+    ) -> "HogQLHasMorePaginator | None":
+        if not isinstance(query, ast.SelectQuery) or query.limit_percent or query.limit_with_ties:
+            return None
+        limit = get_query_limit(query) if query.limit is not None else get_default_limit_for_context(limit_context)
+        # The extra row must fit under the execution cap to prove completeness.
+        if limit is None or not 0 < limit < get_max_limit_for_context(limit_context):
+            return None
+        offset = query.offset
+        if offset is not None and not (
+            isinstance(offset, ast.Constant) and type(offset.value) is int and offset.value >= 0
+        ):
+            return None
+        return cls(
+            limit=limit, offset=offset.value if isinstance(offset, ast.Constant) else None, limit_context=limit_context
+        )
 
     def paginate(self, query: Union[ast.SelectQuery, ast.SelectSetQuery]) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
         if isinstance(query, ast.SelectQuery):

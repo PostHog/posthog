@@ -8,7 +8,7 @@ from posthog.schema import HogQLAlertConfig
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 
-from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
 from products.alerts.backend.evaluation.hogql import HogQLExtractor, extract_hogql_detector_series
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -79,13 +79,11 @@ class TestHogQLThresholdTruncation(APIBaseTest):
         [
             ("last_row", "", AlertExtractionError, "result is incomplete"),
             ("any_row", "", AlertExtractionError, "result is incomplete"),
-            ("last_row", " LIMIT 100", AlertDataUnavailableError, "exactly its LIMIT"),
+            ("last_row", " LIMIT 100", AlertExtractionError, "result is incomplete"),
+            ("any_row", " LIMIT 3", AlertExtractionError, "result is incomplete"),
         ]
     )
     def test_a_capped_threshold_result_fails_loud(self, evaluation, sql_limit, expected_exception, expected_error):
-        # Threshold alerts share the completeness guard: a cut tail scores the wrong last row, and
-        # a cut any-row result can hide the breaching row entirely. An author-written LIMIT hit
-        # exactly is ambiguous, so it errors without disabling.
         insight = Insight.objects.create(
             team=self.team,
             query={
@@ -115,9 +113,11 @@ class TestHogQLDetectorPagination(APIBaseTest):
             ("first_row", 501, 30, None, None, None),
             ("first_row", 501, 168, None, AlertExtractionError, "row limit cut the result"),
             ("first_row", 501, 500, None, AlertExtractionError, "row limit cut the result"),
-            ("last_row", 169, 168, 100, AlertDataUnavailableError, "exactly its LIMIT"),
-            ("last_row", 150, 30, 100, AlertDataUnavailableError, "exactly its LIMIT"),
-            ("last_row", 501, 168, 501, AlertDataUnavailableError, "exactly its LIMIT"),
+            ("last_row", 169, 168, 100, AlertExtractionError, "at least 169 rows"),
+            ("last_row", 150, 30, 100, AlertExtractionError, "result is incomplete"),
+            ("last_row", 501, 168, 501, None, None),
+            ("first_row", 501, 30, 100, None, None),
+            ("first_row", 10, 168, 100, AlertExtractionError, "at least 169 rows"),
             ("last_row", 501, 168, 502, None, None),
         ]
     )

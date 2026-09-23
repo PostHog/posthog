@@ -519,14 +519,16 @@ class TestEvaluateAlert:
         mock_notify.assert_not_called()
 
     @pytest.mark.parametrize(
-        "rows,has_more,expected_error,expect_disabled",
+        "rows,has_more,sql_limit,expected_error,expect_disabled",
         [
-            ([[f"hour-{i}", float(i)] for i in range(100)], True, "result is incomplete", True),
-            ([[f"hour-{i}", float(i)] for i in range(50)], None, "at least", False),
+            ([[f"hour-{i}", float(i)] for i in range(100)], True, "", "result is incomplete", True),
+            ([[f"hour-{i}", float(i)] for i in range(100)], True, " LIMIT 200", "result is incomplete", True),
+            ([[f"hour-{i}", float(i)] for i in range(50)], False, " LIMIT 100", "at least 169", True),
+            ([[f"hour-{i}", float(i)] for i in range(50)], False, "", "at least", False),
         ],
     )
     async def test_detector_unavailable_data_routes_through_evaluate_alert(
-        self, ateam, rows, has_more, expected_error, expect_disabled
+        self, ateam, auser, rows, has_more, sql_limit, expected_error, expect_disabled
     ) -> None:
         # Cross-layer guard: the dispatcher must route a detector-configured HogQL alert into the
         # extractor whose AlertDataUnavailableError reaches evaluate_alert's typed handler. Only the
@@ -535,11 +537,13 @@ class TestEvaluateAlert:
             ateam,
             query={
                 "kind": "HogQLQuery",
-                "query": "SELECT toStartOfHour(timestamp) AS bucket, count() AS value FROM events GROUP BY bucket ORDER BY bucket ASC",
+                "query": "SELECT toStartOfHour(timestamp) AS bucket, count() AS value FROM events GROUP BY bucket ORDER BY bucket ASC"
+                + sql_limit,
             },
             config={"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
             detector_config={"type": "mad", "window": 168, "threshold": 0.95},
         )
+        await sync_to_async(alert.subscribed_users.add)(auser)
         calculation = MagicMock(result=rows, columns=["bucket", "value"], has_more=has_more)
         with (
             patch(
@@ -561,7 +565,9 @@ class TestEvaluateAlert:
         # notifies; a short-but-uncapped history can be a young project growing into its window.
         assert refreshed.enabled is (not expect_disabled)
         mock_capture.assert_not_called()
-        if not expect_disabled:
+        if expect_disabled:
+            mock_notify.assert_called_once()
+        else:
             mock_notify.assert_not_called()
 
     async def test_evaluate_auto_disables_and_skips_error_tracking_on_extraction_error(self, alert_with_user) -> None:
