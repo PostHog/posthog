@@ -22,7 +22,7 @@ LEGACY_FIELDS = (
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1374_teamheatmapconfig_capture_enforcement_started_at_and_more"),
+        ("posthog", "1375_file_system_home_folder"),
     ]
 
     operations = [
