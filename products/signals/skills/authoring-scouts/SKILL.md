@@ -1,16 +1,13 @@
 ---
 name: authoring-scouts
 description: >
-  How to author, edit, and adapt PostHog Signals scouts — the scheduled agents that
-  scan a project and file what they find. Use to customize a
-  canonical scout (narrow its scope, retune thresholds, add disqualifiers), tweak a
-  scout's schedule or dry-run posture, write a new scout for a surface the fleet
-  doesn't cover, build a measurement scout that records structured output (an
-  LLM-judge scoring a sample on a schedule — a custom metric no query can compute),
-  or steer a scout without editing it by leaving it a note. Covers the scout SKILL.md
-  anatomy, the report contract, the structured-output channel, the dedupe +
-  scratchpad-memory conventions, scout notes, the per-team skills-store path vs the
-  canonical in-repo path, and the test loop. Trigger on
+  Write, edit, and adapt PostHog Signals scouts: scheduled agents that scan a project
+  and report findings. Use to change a canonical scout's scope, thresholds, schedule,
+  or dry-run settings; add a scout for an uncovered surface; record structured output
+  from scheduled LLM scoring; or give feedback through notes. Covers SKILL.md structure,
+  report requirements, follow-up report checks, structured output, duplicate detection,
+  scratchpad memory, scout notes, per-team skills-store and canonical repository edits,
+  and testing. Trigger on
   "write/edit/customize a signals scout", "new scout for X", "tune my scout schedule",
   "make a scout that watches <event>", "score/judge/measure X with a scout",
   "structured output from a scout", "scout output to Slack",
@@ -80,12 +77,22 @@ See [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md)
 ## Write the scout
 
 First pick the **shape**.
-[`references/scout-patterns.md`](references/scout-patterns.md) is a cookbook of the reference architectures scouts fall into — anomaly watcher, liveness/absence watcher, zero-result/unmet demand, watchlist explore/exploit, cross-product correlation, recommendation/gap, warehouse-backed source, custom single-event, open-text theme, adversarial/abuse concentration, external-tool/code, state∩code intersection, custom issue-tracker/work-queue, daily digest/roll-up, triage over a pre-detected stream, first-person dogfooding/probe — each mapped to a canonical scout you can copy as scaffolding.
-It also makes the key point that **a scout can watch any source PostHog ingests into the data warehouse, not just analytics events** (a Slack channel sync, a billing system, a CRM, a support inbox), plus external systems reachable from the sandbox.
+[`references/scout-patterns.md`](references/scout-patterns.md) is a cookbook of the reference architectures scouts fall into — anomaly watcher, liveness/absence watcher, zero-result/unmet demand, watchlist explore/exploit, cross-product correlation, recommendation/gap, warehouse-backed source, custom single-event, open-text theme, adversarial/abuse concentration, external-tool/code, state∩code intersection, custom issue-tracker/work-queue, daily digest/roll-up, triage over a pre-detected stream, first-person dogfooding/probe, recurring measurement/LLM-judge, maintainer/steward, owner-scoped book/queue, trigger-to-brief enrichment, dispatcher/campaign, fleet meta-scout/reviewer — each mapped to a canonical scout or a proven custom shape you can copy as scaffolding.
+It also makes the key point that **a scout can watch any source PostHog ingests into the data warehouse, not just analytics events** (a Slack channel sync, a billing system, a CRM, a support inbox), plus external systems reachable from the sandbox, other agents' output, and the scout fleet itself.
 And where a built-in signals source already covers the surface (GitHub and Linear issues), the issue-tracker pattern says where that source stops and a scout starts paying for itself.
+A scout does not have to stop at describing a fix: the **maintainer / steward** pattern is how a scout holding `write_scopes` keeps a family of dashboards, alerts, warehouse views, or scanner prompts healthy itself, with a write ladder that says which changes it applies, which it verifies and reports, and which it hands to a human.
 Find the closest pattern, then write the body.
 
 Follow [`references/scout-anatomy.md`](references/scout-anatomy.md) — it has the frontmatter schema (including the `allowed_tools` report-channel opt-in every scout needs), the canonical body structure (quick close-out → orient → domain discriminator → explore patterns → save-memory → decide → disqualifiers → close-out), the lean-body rule, and copy-ready skeleton templates for both a specialist and the generalist.
+
+**Write the body feature-forward.** The body is a prompt a run reads in full, every run, for as long as the scout lives — so it states what the scout watches and how it decides, and nothing else. Four things do not belong in it:
+
+- **No rollout state.** A preview flag, an early-access gate, a "recently renamed" tool, a port that is happening one scout at a time. It is true this month and misleading next month, and a run cannot tell which. Write the behavior the scout should follow now; if a capability may be absent, say how the run tells, not when it is due.
+- **No backlog.** Work that is planned, a field that does not exist yet, a lane somebody means to add. A run cannot act on it, so it only spends tokens and invites the run to wait for something.
+- **No project-only facts.** A metric, dashboard, event, id, or reviewer that exists in one project. A canonical scout ships to every project, so a fact from one of them is wrong for almost every run. Text about an optional product says how the run tells whether the project uses it, and never assumes it does.
+- **No duplicated harness mechanics.** The report-channel contract, the run gates, and the close-out format come from the harness prompt, which every report-channel scout is given. A copy in the body drifts from the real one and the run then holds two versions of the same rule. Keep the body to your scout's own domain framing.
+
+The same four apply to a bundled reference: it is read at run time too, so it carries no more rollout state or backlog than the body.
 
 Two craft references the whole fleet reasons in terms of — a good scout's **Decide** and **memory** sections are built on them, so read them before writing those sections:
 
@@ -93,6 +100,16 @@ Two craft references the whole fleet reasons in terms of — a good scout's **De
   This is how your scout decides _what clears the bar_ and _how to file it_.
 - [`references/dedupe-and-memory.md`](references/dedupe-and-memory.md) — the four-states classifier (net-new / material-update / already-covered / addressed-or-noise), the scratchpad key-prefix vocabulary, and the cross-project noise patterns.
   This is how your scout avoids re-filing and learns across runs.
+- [`references/report-checks.md`](references/report-checks.md) — the follow-up checks a scout attaches to a report so "did the fix hold?" is measured later instead of remembered.
+  This is how your scout closes the loop on a finding after somebody acts on it.
+
+A report is backward-looking; a **check** is the opposite direction — an expectation plus a time to test it, written onto a report with `scout-report-check-create`.
+Give your scout a checks section when its findings are the kind whose fix shows up in data later.
+Three rules belong in the body, and the reference has the rest:
+
+- **List the report's existing checks first** (`scout-report-check-list`), every time. An open check for the same claim makes a second one noise, and a report holds at most five open checks.
+- **`metric_threshold` wherever one number settles the claim and an event or action series can carry it.** The coordinator measures it itself, with no scout run.
+- **`agent` when no single number settles it, or when the number lives outside events** — a log rate, a fix whose effect shows in which entities fire rather than how many, a claim that needs a stack trace read.
 
 The single most important design decision in any scout is its **signal-vs-noise discriminator** — the cheap profile-shape read that separates "worth investigating" from "baseline".
 For error tracking it's the `count` vs `distinct_users` ratio; for CSP it's reach over raw count.
@@ -101,11 +118,8 @@ Name it explicitly near the top of the body so every run anchors on it.
 
 (The one exception: a **measurement scout** on the structured-output channel holds no bar — it applies a **rubric** to every sampled item, and the rubric takes the discriminator's slot as the design surface to name, dogfood, and calibrate. See the recurring measurement / LLM-judge pattern in `references/scout-patterns.md`.)
 
-A second design rule binds any **metric-shaped scout** — one that scores, ranks, or reports a named, reusable measure, whether a business measure (MRR, churn risk, usage revenue, activation) or operational telemetry it computes every run to monitor or report (cost per run, failure or error rates, latency, throughput).
-When the project's metrics catalog is enabled, it may hold a governed definition of that measure in `system.information_schema.metrics`, and the harness tells every run to prefer it — so write the body to cooperate rather than compete: have the run check the catalog for an approved, non-drifted metric before its own derivation, and run a match through `data-catalog-metric-run`.
-Where a governed metric exists, reference it by name in any `references/queries.md` you ship, and label every hand-written derivation there a noncanonical fallback — an unlabeled "validated query" outranks the harness's catalog-first rule at run time, which is exactly how a scout ends up re-deriving a number the team already governs.
-Freshness, availability, and schema checks are exempt: they stay schema-first, with no catalog detour.
-A measurement scout is exempt too, but only for the measure it invents: a subjective rubric has no governed definition to defer to, while any conventional metric the same scout reports still goes through the catalog.
+A second design consideration applies to a **metric-shaped scout** — one that scores, ranks, or reports a named, reusable measure, whether a business measure (MRR, churn risk, usage revenue, activation) or operational telemetry it computes every run to monitor or report (cost per run, failure or error rates, latency, throughput).
+If the project has an approved metric for that measure (`metric-list` shows what exists), name it in the body and run it with `data-catalog-metric-run`, so the scout's number matches the one the team already reports.
 
 ## Run posture (config)
 
@@ -136,6 +150,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
 - `write_scopes` — defaults to `[]`: the scout reads the project and writes only what every scout writes (its findings, its memory, and notebooks).
   Grant `dashboard:write`, `insight:write`, `annotation:write`, `alert:write`, `llm_skill:write`, `warehouse_view:write`, `warehouse_table:write`, or `replay_scanner:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
+  The body of such a scout follows the maintainer / steward pattern in `references/scout-patterns.md`: a curated inventory, a write ladder (do-and-log, do-verify-report, hand-to-a-human), a per-run change cap, and a rolling maintenance report naming every object changed.
   Each scope is project-wide and covers update and delete of every object of its kind, not only the ones the scout made, so grant only what the scout's body actually tends, and say in the body what it may change and when.
   `llm_skill:write` is the one to think twice about: custom scouts are skills in the same store, so a scout holding it can edit a sibling scout's body, or the body it runs from itself. Grant it to a scout whose job really is tending a set of skills, name that set in the body, and say there that the scouts are off limits unless tending them is the job.
   `warehouse_view:write` and `warehouse_table:write` are separate on purpose: a scout that keeps a set of views healthy does not also need to create tables. Take both rows only when the scout tends both.
@@ -217,6 +232,12 @@ Confirm the watched event/entity exists and has the shape you assumed, run the *
 This loop is free and instant — refine the body against what you find, re-run the queries, repeat, until the scout's logic holds up on real data.
 This is where the real iteration happens.
 
+**A few runtime tools cannot be dogfooded, so validate them in the first real run instead.** Anything that takes a `run_id` only works from inside a run, and a tool the project has not been switched on for fails whoever calls it.
+`posthog:scout-lighthouse-audit` is the one to plan around: it loads a page in a real throttled browser and returns the lab metrics, the element the browser chose as the Largest Contentful Paint, where the LCP time went phase by phase, and the ranked savings estimates — which is how a page-performance finding names a cause rather than guessing one.
+It needs the run's `run_id`, it is restricted to an allowlist of public pages (the browser signs in to nothing, so a page behind a login would report the login screen's numbers as the page's), it is limited to the projects switched on for it, and it is capped at five audits per run. A rejected call costs nothing, but once the page loads the slot is spent whatever the result, and every error message ends with how many audits the run has left, which tells a rejection apart from an exhausted budget.
+So: treat it as available only once a run's own call succeeds, never write a body whose finding depends on it, and keep lab and field evidence labelled apart — one throttled cold load explains a finding, and the field percentile over real users is what establishes there is one.
+Then check the first real run's transcript for the call and what it returned, the same way you would check a query you could not run by hand.
+
 Only once you're happy with the body do you spend an actual run.
 `posthog:scout-run-now {"id": <config_id>}` dispatches one run of the scout immediately, regardless of its schedule (find the `id` via `-config-list`).
 This is the **initial real run** — the scout executing end-to-end in the harness, writing scratchpad memory and (with the default `emit=true`) writing reports to the inbox.
@@ -265,6 +286,8 @@ Keep the two in sync when the scout config / run / scratchpad surfaces change.
 - 2–4 concrete **explore patterns** with the actual queries/tools to run — starting points, not a rigid checklist.
 - **Disqualifiers** listing this project's known noise (single-user quirks, dev-env bursts, allowlisted entities).
 - A **Decide** section calibrated against the report contract — author 1:1 only for a finding the scout would own end-to-end, set `suggested_reviewers`, and write memory instead when a candidate is below the bar.
+- A **checks** step where the findings are the kind whose fix shows up in data later — list the report's open checks first, then pick `metric_threshold` or `agent` by whether one number settles the claim.
+- A **feature-forward body**: no rollout state, no backlog, no project-only facts, no harness mechanics the prompt already carries.
 - **Save-memory** guidance using the scratchpad prefixes so the scout gets smarter each run.
 - A lean body (push depth into `references/`) — every line is a recurring token cost on every run.
 - A **tight frontmatter `description`** — a sentence or two naming the surface and the shapes it watches.

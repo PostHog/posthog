@@ -1,8 +1,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
-use common_database::{get_pool_with_config, PoolConfig};
+use common_database::get_pool_with_config;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
@@ -10,6 +11,7 @@ use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetric
 use personhog_common::{spawn_pool_monitor, MonitoredPool};
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentityServer;
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycleServer;
+use sqlx::postgres::PgPool;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -19,34 +21,76 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use personhog_common::client::RouterClient;
+use personhog_common::query_tag;
+use personhog_coordination::store::PersonhogStore;
 use personhog_identity::config::Config;
 use personhog_identity::leader::LifecycleLeader;
 use personhog_identity::lifecycle::delete::DeleteDriver;
 use personhog_identity::lifecycle::engine::Engine;
 use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
+use personhog_identity::pools::{IdentityPools, Lane};
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
 
 common_alloc::used!();
 
-fn create_storage(config: &Config) -> Arc<PostgresIdentityStorage> {
-    let primary_pool_config = PoolConfig {
-        min_connections: config.min_pg_connections,
-        max_connections: config.max_pg_connections,
-        acquire_timeout: config.acquire_timeout(),
-        idle_timeout: config.idle_timeout(),
-        test_before_acquire: false,
-        statement_timeout_ms: config.statement_timeout(),
-        pool_name: Some("primary".to_string()),
-    };
+fn create_pools(config: &Config) -> IdentityPools {
+    let fast = get_pool_with_config(&config.primary_database_url, config.fast_pool_config())
+        .expect("Failed to create fast database pool");
+    let heavy = get_pool_with_config(&config.primary_database_url, config.heavy_pool_config())
+        .expect("Failed to create heavy database pool");
+    tracing::info!("Created fast and heavy database pools");
+    IdentityPools::new(fast, heavy)
+}
 
-    let primary_pool = get_pool_with_config(&config.primary_database_url, primary_pool_config)
-        .expect("Failed to create primary database pool");
-    tracing::info!("Created primary database pool");
-
-    Arc::new(PostgresIdentityStorage::new(primary_pool, config.tables()))
+/// Hold `min_connections` connections and run a query on `server_warmup`
+/// of them. acquire() only establishes app → PgBouncer; in transaction
+/// pooling mode PgBouncer doesn't open a server connection until a query
+/// runs.
+async fn warm_pool(pool: &PgPool, lane: Lane, min_connections: u32, server_warmup: u32) {
+    if min_connections == 0 {
+        return;
+    }
+    let warmup_count = min_connections as usize;
+    let server_warmup_count = (server_warmup as usize).min(warmup_count);
+    tracing::info!(
+        pool = lane.label(),
+        count = warmup_count,
+        server_warmup = server_warmup_count,
+        "Warming database connection pool before accepting traffic"
+    );
+    let pool_start = std::time::Instant::now();
+    let mut conns = Vec::with_capacity(warmup_count);
+    for _ in 0..warmup_count {
+        match pool.acquire().await {
+            Ok(conn) => conns.push(conn),
+            Err(e) => {
+                tracing::warn!(pool = lane.label(), error = %e, "Failed to warm connection");
+                break;
+            }
+        }
+    }
+    let mut server_warmed = 0u32;
+    for conn in conns.iter_mut().take(server_warmup_count) {
+        match sqlx::query(&query_tag!("warm_pool", "SELECT 1"))
+            .execute(&mut **conn)
+            .await
+        {
+            Ok(_) => server_warmed += 1,
+            Err(e) => {
+                tracing::warn!(pool = lane.label(), error = %e, "Failed to warm server-side connection");
+            }
+        }
+    }
+    tracing::info!(
+        pool = lane.label(),
+        client_conns = conns.len(),
+        server_conns = server_warmed,
+        elapsed_ms = pool_start.elapsed().as_millis() as u64,
+        "Pool warmup complete"
+    );
 }
 
 #[tokio::main]
@@ -83,6 +127,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Leader fan-out concurrency"
     );
     tracing::info!("Tables: {:?}", config.tables());
+
+    // The delete saga groups its fence calls by the leaders' partition
+    // count, which lives in etcd; a service that cannot read it would
+    // batch wrong, so refuse to start instead.
+    let num_partitions = {
+        let etcd_store = EtcdStore::connect(StoreConfig {
+            endpoints: config.etcd_endpoint_list(),
+            prefix: config.etcd_prefix.clone(),
+        })
+        .await
+        .expect("Failed to connect to etcd");
+        PersonhogStore::new(etcd_store)
+            .get_total_partitions()
+            .await
+            .expect("Failed to read total_partitions from etcd")
+    };
+    tracing::info!(num_partitions, "loaded partition count from etcd");
 
     // Build lifecycle manager and register components
     let mut manager = Manager::builder("personhog-identity").build();
@@ -164,57 +225,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    let storage = create_storage(&config);
+    let pools = create_pools(&config);
+    let storage = Arc::new(PostgresIdentityStorage::new(pools.clone(), config.tables()));
 
-    // Pre-warm the DB connection pool before accepting traffic.
+    // Pre-warm the DB connection pools before accepting traffic.
     // connect_lazy() starts with zero connections; without this, the first
     // burst of requests after K8s routes traffic all pay the cold-start cost.
     // Warming here is safe because the gRPC server hasn't bound its port yet.
-    if config.min_pg_connections > 0 {
-        let warmup_count = config.min_pg_connections as usize;
-        let server_warmup_count = (config.warmup_server_connections as usize).min(warmup_count);
-        tracing::info!(
-            count = warmup_count,
-            server_warmup = server_warmup_count,
-            "Warming database connection pool before accepting traffic"
-        );
-        let pool_start = std::time::Instant::now();
-        let mut conns = Vec::with_capacity(warmup_count);
-        for _ in 0..warmup_count {
-            match storage.primary_pool.acquire().await {
-                Ok(conn) => conns.push(conn),
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to warm connection");
-                    break;
-                }
-            }
-        }
-        // Run a query on a subset of held connections to warm PgBouncer → PG.
-        // acquire() only establishes app → PgBouncer; in transaction pooling
-        // mode PgBouncer doesn't open a server connection until a query runs.
-        let mut server_warmed = 0u32;
-        for conn in conns.iter_mut().take(server_warmup_count) {
-            match sqlx::query("SELECT 1").execute(&mut **conn).await {
-                Ok(_) => server_warmed += 1,
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to warm server-side connection");
-                }
-            }
-        }
-        tracing::info!(
-            client_conns = conns.len(),
-            server_conns = server_warmed,
-            elapsed_ms = pool_start.elapsed().as_millis() as u64,
-            "Pool warmup complete"
-        );
-    }
+    warm_pool(
+        pools.fast(),
+        Lane::Fast,
+        config.min_pg_connections,
+        config.warmup_server_connections,
+    )
+    .await;
+    warm_pool(
+        pools.heavy(),
+        Lane::Heavy,
+        config.heavy_min_pg_connections,
+        config.warmup_server_connections,
+    )
+    .await;
 
     spawn_pool_monitor(
-        vec![MonitoredPool {
-            pool: storage.primary_pool.clone(),
-            label: "primary".to_string(),
-            max_connections: config.max_pg_connections,
-        }],
+        vec![
+            MonitoredPool {
+                pool: pools.fast().clone(),
+                label: Lane::Fast.label().to_string(),
+                max_connections: config.max_pg_connections,
+            },
+            MonitoredPool {
+                pool: pools.heavy().clone(),
+                label: Lane::Heavy.label().to_string(),
+                max_connections: config.heavy_max_pg_connections,
+            },
+        ],
         Duration::from_secs(config.pool_monitor_interval_secs),
     );
 
@@ -231,7 +276,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // property writes.
     let lifecycle_leader: Arc<dyn LifecycleLeader> = property_writer.clone();
     let engine = Arc::new(Engine::new(
-        storage.primary_pool.clone(),
+        pools.clone(),
         config.lifecycle_engine_config(),
         config.tables(),
     ));
@@ -245,6 +290,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             lifecycle_leader.clone(),
             config.tables(),
             config.lifecycle_leader_call_concurrency,
+            num_partitions,
         );
         let sweeper_engine = engine.clone();
         let sweep_interval = config.lifecycle_sweep_interval();
@@ -302,6 +348,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         lifecycle_leader,
         config.tables(),
         config.lifecycle_leader_call_concurrency,
+        num_partitions,
     );
     let service = PersonHogIdentityService::new(
         storage,

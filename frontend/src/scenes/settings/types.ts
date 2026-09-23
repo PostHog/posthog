@@ -36,6 +36,7 @@ export type SettingSectionId =
     | 'environment-csp-reporting'
     | 'environment-customer-analytics'
     | 'environment-customization'
+    | 'environment-data-quality'
     | 'environment-discussions'
     | 'environment-error-tracking'
     | 'environment-error-tracking-configuration'
@@ -144,6 +145,7 @@ export type SettingId =
     | 'customer-analytics-track-rules'
     | 'customer-analytics-usage-metrics'
     | 'customization-irl'
+    | 'data-quality-materialization-gate'
     | 'data-theme'
     | 'datacapture'
     | 'date-and-time'
@@ -188,6 +190,7 @@ export type SettingId =
     | 'feature-previews-coming-soon'
     | 'group-analytics'
     | 'heatmaps'
+    | 'heatmap-screenshot-cookie'
     | 'hedgehog-mode'
     | 'homepage'
     | 'human-friendly-comparison-periods'
@@ -206,6 +209,7 @@ export type SettingId =
     | 'logs-distinct-id-attribute-key'
     | 'logs-drop-rules'
     | 'logs-json-parse'
+    | 'logs-json-parse-attribute'
     | 'logs-metric-rules'
     | 'logs-pattern-message-keys'
     | 'logs-pii-scrub'
@@ -272,6 +276,7 @@ export type SettingId =
     | 'revenue-analytics-filter-test-accounts'
     | 'revenue-base-currency'
     | 'saml-configuration'
+    | 'oidc-configuration'
     | 'scim-configuration'
     | 'session-join-mode'
     | 'session-table-version'
@@ -387,14 +392,6 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * product's own configuration scene).
      */
     hideFromNavigation?: boolean
-
-    /**
-     * When true, navigating to this section prompts for re-authentication if the sensitive
-     * session has expired — matching how user- and organization-level settings behave. Use for
-     * environment/project sections that manage credentials, which otherwise only surface the
-     * re-auth modal reactively when a write is attempted.
-     */
-    requiresReauthentication?: boolean
 
     /**
      * Gate every setting in the section behind one billing feature. The section renders a single

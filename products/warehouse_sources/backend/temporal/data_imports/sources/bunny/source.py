@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.bunny import (
     BunnyResumeConfig,
     bunny_source,
@@ -46,7 +44,7 @@ class BunnySource(ResumableSource[BunnySourceConfig, BunnyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BUNNY,
+            name=ExternalDataSourceType.BUNNY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Bunny.net",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -90,6 +88,9 @@ You can find your account API key under **Account Settings → API** in the [bun
             # `/videolibrary`, so their auth failures come back from the Stream host instead.
             "401 Client Error: Unauthorized for url: https://video.bunnycdn.com": "A bunny.net video library rejected its API key. Regenerate the library's key in the Stream dashboard, then re-run the sync.",
             "403 Client Error: Forbidden for url: https://video.bunnycdn.com": "A bunny.net video library API key does not have access to this data. Check the library's key permissions, then re-run the sync.",
+            # The CDN access logs are served by a third host, which takes the account API key.
+            "401 Client Error: Unauthorized for url: https://logging.bunnycdn.com": "Your bunny.net account API key is invalid or has been revoked. Generate a new key under Account Settings → API, then reconnect.",
+            "403 Client Error: Forbidden for url: https://logging.bunnycdn.com": "Your bunny.net account API key does not have access to the CDN access logs. Check the key's permissions, then reconnect.",
         }
 
     def get_schemas(
@@ -101,10 +102,10 @@ You can find your account API key under **Account Settings → API** in the [bun
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # The list endpoints are full refresh only — they expose no server-side timestamp
-        # filter, so there is no incremental cursor to advance. The statistics endpoints do
-        # filter on `dateFrom`, and merge only: appending would re-add a row per run for every
-        # interval the window still covers.
+        # Most list endpoints are full refresh only — they expose no server-side timestamp
+        # filter, so there is no incremental cursor to advance. The statistics endpoints and the
+        # CDN access logs do filter on a start date, and are merge only: appending would re-add
+        # a row per run for every interval the window still covers.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=tuple(INCREMENTAL_FIELDS))
 
     def validate_credentials(

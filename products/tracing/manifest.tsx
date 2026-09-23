@@ -63,7 +63,6 @@ export const manifest: ProductManifest = {
             ] as FileSystemIconColor,
             href: urls.tracing(),
             flag: FEATURE_FLAGS.TRACING,
-            tags: ['beta'],
             sceneKey: 'Tracing',
         },
     ],

@@ -1,6 +1,7 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { ActivityDetailCloseButton } from "@posthog/ui/features/canvas/components/ActivityDetailCloseButton";
 import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activityDetailStore";
+import { useActiveTabTiled } from "@posthog/ui/features/tab-tiling/useActiveTabTiled";
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
@@ -13,11 +14,12 @@ import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 export function SpaceHeaderRow({ task }: { task?: Task }) {
   const content = useHeaderStore((s) => s.content);
   const activitySelection = useActivitySelection();
+  const tiled = useActiveTabTiled();
   const showsActivitySession = activitySelection?.kind === "task";
-  if (!content && !task && !showsActivitySession) return null;
+  if (tiled || (!content && !task && !showsActivitySession)) return null;
 
   return (
-    <ChromeBar inset="control">
+    <ChromeBar inset="title">
       <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
         {content}
       </div>

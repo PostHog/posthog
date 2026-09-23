@@ -30,6 +30,8 @@ from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
     SCOUT_SKILL_CATEGORY,
     canonical_config_tags_for,
+    canonical_deprecation_for,
+    canonical_display_name_for,
     canonical_skill_names,
     is_operational_scout,
 )
@@ -225,6 +227,10 @@ def register_missing_configs(
     (count + create, no lock) — a race can briefly overshoot by one, which the coordinator's
     per-tick caps still bound.
 
+    A canonical scout PostHog is retiring (`scout-deprecation` frontmatter) gets no new config
+    here, so the retirement stops intake before it stops runs. An existing config is untouched and
+    keeps its schedule until `sync_canonical_skills` retires it at the sunset.
+
     A canonical scout declaring `scout-role: operational` (`lazy_seed.is_operational_scout`) is
     outside all of that: it watches the self-driving system rather than a product surface, so it
     seeds enabled, exempt from the inactivity sweep, past the allowlist and past the cap, and
@@ -262,9 +268,16 @@ def register_missing_configs(
     # sharing an operational name must not inherit the posture that skips the harness's gates.
     operational_names = {name for name in canonical_names if is_operational_scout(name)}
 
+    # A scout PostHog has announced the retirement of is no longer offered: no new project picks
+    # one up, and a project that never had it does not acquire a row it would only have to retire.
+    # Read off the canonical set like the role is, so a team's own scout sharing the name is
+    # unaffected. Dispatch is untouched — a project already running the scout keeps running it
+    # until the sunset, which is the whole point of announcing one.
+    deprecated_names = {name for name in canonical_names if canonical_deprecation_for(name) is not None}
+
     configs = SignalScoutConfig.objects.for_team(team_id)
     existing = set(configs.values_list("skill_name", flat=True))
-    missing = sorted(skill_names - existing)
+    missing = sorted(skill_names - existing - deprecated_names)
     enabled = enabled_scout_count(team_id) if missing else 0
     for name in missing:
         at_cap = enabled >= MAX_ENABLED_SCOUTS_PER_TEAM
@@ -290,6 +303,12 @@ def register_missing_configs(
         # removed. Only canonical names read from disk: a team's scout sharing the name is its own.
         if name in canonical_names and (canonical_tags := canonical_config_tags_for(name)):
             defaults["tags"] = list(canonical_tags)
+        # The label the fleet ships this scout under (`scout-display-name`), so a canonical scout
+        # reads as "APM" rather than the "Apm" a sentence-cased slug would produce. Unlike the rest
+        # of the posture this is also reconciled onto existing rows below, because a row created
+        # before the scout declared a label has no way to acquire one otherwise.
+        if name in canonical_names and (canonical_display_name := canonical_display_name_for(name)):
+            defaults["display_name"] = canonical_display_name
         # The launch cadence is stamped on every canonical (gated) scout — whether it seeds
         # enabled now or stays disabled for the user to switch on later — so a specialist a user
         # toggles on runs at the flag's launch cadence rather than the model default (daily).
@@ -313,6 +332,8 @@ def register_missing_configs(
                 cap=MAX_ENABLED_SCOUTS_PER_TEAM,
             )
 
+    reconcile_canonical_display_names(team_id, canonical_names & skill_names)
+
     reconcile_operational_configs(team_id, operational_names & skill_names, withheld_skill_names)
 
     # Keep the skills UI's Scouts tab in sync: stamp `category="scout"` on any scout skill rows
@@ -320,6 +341,33 @@ def register_missing_configs(
     # and after the loop above so a row created on this tick is stamped on this tick.
     ensure_scout_category(team_id)
     return skill_names | live_scout_skill_names(team_id, withheld_skill_names)
+
+
+def reconcile_canonical_display_names(team_id: int, canonical_names: set[str]) -> None:
+    """Give every canonical scout on this team the label the fleet ships it under, if it has none.
+
+    The rest of the seed posture is forward-only, and for the same reason this pass is narrow: it
+    writes only where `display_name` is blank, so a scout a person renamed keeps the name they gave
+    it, on this tick and on every tick after. Blank is not a choice a person can lose — it is what
+    "no name of its own" is stored as, and the label the fleet ships is exactly the default that
+    stands for, so filling it in is the sync doing what blank already meant.
+
+    Backfill, not posture: a canonical scout registered before the fleet declared its label would
+    otherwise read as "Apm" forever, since nothing else ever revisits the column. Costs one read
+    per tick once every row is named, and nothing after that.
+    """
+    labelled = {name: label for name in canonical_names if (label := canonical_display_name_for(name))}
+    if not labelled:
+        return
+    configs = SignalScoutConfig.objects.for_team(team_id)
+    unnamed = set(configs.filter(skill_name__in=labelled, display_name="").values_list("skill_name", flat=True))
+    for skill_name in sorted(unnamed):
+        # Re-checking `display_name=""` in the update makes the write lose to a rename that landed
+        # since the read, rather than reverting it. QuerySet.update() skips both auto_now and the
+        # activity log, which is what this should do: a seeded default is not an edit anyone made.
+        configs.filter(skill_name=skill_name, display_name="").update(
+            display_name=labelled[skill_name], updated_at=timezone.now()
+        )
 
 
 @transaction.atomic

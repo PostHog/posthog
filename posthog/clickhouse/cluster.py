@@ -18,7 +18,15 @@ from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 
 from posthog import settings
-from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
+from posthog.clickhouse.client.connection import (
+    ClickHouseUser,
+    NodeRole,
+    Workload,
+    _make_ch_pool,
+    default_client,
+    get_clickhouse_creds,
+    is_file_backed_user,
+)
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, TEST
 
@@ -616,8 +624,20 @@ def get_cluster(
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
+
+    # The bootstrap is a bare, long-lived client that cannot re-read the token file, so a baked token
+    # would expire mid-run with no recovery; it uses the non-expiring static password when one exists.
+    creds = get_clickhouse_creds(ClickHouseUser.DEFAULT)
+    overrides = dict(connection_overrides or {})
+    if is_file_backed_user(creds, Workload.DEFAULT, creds.user):
+        bootstrap_client = default_client(host=host, password=creds.password or creds.read_password())
+        if not overrides.keys() & {"user", "password", "credential_provider"}:
+            overrides["credential_provider"] = creds.read_password
+    else:
+        bootstrap_client = default_client(host=host)
+
     return ClickhouseCluster(
-        default_client(host=host),
+        bootstrap_client,
         extra_hosts=extra_hosts,
         logger=logger,
         client_settings=client_settings,
@@ -625,7 +645,7 @@ def get_cluster(
         data_cluster=data_cluster,
         satellite_clusters=satellite_clusters,
         retry_policy=retry_policy,
-        connection_overrides=connection_overrides,
+        connection_overrides=overrides,
     )
 
 
@@ -796,6 +816,16 @@ class MutationWaiters:
     def wait(self, client: Client) -> None:
         for waiter in self.waiters:
             waiter.wait(client)
+
+
+def wait_for_mutations_on_shards(cluster: ClickhouseCluster, shard_mutations: Mapping[int, MutationWaiter]) -> None:
+    """Block until every mutation in ``shard_mutations`` is complete on all hosts within its shard."""
+    # during periods of elevated replication lag, it may take some time for mutations to become available on
+    # the shards, so give them a little bit of breathing room with retries
+    retry_policy = RetryPolicy(max_attempts=3, delay=10.0, exceptions=(MutationNotFound,))
+    cluster.map_all_hosts_in_shards(
+        {shard_num: retry_policy(waiter) for shard_num, waiter in shard_mutations.items()}
+    ).result()
 
 
 class MutationCapacityTimeout(Exception):
@@ -1005,10 +1035,14 @@ class MutationRunner(abc.ABC):
             command: mutation_id for command, (mutation_id,) in zip(command_list, mutations) if mutation_id is not None
         }
 
-    def run_on_shards(self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None) -> None:
+    def enqueue_on_shards(
+        self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None
+    ) -> dict[int, MutationWaiter]:
         """
-        Enqueue (or find) this mutation on one host in each shard, and then block until the mutation is complete on all
-        hosts within the affected shards.
+        Enqueue (or find) this mutation on one host in each shard, without waiting for it to complete.
+
+        A caller running mutations on several tables enqueues all of them before waiting on any, so the total wait is
+        the longest one rather than their sum. Pair with ``wait_for_mutations_on_shards``.
         """
         if shards is not None:
             shard_host_mutation_waiters = cluster.map_any_host_in_shards(dict.fromkeys(shards, self))
@@ -1023,13 +1057,14 @@ class MutationRunner(abc.ABC):
             if host.shard_num is not None
         }
         assert len(shard_mutations) == len(shard_host_mutation_waiters)
+        return shard_mutations
 
-        # during periods of elevated replication lag, it may take some time for mutations to become available on
-        # the shards, so give them a little bit of breathing room with retries
-        retry_policy = RetryPolicy(max_attempts=3, delay=10.0, exceptions=(MutationNotFound,))
-        cluster.map_all_hosts_in_shards(
-            {shard_num: retry_policy(waiter) for shard_num, waiter in shard_mutations.items()}
-        ).result()
+    def run_on_shards(self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None) -> None:
+        """
+        Enqueue (or find) this mutation on one host in each shard, and then block until the mutation is complete on all
+        hosts within the affected shards.
+        """
+        wait_for_mutations_on_shards(cluster, self.enqueue_on_shards(cluster, shards))
 
 
 @dataclass

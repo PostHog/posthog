@@ -14,11 +14,12 @@ import { MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/share
 
 import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
+import { MlDataKey } from './keys/crypto'
+import { decryptEnvelope } from './keys/envelope-testing'
+import { MlKeyReader } from './keys/reader'
+import { sessionKeyId, tableKeyString } from './keys/schema'
+import { MlKafkaTransport } from './keys/transport'
 import { MlBlockMetadataSink } from './ml-block-metadata-sink'
-import { MlDataKey, decryptEnvelope } from './privacy/crypto'
-import { MlKeyReader } from './privacy/reader'
-import { sessionKeyId, tableKeyString } from './privacy/schema'
-import { MlKafkaEncryption } from './privacy/transport'
 import { PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
 
 const SESSION_A = '01a0a4f0-3200-7000-8000-000000000001'
@@ -110,14 +111,19 @@ describe('ML metadata producer → sink round-trip', () => {
                 return Promise.resolve({})
             }),
         } as unknown as S3Client
-        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const store = new BlockMetadataParquetStore(
+            s3,
+            { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
+            'block-metadata',
+            'pod-1'
+        )
         const offsetStore: OffsetStore = { offsetsStore: jest.fn() }
         const batcher = new BlockMetadataBatcher(
             store,
             offsetStore,
             { flushIntervalMs: 60_000, maxRows: 1_000 },
             0,
-            new MlKafkaEncryption(reader)
+            new MlKafkaTransport(reader)
         )
 
         const messages = produced.map(

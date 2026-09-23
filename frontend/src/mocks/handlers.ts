@@ -152,6 +152,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_saved_query_folders/': [],
         '/api/environments/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/core_memory/': { results: [] },
         '/api/environments/:team_id/conversations/': EMPTY_PAGINATED_RESPONSE,
@@ -189,7 +190,10 @@ export const defaultMocks: Mocks = {
                 pending_invites: [],
             },
         ],
-        '/api/users/@me/two_factor_status/': () => [200, { is_enabled: true, backup_codes: [], method: 'TOTP' }],
+        '/api/users/@me/two_factor_status/': () => [
+            200,
+            { is_enabled: true, backup_codes_remaining: 0, method: 'TOTP' },
+        ],
         '/api/users/@me/hedgehog_config/': {
             color: null,
             enabled: false,

@@ -1,13 +1,13 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardMode, DashboardType, InsightModel } from '~/types'
 
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/types/streamTypes'
@@ -26,7 +26,7 @@ jest.mock('products/posthog_ai/frontend/api/logics', () => ({
     useMcpToolApplyBack: jest.fn(),
 }))
 
-const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
+const MOCK_DASHBOARD: DashboardType = {
     id: 5,
     name: 'Test Dashboard',
     description: 'A test dashboard',
@@ -51,7 +51,7 @@ const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
     variables: {},
 }
 
-function makeDashboard(overrides: Record<string, any> = {}): DashboardType<QueryBasedInsightModel> {
+function makeDashboard(overrides: Record<string, any> = {}): DashboardType {
     return { ...MOCK_DASHBOARD, ...overrides }
 }
 
@@ -78,7 +78,7 @@ describe('DashboardHeader', () => {
     })
 
     function renderHeader(opts: {
-        dashboard?: DashboardType<QueryBasedInsightModel> | null
+        dashboard?: DashboardType | null
         dashboardMode?: DashboardMode | null
         dashboardEditing?: { filters: boolean; layout: boolean } | null
         dashboardModeSource?: DashboardEventSource
@@ -124,6 +124,35 @@ describe('DashboardHeader', () => {
 
         logic.unmount()
     })
+
+    test.each([
+        { mode: 'view', dashboardEditing: null, access: AccessControlLevel.Editor, canEdit: true },
+        {
+            mode: 'filter edit',
+            dashboardEditing: { filters: true, layout: false },
+            access: AccessControlLevel.Editor,
+            canEdit: true,
+        },
+        { mode: 'view', dashboardEditing: null, access: AccessControlLevel.Viewer, canEdit: false },
+    ])(
+        'pressing E in $mode mode with $access access enters layout editing=$canEdit',
+        ({ dashboardEditing, access, canEdit }) => {
+            const dashboard = makeDashboard({
+                user_access_level: access,
+                tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
+            })
+            const { logic } = renderHeader({ dashboard, dashboardEditing })
+
+            fireEvent.keyDown(document.body, { key: 'e', code: 'KeyE' })
+
+            expect(logic.values.layoutEditMode).toBe(canEdit)
+            if (canEdit) {
+                expect(document.querySelector('[data-attr="dashboard-edit-mode-save"]')).toBeInTheDocument()
+            }
+
+            logic.unmount()
+        }
+    )
 
     it('recognizes sandbox insight calls that add to the open dashboard', () => {
         expect(insightIsAddedToDashboard({ dashboards: ['5', 8] }, 5)).toBe(true)
@@ -247,7 +276,7 @@ describe('DashboardHeader', () => {
                               id: 1,
                               color: null,
                               layouts: {},
-                              insight: { id: 1, short_id: 'test', name: 'Test' } as QueryBasedInsightModel,
+                              insight: { id: 1, short_id: 'test', name: 'Test' } as InsightModel,
                           },
                       ]
                     : [],

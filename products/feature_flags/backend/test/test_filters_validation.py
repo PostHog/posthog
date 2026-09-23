@@ -163,6 +163,36 @@ class TestFiltersValidation(SimpleTestCase):
             (
                 "gt_operator_numeric_value",
                 {"groups": [{"properties": [_person_prop(operator="gt", value=5)]}]},
+                [],
+            ),
+            (
+                "gte_operator_float_value",
+                {"groups": [{"properties": [_person_prop(operator="gte", value=1.5)]}]},
+                [],
+            ),
+            (
+                "lt_operator_string_value",
+                {"groups": [{"properties": [_person_prop(operator="lt", value="5")]}]},
+                [],
+            ),
+            (
+                "lte_operator_boolean_value",
+                {"groups": [{"properties": [_person_prop(operator="lte", value=True)]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "gte_operator_value_over_f64_range",
+                {"groups": [{"properties": [_person_prop(operator="gte", value=10**400)]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "gt_operator_list_value",
+                {"groups": [{"properties": [_person_prop(operator="gt", value=[5])]}]},
+                ["cross_field.operator_requires_string_value"],
+            ),
+            (
+                "icontains_operator_numeric_value",
+                {"groups": [{"properties": [_person_prop(operator="icontains", value=5)]}]},
                 ["cross_field.operator_requires_string_value"],
             ),
             (

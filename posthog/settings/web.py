@@ -42,6 +42,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
     "products.ai_training.backend.apps.AiTrainingConfig",
+    "products.ml_inference.backend.apps.MlInferenceConfig",
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
@@ -49,6 +50,7 @@ PRODUCTS_APPS = [
     "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
+    "products.aeo.backend.apps.AEOConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
@@ -117,14 +119,15 @@ PRODUCTS_APPS = [
     "products.pulse.backend.apps.PulseConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
     "products.data_quality.backend.apps.DataQualityConfig",
+    "products.security.backend.apps.SecurityConfig",
 ]
 
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     # `SimpleAdminConfig` skips Django's eager `autodiscover_modules('admin')` at
-    # startup. We invoke autodiscover ourselves from `register_all_admin()` (called
-    # lazily via `LazyAdminRegistry` on first `admin.site._registry` access), which
-    # keeps every product/admin import out of `django.setup()`.
+    # startup. We invoke autodiscover ourselves from `register_all_admin()` (called by
+    # the admin URL conf in `ee/urls.py`, and by `LazyAdminRegistry`), which keeps
+    # every product/admin import out of `django.setup()`.
     "django.contrib.admin.apps.SimpleAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -160,6 +163,9 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
+    # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
+    # the request path. AllowIPMiddleware and axes read the IP at or after the view.
+    "posthog.middleware.ManagedProxyClientIPMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
     "posthog.middleware.Fix204Middleware",
@@ -187,7 +193,6 @@ MIDDLEWARE = [
     # Must run immediately after AuthenticationMiddleware so downstream middleware
     # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
     "posthog.middleware.AdminImpersonationMiddleware",
-    "posthog.api.query_coalescer.QueryCoalescingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.KnownLoginDeviceCookieMiddleware",
@@ -299,7 +304,8 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.auth_allowed",
     "ee.api.authentication.social_auth_allowed",
     "social_core.pipeline.social_auth.social_user",
-    # Must stay ahead of association/provisioning so a mismatched re-auth identity is rejected first
+    # Must stay ahead of association/provisioning so a mismatched authenticated identity is rejected first
+    "posthog.api.authentication.social_identity_matches_session",
     "posthog.api.authentication.social_reauth",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.api.signup.social_create_user",
@@ -590,20 +596,35 @@ SPECTACULAR_SETTINGS = {
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+            # Matches the shared alerts skeleton's PlatformAlert.State.
+            "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
+            "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+            # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
+            "RoleEnum": ["primary", "supporting"],
             # visual_review facade enums are framework-free StrEnums, so no Choices class derives a name.
             "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+            # The subset a client may write. Shared by the single-issue and bulk write serializers,
+            # and `status` is too generic a field name for drf-spectacular to name a third set on it.
+            "ErrorTrackingIssueWritableStatusEnum": ["active", "resolved", "suppressed"],
             # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
             # class carries them. The lists are derived from those literals.
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
+            # signals maps a warehouse import's status down to these three. Same values as the
+            # warehouse's own SyncStatus, but that class carries different labels, so the two are
+            # distinct choice sets and this one needs its own name.
+            "SignalSourceSyncStatusEnum": ["running", "completed", "failed"],
+            "RunSourceEnum": ["manual", "signal_report", "agent"],
+            "TaskBootstrapRunSourceEnum": ["manual", "signal_report"],
             #
             # The same choice set is declared in more than one product. A shared Choices
             # class would cross a product boundary, so the entry names the set centrally.
@@ -618,6 +639,7 @@ SPECTACULAR_SETTINGS = {
             # The definition site is a deliberately Django-free module (facade contracts,
             # signals taxonomy), so it cannot define a models.Choices class.
             "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
+            "ReportLinkKindEnum": "products.signals.backend.enums.report_link_kind_choices",
             "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
             "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
             "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
@@ -923,6 +945,10 @@ if REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE > 1:
 REMOTE_CONFIG_CDN_PURGE_ENDPOINT = get_from_env("REMOTE_CONFIG_CDN_PURGE_ENDPOINT", "")
 REMOTE_CONFIG_CDN_PURGE_TOKEN = get_from_env("REMOTE_CONFIG_CDN_PURGE_TOKEN", "")
 REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DOMAINS", ""))
+
+HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED = get_from_env(
+    "HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED", False, type_cast=str_to_bool
+)
 
 # Versioned posthog-js S3 bucket — enables versioned JS content serving when set
 POSTHOG_JS_S3_BUCKET = get_from_env("POSTHOG_JS_S3_BUCKET", "")
@@ -1309,6 +1335,16 @@ try:
 except ValueError:
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
 
+MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS = get_list(get_from_env("MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS", ""))
+
+# AEO citation-tracking POC (products/aeo). The scheduled runner only covers
+# teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
+AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
+AEO_TARGET_DOMAINS = get_list(get_from_env("AEO_TARGET_DOMAINS", "posthog.com"))
+AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
+AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
+EXA_API_KEY = get_from_env("EXA_API_KEY", "")
+
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
 
@@ -1327,6 +1363,14 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
+
+# Weekly (7-day) event-volume floor below which a team gets neither precompute
+# reads nor warming — their live path is sub-second and always fresh, while
+# bucket builds cost more than they save. 0 disables the floor. Enforced
+# fail-open: reads fall back to precompute when the volume set is unpublished.
+WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS: int = get_from_env(
+    "WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS", 100_000, type_cast=int
+)
 
 # Dogfooding list for the precompute-backed web analytics trends path — teams
 # here take it regardless of the `web-analytics-trends-precompute` rollout flag.

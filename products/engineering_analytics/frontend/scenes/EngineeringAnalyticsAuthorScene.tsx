@@ -3,10 +3,8 @@ import { combineUrl } from 'kea-router'
 
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
-import { dateMapping } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -14,22 +12,21 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
+import { PullRequestDayView } from '../components/PullRequestDayView'
+import { RedTimeByCauseCard } from '../components/RedTimeByCauseCard'
 import { formatCost, formatMinutes } from '../components/runTables'
-import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
+import { DELIVERY_DATE_OPTIONS, RepoScopeChip, ScopeBar, ScopeDateFilter } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
+import { withCurrentScope } from '../lib/scope'
 import { AuthorLogicProps, authorLogic } from './authorLogic'
+import { deliveryComparisonLogic } from './deliveryComparisonLogic'
 import { DeliverySections } from './DeliverySections'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
-import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { pullRequestTimelinesLogic } from './pullRequestTimelinesLogic'
-
-// Relative presets only: the backend caps a window at a year, and every preset here stays inside it.
-const AUTHOR_DATE_OPTIONS = dateMapping.filter(({ key }) =>
-    ['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days', 'Last 180 days', 'This year'].includes(key)
-)
 
 export const scene: SceneExport<AuthorLogicProps> = {
     component: EngineeringAnalyticsAuthorScene,
@@ -41,15 +38,28 @@ export const scene: SceneExport<AuthorLogicProps> = {
 }
 
 export function EngineeringAnalyticsAuthorScene(): JSX.Element {
-    const { handle, sourceId, deliveryScope, workflowCosts, workflowCostsLoading } = useValues(authorLogic)
+    const { handle, sourceId, deliveryScope, workflowCosts, workflowCostsLoading, workflowCostsFailed } =
+        useValues(authorLogic)
+    const { loadWorkflowCosts } = useActions(authorLogic)
     const { summary, summaryLoading } = useValues(deliverySummaryLogic({ scope: deliveryScope, sourceId }))
-    const { timelines, timelinesLoading, repoSlugs } = useValues(
-        pullRequestTimelinesLogic({ scope: deliveryScope, sourceId })
+    const { comparison, comparisonLoading, comparisonFailed } = useValues(
+        deliveryComparisonLogic({ author: handle, sourceId })
     )
-    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
-    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
+    const timelinesLogic = pullRequestTimelinesLogic({ scope: deliveryScope, sourceId })
+    const {
+        timelines,
+        timelinesLoading,
+        timelinesFailed,
+        repoSlugs,
+        dayViewAlignment,
+        dayViewGroups,
+        dayViewAxisDays,
+        redTime,
+    } = useValues(timelinesLogic)
+    const { loadTimelines, setDayViewAlignment } = useActions(timelinesLogic)
 
-    const hubUrl = combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url
+    const hubUrl = withCurrentScope(urls.engineeringAnalytics(), sourceId)
+    const pullRequestsUrl = withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)
     const avatarUrl = timelines?.items[0]?.author.avatar_url
     const workflowCostsTotal = workflowCosts.reduce((sum, c) => sum + (c.estimated_cost_usd ?? 0), 0)
     // Ranked, biggest spend first; the bar length is each workflow's share of the window's total.
@@ -69,7 +79,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         to={hubUrl}
                     />
                 }
-                lensFilter={{ label: `author: ${handle}`, to: hubUrl }}
+                lensFilter={{ label: `author: ${handle}`, to: pullRequestsUrl }}
                 showDate={false}
             />
             <EntityHeader
@@ -92,21 +102,43 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                     ) : undefined
                 }
             />
-            {/* The page explains one author's own friction against the repository. It never compares
-                authors with each other (SPEC §2). */}
+            {/* The page explains one author's own friction against the repository and the author's own team. It
+                never compares authors with each other (SPEC §2). */}
             <ScopePanel
-                busy={summaryLoading || timelinesLoading || workflowCostsLoading}
-                controls={
-                    <DateFilter
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-                        dateOptions={AUTHOR_DATE_OPTIONS}
-                        size="small"
-                    />
-                }
+                busy={summaryLoading || comparisonLoading || timelinesLoading || workflowCostsLoading}
+                controls={<ScopeDateFilter dateOptions={DELIVERY_DATE_OPTIONS} />}
             >
-                <DeliverySections scope={deliveryScope} scopeLabel="This author" sourceId={sourceId} />
+                <DeliverySections
+                    scope={deliveryScope}
+                    scopeLabel="This author"
+                    sourceId={sourceId}
+                    // Both reads keep their previous window while they reload, so the team rows wait for both.
+                    comparison={comparisonLoading || summaryLoading ? null : comparison}
+                    comparisonFailed={comparisonFailed}
+                />
+
+                <Section id="delivery-pull-requests" title="Pull requests">
+                    {timelinesFailed ? (
+                        <CIAnalyticsLoadError onRetry={loadTimelines} />
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            <RedTimeByCauseCard
+                                redTime={redTime}
+                                loading={timelinesLoading}
+                                jobsAvailable={!!timelines?.jobs_available}
+                            />
+                            <PullRequestDayView
+                                timelines={timelines}
+                                groups={dayViewGroups}
+                                days={dayViewAxisDays}
+                                alignment={dayViewAlignment}
+                                onAlignmentChange={setDayViewAlignment}
+                                loading={timelinesLoading}
+                                sourceId={sourceId}
+                            />
+                        </div>
+                    )}
+                </Section>
 
                 <Section id="author-cost" title="Where their CI minutes go">
                     {workflowCostsLoading ? (
@@ -126,6 +158,8 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                                 </div>
                             ))}
                         </LemonCard>
+                    ) : workflowCostsFailed ? (
+                        <CIAnalyticsLoadError onRetry={loadWorkflowCosts} />
                     ) : workflowCosts.length > 0 ? (
                         <LemonCard hoverEffect={false} className="p-4">
                             <div className="mb-2 flex items-center justify-between gap-2">

@@ -80,8 +80,10 @@ import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     SCANNER_EDITOR_STEPS,
+    ScannerEditorStep,
     firstErroredScannerStep,
     scannerEditorSceneLogic,
+    scannerStepErrors,
     scannerStepUrl,
     scannerStepUrlWithParams,
     UNVALIDATED_SCANNER_STEPS,
@@ -391,6 +393,7 @@ export interface replayScannerLogicValues {
     observationTriggeredByFilter: ObservationTriggeredByValue[]
     observationVerdictFilter: ObservationVerdictValue[]
     observations: ReplayObservationApi[]
+    observationsActive: boolean
     observationsLoading: boolean
     observationsPage: number
     observationsSort: ObservationsSorting | null
@@ -416,6 +419,7 @@ export interface replayScannerLogicValues {
     scannerValidationErrors: DeepPartialMap<ScannerFormValues, ValidationErrorType>
     showScannerErrors: boolean
     sidePanelContext: SidePanelSceneContext | null
+    stepErrors: Partial<Record<ScannerEditorStep, string[]>>
     tagSuggestions: TagSuggestionApi[]
     tagSuggestionsLoading: boolean
     togglingEnabled: boolean
@@ -666,6 +670,9 @@ export interface replayScannerLogicActions {
     setObservationVerdictFilter: (values: ObservationVerdictValue[]) => {
         values: ObservationVerdictValue[]
     }
+    setObservationsActive: (active: boolean) => {
+        active: boolean
+    }
     setObservationsPage: (page: number) => {
         page: number
     }
@@ -743,6 +750,11 @@ export interface replayScannerLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isNew: (id: string) => boolean
         durationValidationError: (scanner: ScannerFormValues) => string | null
+        stepErrors: (
+            showScannerErrors: boolean,
+            scannerValidationErrors: DeepPartialMap<ScannerFormValues, ValidationErrorType>,
+            durationValidationError: string | null
+        ) => Partial<Record<ScannerEditorStep, string[]>>
         hasUnsavedChanges: (scanner: ScannerFormValues, originalScanner: ScannerFormValues | null) => boolean
         hasObservationsInFlight: (observationStatsApi: ObservationStatsApi | null) => boolean
         hasActiveObservationFilters: (
@@ -792,6 +804,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     key((props) => props.id),
 
     actions({
+        setObservationsActive: (active: boolean) => ({ active }),
         loadScanner: true,
         loadScannerSuccess: (scanner: ScannerFormValues) => ({ scanner }),
         loadScannerFailure: true,
@@ -1069,6 +1082,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     })),
 
     reducers({
+        observationsActive: [false, { setObservationsActive: (_, { active }) => active }],
         scannerDraftSavedAt: [
             null as number | null,
             {
@@ -1393,6 +1407,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 return durationFilter ? durationFilterError(clampDurationFilter(durationFilter)) : null
             },
         ],
+        // Stepper badges show errors only after a failed submit; until then every step reads clean.
+        stepErrors: [
+            (s) => [s.showScannerErrors, s.scannerValidationErrors, s.durationValidationError],
+            (
+                showScannerErrors: boolean,
+                scannerValidationErrors: DeepPartialMap<ScannerFormValues, ValidationErrorType>,
+                durationValidationError: string | null
+            ): Partial<Record<ScannerEditorStep, string[]>> =>
+                showScannerErrors
+                    ? scannerStepErrors({ ...scannerValidationErrors, duration: durationValidationError })
+                    : {},
+        ],
         hasUnsavedChanges: [
             (s) => [s.scanner, s.originalScanner],
             (scanner: ReplayScanner | null, original: ReplayScanner | null): boolean => {
@@ -1567,7 +1593,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             )
         }
         const reloadObservationsAndStats = (background = false): void => {
-            actions.loadObservations(background)
+            if (values.observationsActive) {
+                actions.loadObservations(background)
+            }
             actions.loadObservationStats()
         }
         const persistDraft = (): void => {
@@ -1801,7 +1829,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             loadScannerSuccess: ({ scanner }) => {
                 actions.setScannerValues(scanner)
                 // A `?sort=result` deep-link can't resolve order_by until the scanner type is known — refire now.
-                if (values.observationsSort?.columnKey === 'result' && scanner.scanner_type) {
+                if (
+                    values.observationsActive &&
+                    values.observationsSort?.columnKey === 'result' &&
+                    scanner.scanner_type
+                ) {
                     actions.loadObservations()
                     actions.loadObservationStats()
                 }
@@ -2222,6 +2254,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
+            setObservationsActive: ({ active }) => {
+                if (active) {
+                    actions.loadObservations()
+                }
+            },
+
             loadObservations: async (_, breakpoint) => {
                 if (props.id === 'new') {
                     actions.loadObservationsSuccess([], 0)
@@ -2429,7 +2467,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         cache.draftTouched = false
         actions.loadScanner()
         if (props.id !== 'new') {
-            actions.loadObservations()
             actions.loadObservationStats()
         }
         // Setup re-runs when the tab becomes visible

@@ -21,7 +21,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_field, extend_sch
 from prometheus_client import Counter
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -97,6 +97,7 @@ from posthog.models.integration import (
     StripeIntegration,
     TwilioIntegration,
     defer_repository_cache_fields,
+    resolve_aliased_oauth_kind,
 )
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
@@ -105,6 +106,7 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    TimeSensitiveActionPermission,
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.tasks.email import send_integration_access_request
@@ -210,8 +212,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         separators=(",", ":"),
     )
     try:
-        # 300s tolerance matches the Stripe provisioning HMAC check at ee/partners/stripe/api/provisioning/signature.py.
-        # nosemgrep: inbound-webhooks-go-through-ingress -- this signs a marketplace install redirect, not a webhook delivery, so there is nothing for the dispatcher to fan out
+        # 300s tolerance matches the Stripe provisioning check at ee/partners/stripe/api/provisioning/signature.py.
         stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
@@ -625,6 +626,16 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
     def create(self, validated_data: Any) -> Any:
         team_id = self.context["team_id"]
+        config_in = validated_data.get("config") or {}
+
+        # A kind that borrows another kind's connected app returns on the owner's callback path, so
+        # the client posts the path's kind. Both kinds derive the same integration id from the same
+        # provider account, so the grant would overwrite the borrowed kind's working integration
+        # with a token its API rejects. Promote the state kind before anything keys on it.
+        state = config_in.get("state")
+        validated_data["kind"] = resolve_aliased_oauth_kind(
+            validated_data["kind"], state if isinstance(state, str) else ""
+        )
         kind = validated_data["kind"]
 
         # Setting push identity verification is a security policy change, not a credential upload, so it
@@ -639,7 +650,6 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # still be classified as a create and could land `disabled` over the policy an admin had just
         # written. Omitting the key entirely stays open to members and is what connecting a channel
         # without touching the policy does — that path preserves whatever is already stored.
-        config_in = validated_data.get("config") or {}
         requested_verification = config_in.get("push_identity_verification")
         # Registering/clearing public keys is a security-policy change (it decides which signer is
         # trusted), so it carries the same admin bar as the mode. `is not None` covers clearing too.
@@ -1231,6 +1241,24 @@ class IntegrationManagementPermission(TeamMemberStrictManagementPermission):
         )
 
 
+class PersonalConnectionRecentAuthPermission(BasePermission):
+    """A `posthog` connection is the creator's personal credential, so creating or removing one needs a fresh
+    session, like the other personal integrations. Team-shared kinds keep their existing rules."""
+
+    message = TimeSensitiveActionPermission.message
+    code = TimeSensitiveActionPermission.code
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) == "create" and request.data.get("kind") == POSTHOG_CONNECT_KIND:
+            return TimeSensitiveActionPermission().has_permission(request, view)
+        return True
+
+    def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
+        if isinstance(obj, Integration) and obj.kind == POSTHOG_CONNECT_KIND:
+            return TimeSensitiveActionPermission().has_permission(request, view)
+        return True
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -1269,8 +1297,12 @@ class IntegrationViewSet(
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
     ]
-    permission_classes = [IntegrationManagementPermission]
-    queryset = defer_repository_cache_fields(Integration.objects.all())
+    permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
+    # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
+    # page boundary. Clients page this list to find one kind, so a dropped row reads as
+    # "not configured". Order oldest-first: several clients take the first row of a kind as their
+    # default connection.
+    queryset = defer_repository_cache_fields(Integration.objects.all()).order_by("created_at", "id")
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]
@@ -1296,6 +1328,7 @@ class IntegrationViewSet(
             APIScopePermission(),
             AccessControlPermission(),
             TeamMemberAccessPermission(),
+            PersonalConnectionRecentAuthPermission(),
         ]
         # Adding an integration only requires project membership. Every edit and removal uses the
         # viewset permission class, including the creator exception for Google account removal.
