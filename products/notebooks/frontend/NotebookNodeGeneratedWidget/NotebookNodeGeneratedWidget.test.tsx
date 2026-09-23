@@ -785,11 +785,11 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
-        expect(await screen.findByText(/preview is no longer available/)).toBeTruthy()
+        const unavailablePreview = await screen.findByText(/preview is no longer available/)
         fireEvent.click(screen.getByLabelText('More actions'))
         expect(screen.queryByText('Add to dashboard')).toBeNull()
         fireEvent.click(screen.getByLabelText('More actions'))
-        fireEvent.click(screen.getByRole('button', { name: 'View source' }))
+        fireEvent.click(within(unavailablePreview.parentElement!).getByText('View source'))
 
         await waitFor(() =>
             expect(notebooksWidgetSource).toHaveBeenCalledWith(
