@@ -1,10 +1,11 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { isSharedView } from '~/exporter/exporterViewLogic'
 
 import { eventsRetentionRetrieve } from 'products/product_analytics/frontend/generated/api'
 
@@ -97,18 +98,11 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
             null as number | null,
             {
                 loadRetentionMonths: async () => {
-                    if (values.currentTeamId === null) {
+                    if (values.currentTeamId === null || isSharedView()) {
                         return null
                     }
-                    try {
-                        const retention = await eventsRetentionRetrieve(String(values.currentTeamId))
-                        return retention.retention_months ?? null
-                    } catch (e) {
-                        if (e instanceof ApiError && e.status === 404) {
-                            return null
-                        }
-                        throw e
-                    }
+                    const retention = await eventsRetentionRetrieve(String(values.currentTeamId))
+                    return retention.retention_months ?? null
                 },
             },
         ],

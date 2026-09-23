@@ -349,7 +349,7 @@ export const getEventsRetentionRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Returns how far back events stay queryable for this project. The window comes from the organization's plan and is read-only. Responds with 404 while no retention window applies to the project.
+ * Returns how far back events stay queryable for this project. The window comes from the organization's plan and is read-only. Both window fields are null while no retention window applies to the project.
  * @summary Get the events retention window for a project
  */
 export const eventsRetentionRetrieve = async (

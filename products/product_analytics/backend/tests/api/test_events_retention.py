@@ -34,10 +34,15 @@ class TestEventsRetentionAPI(APIBaseTest):
         }
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
-    def test_is_absent_until_retention_is_enforced(self) -> None:
+    def test_reports_no_window_until_retention_is_enforced(self) -> None:
         response = self.client.get(self.url())
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "retention_months": None,
+            "retained_from": None,
+            "docs_url": "https://posthog.com/docs/data/events-retention",
+        }
 
     @parameterized.expand([("patch",), ("put",), ("post",), ("delete",)])
     def test_rejects_writes(self, method: str) -> None:

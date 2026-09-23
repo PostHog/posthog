@@ -24,8 +24,8 @@ describe('dataRetentionBannerLogic', () => {
             retentionMonths: 84,
         },
         {
-            name: 'treats a 404 as retention not enforced',
-            response: [404, { detail: 'Not found.' }],
+            name: 'treats a null window as retention not enforced',
+            response: [200, { ...RETENTION, retention_months: null, retained_from: null }],
             retentionMonths: null,
         },
     ])('$name', async ({ response, retentionMonths }) => {
@@ -57,5 +57,27 @@ describe('dataRetentionBannerLogic', () => {
             .toDispatchActions([teamLogic.actionTypes.loadCurrentTeamSuccess, 'loadRetentionMonthsSuccess'])
             .toMatchValues({ retentionMonths: 84 })
         expect(requestedTeamIds).toEqual([String(MOCK_DEFAULT_TEAM.id)])
+    })
+
+    it('does not call the endpoint in a shared view', async () => {
+        let requested = false
+        useMocks({
+            get: {
+                '/api/projects/:team_id/events_retention/': () => {
+                    requested = true
+                    return [200, RETENTION]
+                },
+            },
+        })
+        initKeaTests()
+        ;(window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA = { type: 'embed' }
+        const logic = dataRetentionBannerLogic()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRetentionMonths', 'loadRetentionMonthsSuccess'])
+            .toMatchValues({ retentionMonths: null })
+        expect(requested).toBe(false)
+        delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
     })
 })

@@ -1,8 +1,7 @@
 from typing import Any
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -16,11 +15,13 @@ EVENTS_RETENTION_DOCS_URL = "https://posthog.com/docs/data/events-retention"
 class EventsRetentionSerializer(serializers.Serializer):
     retention_months = serializers.IntegerField(
         read_only=True,
-        help_text="How many months of events stay queryable, counted back from today.",
+        allow_null=True,
+        help_text="How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.",
     )
     retained_from = serializers.DateField(
         read_only=True,
-        help_text="The earliest date whose events are still queryable, in the project's timezone.",
+        allow_null=True,
+        help_text="The earliest date whose events are still queryable, in the project's timezone. Null while no retention window applies to the project.",
     )
     docs_url = serializers.URLField(
         read_only=True,
@@ -38,23 +39,21 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Get the events retention window for a project",
         description=(
             "Returns how far back events stay queryable for this project. The window comes from the "
-            "organization's plan and is read-only. Responds with 404 while no retention window applies to "
-            "the project."
+            "organization's plan and is read-only. Both window fields are null while no retention window "
+            "applies to the project."
         ),
-        responses={
-            200: EventsRetentionSerializer,
-            404: OpenApiResponse(description="No retention window applies to this project."),
-        },
+        responses={200: EventsRetentionSerializer},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         retention_months = events_retention_months_for_team(self.team, self.team_id)
-        if retention_months is None:
-            raise NotFound()
+        retained_from = (
+            events_retention_floor_date(self.team, retention_months) if retention_months is not None else None
+        )
         return Response(
             EventsRetentionSerializer(
                 {
                     "retention_months": retention_months,
-                    "retained_from": events_retention_floor_date(self.team, retention_months),
+                    "retained_from": retained_from,
                     "docs_url": EVENTS_RETENTION_DOCS_URL,
                 }
             ).data
