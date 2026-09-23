@@ -9,6 +9,7 @@ dataclasses. Never return ORM instances or import DRF.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
+from functools import partial
 from typing import Any, TypeVar, overload
 from uuid import UUID
 
@@ -206,24 +207,26 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
     return _build_review_run_dto(obj, output=output, trigger=trigger)
 
 
-# The only `output` keys a list row returns. The full blob also holds the PR payload, patches and
-# reviewer stdout, and loading it for a whole page costs the web worker hundreds of MB.
-_LIST_OUTPUT_KEYS = ("stamphog_version", "reviewer_exit_code")
+# The `output` keys the API returns. The full blob also holds the PR payload, patches and policy
+# files, and loading it for a page of runs costs the web worker hundreds of MB.
+_SUMMARY_OUTPUT_KEYS = ("stamphog_version", "reviewer_exit_code")
+# Retrieve also parses the reviewer's reasoning out of its raw stdout.
+_RETRIEVE_OUTPUT_KEYS = (*_SUMMARY_OUTPUT_KEYS, "reviewer_raw")
 
 
-def _slim_review_runs(qs: _RunQS) -> _RunQS:
-    """Skip the `output` column and read only the keys a list row needs from it."""
+def _slim_review_runs(qs: _RunQS, output_keys: tuple[str, ...]) -> _RunQS:
+    """Skip the `output` column and read only `output_keys` and the trigger's provenance flags from it."""
     return qs.defer("output").annotate(
-        **{f"list_output_{key}": KeyTransform(key, "output") for key in _LIST_OUTPUT_KEYS},
-        list_has_inbox_review=ExpressionWrapper(_SELF_DRIVING, output_field=BooleanField()),
-        list_has_manual_review=ExpressionWrapper(_MANUAL, output_field=BooleanField()),
+        **{f"slim_output_{key}": KeyTransform(key, "output") for key in output_keys},
+        slim_has_inbox_review=ExpressionWrapper(_SELF_DRIVING, output_field=BooleanField()),
+        slim_has_manual_review=ExpressionWrapper(_MANUAL, output_field=BooleanField()),
     )
 
 
-def _review_run_list_row_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
-    output = {key: value for key in _LIST_OUTPUT_KEYS if (value := getattr(obj, f"list_output_{key}")) is not None}
+def _slim_review_run_to_dto(obj: ReviewRun, output_keys: tuple[str, ...]) -> contracts.ReviewRunDTO:
+    output = {key: value for key in output_keys if (value := getattr(obj, f"slim_output_{key}")) is not None}
     trigger = _derive_trigger(
-        obj, has_inbox_review=obj.list_has_inbox_review, has_manual_review=obj.list_has_manual_review
+        obj, has_inbox_review=obj.slim_has_inbox_review, has_manual_review=obj.slim_has_manual_review
     )
     return _build_review_run_dto(obj, output=output, trigger=trigger)
 
@@ -264,10 +267,10 @@ def has_reviewable_repo_config(team_id: int) -> bool:
 
 
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
-    obj = (
-        ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config").first()
-    )
-    return _review_run_to_dto(obj) if obj is not None else None
+    """One run for the API. Its `output` carries only the summary keys and `reviewer_raw`."""
+    qs = ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config")
+    obj = _slim_review_runs(qs, _RETRIEVE_OUTPUT_KEYS).first()
+    return _slim_review_run_to_dto(obj, _RETRIEVE_OUTPUT_KEYS) if obj is not None else None
 
 
 def _clean_reviewer_text(text: str) -> str:
@@ -448,7 +451,9 @@ def list_review_runs(
         qs = qs.filter(status=status)
     if trigger:
         qs = _filter_by_trigger(qs, trigger)
-    return LazyDTOList(_slim_review_runs(qs), _review_run_list_row_to_dto)
+    return LazyDTOList(
+        _slim_review_runs(qs, _SUMMARY_OUTPUT_KEYS), partial(_slim_review_run_to_dto, output_keys=_SUMMARY_OUTPUT_KEYS)
+    )
 
 
 def list_pull_requests(
