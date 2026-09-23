@@ -1,17 +1,40 @@
-from typing import Any
+import sys
+from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
-from posthog.schema import SubscriptionAIContextReadBudget, SubscriptionAIContextSelectionLimit
-
 from posthog.dataclasses import frozen
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-MAX_SELECTED_CONTEXTS: int = int(SubscriptionAIContextSelectionLimit.model_fields["root"].default)
-MAX_CONTEXT_READ_BUDGET: int = int(SubscriptionAIContextReadBudget.model_fields["root"].default)
+if TYPE_CHECKING:
+    # Resolved lazily via __getattr__ below; declared here so consumers type-check as int.
+    MAX_SELECTED_CONTEXTS: int
+    MAX_CONTEXT_READ_BUDGET: int
+
+_LAZY_INT_CONSTANTS = ("MAX_SELECTED_CONTEXTS", "MAX_CONTEXT_READ_BUDGET")
+
+
+# Single source of truth shared with the frontend via generated schema
+# (SubscriptionAIContextSelectionLimit / SubscriptionAIContextReadBudget). Resolved lazily
+# via PEP 562 so posthog.schema (the pydantic models) stays off django.setup(), where this
+# model loads in every process.
+def __getattr__(name: str) -> int:
+    if name in _LAZY_INT_CONSTANTS:
+        from posthog.schema import SubscriptionAIContextReadBudget, SubscriptionAIContextSelectionLimit  # noqa: PLC0415
+
+        globals()["MAX_SELECTED_CONTEXTS"] = int(SubscriptionAIContextSelectionLimit.model_fields["root"].default)
+        globals()["MAX_CONTEXT_READ_BUDGET"] = int(SubscriptionAIContextReadBudget.model_fields["root"].default)
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _max_selected_contexts() -> int:
+    # Module-attribute lookup (not a direct global read) so tests patching
+    # MAX_SELECTED_CONTEXTS on this module still take effect.
+    return sys.modules[__name__].MAX_SELECTED_CONTEXTS
 
 
 @frozen
@@ -40,22 +63,23 @@ class SubscriptionContext(TeamScopedRootMixin, UUIDModel):
 
     @classmethod
     def report_selection(cls, *, team_id: int, subscription_id: int) -> ReportContextSelection:
+        max_selected_contexts = _max_selected_contexts()
         context_rows = list(
             cls.objects.for_team(team_id)
             .filter(subscription_id=subscription_id)
             .order_by("created_at", "id")
-            .values_list("dashboard_id", "insight_id")[: MAX_SELECTED_CONTEXTS + 1]
+            .values_list("dashboard_id", "insight_id")[: max_selected_contexts + 1]
         )
         return ReportContextSelection(
             dashboard_ids=tuple(
                 sorted(
-                    dashboard_id for dashboard_id, _ in context_rows[:MAX_SELECTED_CONTEXTS] if dashboard_id is not None
+                    dashboard_id for dashboard_id, _ in context_rows[:max_selected_contexts] if dashboard_id is not None
                 )
             ),
             insight_ids=tuple(
-                sorted(insight_id for _, insight_id in context_rows[:MAX_SELECTED_CONTEXTS] if insight_id is not None)
+                sorted(insight_id for _, insight_id in context_rows[:max_selected_contexts] if insight_id is not None)
             ),
-            over_limit=len(context_rows) > MAX_SELECTED_CONTEXTS,
+            over_limit=len(context_rows) > max_selected_contexts,
         )
 
     def has_target_for_team(self, team_id: int, *, include_deleted: bool) -> bool:
