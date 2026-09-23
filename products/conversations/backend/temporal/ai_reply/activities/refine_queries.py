@@ -25,6 +25,36 @@ class RefineQueriesResult(BaseModel):
     queries: list[str] = Field(description="2-4 concise search queries")
 
 
+def _queries_from_reply(content: str) -> list[str]:
+    """Read search queries from a model reply.
+
+    A JSON object with a bad `queries` shape must not become the search string.
+    One query per line stays for replies that are not JSON.
+    """
+    stripped = content.strip()
+    try:
+        loaded = json_module.loads(strip_json_fence(stripped))
+    except json_module.JSONDecodeError:
+        return [line.strip() for line in stripped.split("\n") if line.strip()]
+    if isinstance(loaded, list):
+        items: object = loaded
+    elif isinstance(loaded, dict):
+        raw = loaded.get("queries", [])
+        items = [raw] if isinstance(raw, str) else raw
+    else:
+        items = []
+    if not isinstance(items, list):
+        return []
+    queries: list[str] = []
+    for item in items:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if text:
+            queries.append(text)
+    return queries
+
+
 @activity.defn
 async def support_refine_queries_activity(input: RefineQueriesInput) -> RefineQueriesOutput:
     """Use a lightweight LLM to generate search queries from ticket context + missing gaps."""
@@ -67,11 +97,7 @@ derive search queries about the customer's support question."""
         **tracing_kwargs(input.trace_id, input.ticket_id),
     )
     content = anthropic_text(message)
-    try:
-        parsed = RefineQueriesResult.model_validate(json_module.loads(strip_json_fence(content)))
-        queries = [q.strip() for q in parsed.queries if q.strip()]
-    except (json_module.JSONDecodeError, ValueError, TypeError):
-        queries = [line.strip() for line in content.strip().split("\n") if line.strip()]
+    queries = _queries_from_reply(content)
     # On the first attempt (no `missing` yet) lead with the triage seeds so retrieval starts
     # from the classifier's hypothesis, then dedupe the LLM's own queries after them.
     if input.seed_queries and not input.missing:

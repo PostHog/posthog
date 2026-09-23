@@ -1995,6 +1995,29 @@ def _mock_gateway_client(text: str) -> MagicMock:
     return client
 
 
+class TestRefineQueryParse:
+    @parameterized.expand(
+        [
+            ("lines", "query one\nquery two", [], ["query one", "query two"]),
+            ("json_queries", '{"queries": ["install", "sdk"]}', [], ["install", "sdk"]),
+            ("json_string_field", '{"queries": "install"}', [], ["install"]),
+            ("empty_object", "{}", [], ["help"]),
+            ("empty_object_keeps_seeds", "{}", ["setup"], ["setup"]),
+            ("json_array", '["install", "sdk"]', [], ["install", "sdk"]),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_malformed_json_is_not_a_search_query(
+        self, _name: str, text: str, seeds: list[str], expected: list[str]
+    ) -> None:
+        client = _mock_gateway_client(text)
+        with patch(f"{REFINE_QUERIES_MODULE}.get_async_anthropic_gateway_client", return_value=client):
+            result = await _refine_queries(
+                RefineQueriesInput(team_id=1, ticket_context="how do I install", seed_queries=seeds)
+            )
+        assert result.queries == expected
+
+
 class TestUntrustedTicketGuard:
     """Ticket content is attacker-controlled (public widget/email). These guard against the
     injection-hardening being silently dropped again: untrusted ticket text must stay wrapped
