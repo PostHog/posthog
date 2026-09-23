@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     complete_schema_run,
+    mark_schema_running_unless_halted,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -1050,15 +1051,7 @@ class CDCExtractActivity:
     def _mark_schemas_running(self) -> None:
         """Mark CDC schemas as Running at the start."""
         for schema in self.cdc_schemas:
-            # A halted schema absorbs every later status update, so a Running painted here would
-            # replace its FAILED status and error until the marker clears.
-            if schema.cdc_halted:
-                continue
-            schema.status = ExternalDataSchema.Status.RUNNING
-            # skip_activity_log avoids the extra _get_before_update SELECT, which raises
-            # OperationalError when the transaction pooler has dropped the connection since the
-            # last activity attempt — see ExternalDataSchema.save.
-            schema.save(update_fields=["status", "updated_at"], skip_activity_log=True)
+            mark_schema_running_unless_halted(schema)
 
     def _reconcile_orphaned_prior_jobs(self) -> None:
         """Finalize this source's prior RUNNING jobs that were stranded mid-run.

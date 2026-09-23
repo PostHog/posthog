@@ -152,10 +152,23 @@ def _fake_complete_schema_run(schema, *, last_synced_at):
     return True
 
 
+def _fake_mark_schema_running_unless_halted(schema):
+    """Stand-in for mark_schema_running_unless_halted on the in-memory mock schema. The real
+    conditional update is covered by tests/test_models.py::TestMarkSchemaRunningUnlessHalted."""
+    if schema.cdc_halted:
+        return False
+    schema.status = ExternalDataSchema.Status.RUNNING
+    return True
+
+
 @pytest.fixture(autouse=True)
 def _stub_sync_type_config_merge():
     """Route every activity sync_type_config write onto the in-memory mock schema (no DB)."""
     with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_schema_running_unless_halted",
+            side_effect=_fake_mark_schema_running_unless_halted,
+        ),
         patch.object(
             CDCExtractActivity,
             "_update_schema_sync_type_config",
@@ -436,36 +449,6 @@ class TestBackpressureGuard:
 
         mark_running.assert_not_called()
         assert act.reader is None
-
-
-class TestMarkSchemasRunning:
-    def test_skips_activity_log_to_avoid_stale_pooled_connection(self):
-        # A previous attempt may have left the pooler connection stale; the extra
-        # _get_before_update SELECT that activity logging would run raises OperationalError
-        # ("the connection is closed") on it, failing the run before extraction even starts.
-        source = _make_source()
-        act = _make_extract_activity(source)
-        schema = _make_schema("users", source=source)
-        act.cdc_schemas = [schema]
-
-        act._mark_schemas_running()
-
-        assert schema.status == ExternalDataSchema.Status.RUNNING
-        schema.save.assert_called_once_with(update_fields=["status", "updated_at"], skip_activity_log=True)
-
-    @pytest.mark.parametrize("marker", ["cdc_broken", "cdc_extraction_paused"])
-    def test_a_halted_schema_keeps_its_failed_status(self, marker):
-        source = _make_source()
-        act = _make_extract_activity(source)
-        schema = _make_schema("users", source=source)
-        schema.status = ExternalDataSchema.Status.FAILED
-        schema.sync_type_config[marker] = {"reason": "critical_lag_self_managed"}
-        act.cdc_schemas = [schema]
-
-        act._mark_schemas_running()
-
-        assert schema.status == ExternalDataSchema.Status.FAILED
-        schema.save.assert_not_called()
 
 
 class TestFlushDeferredRuns:
@@ -1068,7 +1051,6 @@ class TestCDCExtractActivity:
         mock_reader.close.assert_called_once()
 
         # Schema marked completed even with no changes
-        schema.save.assert_called()
         assert schema.status == "Completed"
         assert schema.latest_error is None
         assert schema.last_synced_at is not None

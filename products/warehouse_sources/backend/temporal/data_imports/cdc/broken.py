@@ -66,7 +66,7 @@ def mark_cdc_broken(
     # The source row lock serializes this with clear_recovered_self_managed_lag, which must not
     # see the source status and the markers half-written.
     with transaction.atomic():
-        ExternalDataSource.objects.select_for_update(of=("self",)).get(id=source.id)
+        ExternalDataSource.objects.select_for_update(of=("self",)).get(id=source.id, team_id=source.team_id)
         source.status = ExternalDataSource.Status.ERROR
         source.save(update_fields=["status", "updated_at"])
 
@@ -127,18 +127,20 @@ def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
         if (config.get("cdc_broken") or {}).get("reason") == SELF_MANAGED_LAG_REASON:
             config.pop("cdc_broken")
 
-    schema_ids = list(
-        ExternalDataSchema.objects.filter(
-            source=source, sync_type_config__cdc_broken__reason=SELF_MANAGED_LAG_REASON
-        ).values_list("id", flat=True)
-    )
-    for schema_id in schema_ids:
-        update_sync_type_config_keys(schema_id, source.team_id, mutate=_clear)
-    if not schema_ids:
-        return 0
+    # Source lock first, the order mark_cdc_broken takes, so a concurrent re-mark cannot interleave.
     with transaction.atomic():
-        locked = ExternalDataSource.objects.select_for_update(of=("self",)).get(id=source.id)
-        if not ExternalDataSchema.objects.filter(source=source, sync_type_config__has_key="cdc_broken").exists():
+        locked = ExternalDataSource.objects.select_for_update(of=("self",)).get(id=source.id, team_id=source.team_id)
+        schema_ids = list(
+            ExternalDataSchema.objects.filter(
+                team_id=source.team_id, source=source, sync_type_config__cdc_broken__reason=SELF_MANAGED_LAG_REASON
+            ).values_list("id", flat=True)
+        )
+        for schema_id in schema_ids:
+            update_sync_type_config_keys(schema_id, source.team_id, mutate=_clear)
+        still_broken = ExternalDataSchema.objects.filter(
+            team_id=source.team_id, source=source, sync_type_config__has_key="cdc_broken"
+        ).exists()
+        if schema_ids and not still_broken:
             locked.status = ExternalDataSource.Status.RUNNING
             locked.save(update_fields=["status", "updated_at"])
     return len(schema_ids)
