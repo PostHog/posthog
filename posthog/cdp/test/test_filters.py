@@ -415,7 +415,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         # where it takes three.
         for key, expected in (
             ("lower() = 'a'", "`lower` takes exactly 1 arguments, got 0"),
-            ("inCohort(1)", "`inCohort` takes exactly 2 arguments, got 1"),
+            ("startsWith('a')", "`startsWith` takes exactly 2 arguments, got 1"),
             ("dateAdd(toIntervalDay(1), timestamp) > now()", "`dateAdd` takes exactly 3 arguments, got 2"),
         ):
             response = compile_filters_bytecode(filters={"properties": [{"type": "hogql", "key": key}]}, team=self.team)
