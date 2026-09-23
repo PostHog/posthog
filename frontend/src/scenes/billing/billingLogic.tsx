@@ -339,10 +339,10 @@ export interface billingLogicActions {
         errorObject?: any
     }
     loadBillingSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?: any
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: any
     }
     loadCreditOverview: () => any
@@ -615,12 +615,12 @@ export interface billingLogicActions {
         errorObject?: any
     }
     updateBillingLimitsSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?: {
             [key: string]: number | null
         }
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: {
             [key: string]: number | null
         }

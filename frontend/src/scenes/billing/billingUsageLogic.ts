@@ -404,7 +404,7 @@ export interface billingUsageLogicMeta {
         ) => number[] | undefined
         teamOptions: (
             currentOrganization: OrganizationType | null,
-            reportedProjectIds: any
+            reportedProjectIds: number[]
         ) => {
             key: string
             label: string

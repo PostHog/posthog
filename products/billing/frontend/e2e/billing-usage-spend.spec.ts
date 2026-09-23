@@ -1,3 +1,4 @@
+import { mockFeatureFlags } from '@playwright-utils/mockApi'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '@playwright-utils/workspace-test-base'
 import { Locator, Page } from '@playwright/test'
 
@@ -200,6 +201,9 @@ test.describe('Billing usage and spend', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
+        // The pages read the organization billing API only where its flag is on. These cases mock
+        // that API, so they turn the flag on rather than take it from the environment.
+        await mockFeatureFlags(page, { 'organization-billing-api': true })
         await playwrightSetup.login(page, workspace)
     })
 
