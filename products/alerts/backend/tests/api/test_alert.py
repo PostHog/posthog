@@ -328,55 +328,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert list_for_another_insight.status_code == status.HTTP_200_OK
         assert len(list_for_another_insight.json()["results"]) == 0
 
-    def test_list_serializes_insight_without_extra_queries_per_alert(self) -> None:
-        def create_alert(name: str) -> dict[str, Any]:
-            insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
-            # Legacy JSON columns the alert response never reads. They are deferred on the list
-            # queryset, so touching one again would refetch the insight row per alert.
-            Insight.objects.filter(id=insight["id"]).update(
-                filters={"insight": "TRENDS", "events": [{"id": "$pageview"}]},
-                query_metadata={"kinds": ["TrendsQuery"]},
-                layouts={"sm": {"w": 6, "h": 5}},
-            )
-            self.client.post(
-                f"/api/projects/{self.team.id}/alerts",
-                {
-                    "insight": insight["id"],
-                    "subscribed_users": [self.user.id],
-                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
-                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
-                    "name": name,
-                },
-            )
-            return insight
-
-        first_insight = create_alert("first alert")
-        with CaptureQueriesContext(connection) as one_alert_queries:
-            response = self.client.get(f"/api/projects/{self.team.id}/alerts")
-        assert response.status_code == status.HTTP_200_OK
-
-        results = response.json()["results"]
-        assert len(results) == 1
-        insight_payload = results[0]["insight"]
-        assert insight_payload["query"] == first_insight["query"]
-        assert insight_payload["short_id"] == first_insight["short_id"]
-
-        create_alert("second alert")
-        create_alert("third alert")
-        with CaptureQueriesContext(connection) as three_alert_queries:
-            response = self.client.get(f"/api/projects/{self.team.id}/alerts")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["results"]) == 3
-
-        # Narrowing the joined columns must not make the row lazy-load: a touched deferred
-        # column, or a touched alert.team, shows up as one extra query per alert.
-        def row_fetches(queries: CaptureQueriesContext, table: str) -> int:
-            return len([q for q in queries.captured_queries if f'FROM "{table}"' in q["sql"]])
-
-        for table in ("posthog_dashboarditem", "posthog_team"):
-            assert row_fetches(three_alert_queries, table) == row_fetches(one_alert_queries, table)
-
     @parameterized.expand(
         [
             ("default_limit", 8, "", 5),
@@ -2306,6 +2257,32 @@ class TestAlertListFilters(APIBaseTest):
             created_by=user or self.user,
             detector_config=detector_config,
         )
+
+    def test_list_serializes_insight_without_extra_queries_per_alert(self) -> None:
+        self._create_alert("first alert")
+        with CaptureQueriesContext(connection) as one_alert:
+            response = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["insight"]["query"] == self.insight["query"]
+        assert results[0]["insight"]["short_id"] == self.insight["short_id"]
+
+        self._create_alert("second alert")
+        self._create_alert("third alert")
+        with CaptureQueriesContext(connection) as three_alerts:
+            response = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 3
+
+        # The narrowed column list must not make the row lazy-load. A touched deferred column,
+        # or a touched alert.team, costs one extra query per alert.
+        for table in ("posthog_dashboarditem", "posthog_team"):
+            marker = f'FROM "{table}"'
+            assert sum(marker in query["sql"] for query in three_alerts.captured_queries) == sum(
+                marker in query["sql"] for query in one_alert.captured_queries
+            )
 
     def test_list_filter_by_insight_tag_and_detector_type(self) -> None:
         tagged_insight = Insight.objects.get(id=self.insight["id"])

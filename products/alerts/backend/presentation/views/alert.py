@@ -1134,6 +1134,16 @@ class AlertListFiltersSerializer(serializers.Serializer):
     has_detector = OptionalBooleanField(required=False)
 
 
+# Insight JSON columns that InsightBasicSerializer never renders, so the alert list pays to
+# read and decode them for nothing. Deferred only for the list action, where the row count
+# multiplies the cost.
+LIST_DEFERRED_INSIGHT_FIELDS = (
+    "insight__filters",
+    "insight__query_metadata",
+    "insight__layouts",
+)
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1177,10 +1187,7 @@ class AlertListFiltersSerializer(serializers.Serializer):
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = (
-        AlertConfiguration.objects.select_related("insight", "threshold", "created_by")
-        # The joined insight row carries JSON columns that no alert response reads. They are
-        # large enough on real insights to dominate the bytes this list query pulls off disk.
-        .defer("insight__filters", "insight__query_metadata", "insight__layouts")
+        AlertConfiguration.objects.select_related("team", "insight", "threshold", "created_by")
         .prefetch_related(
             "subscribed_users",
             Prefetch(
@@ -1194,6 +1201,16 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = AlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        if self.action == "list":
+            # No alert field reads the team, and the embedded insight omits these JSON columns.
+            # select_related pulls both in full, so a page of alerts reads far more than it sends.
+            # Detail actions keep the team join: test_delivery resolves recipients through it.
+            queryset = (
+                queryset.select_related(None)
+                .select_related("insight", "threshold", "created_by")
+                .defer(*LIST_DEFERRED_INSIGHT_FIELDS)
+            )
+
         filters = self.request.query_params
         list_filters = AlertListFiltersSerializer(data=filters)
         list_filters.is_valid(raise_exception=True)
