@@ -106,7 +106,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         results = [
             pick_fields(issue, LIST_ISSUE_FIELDS)
-            for issue in (cast(dict[str, object], row) for row in raw_results[:limit])
+            for issue in cast(list[dict[str, object]], raw_results[:limit])
             if has_usable_issue_id(issue)
         ]
         has_more, next_offset = get_page_info(data, limit, offset)
@@ -153,8 +153,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         if not raw_results:
-            # The list endpoint reads issue identity from ClickHouse, which can name an issue the
-            # Postgres row no longer covers. Only an issue both stores miss is really absent.
+            # The list endpoint takes issue identity from ClickHouse, so an issue only Postgres
+            # has lost is still real. Absent means both stores miss it.
             if issue_basics is None:
                 return Response(ISSUE_NOT_FOUND_PAYLOAD, status=status.HTTP_404_NOT_FOUND)
             payload: dict[str, object] = compact_dict(
