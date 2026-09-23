@@ -78,6 +78,16 @@ export type HogExecutorExecuteOptions = {
  * ingestion on exactly this and must not inherit CDP delivery infrastructure. Anything that needs
  * to suspend and resume belongs in HogExecutorAsyncService, which wraps this one.
  */
+/** The raw configured value of every input, secret ones included, before templates resolve. */
+function configuredInputValues(hogFunction: HogFunctionType): Record<string, any> {
+    return Object.fromEntries(
+        Object.entries({ ...hogFunction.inputs, ...hogFunction.encrypted_inputs }).map(([key, input]) => [
+            key,
+            input?.value,
+        ])
+    )
+}
+
 export class HogExecutorService {
     constructor(
         private config: HogExecutorConfig,
@@ -188,7 +198,15 @@ export class HogExecutorService {
                     )
                 }
             } catch (e) {
-                addLog('error', `Error building inputs: ${e}`)
+                // The inputs did not resolve, so mask with the values the function config holds. A
+                // template can hand an earlier secret input to a function that quotes its argument.
+                addLog(
+                    'error',
+                    sanitizeLogMessage(
+                        [`Error building inputs: ${e}`],
+                        this.getSensitiveValues(invocation.hogFunction, configuredInputValues(invocation.hogFunction))
+                    )
+                )
 
                 throw e
             }
