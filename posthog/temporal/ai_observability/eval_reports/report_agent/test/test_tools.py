@@ -4,7 +4,7 @@ import re
 import json
 import time
 import datetime as dt
-from typing import NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from posthog.test.base import BaseTest
 from unittest.mock import (
@@ -33,6 +33,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     EvalReportContent,
     ReportSection,
 )
+from posthog.temporal.ai_observability.eval_reports.report_agent.state import REPORT_RUN_HANDLE_KEY
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _SESSION_TRACES_SQL,
     _UUID_RE,
@@ -55,6 +56,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     sample_session_details,
     sample_trace_details,
     set_title,
+    strip_dead_backticked_ids,
 )
 
 _VALID_GEN_ID = "12345678-1234-1234-1234-123456789abc"
@@ -86,6 +88,7 @@ class _ReportToolState(TypedDict):
     report: EvalReportContent
     trace_id_allowlist: list[str]
     session_id_allowlist: list[str]
+    report_run_handles: NotRequired[dict[str, str]]
     evaluation_target: NotRequired[str]
     team_id: NotRequired[int]
     evaluation_id: NotRequired[str]
@@ -724,6 +727,16 @@ class TestAddSection(SimpleTestCase):
         self.assertNotIn("Error", result)
         self.assertEqual(len(state["report"].sections), 1)
 
+    def test_rejects_section_with_a_backticked_run_handle(self):
+        # A handle is not UUID-shaped, so only the handle map makes the guard read it as an ID.
+        state = _state_with_empty_report()
+        state["report_run_handles"] = {"run_1": _VALID_GEN_ID}
+
+        result = _add_section_fn(state=state, title="Summary", content="Steady since `run_1`.")
+
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].sections, [])
+
     def test_rejects_cited_backticked_id_in_a_section_title(self):
         # Section titles reach the reader as a heading, so citation linking never runs over them.
         state = _state_with_empty_report()
@@ -774,6 +787,21 @@ class TestDeadBacktickedIds(SimpleTestCase):
                 [_VALID_GEN_ID.upper()],
             ),
             (
+                # The renderer links this wrapper, so the guard must not call it dead.
+                "cited_uuid_in_double_backtick_span_links",
+                f"See `` `{_VALID_GEN_ID}` `` for the regression.",
+                [Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID)],
+                set(),
+                [],
+            ),
+            (
+                "uncited_uuid_in_double_backtick_span_is_dead",
+                f"Steady since run `` `{_RUN_ID}` ``.",
+                [],
+                set(),
+                [_RUN_ID],
+            ),
+            (
                 "cited_uuid_double_backticks_is_dead",
                 f"See ``{_VALID_GEN_ID}``.",
                 [Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID)],
@@ -787,6 +815,31 @@ class TestDeadBacktickedIds(SimpleTestCase):
         self, _name: str, text: str, citations: list[Citation], handled_ids: set[str], expected: list[str]
     ) -> None:
         self.assertEqual(_dead_backticked_ids(text, citations, handled_ids), expected)
+
+    @parameterized.expand(
+        [
+            ("uncited_uuid_loses_its_backticks", f"Steady since run `{_RUN_ID}`.", f"Steady since run {_RUN_ID}."),
+            (
+                "uncited_uuid_loses_its_double_backtick_span",
+                f"Steady since run `` `{_RUN_ID}` ``.",
+                f"Steady since run {_RUN_ID}.",
+            ),
+            (
+                "cited_id_keeps_its_backticks",
+                f"See `{_OPAQUE_SESSION_ID}`.",
+                f"See `{_OPAQUE_SESSION_ID}`.",
+            ),
+            (
+                "cited_id_keeps_its_double_backtick_span",
+                f"See `` `{_OPAQUE_SESSION_ID}` ``.",
+                f"See `` `{_OPAQUE_SESSION_ID}` ``.",
+            ),
+            ("prose_keeps_its_backticks", "The `total_runs` field.", "The `total_runs` field."),
+        ]
+    )
+    def test_strip_dead_backticked_ids(self, _name: str, text: str, expected: str) -> None:
+        citations = [Citation(session_id=self._OPAQUE_SESSION_ID)]
+        self.assertEqual(strip_dead_backticked_ids(text, citations, {self._OPAQUE_SESSION_ID}), expected)
 
     def test_scan_stays_linear_on_a_whitespace_run(self):
         # A model that degenerates into whitespace after a stray backtick writes exactly the
@@ -1037,9 +1090,10 @@ class TestListAndGetReportRun(BaseTest):
             period_start=now - dt.timedelta(days=2),
             period_end=now - dt.timedelta(days=1),
         )
-        self.state = {
+        self.state: dict[str, Any] = {
             "evaluation_id": str(self.evaluation.id),
             "period_start": now.isoformat(),
+            REPORT_RUN_HANDLE_KEY: {},
         }
 
     def test_list_returns_compact_index_newest_first(self):
@@ -1049,9 +1103,24 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(result[0]["pass_rate"], 94.2)
         self.assertEqual(result[0]["total_runs"], 53)
         self.assertNotIn("result_rates", result[0])
-        self.assertIn("run_id", result[0])
         # Full content intentionally omitted
         self.assertNotIn("content", result[0])
+
+    def test_list_hands_out_handles_and_get_resolves_them(self):
+        # A run UUID is UUID-shaped but can never be cited, so an agent that repeats one in
+        # backticked prose writes a dead identifier. It never sees the UUID to repeat.
+        listed = json.loads(_list_recent_report_runs_fn(state=self.state))
+        handles = [run["run_id"] for run in listed]
+
+        self.assertNotIn(str(self.recent_run.id), handles)
+        self.assertEqual(len(set(handles)), len(handles))
+        fetched = json.loads(_get_report_run_fn(state=self.state, run_id=handles[0]))
+        self.assertEqual(fetched["content"]["title"], "Recent report")
+        self.assertEqual(fetched["run_id"], handles[0])
+
+    def test_get_rejects_an_unknown_handle(self):
+        result = json.loads(_get_report_run_fn(state=self.state, run_id="run_9"))
+        self.assertIn("error", result)
 
     def test_list_filters_by_since_days(self):
         result = json.loads(_list_recent_report_runs_fn(state=self.state, since_days=3))
@@ -1085,8 +1154,8 @@ class TestListAndGetReportRun(BaseTest):
         trace_state = {**self.state, "evaluation_target": "trace"}
         trace_runs = json.loads(_list_recent_report_runs_fn(state=trace_state))
 
-        self.assertNotIn(str(trace_run.id), {run["run_id"] for run in generation_runs})
-        self.assertEqual([run["run_id"] for run in trace_runs], [str(trace_run.id)])
+        self.assertNotIn("Trace report", {run["title"] for run in generation_runs})
+        self.assertEqual([run["title"] for run in trace_runs], ["Trace report"])
         self.assertIn("error", json.loads(_get_report_run_fn(state=self.state, run_id=str(trace_run.id))))
         self.assertEqual(
             json.loads(_get_report_run_fn(state=trace_state, run_id=str(trace_run.id)))["content"]["title"],
@@ -1098,7 +1167,7 @@ class TestListAndGetReportRun(BaseTest):
         # excluded by a strict `lt` filter, dropping the immediately previous report —
         # the most useful one for delta/continuity analysis.
         boundary_start = dt.datetime.fromisoformat(self.state["period_start"])
-        boundary_run = self.EvaluationReportRun.objects.create(
+        self.EvaluationReportRun.objects.create(
             report=self.report,
             content={"title": "Back-to-back report", "sections": []},
             metadata={"pass_rate": 77.7, "total_runs": 11},
@@ -1108,7 +1177,7 @@ class TestListAndGetReportRun(BaseTest):
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
         titles = [r["title"] for r in result]
         self.assertIn("Back-to-back report", titles)
-        boundary_entry = next(r for r in result if r["run_id"] == str(boundary_run.id))
+        boundary_entry = next(r for r in result if r["title"] == "Back-to-back report")
         self.assertEqual(boundary_entry["pass_rate"], 77.7)
         self.assertEqual(boundary_entry["total_runs"], 11)
 
@@ -1117,7 +1186,7 @@ class TestListAndGetReportRun(BaseTest):
         # downstream store activity mirrors them into metadata. The tool must read
         # either source so it stays correct if the mirror is removed.
         now = timezone.now()
-        content_only_run = self.EvaluationReportRun.objects.create(
+        self.EvaluationReportRun.objects.create(
             report=self.report,
             content={
                 "title": "Content-only metrics",
@@ -1132,7 +1201,7 @@ class TestListAndGetReportRun(BaseTest):
             period_end=now - dt.timedelta(hours=1),
         )
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
-        entry = next(r for r in result if r["run_id"] == str(content_only_run.id))
+        entry = next(r for r in result if r["title"] == "Content-only metrics")
         self.assertEqual(entry["pass_rate"], 75.0)
         self.assertEqual(entry["result_rates"], {"pass": 75.0, "fail": 25.0, "na": 0.0})
         self.assertEqual(entry["total_runs"], 8)
@@ -1152,10 +1221,10 @@ class TestListAndGetReportRun(BaseTest):
             period_end=now - dt.timedelta(hours=1),
         )
 
-        listed_run_ids = {run["run_id"] for run in json.loads(_list_recent_report_runs_fn(state=self.state))}
+        listed_titles = {run["title"] for run in json.loads(_list_recent_report_runs_fn(state=self.state))}
         fetched = json.loads(_get_report_run_fn(state=self.state, run_id=str(unavailable_run.id)))
 
-        self.assertNotIn(str(unavailable_run.id), listed_run_ids)
+        self.assertNotIn("Metrics temporarily unavailable", listed_titles)
         self.assertIn("error", fetched)
 
     def test_get_rejects_non_uuid(self):

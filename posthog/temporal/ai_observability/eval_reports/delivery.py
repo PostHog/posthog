@@ -19,6 +19,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     Citation,
     EvalReportContent,
     EvalReportMetrics,
+    citation_wrappers,
 )
 
 logger = structlog.get_logger(__name__)
@@ -147,7 +148,7 @@ def _linkify_citations(text: str, project_id: int, citation_map: CitationMap) ->
         placeholder = f"\x00CITE{i}\x00"
         placeholders[placeholder] = cited_id
 
-        for wrapper in [f"`` `{cited_id}` ``", f"`{cited_id}`", f"<{cited_id}>"]:
+        for wrapper in citation_wrappers(cited_id):
             text = text.replace(wrapper, placeholder)
         if citation_map[cited_id].generation_id:
             text = text.replace(cited_id, placeholder)
