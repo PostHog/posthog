@@ -87340,6 +87340,7 @@ export namespace Schemas {
      * * `stale` - Stale
      * * `failed` - Failed
      * * `empty` - Empty
+     * * `low_activity` - Low activity
      */
     export type SignalScoutSuggestionSetStatusEnum = typeof SignalScoutSuggestionSetStatusEnum[keyof typeof SignalScoutSuggestionSetStatusEnum];
 
@@ -87349,15 +87350,17 @@ export namespace Schemas {
       Stale: 'stale',
       Failed: 'failed',
       Empty: 'empty',
+      LowActivity: 'low_activity',
     } as const;
 
     export interface ScoutSuggestionSet {
-      /** `fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet.
+      /** `fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet. `low_activity`: the project was too quiet to scan, so nothing was generated.
        *
        * * `fresh` - Fresh
        * * `stale` - Stale
        * * `failed` - Failed
-       * * `empty` - Empty */
+       * * `empty` - Empty
+       * * `low_activity` - Low activity */
       status: SignalScoutSuggestionSetStatusEnum;
       /**
          * When the current batch was generated; null before the first run.
