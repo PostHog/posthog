@@ -31,6 +31,8 @@ import type {
     TicketApi,
     TicketFullEmailApi,
     TicketMessageApi,
+    TicketPatternApi,
+    TicketPatternDismissApi,
     TicketReplyRequestApi,
     TicketUnreadCountResponseApi,
     TicketUpdateRequestApi,
@@ -87,6 +89,43 @@ export const conversationsAiReplyPlaybookRetrieve = async (
     return apiMutator<AIReplyPlaybookApi>(getConversationsAiReplyPlaybookRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getConversationsTicketPatternsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/ticket_patterns/`
+}
+
+/**
+ * List the ticket spikes reported for this project in the last day, newest first.
+ */
+export const conversationsTicketPatternsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TicketPatternApi[]> => {
+    return apiMutator<TicketPatternApi[]>(getConversationsTicketPatternsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsTicketPatternsDismissCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/ticket_patterns/dismiss/`
+}
+
+/**
+ * Dismiss one spike for everyone in the project, so the inbox banner stops showing it.
+ */
+export const conversationsTicketPatternsDismissCreate = async (
+    projectId: string,
+    ticketPatternDismissApi: TicketPatternDismissApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsTicketPatternsDismissCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketPatternDismissApi),
     })
 }
 

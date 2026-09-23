@@ -167,6 +167,9 @@ export interface supportSettingsLogicValues {
         name: string
     }[]
     teamsTeamsLoading: boolean
+    ticketPatternsBannerEnabled: boolean
+    ticketPatternsEnabled: boolean
+    ticketPatternsLoading: boolean
     widgetEnabledLoading: boolean
 }
 
@@ -587,6 +590,15 @@ export interface supportSettingsLogicActions {
         status: 'error' | 'idle' | 'installed' | 'installing' | 'needs_org_catalog'
         teamId: string | null
     }
+    setTicketPatternsBannerEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setTicketPatternsEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setTicketPatternsLoading: (loading: boolean) => {
+        loading: boolean
+    }
     setWidgetEnabledLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -640,6 +652,8 @@ export interface supportSettingsLogicMeta {
         githubSelectedRepos: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiSuggestionsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiDiagnosticsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        ticketPatternsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        ticketPatternsBannerEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiContextAccountPropertyIds: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiEnabledChannels: (
             currentTeam: TeamPublicType | TeamType | null,
@@ -770,6 +784,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
         setAiDiagnosticsEnabled: (enabled: boolean) => ({ enabled }),
         setAiDiagnosticsLoading: (loading: boolean) => ({ loading }),
+        setTicketPatternsEnabled: (enabled: boolean) => ({ enabled }),
+        setTicketPatternsBannerEnabled: (enabled: boolean) => ({ enabled }),
+        setTicketPatternsLoading: (loading: boolean) => ({ loading }),
         setAiResolutionChannels: (channels: TicketChannel[]) => ({ channels }),
         setAiReplyMode: (channel: string, ticketType: string, mode: 'private_note' | 'bot_reply') => ({
             channel,
@@ -969,6 +986,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             false,
             {
                 setAiSuggestionsLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
+            },
+        ],
+        ticketPatternsLoading: [
+            false,
+            {
+                setTicketPatternsLoading: (_, { loading }) => loading,
                 updateCurrentTeamSuccess: () => false,
                 updateCurrentTeamFailure: () => false,
             },
@@ -1307,6 +1332,16 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.ai_diagnostics_enabled,
+        ],
+        ticketPatternsEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
+                !!currentTeam?.conversations_settings?.ticket_patterns_enabled,
+        ],
+        ticketPatternsBannerEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
+                !!currentTeam?.conversations_settings?.ticket_patterns_banner_enabled,
         ],
         aiContextAccountPropertyIds: [
             (s) => [s.currentTeam],
@@ -1794,6 +1829,24 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     ai_suggestions_enabled: enabled,
+                },
+            })
+        },
+        setTicketPatternsEnabled: ({ enabled }) => {
+            actions.setTicketPatternsLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ticket_patterns_enabled: enabled,
+                },
+            })
+        },
+        setTicketPatternsBannerEnabled: ({ enabled }) => {
+            actions.setTicketPatternsLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ticket_patterns_banner_enabled: enabled,
                 },
             })
         },

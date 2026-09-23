@@ -21,6 +21,7 @@ TEMPLATE_FILES = [
     "re-engagement-workflow.json",
     "repeated-failure-alert.json",
     "support-ticket-notification.json",
+    "support-spike-alert.json",
     "ticket-unresolved-alert.json",
     "trial-ending-reminder.json",
     "unlocking_advanced_features.json",

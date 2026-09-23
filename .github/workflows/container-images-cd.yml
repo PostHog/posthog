@@ -476,6 +476,7 @@ jobs:
                       videoExport:
                         - 'posthog/temporal/exports_video/**'
                         - 'posthog/tasks/exports/video_exporter.py'
+                        - 'products/conversations/backend/**'
                         - 'products/signals/backend/**'
                         - 'products/signals/skills/**'
                         - 'products/review_hog/backend/**'

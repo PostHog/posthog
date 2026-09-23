@@ -1,9 +1,19 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
-import { LemonBanner, LemonCard, LemonCheckbox, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonCheckbox,
+    LemonDivider,
+    LemonSelect,
+    LemonSwitch,
+    Link,
+} from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { urls } from 'scenes/urls'
@@ -15,6 +25,7 @@ import { SupportPlaybookSection } from '../../components/SupportPlaybookSection/
 import { aiTriageTicketTypeLabel, TicketChannel } from '../../types'
 import { supportSettingsLogic } from './supportSettingsLogic'
 import { CONVERSATIONS_LOGIC_KEY } from './SupportSettingsScene'
+import { TicketPatternThresholds } from './TicketPatternThresholds'
 
 const CHANNEL_LABELS: Record<TicketChannel, string> = {
     widget: 'API / Widget',
@@ -31,6 +42,9 @@ const CHANNEL_SETTINGS_TABS: Record<TicketChannel, string> = {
     teams: 'teams',
     github: 'github',
 }
+
+// The Slack alert template shipped in products/workflows/backend/templates/support-spike-alert.json.
+const SPIKE_ALERT_TEMPLATE_ID = '019d4a7c-3b21-0000-9f04-6e2b8c15d730'
 
 const TICKET_TYPES = ['how_to', 'diagnostic', 'account_billing'] as const
 
@@ -53,11 +67,27 @@ export function AISection(): JSX.Element {
         aiAllChannels,
         aiResolutionChannels,
         aiReplyModes,
+        ticketPatternsEnabled,
+        ticketPatternsBannerEnabled,
+        ticketPatternsLoading,
     } = useValues(supportSettingsLogic)
-    const { setAiSuggestionsEnabled, setAiDiagnosticsEnabled, setAiResolutionChannels, setAiReplyMode } =
-        useActions(supportSettingsLogic)
+    const {
+        setAiSuggestionsEnabled,
+        setAiDiagnosticsEnabled,
+        setAiResolutionChannels,
+        setAiReplyMode,
+        setTicketPatternsEnabled,
+        setTicketPatternsBannerEnabled,
+    } = useActions(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const businessKnowledgeEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE]
+    const ticketPatternsFlagEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS]
+    // conversations_settings is project-admin only on the API, so a member editing these would
+    // just collect 403s.
+    const settingsRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const isChannelActive = (channel: TicketChannel): boolean => aiEnabledChannels.includes(channel)
 
@@ -243,6 +273,78 @@ export function AISection(): JSX.Element {
                                 </tbody>
                             </table>
                         </div>
+                    </LemonCard>
+                </SceneSection>
+            )}
+
+            {ticketPatternsFlagEnabled && (
+                <SceneSection
+                    title="Ticket spike detection"
+                    className="my-8"
+                    description="Every 15 minutes, PostHog checks whether several customers have reported the same problem, and captures a Conversation ticket pattern detected event when they have. Build a workflow on that event to alert your team in Slack or by email."
+                >
+                    <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
+                        <div className="flex items-center gap-4 justify-between">
+                            <div>
+                                <label className="font-medium" htmlFor="ticket-patterns-enabled">
+                                    Detect ticket spikes
+                                </label>
+                                <p className="text-xs text-muted-alt mb-0">
+                                    Subjects and opening messages from recent tickets are sent to an AI model to group
+                                    them. Requires AI data processing consent at the organization level.
+                                </p>
+                            </div>
+                            <LemonSwitch
+                                id="ticket-patterns-enabled"
+                                checked={ticketPatternsEnabled}
+                                onChange={(checked) => setTicketPatternsEnabled(checked)}
+                                loading={ticketPatternsLoading}
+                                disabledReason={settingsRestrictionReason}
+                            />
+                        </div>
+                        {ticketPatternsEnabled && (
+                            <>
+                                <LemonDivider />
+                                <div className="flex items-center gap-4 justify-between">
+                                    <div>
+                                        <label className="font-medium" htmlFor="ticket-patterns-banner-enabled">
+                                            Show a banner in the inbox
+                                        </label>
+                                        <p className="text-xs text-muted-alt mb-0">
+                                            Puts the spike above the ticket list, so your team sees it without leaving
+                                            the inbox. Each banner can be dismissed.
+                                        </p>
+                                    </div>
+                                    <LemonSwitch
+                                        id="ticket-patterns-banner-enabled"
+                                        checked={ticketPatternsBannerEnabled}
+                                        onChange={(checked) => setTicketPatternsBannerEnabled(checked)}
+                                        loading={ticketPatternsLoading}
+                                        disabledReason={settingsRestrictionReason}
+                                    />
+                                </div>
+                                <LemonDivider />
+                                <div className="flex items-center gap-4 justify-between">
+                                    <div>
+                                        <label className="font-medium">Alert your team elsewhere</label>
+                                        <p className="text-xs text-muted-alt mb-0">
+                                            Start from the Slack alert template, or build your own workflow on the
+                                            Ticket spike detected trigger.
+                                        </p>
+                                    </div>
+                                    <LemonButton
+                                        type="secondary"
+                                        to={combineUrl(urls.workflowNew(), { templateId: SPIKE_ALERT_TEMPLATE_ID }).url}
+                                        targetBlank
+                                        data-attr="ticket-patterns-slack-template"
+                                    >
+                                        Set up a Slack alert
+                                    </LemonButton>
+                                </div>
+                                <LemonDivider />
+                                <TicketPatternThresholds />
+                            </>
+                        )}
                     </LemonCard>
                 </SceneSection>
             )}
