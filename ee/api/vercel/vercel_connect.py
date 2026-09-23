@@ -109,8 +109,12 @@ def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
         }
         resources = resources.filter(team_id__in=mapped_team_ids)
 
+    # Read the ids now, because a lazy queryset reads the rows again at delete time and would then
+    # include resources that a replacement installation created in between.
+    resource_ids = list(resources.values_list("pk", flat=True))
+
     with transaction.atomic():
-        resources.delete()
+        Integration.objects.filter(pk__in=resource_ids).delete()
         integration.delete()
 
 
