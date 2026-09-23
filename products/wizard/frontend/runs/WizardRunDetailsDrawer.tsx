@@ -263,7 +263,11 @@ export function WizardRunDetailsDrawer({
                                         <div className="mt-4 flex items-center justify-between text-xs text-muted">
                                             <span>
                                                 {wizardRunIsActive(run) ? (
-                                                    'Updates automatically.'
+                                                    run.environment === 'local' ? (
+                                                        'Stop this run in the terminal where the Wizard is running.'
+                                                    ) : (
+                                                        'Updates automatically.'
+                                                    )
                                                 ) : run.finished_at ? (
                                                     <>
                                                         {wizardRunTerminalLabel(run.status)}{' '}

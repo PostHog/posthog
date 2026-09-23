@@ -62,8 +62,8 @@ const meta: Meta<typeof WizardRunSyncCard> = {
             task('Verify events in PostHog', 'created'),
         ],
         onExpand: () => {},
-        onDismiss: () => {},
-        dismissTooltip: 'Minimize',
+        onClose: () => {},
+        onHide: () => {},
     },
 }
 
@@ -89,6 +89,5 @@ export const Completed: Story = {
         run: { ...run, status: 'completed', stage: null },
         tasks: [],
         activeCount: 0,
-        dismissTooltip: 'Dismiss',
     },
 }

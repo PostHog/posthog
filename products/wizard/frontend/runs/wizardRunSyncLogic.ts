@@ -18,6 +18,7 @@ export interface wizardRunSyncLogicProps {
 
 export interface wizardRunSyncLogicValues {
     activeCount: number
+    dismissedRunId: string | null
     run: WizardRunApi | null
     tasks: readonly WizardRunTaskApi[]
 }
@@ -27,7 +28,7 @@ export interface wizardRunSyncLogicActions {
     activeRunsLoaded: (count: number, run: WizardRunApi | null) => { count: number; run: WizardRunApi | null }
     clearTasks: () => { value: true }
     runUpdated: (state: RunStreamState) => { state: RunStreamState }
-    dismissRun: () => { value: true }
+    dismissRun: (runId: string) => { runId: string }
 }
 
 export type wizardRunSyncLogicType = MakeLogicType<
@@ -45,10 +46,11 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
         activeRunsLoaded: (count: number, run: WizardRunApi | null) => ({ count, run }),
         clearTasks: true,
         runUpdated: (state: RunStreamState) => ({ state }),
-        dismissRun: true,
+        dismissRun: (runId: string) => ({ runId }),
     }),
     reducers({
         activeCount: [0, { activeRunsLoaded: (_, { count }) => count }],
+        dismissedRunId: [null as string | null, { persist: true }, { dismissRun: (_, { runId }) => runId }],
         run: [
             null as WizardRunApi | null,
             {
@@ -90,7 +92,7 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
         },
         activeRunsLoaded: () => {
             const run = values.run
-            if (!run || !wizardRunIsActive(run)) {
+            if (!run || run.id === values.dismissedRunId || !wizardRunIsActive(run)) {
                 cache.disposables.dispose('run-stream')
                 cache.connectedRunId = undefined
                 return

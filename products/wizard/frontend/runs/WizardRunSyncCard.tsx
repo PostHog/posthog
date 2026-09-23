@@ -1,5 +1,5 @@
 import { IconCheckCircle, IconCloud, IconExpand45, IconLaptop, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { formatElapsed } from 'scenes/onboarding/shared/wizard-sync/helpers'
@@ -37,16 +37,16 @@ export function WizardRunSyncCard({
     activeCount,
     elapsedSeconds,
     onExpand,
-    onDismiss,
-    dismissTooltip,
+    onClose,
+    onHide,
 }: {
     run: WizardRunApi
     tasks: readonly WizardRunTaskApi[]
     activeCount: number
     elapsedSeconds: number
     onExpand: () => void
-    onDismiss: () => void
-    dismissTooltip: string
+    onClose: () => void
+    onHide: () => void
 }): JSX.Element {
     const currentTask = tasks.find((task) => task.status === 'running')
     const currentState = wizardRunCurrentState(run)
@@ -126,46 +126,22 @@ export function WizardRunSyncCard({
                         tooltip="See all the details"
                         aria-label="Expand"
                     />
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconX />}
-                        onClick={onDismiss}
-                        tooltip={dismissTooltip}
-                        aria-label={dismissTooltip}
-                    />
+                    <LemonMenu
+                        items={[
+                            { label: 'Close', onClick: onClose },
+                            { label: "Don't show this again", onClick: onHide },
+                        ]}
+                        placement="top-end"
+                    >
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconX />}
+                            tooltip="Close options"
+                            aria-label="Close options"
+                        />
+                    </LemonMenu>
                 </div>
             </div>
         </div>
-    )
-}
-
-export function WizardRunSyncLauncher({
-    run,
-    elapsedSeconds,
-    onRestore,
-}: {
-    run: WizardRunApi
-    elapsedSeconds: number
-    onRestore: () => void
-}): JSX.Element {
-    return (
-        <button
-            type="button"
-            onClick={onRestore}
-            aria-label="Show Wizard run progress"
-            data-attr="wizard-run-sync-launcher"
-            className={cn(
-                'flex max-w-full cursor-pointer items-center gap-2 rounded-full border bg-surface-primary py-1.5 pl-2 pr-3 shadow-lg shadow-black/10 transition-colors hover:bg-fill-highlight-50',
-                run.status === 'completed'
-                    ? 'border-success'
-                    : run.status === 'failed' || run.status === 'cancelled'
-                      ? 'border-danger'
-                      : 'border-primary'
-            )}
-        >
-            <RunStatusGlyph status={run.status} />
-            <span className="min-w-0 truncate text-sm font-medium">{run.program.name}</span>
-            <span className="shrink-0 text-xs tabular-nums text-muted">{formatElapsed(elapsedSeconds)}</span>
-        </button>
     )
 }

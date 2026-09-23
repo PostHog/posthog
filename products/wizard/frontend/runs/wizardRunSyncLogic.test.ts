@@ -25,6 +25,7 @@ describe('wizardRunSyncLogic', () => {
     let logic: ReturnType<typeof wizardRunSyncLogic.build>
 
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
         restoreEventSource = installMockEventSource()
         mockWizardRunsList.mockReset()
@@ -77,7 +78,26 @@ describe('wizardRunSyncLogic', () => {
         expect(logic.values.run?.status).toBe('completed')
         expect(stream.readyState).toBe(MockEventSource.CLOSED)
 
-        logic.actions.dismissRun()
+        logic.actions.dismissRun('newer')
         expect(logic.values.run).toBeNull()
+    })
+
+    it('keeps a closed run hidden while polling and streams the next run', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const stream = MockEventSource.last()
+
+        logic.actions.dismissRun('newer')
+        expect(stream.readyState).toBe(MockEventSource.CLOSED)
+        expect(logic.values.dismissedRunId).toBe('newer')
+
+        logic.actions.checkActiveRuns()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(MockEventSource.instances).toHaveLength(1)
+
+        mockWizardRunsList.mockResolvedValue({ count: 1, results: [run('next')] })
+        logic.actions.checkActiveRuns()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.run?.id).toBe('next')
+        expect(MockEventSource.instances).toHaveLength(2)
     })
 })
