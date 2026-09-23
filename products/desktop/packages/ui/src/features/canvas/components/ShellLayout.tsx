@@ -411,7 +411,7 @@ export function ShellLayout() {
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
       {showToolbar && (
-        <ChromeBar inset="control">
+        <ChromeBar inset="title">
           {isDashboardDetail && toolbarDashboardId && toolbarChannelId ? (
             <CanvasBreadcrumb
               channelName={toolbarChannelName}

@@ -171,6 +171,11 @@ def _governed_metrics_section(project_has_governed_metrics: bool) -> str:
     return _GOVERNED_METRICS_NUDGE if project_has_governed_metrics else ""
 
 
+# The close-out summary tool is a sandbox harness tool, not a PostHog MCP tool, so it is absent from
+# the `mcp__posthog__exec` catalog and has to be called under its qualified name.
+_TASK_SUMMARY_TOOL = "task_summary_update"
+_TASK_SUMMARY_TOOL_ID = f"mcp__posthog-code-tools__{_TASK_SUMMARY_TOOL}"
+
 # The close-out step is identical on every channel bar the word for what the run produces, and it is
 # numbered differently (the report channel has an extra search step), so both are rendered from here.
 _CLOSE_OUT_STEP_TEMPLATE = """{number}. **Close out.** End your turn with a JSON object matching the schema in *Output format* below. Its `summary` field is your run close-out; see *Writing the summary* for how to structure it. A quiet day is a real outcome: "looked, found nothing meaningful" is a genuine, useful summary, not a failure, so don't manufacture {output} to fill space. The harness parses the JSON and writes `summary` to the run row as searchable prose. Before that, call `task_summary_update` with the same close-out text, per *Writing the summary*."""
@@ -712,7 +717,7 @@ Your close-out `summary` renders in the scout's run history **collapsed to the f
 
 Keep it a close-out, not a transcript: methodology and tool-by-tool narration belong in the task log.
 
-The `task_summary_update` tool holds the same close-out for the task run row, which is what a reader sees without opening the transcript. Send it the same verdict-first text you put in `summary`. Run ritual does not belong there: your skill version, the emit-eligibility gate, and a list of scratchpad keys tell a reader nothing about what you found."""
+The `{_TASK_SUMMARY_TOOL}` tool holds the same close-out for the task run row, which is what a reader sees without opening the transcript. It is a harness tool in your sandbox, so call it directly as `{_TASK_SUMMARY_TOOL_ID}`; it is not on the `mcp__posthog__exec` interface, per *How to call tools*. Send it the same verdict-first text you put in `summary`. Run ritual does not belong there: your skill version, the emit-eligibility gate, and a list of scratchpad keys tell a reader nothing about what you found."""
 
 # Rendered only for a team whose knowledge base is reachable and looks maintained — the runner
 # resolves `business_knowledge.is_maintained_for_team` per run (`business_knowledge_maintained`).
@@ -1382,6 +1387,8 @@ def build_run_prompt(
 # How to call tools
 
 Every tool named in this prompt, the `scout-*` harness tools and all PostHog MCP tools alike, is invoked through the `mcp__posthog__exec` interface as `call <tool_name> <json>`, never as a direct tool call. Bare names like `skill-get`, `scout-project-profile-get`, or `{emit_tool}` are how you *refer* to a tool, so don't burn opening moves trying to invoke them directly. For any tool you haven't already used, `search <regex>` to find it and `info <tool_name>` to read its schema on that same interface, then `call` it. Search by prefix, one family at a time (`search ^scout-`, `search ^inbox-report`), and confirm a single name with `info <tool_name>`. Do not build one pattern that lists every tool you hold: `search` refuses a pattern over 800 characters. If a `scout-*` tool comes back unknown, the server may still expose it under its legacy `signals-scout-*` name: `search scout` and call whichever name the catalog returns.
+
+One tool named in this prompt is not on that interface: `{_TASK_SUMMARY_TOOL}`, the close-out summary tool. It is a harness tool your sandbox mounts, so call it directly as `{_TASK_SUMMARY_TOOL_ID}`. `search` and `info` on `mcp__posthog__exec` do not know it under any spelling, so a lookup there tells you nothing and is not a gap to report through `agent-feedback`. If the qualified name is not in your tool catalog, this run does not mount it: write the close-out in your final JSON `summary` as usual and move on.
 
 # First: read your skill
 
