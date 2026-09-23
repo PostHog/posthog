@@ -314,15 +314,14 @@ def user_can_edit_flag(flag: FeatureFlag, *, team: Team, user: Any) -> bool:
     return UserAccessControl(user=user, team=team).check_access_level_for_object(flag, "editor")
 
 
-def user_can_create_flags(*, team: Team, user: Any) -> bool:
+def user_can_create_flags(*, team: Team, user: User) -> bool:
     """Whether ``user`` may create a flag in this team — the resource-level counterpart of
     ``user_can_edit_flag``, and the same check the feature flag API enforces on create.
 
     A product that creates a flag as a side effect of its own write needs this, because the
     write goes through ``create_flag``, which enforces no access control. Without it, editor
-    access to that product substitutes for flag access."""
-    if not isinstance(user, User) or user.is_anonymous:
-        return False
+    access to that product substitutes for flag access. Unlike ``user_can_edit_flag`` this takes
+    a real ``User``, so a caller holding an unknown principal narrows it before asking."""
     return UserAccessControl(user=user, team=team).check_access_level_for_resource("feature_flag", "editor")
 
 
