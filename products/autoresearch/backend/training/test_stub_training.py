@@ -38,6 +38,9 @@ class TestStubTraining(TeamScopedTestMixin, BaseTest):
         assert champion.holdout_score == 0.7
         assert champion.is_preliminary is True
         assert champion.source_training_run == training_run
+        assert champion.promoted_at is not None
+        iteration = AutoresearchIteration.objects.get(training_run=training_run)
+        assert iteration.recipe_snapshot["feature_sql"] == champion.model_recipe["feature_sql"]
         assert champion.model_recipe is not None
         assert "feature_sql" in champion.model_recipe
         # The stub must not count autoresearch's own prediction events — they feed the

@@ -322,9 +322,10 @@ def build_agent_description(
         train/holdout split and the labels are produced for you — your `features_sql` must NOT add its own
         label or fold columns.
 
-        The feature matrix only changes when `features_sql` changes, so call materialize ONCE per
-        `features_sql` and run many model iterations in Python on the same parquet; re-call it only after
-        you edit `features_sql`. `execute-sql` is for lightweight schema exploration only — never for
+        Call materialize ONCE per `features_sql` and run many model iterations in Python on the same
+        parquet; re-call it only after you edit `features_sql`. Each call rebuilds the population, T0s
+        and labels from current data, so compare model changes on one materialization, and treat a small
+        AUC shift across two materializations as possible data drift, not proof the new SQL is better. `execute-sql` is for lightweight schema exploration only — never for
         pulling feature rows (it caps at 500 rows and would force the data through your context).
 
         **Python fit + eval pattern** (reads the parquet the tool wrote — no data in your context):
@@ -646,7 +647,11 @@ def run_training(
         # A dispatch failure ends the TaskRun inside create_and_run_task, before the binding
         # above, so the completion handler refused it and nothing else will end this run.
         if tasks_facade.task_run_is_terminal(task_run.id, task.task_id, pipeline.team_id):
-            raise RuntimeError(f"Training task run {task_run.id} ended at dispatch")
+            # Once the binding is saved the completion handler can finalize the run itself, so
+            # only a run it left RUNNING is a dispatch failure.
+            training_run.refresh_from_db(fields=["status", "completed_at", "error"])
+            if training_run.status == AutoresearchTrainingRun.Status.RUNNING:
+                raise RuntimeError(f"Training task run {task_run.id} ended at dispatch")
 
         logger.info(
             "autoresearch_training_started",
@@ -658,14 +663,22 @@ def run_training(
         return training_run
 
     except Exception:
-        training_run.status = AutoresearchTrainingRun.Status.FAILED
-        training_run.completed_at = django_timezone.now()
-        training_run.error = "Failed to launch training task"
-        training_run.save(update_fields=["status", "completed_at", "error"])
+        # Conditional, so a run the completion handler already finalized keeps its outcome.
+        AutoresearchTrainingRun.objects.filter(
+            pk=training_run.pk, status=AutoresearchTrainingRun.Status.RUNNING
+        ).update(
+            status=AutoresearchTrainingRun.Status.FAILED,
+            completed_at=django_timezone.now(),
+            error="Failed to launch training task",
+        )
+        training_run.refresh_from_db(fields=["status", "completed_at", "error"])
         # The bootstrap never got off the ground — drop back to DRAFT so the pipeline
-        # doesn't sit in BOOTSTRAPPING forever with no run behind it.
+        # doesn't sit in BOOTSTRAPPING forever with no run behind it. The update is
+        # conditional on the row, because a concurrent run may have promoted it since.
         if pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING:
-            pipeline.status = AutoresearchPipeline.Status.DRAFT
-            pipeline.save(update_fields=["status", "updated_at"])
+            AutoresearchPipeline.objects.filter(
+                pk=pipeline.pk, status=AutoresearchPipeline.Status.BOOTSTRAPPING
+            ).update(status=AutoresearchPipeline.Status.DRAFT, updated_at=django_timezone.now())
+            pipeline.refresh_from_db(fields=["status", "updated_at"])
         logger.exception("autoresearch_training_launch_failed", pipeline_id=str(pipeline.pk))
         raise

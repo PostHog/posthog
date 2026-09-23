@@ -17,10 +17,15 @@ Usage:
         --target '$pageview' \\
         --name "My first pipeline" \\
         --horizon 7 \\
+        --user-id 1 \\
         --create
 """
 
+import re
+
 from django.core.management.base import BaseCommand, CommandError
+
+from rest_framework import serializers
 
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -30,6 +35,7 @@ from products.autoresearch.backend.access import has_autoresearch_access
 from products.autoresearch.backend.facade.api import output_person_property_taken
 from products.autoresearch.backend.management.scoping import resolve_pipeline
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
+from products.autoresearch.backend.presentation.views.serializers import validate_event_target
 from products.autoresearch.backend.training.runner import run_training
 from products.autoresearch.backend.training.stub import run_stub_training
 
@@ -38,6 +44,8 @@ MAX_HORIZON_DAYS = 365
 MAX_ITERATION_BUDGET = 500
 # AutoresearchPipeline.output_person_property is a 255-character column.
 MAX_OUTPUT_PROPERTY_CHARS = 255
+# Everything the API's output-property pattern refuses.
+_UNSAFE_PROPERTY_CHARS = re.compile(r"[^A-Za-z0-9_$.\-]")
 
 
 class Command(BaseCommand):
@@ -63,8 +71,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--user-id",
             type=int,
-            default=1,
-            help="User ID for launching the real agent (default: 1).",
+            help="A member of the pipeline's team. Required with --create (the pipeline's creator) and for real training.",
         )
         parser.add_argument(
             "--iterations",
@@ -93,6 +100,10 @@ class Command(BaseCommand):
             if not 1 <= options["horizon"] <= MAX_HORIZON_DAYS:
                 raise CommandError(f"--horizon must be between 1 and {MAX_HORIZON_DAYS}.")
             try:
+                validate_event_target(options["target"], error_key="target")
+            except serializers.ValidationError as e:
+                raise CommandError(str(e.detail))
+            try:
                 team = Team.objects.get(pk=options["team_id"])
             except Team.DoesNotExist:
                 raise CommandError(f"Team {options['team_id']} not found.")
@@ -101,7 +112,7 @@ class Command(BaseCommand):
             # without one has a champion that can never be fitted.
             creator = self._team_user(team, options["user_id"])
 
-            safe_name = options["target"].lstrip("$").replace(" ", "_").lower()
+            safe_name = _UNSAFE_PROPERTY_CHARS.sub("_", options["target"].lstrip("$")).lower() or "target"
             suffix = f"_{options['horizon']}d"
             output_property = f"predicted_p_{safe_name}"[: MAX_OUTPUT_PROPERTY_CHARS - len(suffix)] + suffix
             # Two pipelines on one property overwrite each other's scores.
@@ -126,7 +137,9 @@ class Command(BaseCommand):
 
         raise CommandError("Provide --pipeline-id or use --create to make a new pipeline.")
 
-    def _team_user(self, team: Team, user_id: int) -> User:
+    def _team_user(self, team: Team, user_id: int | None) -> User:
+        if user_id is None:
+            raise CommandError("--user-id is required: pass a member of the pipeline's team.")
         # The sandbox token is minted for this user on the pipeline's team, so the user must already have access to it.
         user = team.all_users_with_access().filter(pk=user_id).first()
         if user is None:

@@ -81,7 +81,9 @@ def _recipe_hash(recipe: dict) -> str:
 def _record_stub_result(
     pipeline: AutoresearchPipeline, training_run: AutoresearchTrainingRun, iteration_budget: int
 ) -> AutoresearchModel:
-    recipe = _build_stub_recipe(pipeline)
+    # Lock the pipeline so concurrent stub runs debit the budget and move the status one at a time.
+    locked = AutoresearchPipeline.objects.select_for_update().get(pk=pipeline.pk)
+    recipe = _build_stub_recipe(locked)
     recipe_hash = _recipe_hash(recipe)
     holdout_score = recipe["holdout_score"]
     now = django_timezone.now()
@@ -92,6 +94,8 @@ def _record_stub_result(
         iteration_number=1,
         recipe_hash=recipe_hash,
         recipe_snapshot={
+            "feature_sql": recipe["feature_sql"],
+            "feature_transforms": recipe["feature_transforms"],
             "model_class": recipe["model_class"],
             "model_params": recipe["model_params"],
             "holdout_score": holdout_score,
@@ -146,6 +150,7 @@ def _record_stub_result(
         trained_on_start=date.today(),
         trained_on_end=date.today(),
         is_preliminary=True,
+        promoted_at=now if promote else None,
     )
 
     training_run.iteration_count = 1
@@ -156,11 +161,12 @@ def _record_stub_result(
 
     update_fields = ["iteration_budget_remaining", "updated_at"]
     # Only a pipeline with no live champion yet starts running; a paused or archived one stays as it is.
-    if promote and pipeline.status in (AutoresearchPipeline.Status.DRAFT, AutoresearchPipeline.Status.BOOTSTRAPPING):
-        pipeline.status = AutoresearchPipeline.Status.RUNNING
+    if promote and locked.status in (AutoresearchPipeline.Status.DRAFT, AutoresearchPipeline.Status.BOOTSTRAPPING):
+        locked.status = AutoresearchPipeline.Status.RUNNING
         update_fields.append("status")
-    pipeline.iteration_budget_remaining = max(0, (pipeline.iteration_budget_remaining or 0) - iteration_budget)
-    pipeline.save(update_fields=update_fields)
+    locked.iteration_budget_remaining = max(0, (locked.iteration_budget_remaining or 0) - iteration_budget)
+    locked.save(update_fields=update_fields)
+    pipeline.refresh_from_db(fields=["status", "iteration_budget_remaining", "updated_at"])
     return model
 
 

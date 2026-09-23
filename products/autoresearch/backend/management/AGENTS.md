@@ -11,7 +11,7 @@ The real-agent path of `autoresearch_train` is the exception: its sandbox agent 
 
 - `autoresearch_train` — create a pipeline and/or launch training.
   `--pipeline-id | --team-id --target --name --horizon --create --stub --user-id --iterations`
-  `--pipeline-id` and `--create` are mutually exclusive, `--user-id` must have access to the pipeline's team, and an archived pipeline is refused.
+  `--pipeline-id` and `--create` are mutually exclusive. `--user-id` has no default: `--create` and real training require a member of the pipeline's team. `--create` applies the API's target rules, and an archived pipeline is refused.
   With `--create` it creates the pipeline first. With `--stub` it runs `../training/stub.py` (deterministic, free); without it, the real Claude agent runs in a sandbox and costs roughly a dollar.
   **Use `--stub` for anything that isn't specifically testing the agent.**
 - `autoresearch_score` — load the champion, score the inference population, emit `autoresearch_prediction` events.

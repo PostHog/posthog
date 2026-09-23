@@ -54,3 +54,31 @@ class TestAutoresearchTrainCommand(BaseTest):
                 iterations=case.get("iterations", 5),
             )
         run_training.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("prediction_event_target", {"target": "autoresearch_prediction", "user_id": 1}),
+            ("brace_in_target", {"target": "sign{up}", "user_id": 1}),
+            ("no_user_id", {"target": "$pageview"}),
+        ]
+    )
+    def test_inline_creation_is_refused_before_any_row(self, _name, case) -> None:
+        if "user_id" in case:
+            case = {**case, "user_id": self.user.pk}
+        with self.assertRaises(CommandError):
+            call_command("autoresearch_train", create=True, team_id=self.team.pk, stub=True, **case)
+        with team_scope(self.team.id):
+            assert AutoresearchPipeline.objects.count() == 1
+
+    def test_inline_creation_derives_an_output_property_the_api_accepts(self) -> None:
+        call_command(
+            "autoresearch_train",
+            create=True,
+            team_id=self.team.pk,
+            target="checkout/button",
+            user_id=self.user.pk,
+            stub=True,
+        )
+        with team_scope(self.team.id):
+            created = AutoresearchPipeline.objects.get(target_event="checkout/button")
+        assert created.output_person_property == "predicted_p_checkout_button_7d"

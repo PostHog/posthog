@@ -181,6 +181,21 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
         self.pipeline.refresh_from_db()
         assert self.pipeline.status == AutoresearchPipeline.Status.DRAFT
 
+    def test_a_run_the_completion_handler_already_finalized_keeps_its_outcome(self, facade: MagicMock) -> None:
+        self._dispatched(facade)
+
+        def finalized_by_handler(*_args: object) -> bool:
+            AutoresearchTrainingRun.objects.filter(pipeline=self.pipeline).update(
+                status=AutoresearchTrainingRun.Status.COMPLETED
+            )
+            return True
+
+        facade.task_run_is_terminal.side_effect = finalized_by_handler
+
+        training_run = run_training(self.pipeline, iteration_budget=5, user_id=self.user.id)
+
+        assert training_run.status == AutoresearchTrainingRun.Status.COMPLETED
+
     def test_a_creator_without_team_access_is_refused_before_anything_is_written(self, facade: MagicMock) -> None:
         outsider = User.objects.create_and_join(Organization.objects.create(name="elsewhere"), "out@example.com", None)
         self.pipeline.created_by = outsider
