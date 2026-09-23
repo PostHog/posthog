@@ -65,7 +65,6 @@ interface VirtualizedSpanListProps extends SortProps {
     onLoadMore?: () => void
     emptyState?: ReactNode
     spanErrors?: SpanErrors
-    /** The configured columns, in render order. Structural columns are appended by the table. */
     spanColumns: SpanColumnConfig[]
 }
 
@@ -205,8 +204,7 @@ function spanCellContent(column: SpanColumnConfig, span: Span): JSX.Element | nu
             return <span className="font-mono">{span.trace_id.substring(0, 16)}...</span>
         case 'attribute': {
             const value = spanAttributeValue(span, column.attributeKey)
-            // Empty rather than a placeholder, so a column added for one service does not fill the
-            // page with noise on the others.
+            // Empty rather than a placeholder, so a column added for one service is not noise on the rest.
             return value ? (
                 <span className="font-mono" title={value}>
                     {value}
@@ -323,9 +321,8 @@ export function VirtualizedSpanList({
     const lastVisibleRangeRef = useRef<{ startIndex: number; stopIndex: number } | null>(null)
 
     const listRef = useListRef(null)
-    // useResizableColumns reuses its resolved widths object while the specs identity holds, so the
-    // memo depends on the boolean rather than on `spanErrors` itself: that object gets a new
-    // identity every time error counts arrive, which would rebuild the widths for every row.
+    // The dependency is the boolean, not `spanErrors`: that object gets a new identity every time
+    // error counts arrive, which would break the specs identity useResizableColumns caches on.
     const showSpanErrors = !!spanErrors
     const specs = useMemo(() => toSpanColumnSpecs(spanColumns, { showSpanErrors }), [spanColumns, showSpanErrors])
     const columns = useResizableColumns(TABLE_KEY, specs)

@@ -67,7 +67,6 @@ function DraftColumnRow({
     )
 }
 
-/** Edits accumulate in a draft so a half-built column set never reshapes the table behind the modal. */
 export function SpanColumnConfigurator(): JSX.Element {
     const { spanColumns } = useValues(tracingConfigLogic)
     const { setSpanColumns } = useActions(tracingConfigLogic)
@@ -178,8 +177,7 @@ export function SpanColumnConfigurator(): JSX.Element {
                                             ]}
                                             value={undefined}
                                             onChange={(_group, value) => {
-                                                // TaxonomicFilterValue admits null, which would
-                                                // otherwise persist a column keyed on "null".
+                                                // TaxonomicFilterValue admits null, which would persist a column keyed on "null".
                                                 if (typeof value === 'string' && value) {
                                                     setDraft(
                                                         addSpanColumn(draft, {

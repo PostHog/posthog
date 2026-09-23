@@ -88,8 +88,7 @@ export const tracingConfigLogic = kea<tracingConfigLogicType>([
     }),
 
     selectors({
-        // The persisted value outlives the code that wrote it, so it is filtered on the way out
-        // rather than trusted (same reasoning as resolveColumnWidths and its stored widths).
+        // Filtered on the way out, because the persisted value outlives the code that wrote it.
         spanColumns: [(s) => [s.storedSpanColumns], normalizeSpanColumns],
     }),
 ])

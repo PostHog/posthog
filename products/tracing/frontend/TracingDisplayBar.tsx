@@ -19,8 +19,7 @@ import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
  *
  *  - left: the facet rail toggle, the row-mode selector (Traces ⇄ Spans ⇄ Operations — what
  *    each result row represents), and the matching-count indicator.
- *  - right: column configuration (span list only) and Compare, both hidden on the Operations
- *    view, which has its own fixed table.
+ *  - right: column configuration (span list only) and Compare, both hidden on Operations.
  */
 export function TracingDisplayBar(): JSX.Element {
     const { totalMatchingFilters, compareActive, displayMode, operationsViewEnabled } = useValues(tracingSceneLogic())

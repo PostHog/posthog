@@ -4,10 +4,7 @@ import { MIN_COLUMN_WIDTH, ResizableColumnSpec } from '../TableColumns/columnWid
 
 export type BuiltInSpanColumnType = 'timestamp' | 'name' | 'service' | 'kind' | 'duration' | 'status' | 'traceId'
 
-export type SpanColumnConfig =
-    | { type: BuiltInSpanColumnType }
-    // The OTel key, read from the span's own attributes and then from the resource attributes.
-    | { type: 'attribute'; attributeKey: string }
+export type SpanColumnConfig = { type: BuiltInSpanColumnType } | { type: 'attribute'; attributeKey: string }
 
 export type SpanColumnType = SpanColumnConfig['type']
 
@@ -17,8 +14,7 @@ interface BuiltInSpanColumn {
     sortKey?: TracingOrderBy
 }
 
-// pinned: the record keys double as stored-width keys (see spanColumnKey), so renaming one resets
-// everyone's width for that column.
+// pinned: these keys are also the stored-width keys, so a rename resets everyone's widths.
 export const SPAN_COLUMN_REGISTRY: Record<BuiltInSpanColumnType, BuiltInSpanColumn> = {
     timestamp: { label: 'Timestamp', width: 215, sortKey: 'timestamp' },
     name: { label: 'Name', width: 320 },
@@ -90,10 +86,7 @@ export function toggleSpanAttributeColumn(columns: SpanColumnConfig[], attribute
         : addSpanColumn(columns, { type: 'attribute', attributeKey })
 }
 
-/**
- * Drops entries a past version of this module could have persisted but this one cannot render, so
- * editing SPAN_COLUMN_REGISTRY never leaves someone with a table that throws on load.
- */
+/** Filters what an older version persisted, so editing the registry cannot throw on load. */
 export function normalizeSpanColumns(stored: unknown): SpanColumnConfig[] {
     if (!Array.isArray(stored)) {
         return DEFAULT_SPAN_COLUMNS
@@ -115,10 +108,7 @@ export function normalizeSpanColumns(stored: unknown): SpanColumnConfig[] {
     return normalized.length > 0 ? normalized : DEFAULT_SPAN_COLUMNS
 }
 
-/**
- * The error badge is appended rather than configurable, because its flagged feature owns whether
- * it renders at all.
- */
+/** The error badge is not configurable, because its flagged feature owns whether it renders. */
 export function toSpanColumnSpecs(
     columns: SpanColumnConfig[],
     { showSpanErrors }: { showSpanErrors: boolean }
