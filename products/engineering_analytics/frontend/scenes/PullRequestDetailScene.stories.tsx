@@ -117,6 +117,13 @@ function timelines(item: PRTimelineApi): PullRequestTimelinesApi {
         jobs_available: true,
         merge_queue_state_available: true,
         generated_at: '2026-07-02T12:00:00Z',
+        merged_pr_count: item.merged_at ? 1 : 0,
+        red_seconds_per_merged_pr: [
+            { kind: 'red_fixed_by_push', seconds_per_merged_pr: 0 },
+            { kind: 'red_passed_on_rerun', seconds_per_merged_pr: 0 },
+            { kind: 'red_master_broken', seconds_per_merged_pr: 0 },
+            { kind: 'red_not_provable', seconds_per_merged_pr: 0 },
+        ],
         truncated: false,
         limit: 200,
         items: [item],
@@ -306,6 +313,19 @@ export const OutOfTheMergeQueue: Story = {
                         { github_team: 'team-web-analytics', medians: null },
                     ],
                 },
+            },
+        }),
+    ],
+}
+
+export const SectionLoadErrors: Story = {
+    render: () => <App />,
+    parameters: { testOptions: { waitForSelector: '#ea-section-pr-runs' } },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/pr_runs/': () => [500, null],
+                'api/projects/:team_id/engineering_analytics/pull_request_timelines/': () => [500, null],
             },
         }),
     ],

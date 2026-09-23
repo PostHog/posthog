@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { LemonBanner, LemonModal } from '@posthog/lemon-ui'
 
 import { WizardReview } from 'lib/components/WizardReview'
+import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 
 import { AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
@@ -17,6 +18,7 @@ import { ScannerAlertNotifications } from './ScannerAlertNotifications'
 interface ScannerAlertCreateModalProps {
     scannerId: string
     scannerType?: string
+    tagOptions?: LemonInputSelectOption[]
     isOpen: boolean
     onClose: () => void
 }
@@ -24,13 +26,19 @@ interface ScannerAlertCreateModalProps {
 export function ScannerAlertCreateModal({
     scannerId,
     scannerType,
+    tagOptions,
     isOpen,
     onClose,
 }: ScannerAlertCreateModalProps): JSX.Element {
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="" simple width={900}>
             {isOpen ? (
-                <ScannerAlertCreateModalContent scannerId={scannerId} scannerType={scannerType} onClose={onClose} />
+                <ScannerAlertCreateModalContent
+                    scannerId={scannerId}
+                    scannerType={scannerType}
+                    tagOptions={tagOptions}
+                    onClose={onClose}
+                />
             ) : null}
         </LemonModal>
     )
@@ -39,10 +47,12 @@ export function ScannerAlertCreateModal({
 function ScannerAlertCreateModalContent({
     scannerId,
     scannerType,
+    tagOptions,
     onClose,
 }: {
     scannerId: string
     scannerType?: string
+    tagOptions?: LemonInputSelectOption[]
     onClose: () => void
 }): JSX.Element {
     const formLogicProps = { scannerId, alert: null, onSubmitSuccess: onClose }
@@ -76,7 +86,7 @@ function ScannerAlertCreateModalContent({
             cannotAdvanceReason: thresholdError,
             renderContent: (showValidationErrors) => (
                 <div className="max-w-2xl space-y-6">
-                    <ScannerAlertSelectionFields scannerType={scannerType} />
+                    <ScannerAlertSelectionFields scannerType={scannerType} tagOptions={tagOptions} />
                     <ScannerAlertTrigger thresholdError={showValidationErrors ? thresholdError : undefined} />
                 </div>
             ),

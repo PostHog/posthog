@@ -215,9 +215,9 @@ class PipelineV3(Generic[ResumableData]):
         # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
         # Arrow coalescing keeps a driver's fetch size (e.g. a SQL cursor's 10k-row Arrow tables)
         # from becoming the queue's batch granularity, but it delays when a yielded table is
-        # persisted, so it must stay off for sources that treat yield as durable: resumable
-        # sources checkpoint resume state right after yielding, and the webhook path deletes its
-        # staged S3 files right after yielding.
+        # persisted, so it must stay off for sources that treat yield as durable: the webhook path
+        # deletes its staged S3 files right after yielding, and the resume cursor commit after a
+        # write assumes that write drained every table yielded so far.
         self._batcher = Batcher(
             self._logger,
             chunk_size=source_response.chunk_size,
@@ -325,6 +325,10 @@ class PipelineV3(Generic[ResumableData]):
     def _close_producers(self) -> None:
         self._pg_producer.close()
 
+    async def _commit_resume_state(self) -> None:
+        if self._resumable_source_manager is not None:
+            await asyncio.to_thread(self._resumable_source_manager.commit)
+
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
 
@@ -416,25 +420,11 @@ class PipelineV3(Generic[ResumableData]):
                     partition_count_fallback=self._resource.partition_count,
                 )
 
-            async for item in async_iterate(self._resource.items()):
-                py_table = None
-
-                record_source_item_stats(
-                    item,
-                    source_type=source_type,
-                    logger=self._logger,
-                    team_id=self._job.team_id,
-                    schema_name=self._schema.name,
-                )
-
-                self._batcher.batch(item)
-
-                # A single batched table may be split into several when a string/binary/list
-                # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
-                while self._batcher.should_yield():
+            async def stage_remaining_rows() -> None:
+                nonlocal chunk_index, row_count
+                while self._batcher.should_yield(include_incomplete_chunk=True):
                     py_table = self._batcher.get_table()
                     row_count += py_table.num_rows
-
                     await self._process_batch(
                         pa_table=py_table,
                         batch_index=chunk_index,
@@ -446,27 +436,68 @@ class PipelineV3(Generic[ResumableData]):
                         get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
                     chunk_index += 1
+                # Every yielded row is staged now, so whatever the source staged last is safe.
+                await self._commit_resume_state()
 
-                    cleanup_memory(pa_memory_pool, py_table)
+            awaiting_source = True
+            try:
+                async for item in async_iterate(self._resource.items()):
+                    awaiting_source = False
                     py_table = None
 
-                if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
-                    self._shutdown_monitor.raise_if_is_worker_shutdown()
+                    record_source_item_stats(
+                        item,
+                        source_type=source_type,
+                        logger=self._logger,
+                        team_id=self._job.team_id,
+                        schema_name=self._schema.name,
+                    )
 
-            while self._batcher.should_yield(include_incomplete_chunk=True):
-                py_table = self._batcher.get_table()
-                row_count += py_table.num_rows
-                await self._process_batch(
-                    pa_table=py_table,
-                    batch_index=chunk_index,
-                    row_count=row_count,
-                )
+                    self._batcher.batch(item)
 
-                if activity.in_activity():
-                    get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
-                    get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+                    # A single batched table may be split into several when a string/binary/list
+                    # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
+                    wrote_chunk = False
+                    while self._batcher.should_yield():
+                        py_table = self._batcher.get_table()
+                        row_count += py_table.num_rows
 
-                chunk_index += 1
+                        await self._process_batch(
+                            pa_table=py_table,
+                            batch_index=chunk_index,
+                            row_count=row_count,
+                        )
+                        wrote_chunk = True
+
+                        if activity.in_activity():
+                            get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
+                            get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+
+                        chunk_index += 1
+
+                        cleanup_memory(pa_memory_pool, py_table)
+                        py_table = None
+
+                    # A staged batch is what makes the cursor safe to persist: after a buffered-only item
+                    # it would skip rows that never landed, and after the shutdown check it would never land.
+                    if wrote_chunk:
+                        await self._commit_resume_state()
+
+                    if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
+                        self._shutdown_monitor.raise_if_is_worker_shutdown()
+                    awaiting_source = True
+            except Exception:
+                # A resumable source that ends its own attempt (a page or time budget) has staged a
+                # cursor for rows the batcher still holds. Staging them lets that cursor commit, so the
+                # next attempt continues from it instead of restarting the sweep.
+                if awaiting_source and source_is_resumable:
+                    try:
+                        await stage_remaining_rows()
+                    except Exception:
+                        await self._logger.aexception("Failed to stage the rows buffered before the source error")
+                raise
+
+            await stage_remaining_rows()
 
             await self._finalize(row_count=row_count)
 
@@ -619,8 +650,8 @@ class PipelineV3(Generic[ResumableData]):
             total_rows=row_count,
         )
 
-        schema_path = await self._send_final_batches(total_batches, row_count)
-
+        # Stage the watermark before the final-batch notification. The load consumer promotes the
+        # staged slot when that batch completes, and a slot staged after that is never promoted.
         await finalize_desc_sort_incremental_value(
             self._resource,
             self._schema,
@@ -629,6 +660,8 @@ class PipelineV3(Generic[ResumableData]):
             log_prefix="V3 Pipeline: ",
             staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
         )
+
+        schema_path = await self._send_final_batches(total_batches, row_count)
 
         await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
 

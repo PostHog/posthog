@@ -29,6 +29,10 @@ import type {
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingDurationHistogramRequestApi,
+    _TracingErrorCountsRequestApi,
+    _TracingErrorCountsResponseApi,
+    _TracingImpactRequestApi,
+    _TracingImpactResponseApi,
     _TracingLatencyHeatmapRequestApi,
     _TracingLatencyHeatmapResponseApi,
     _TracingQueryRequestApi,
@@ -197,6 +201,29 @@ export const tracingSpansDurationHistogramCreate = async (
     })
 }
 
+export const getTracingSpansErrorCountsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/error-counts/`
+}
+
+/**
+ * Count the exceptions the spans in view hit, by trace, by span and by session, for the
+ * span list's error badges.
+ *
+ * A caller asks about the id kinds it has, and each kind is a separate lookup.
+ */
+export const tracingSpansErrorCountsCreate = async (
+    projectId: string,
+    _tracingErrorCountsRequestApi: _TracingErrorCountsRequestApi,
+    options?: RequestInit
+): Promise<_TracingErrorCountsResponseApi> => {
+    return apiMutator<_TracingErrorCountsResponseApi>(getTracingSpansErrorCountsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingErrorCountsRequestApi),
+    })
+}
+
 export const getTracingSpansHasSpansRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/has_spans/`
 }
@@ -208,6 +235,23 @@ export const tracingSpansHasSpansRetrieve = async (
     return apiMutator<_HasSpansResponseApi>(getTracingSpansHasSpansRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTracingSpansImpactCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/impact/`
+}
+
+export const tracingSpansImpactCreate = async (
+    projectId: string,
+    _tracingImpactRequestApi: _TracingImpactRequestApi,
+    options?: RequestInit
+): Promise<_TracingImpactResponseApi> => {
+    return apiMutator<_TracingImpactResponseApi>(getTracingSpansImpactCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingImpactRequestApi),
     })
 }
 

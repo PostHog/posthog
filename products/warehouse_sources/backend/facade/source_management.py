@@ -86,6 +86,7 @@ _LAZY = {
     "RedshiftSource": "sources.redshift.source",
     "SnowflakeSource": "sources.snowflake.source",
     "connect_trino": "sources.trino.trino",
+    "is_posthog_managed_trino_host": "sources.trino.trino",
     "trino_error_to_message": "sources.trino.trino",
 }
 
