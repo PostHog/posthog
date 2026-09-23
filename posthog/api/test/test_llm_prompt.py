@@ -1488,7 +1488,12 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         mock_capture.reset_mock()
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production")
         assert response.status_code == status.HTTP_200_OK
-        expected_properties = {"prompt_fetch_path": "list", "prompt_label": "production", "prompt_count": 2}
+        expected_properties = {
+            "prompt_fetch_path": "list",
+            "prompt_label": "production",
+            "prompt_count": 2,
+            "prompt_resolved_reference_count": 0,
+        }
         assert fetch_events() == [expected_properties]
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["event_name"] == "$llm_prompt_fetched"
@@ -1506,7 +1511,9 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_prompts/", headers={"authorization": f"Bearer {pat_value}"}
         )
         assert response.status_code == status.HTTP_200_OK
-        assert fetch_events() == [{"prompt_fetch_path": "list", "prompt_label": None, "prompt_count": 2}]
+        assert fetch_events() == [
+            {"prompt_fetch_path": "list", "prompt_label": None, "prompt_count": 2, "prompt_resolved_reference_count": 0}
+        ]
 
         # A JWT is a background job impersonating a user, still an API caller.
         impersonation_token = encode_jwt(
@@ -2285,3 +2292,62 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         )
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/base/")
         assert response.json()["referenced_by"] == []
+
+    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
+    def test_labeled_list_resolves_references(self, _flag):
+        self._make_prompt("guardrails", prompt="G.", label="shared")
+        agent = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "agent", "prompt": "Intro. @@@prompt:name=guardrails|label=shared@@@"},
+            format="json",
+        )
+        assert agent.status_code == status.HTTP_201_CREATED
+        self.client.put(
+            f"/api/environments/{self.team.id}/llm_prompts/name/agent/labels/production/",
+            data={"version": 1},
+            format="json",
+        )
+        self._make_prompt("plain", prompt="No tags.", label="production")
+        # Second row sharing the partial: provenance must survive the memo hit.
+        self._make_prompt("agent-two", prompt="Also @@@prompt:name=guardrails|label=shared@@@", label="production")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production&content=full")
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = {row["name"]: row for row in response.json()["results"]}
+        assert rows["agent"]["prompt"] == "Intro. G."
+        assert rows["agent"]["resolved_references"] == [{"name": "guardrails", "version": 1, "label": "shared"}]
+        assert rows["agent-two"]["prompt"] == "Also G."
+        assert rows["agent-two"]["resolved_references"] == [{"name": "guardrails", "version": 1, "label": "shared"}]
+        assert rows["plain"]["prompt"] == "No tags."
+        assert rows["plain"]["resolved_references"] == []
+
+    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
+    def test_labeled_list_fails_naming_the_prompt_whose_reference_cannot_resolve(self, _flag):
+        self._make_prompt("healthy", prompt="Fine.", label="production")
+        # Simulates a raced write: a labeled prompt referencing a prompt that no longer exists.
+        self._make_prompt("broken", prompt="@@@prompt:name=missing|version=1@@@", label="production")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production&content=full")
+
+        # Never a short page: a paginating client reads one as the end of the results.
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["reference_name"] == "missing"
+        assert "broken" in response.json()["detail"]
+
+    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=False)
+    def test_labeled_list_passes_tags_through_when_flag_is_off(self, _flag):
+        self._make_prompt("guardrails", prompt="G.", label="shared")
+        self._make_prompt("agent", prompt="@@@prompt:name=guardrails|label=shared@@@", label="production")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production&content=full")
+
+        rows = {row["name"]: row for row in response.json()["results"]}
+        assert rows["agent"]["prompt"] == "@@@prompt:name=guardrails|label=shared@@@"
+        assert rows["agent"]["resolved_references"] is None
+
+        with patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True):
+            raw = self.client.get(
+                f"/api/environments/{self.team.id}/llm_prompts/?label=production&content=full&resolve=false"
+            )
+        assert raw.json()["results"][0]["prompt"] == "@@@prompt:name=guardrails|label=shared@@@"

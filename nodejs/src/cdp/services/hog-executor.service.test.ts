@@ -296,6 +296,33 @@ describe('Hog Executor', () => {
             `)
         })
 
+        it('redacts secret values from the log when the inputs fail to build', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.input_printer,
+                ...HOG_INPUTS_EXAMPLES.secret_inputs,
+            })
+            const invocation = createExampleInvocation(fn)
+            delete (invocation.state.globals as any).inputs
+            jest.spyOn((executor as any).hogExecutor.hogInputsService, 'buildInputsWithGlobals').mockRejectedValueOnce(
+                new Error('Unsupported unit for dateDiff: super secret')
+            )
+
+            const result = await executor.execute(invocation)
+
+            const messages = result.logs.map((x) => x.message)
+            expect(messages.join('\n')).not.toContain('super secret')
+            // result.error is persisted and shown in the Invocations tab, so it must be masked too.
+            expect(result.error).toContain('***REDACTED***')
+            expect(result.error).not.toContain('super secret')
+            expect(messages).toEqual(
+                expect.arrayContaining([
+                    expect.stringContaining(
+                        'Error building inputs: Error: Unsupported unit for dateDiff: ***REDACTED***'
+                    ),
+                ])
+            )
+        })
+
         it('queues up an async function call', async () => {
             const invocation = createExampleInvocation(hogFunction)
             invocation.state.globals.event.timestamp = '2024-06-07T12:00:00.000Z'
