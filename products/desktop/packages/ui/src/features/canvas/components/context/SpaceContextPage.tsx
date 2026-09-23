@@ -4,7 +4,9 @@ import {
   type ContextDocument,
   type ContextGoal,
   parseContextDocument,
+  readAutonomy,
   serializeContextDocument,
+  withAutonomy,
 } from "@posthog/core/canvas/contextDocument";
 import { spaceFilesFolder } from "@posthog/core/canvas/contextFiles";
 import { Button, cn, Text } from "@posthog/quill";
@@ -31,6 +33,7 @@ import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AutonomySection } from "./AutonomySection";
 import { ContextEmptyHero } from "./ContextEmptyHero";
 import { GoalsList } from "./GoalsList";
 import { KnowledgeList } from "./KnowledgeList";
@@ -91,6 +94,9 @@ export function SpaceContextPage({
 
   const saveDoc = (next: ContextDocument) =>
     store.save(serializeContextDocument(next));
+  // Only a space set up for a goal carries the key; other spaces have no loops to steer.
+  const autonomy = readAutonomy(doc);
+
   const knowledgeStore: ContextDocumentStore = {
     ...store,
     content: doc.knowledge,
@@ -183,6 +189,13 @@ export function SpaceContextPage({
                   isSaving={store.isSaving}
                   error={brokenIn("goals")}
                 />
+                {autonomy ? (
+                  <AutonomySection
+                    value={autonomy}
+                    disabled={store.isSaving}
+                    onChange={(level) => saveDoc(withAutonomy(doc, level))}
+                  />
+                ) : null}
                 <KnowledgeList
                   channelName={channelName}
                   links={doc.links}
