@@ -39,7 +39,6 @@ function pipClass(state: WizardRunProgressState): string {
 export function WizardRunSyncCard({
     run,
     tasks,
-    activeCount,
     elapsedSeconds,
     onExpand,
     onClose,
@@ -47,7 +46,6 @@ export function WizardRunSyncCard({
 }: {
     run: WizardRunApi
     tasks: readonly WizardRunTaskApi[]
-    activeCount: number
     elapsedSeconds: number
     onExpand: () => void
     onClose: () => void
@@ -94,11 +92,6 @@ export function WizardRunSyncCard({
                         <p className="m-0 truncate text-xs text-muted">
                             {currentTask ? currentState : run.program.name}
                         </p>
-                        {activeCount > 1 && (
-                            <p className="m-0 truncate text-xs text-muted">
-                                {activeCount} runs in progress · Showing the newest
-                            </p>
-                        )}
                     </div>
                     <span className="shrink-0 text-xs tabular-nums text-muted">{formatElapsed(elapsedSeconds)}</span>
                 </div>

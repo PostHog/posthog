@@ -18,7 +18,6 @@ describe('WizardRunSyncCard', () => {
         const props = {
             run,
             tasks,
-            activeCount: 1,
             elapsedSeconds: 10,
             onExpand: jest.fn(),
             onClose: jest.fn(),

@@ -13,15 +13,19 @@ import { wizardRunIsActive } from '../wizardRunDisplay'
 import { WizardRunSyncCard } from './WizardRunSyncCard'
 import { WizardRunSyncDetailsDialog } from './WizardRunSyncDetailsDialog'
 import { wizardRunSyncLogic } from './wizardRunSyncLogic'
+import { WizardRunSyncRunPicker } from './WizardRunSyncRunPicker'
 
 export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.Element {
     const logic = wizardRunSyncLogic({ projectId })
     useMountedLogic(logic)
-    const { activeCount, closedRunIds, dismissedRunIds, run, tasks } = useValues(logic)
-    const { closeRun, dismissRun } = useActions(logic)
+    const { activeCount, activeRuns, closedRunIds, dismissedRunIds, run, tasks } = useValues(logic)
+    const { closeRun, dismissRun, selectRun: selectSyncRun } = useActions(logic)
     const { sceneKey } = useValues(sceneLogic)
     const [dialogRun, setDialogRun] = useState<WizardRunApi | null>(null)
     const [now, setNow] = useState(Date.now)
+    const visibleRuns = activeRuns.filter(
+        (activeRun) => !closedRunIds.includes(activeRun.id) && !dismissedRunIds.includes(activeRun.id)
+    )
     const runHidden = run && (closedRunIds.includes(run.id) || dismissedRunIds.includes(run.id))
     useInterval(() => setNow(Date.now()), run && !runHidden && wizardRunIsActive(run) ? 1000 : null)
 
@@ -43,10 +47,17 @@ export function WizardRunSyncProject({ projectId }: { projectId: string }): JSX.
         <>
             {run && !runHidden && (
                 <div className="fixed bottom-5 right-5 z-[60] max-w-[calc(100vw-2.5rem)]">
+                    {activeCount > 1 && visibleRuns.length > 0 && (
+                        <WizardRunSyncRunPicker
+                            runs={visibleRuns}
+                            activeCount={activeCount}
+                            currentRunId={run.id}
+                            onSelect={selectSyncRun}
+                        />
+                    )}
                     <WizardRunSyncCard
                         run={run}
                         tasks={tasks}
-                        activeCount={activeCount}
                         elapsedSeconds={elapsedSeconds}
                         onExpand={openDetails}
                         onClose={() => closeRun(run.id)}

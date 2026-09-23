@@ -62,8 +62,8 @@ GET   /api/projects/{project_id}/wizard/runs/{run_id}/stream/
 ```
 
 Run responses include the creator ID and basic creator details for attribution in project-level run lists.
-Use `GET /api/projects/{project_id}/wizard/runs/?status=created,running&limit=1` to fetch the newest active run; `count` gives the total number of active runs in the project. The `status` filter also accepts any individual run status.
-The app-wide sync widget polls this summary and opens one event stream for the newest run.
+Use `GET /api/projects/{project_id}/wizard/runs/?status=created,running&limit=5` to fetch the newest active runs; `count` gives the total number of active runs in the project. The `status` filter also accepts any individual run status.
+The app-wide sync widget polls this summary and opens one event stream for the displayed run. It shows the newest run by default. When multiple runs are active, a stacked picker opens on hover or click so users can switch among the five newest runs. The Wizard page lists any others. A manual selection stays in place while that run remains in the active list.
 Its card shows the current task, run stages, elapsed time, environment, and workspace. "Close" hides the current run until the page reloads, while "Don't show this run again" hides that run in this browser. New runs still show the widget, and run details remain on the Wizard page. A finished run stays visible until closed.
 The `wizard-run-sync` feature flag switches the authenticated shell from the session sync widget to the run sync widget.
 

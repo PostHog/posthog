@@ -5,6 +5,8 @@ import type { WizardRunApi, WizardRunTaskApi, WizardRunTaskListApi } from '../ge
 import { wizardRunIsActive } from '../wizardRunDisplay'
 
 const ACTIVE_RUN_POLL_MS = 30_000
+// ponytail: keep the FAB to five recent runs; the Wizard page lists the rest.
+const ACTIVE_RUN_LIST_LIMIT = 5
 
 type RunStreamState = Pick<
     WizardRunApi,
@@ -18,17 +20,22 @@ export interface wizardRunSyncLogicProps {
 
 export interface wizardRunSyncLogicValues {
     activeCount: number
+    activeRuns: WizardRunApi[]
     closedRunIds: string[]
     dismissedRunIds: string[]
     run: WizardRunApi | null
+    selectedRunId: string | null
     tasks: readonly WizardRunTaskApi[]
 }
 
 export interface wizardRunSyncLogicActions {
     checkActiveRuns: () => { value: true }
-    activeRunsLoaded: (count: number, run: WizardRunApi | null) => { count: number; run: WizardRunApi | null }
+    activeRunsLoaded: (count: number, runs: WizardRunApi[]) => { count: number; runs: WizardRunApi[] }
     clearTasks: () => { value: true }
     runUpdated: (state: RunStreamState) => { state: RunStreamState }
+    showRun: (run: WizardRunApi | null) => { run: WizardRunApi | null }
+    selectRun: (run: WizardRunApi) => { run: WizardRunApi }
+    connectRun: () => { value: true }
     closeRun: (runId: string) => { runId: string }
     dismissRun: (runId: string) => { runId: string }
 }
@@ -45,31 +52,39 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
     key((logicProps) => logicProps.projectId),
     actions({
         checkActiveRuns: true,
-        activeRunsLoaded: (count: number, run: WizardRunApi | null) => ({ count, run }),
+        activeRunsLoaded: (count: number, runs: WizardRunApi[]) => ({ count, runs }),
         clearTasks: true,
         runUpdated: (state: RunStreamState) => ({ state }),
+        showRun: (run: WizardRunApi | null) => ({ run }),
+        selectRun: (run: WizardRunApi) => ({ run }),
+        connectRun: true,
         closeRun: (runId: string) => ({ runId }),
         dismissRun: (runId: string) => ({ runId }),
     }),
     reducers({
         activeCount: [0, { activeRunsLoaded: (_, { count }) => count }],
+        activeRuns: [[] as WizardRunApi[], { activeRunsLoaded: (_, { runs }) => runs }],
         closedRunIds: [[] as string[], { closeRun: (current, { runId }) => [...current, runId] }],
         dismissedRunIds: [
             [] as string[],
             { persist: true },
             { dismissRun: (current, { runId }) => (current.includes(runId) ? current : [...current, runId]) },
         ],
+        selectedRunId: [
+            null as string | null,
+            {
+                activeRunsLoaded: (current, { runs }) =>
+                    current && runs.some((run) => run.id === current) ? current : null,
+                selectRun: (_, { run }) => run.id,
+                closeRun: (current, { runId }) => (current === runId ? null : current),
+                dismissRun: (current, { runId }) => (current === runId ? null : current),
+            },
+        ],
         run: [
             null as WizardRunApi | null,
             {
-                activeRunsLoaded: (current, { run }) =>
-                    run
-                        ? current?.id === run.id
-                            ? current
-                            : run
-                        : current && !wizardRunIsActive(current)
-                          ? current
-                          : null,
+                showRun: (_, { run }) => run,
+                selectRun: (_, { run }) => run,
                 runUpdated: (current, { state }) => (current ? { ...current, ...state } : null),
                 closeRun: () => null,
                 dismissRun: () => null,
@@ -79,6 +94,8 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
             [] as readonly WizardRunTaskApi[],
             {
                 clearTasks: () => [],
+                showRun: () => [],
+                selectRun: () => [],
                 runUpdated: (_, { state }) => state.tasks,
                 closeRun: () => [],
                 dismissRun: () => [],
@@ -92,8 +109,11 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
             }
             cache.checking = true
             try {
-                const page = await wizardRunsList(logicProps.projectId, { status: ['created', 'running'], limit: 1 })
-                actions.activeRunsLoaded(page.count, page.results[0] ?? null)
+                const page = await wizardRunsList(logicProps.projectId, {
+                    status: ['created', 'running'],
+                    limit: ACTIVE_RUN_LIST_LIMIT,
+                })
+                actions.activeRunsLoaded(page.count, page.results)
             } catch {
                 return
             } finally {
@@ -101,6 +121,22 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
             }
         },
         activeRunsLoaded: () => {
+            const visibleRuns = values.activeRuns.filter(
+                (run) => !values.closedRunIds.includes(run.id) && !values.dismissedRunIds.includes(run.id)
+            )
+            const nextRun =
+                visibleRuns.find((run) => run.id === values.selectedRunId) ??
+                visibleRuns[0] ??
+                (values.run && !wizardRunIsActive(values.run) ? values.run : null)
+            if (nextRun?.id !== values.run?.id) {
+                actions.showRun(nextRun)
+            }
+            actions.connectRun()
+        },
+        selectRun: () => {
+            actions.connectRun()
+        },
+        connectRun: () => {
             const run = values.run
             if (
                 !run ||
@@ -139,10 +175,12 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
         closeRun: () => {
             cache.disposables.dispose('run-stream')
             cache.connectedRunId = undefined
+            actions.activeRunsLoaded(values.activeCount, values.activeRuns)
         },
         dismissRun: () => {
             cache.disposables.dispose('run-stream')
             cache.connectedRunId = undefined
+            actions.activeRunsLoaded(values.activeCount, values.activeRuns)
         },
     })),
     events(({ actions, cache }) => ({

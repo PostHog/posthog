@@ -42,7 +42,7 @@ describe('wizardRunSyncLogic', () => {
     it('streams only the newest active run and switches when it changes', async () => {
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(mockWizardRunsList).toHaveBeenCalledWith('1', { status: ['created', 'running'], limit: 1 })
+        expect(mockWizardRunsList).toHaveBeenCalledWith('1', { status: ['created', 'running'], limit: 5 })
         expect(logic.values.activeCount).toBe(2)
         expect(logic.values.run?.id).toBe('newer')
         expect(MockEventSource.instances).toHaveLength(1)
@@ -65,6 +65,34 @@ describe('wizardRunSyncLogic', () => {
         expect(MockEventSource.instances).toHaveLength(2)
         expect(MockEventSource.last().url).toBe('/api/projects/1/wizard/runs/older/stream/')
         expect(logic.values.tasks).toEqual([])
+    })
+
+    it('switches the only stream to a selected run and keeps that choice while it is active', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const newerStream = MockEventSource.last()
+        const older = run('older')
+        mockWizardRunsList.mockResolvedValue({ count: 2, results: [run('newer'), older] })
+        logic.actions.checkActiveRuns()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.selectRun(older)
+        expect(logic.values.run?.id).toBe('older')
+        expect(newerStream.readyState).toBe(MockEventSource.CLOSED)
+        expect(MockEventSource.last().url).toBe('/api/projects/1/wizard/runs/older/stream/')
+
+        const olderStream = MockEventSource.last()
+        mockWizardRunsList.mockResolvedValue({ count: 3, results: [run('latest'), run('newer'), older] })
+        logic.actions.checkActiveRuns()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.run?.id).toBe('older')
+        expect(MockEventSource.instances).toHaveLength(2)
+
+        mockWizardRunsList.mockResolvedValue({ count: 2, results: [run('latest'), run('newer')] })
+        olderStream.emitMessage(JSON.stringify({ status: 'completed', stage: null, tasks: [] }))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.run?.id).toBe('latest')
+        expect(olderStream.readyState).toBe(MockEventSource.CLOSED)
+        expect(MockEventSource.instances).toHaveLength(3)
     })
 
     it('keeps a finished run visible until dismissed', async () => {

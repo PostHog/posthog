@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useState } from 'react'
 
 import type { WizardRunApi, WizardRunTaskApi } from '../generated/api.schemas'
 import { WizardRunSyncCard } from './WizardRunSyncCard'
+import { WizardRunSyncRunPicker } from './WizardRunSyncRunPicker'
 
 const run: WizardRunApi = {
     id: '00000000-0000-4000-8000-000000000001',
@@ -47,14 +49,13 @@ const meta: Meta<typeof WizardRunSyncCard> = {
     parameters: { layout: 'fullscreen' },
     decorators: [
         (Story) => (
-            <div className="flex justify-end bg-primary p-8">
+            <div className="flex min-h-[640px] items-end justify-end bg-primary p-8">
                 <Story />
             </div>
         ),
     ],
     args: {
         run,
-        activeCount: 3,
         elapsedSeconds: 134,
         tasks: [
             task('Identify the existing analytics integration', 'completed'),
@@ -72,6 +73,40 @@ type Story = StoryObj<typeof meta>
 
 export const Running: Story = {}
 
+export const Stacked: Story = {
+    render: function StackedRunCard(args) {
+        const runs = [
+            run,
+            {
+                ...run,
+                id: '00000000-0000-4000-8000-000000000002',
+                environment: 'local' as const,
+                workspace: { type: 'local_folder' as const, project_name: 'example-project' },
+                created_at: '2026-09-23T09:30:00Z',
+            },
+            {
+                ...run,
+                id: '00000000-0000-4000-8000-000000000003',
+                workspace: { type: 'git_repository' as const, repository: 'example/other-project' },
+                created_at: '2026-09-23T09:00:00Z',
+            },
+        ]
+        const [selectedRun, setSelectedRun] = useState<WizardRunApi>(run)
+
+        return (
+            <div className="w-[340px]">
+                <WizardRunSyncRunPicker
+                    runs={runs}
+                    activeCount={3}
+                    currentRunId={selectedRun.id}
+                    onSelect={setSelectedRun}
+                />
+                <WizardRunSyncCard {...args} run={selectedRun} tasks={selectedRun.id === run.id ? args.tasks : []} />
+            </div>
+        )
+    },
+}
+
 export const LocalRunning: Story = {
     args: {
         run: {
@@ -80,7 +115,6 @@ export const LocalRunning: Story = {
             workspace: { type: 'local_folder', project_name: 'example-project' },
             stage: null,
         },
-        activeCount: 1,
     },
 }
 
@@ -88,6 +122,5 @@ export const Completed: Story = {
     args: {
         run: { ...run, status: 'completed', stage: null },
         tasks: [task('Install the SDK and configure capture', 'running')],
-        activeCount: 0,
     },
 }
