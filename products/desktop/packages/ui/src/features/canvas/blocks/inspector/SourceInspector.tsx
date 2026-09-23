@@ -646,7 +646,7 @@ function ParamField({
           <div className="flex items-center gap-2">
             <label
               className="relative size-8 shrink-0 cursor-pointer overflow-hidden rounded-md border border-border"
-              style={{ background: color }}
+              style={{ backgroundColor: color }}
             >
               <input
                 type="color"
