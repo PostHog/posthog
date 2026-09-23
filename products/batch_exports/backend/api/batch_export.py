@@ -17,6 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
+from rest_framework.pagination import CursorPagination
 
 from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
 
@@ -28,7 +29,6 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.api.log_entries import LogEntryMixin
-from posthog.api.pagination import StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
@@ -215,7 +215,7 @@ class BatchExportRunListQuerySerializer(serializers.Serializer):
     )
 
 
-class RunsCursorPagination(StableCursorPagination):
+class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
@@ -2083,7 +2083,7 @@ class BatchExportBackfillSerializer(serializers.ModelSerializer):
         )
 
 
-class BackfillsCursorPagination(StableCursorPagination):
+class BackfillsCursorPagination(CursorPagination):
     page_size = 50
 
 

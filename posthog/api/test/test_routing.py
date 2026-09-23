@@ -18,11 +18,9 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.test import APIRequestFactory
 
-from posthog.api.pagination import StableCursorPagination, stable_queryset_ordering
+from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.file_system.file_system import FileSystem
@@ -80,17 +78,6 @@ def test_stable_queryset_ordering_leaves_sliced_and_grouped_querysets_unchanged(
     grouped_queryset = Annotation.objects.values("team_id").annotate(count=Count("id")).order_by("team_id")
 
     assert stable_queryset_ordering(grouped_queryset).query.order_by == ("team_id",)
-
-
-def test_stable_cursor_pagination_adds_a_primary_key_tiebreaker() -> None:
-    class DateMarkerCursorPagination(StableCursorPagination):
-        ordering = "-date_marker"
-
-    ordering = DateMarkerCursorPagination().get_ordering(
-        Request(APIRequestFactory().get("/")), Annotation.objects.all(), FooViewSet()
-    )
-
-    assert ordering == ("-date_marker", "-pk")
 
 
 test_router = DefaultRouterPlusPlus()
