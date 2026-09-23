@@ -1,8 +1,11 @@
 import os
+import array
 import socket
 import threading
 from collections.abc import AsyncIterable, Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import BaseTest
@@ -240,6 +243,8 @@ class TestBuildQuery:
                 ClickHouseColumn(name="ip", data_type="Nullable(IPv4)", nullable=True),
                 ClickHouseColumn(name="tags", data_type="Array(String)", nullable=False),
                 ClickHouseColumn(name="status", data_type="LowCardinality(Enum8('a' = 1))", nullable=False),
+                ClickHouseColumn(name="payload", data_type="JSON(a UInt32)", nullable=False),
+                ClickHouseColumn(name="value", data_type="Dynamic(max_types=8)", nullable=False),
             ],
             should_use_incremental_field=False,
             incremental_field=None,
@@ -249,6 +254,8 @@ class TestBuildQuery:
         assert "toString(`ip`) AS `ip`" in query
         assert "toString(`tags`) AS `tags`" in query
         assert "toString(`status`) AS `status`" in query
+        assert "toString(`payload`) AS `payload`" in query
+        assert "toString(`value`) AS `value`" in query
 
     def test_full_refresh_with_row_filters_binds_values_as_params(self):
         query, params = _build_query(
@@ -1449,7 +1456,7 @@ class TestGetRowsBatching:
         cm.__exit__.return_value = False
         return cm
 
-    def _run_get_rows(self, blocks):
+    def _run_get_rows(self, blocks, stream_client=None, columns=None):
         """Invoke `clickhouse_source(...).items()` against a stream of `blocks`."""
         from contextlib import contextmanager
 
@@ -1459,9 +1466,12 @@ class TestGetRowsBatching:
         mock_client = MagicMock()
         mock_table = MagicMock()
         mock_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        if columns is not None:
+            mock_table.columns = columns
 
-        stream_client = MagicMock()
-        stream_client.query_arrow_stream.return_value = self._stream_context(blocks)
+        if stream_client is None:
+            stream_client = MagicMock()
+            stream_client.query_arrow_stream.return_value = self._stream_context(blocks)
 
         @contextmanager
         def fake_tunnel():
@@ -1524,6 +1534,69 @@ class TestGetRowsBatching:
 
     def test_empty_stream_yields_nothing(self):
         assert self._run_get_rows([]) == []
+
+    @parameterized.expand(
+        [
+            ("http_403", "HTTP driver received HTTP status 403, server response: invalid format ArrowStream"),
+            ("unknown_format", "Code: 73. DB::Exception: Unknown format ArrowStream. (UNKNOWN_FORMAT)"),
+        ]
+    )
+    def test_reads_native_blocks_when_host_rejects_arrow(self, _name, error_msg):
+        columns = [
+            ClickHouseColumn("id", "UInt64", False),
+            ClickHouseColumn("created_at", "DateTime('UTC')", False),
+            ClickHouseColumn("label", "Nullable(String)", True),
+            ClickHouseColumn("location", "Point", False),
+            ClickHouseColumn("exact_at", "Nullable(DateTime64(9, 'UTC'))", True),
+            ClickHouseColumn("tenth_at", "DateTime64(1)", False),
+        ]
+        new_york = ZoneInfo("America/New_York")
+        native_blocks = [
+            [
+                array.array("Q", [1, 2]),
+                [datetime(2026, 1, 1, 12, tzinfo=UTC), datetime(2026, 1, 1, 7, tzinfo=new_york)],
+                ["a", None],
+                [(1.5, 2.5), (0.0, 0.0)],
+                [1767268800123456789, None],
+                [17672688001, 17672688002],
+            ],
+            [array.array("Q", [3]), [datetime(2026, 1, 2, tzinfo=UTC)], ["c"], [(3.0, 4.0)], [1], [0]],
+        ]
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = ClickHouseError(error_msg)
+        stream_client.query_column_block_stream.return_value = self._stream_context(native_blocks)
+
+        yielded = self._run_get_rows([], stream_client=stream_client, columns=columns)
+
+        assert stream_client.query_column_block_stream.call_args.kwargs["column_formats"] == {
+            "exact_at": "int",
+            "tenth_at": "int",
+        }
+        assert len(yielded) == 1
+        assert yielded[0].schema == pa.schema([column.to_arrow_field() for column in columns])
+        assert yielded[0].column("exact_at").cast(pa.int64()).to_pylist() == [1767268800123456789, None, 1]
+        assert yielded[0].column("tenth_at").cast(pa.int64()).to_pylist() == [1767268800100, 1767268800200, 0]
+        assert yielded[0].drop_columns(["exact_at", "tenth_at"]).to_pydict() == {
+            "id": [1, 2, 3],
+            "created_at": [
+                datetime(2026, 1, 1, 12, tzinfo=UTC),
+                datetime(2026, 1, 1, 12, tzinfo=UTC),
+                datetime(2026, 1, 2, tzinfo=UTC),
+            ],
+            "label": ["a", None, "c"],
+            "location": ["(1.5, 2.5)", "(0.0, 0.0)", "(3.0, 4.0)"],
+        }
+
+    def test_other_query_errors_do_not_fall_back_to_native(self):
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = ClickHouseError(
+            "Code: 60. DB::Exception: Unknown table expression identifier. (UNKNOWN_TABLE)"
+        )
+
+        with pytest.raises(ClickHouseError, match="UNKNOWN_TABLE"):
+            self._run_get_rows([], stream_client=stream_client)
+
+        stream_client.query_column_block_stream.assert_not_called()
 
 
 class TestClickHouseReconcileSchemaMetadata(BaseTest):

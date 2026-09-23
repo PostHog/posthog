@@ -245,6 +245,12 @@ class TestPrepareS3FilesForQuerying:
             # translates every back-off response code to, so a store whose wording the message
             # needles don't match is still retried rather than failing the sync.
             ("throttled", OSError(errno.EBUSY, "Reduce your request rate for this prefix.")),
+            # AWS omits the error code from a HeadObject response body, so s3fs's _cp_file (which
+            # HEADs the destination) raises the same bare PermissionError for a brief
+            # credential-resolution race as it does for a genuine denial. Regression: this used to
+            # fail the whole sync on the first attempt instead of retrying, unlike the identical
+            # ambiguity _purge_s3_prefix already retries.
+            ("credential_resolution_race", PermissionError("Forbidden")),
         ]
     )
     async def test_retries_transient_s3_error_during_copy(self, name: str, transient_error: OSError):
@@ -383,6 +389,31 @@ async def test_delete_folder_swallows_transient_s3_connection_error(mock_capture
     s3 = _mock_s3()
     s3._rm = AsyncMock(
         side_effect=botocore.exceptions.ConnectTimeoutError(endpoint_url="https://example.s3.amazonaws.com")
+    )
+
+    with _mock_s3_context(s3):
+        await prepare_s3_files_for_querying(
+            folder_path="job",
+            table_name="events",
+            file_uris=[],
+            use_timestamped_folders=False,
+            delete_existing=True,
+        )
+
+    s3._rm.assert_awaited_once()
+    mock_capture_exception.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch(f"{_UTIL_MODULE}.capture_exception")
+async def test_delete_folder_swallows_s3_clock_skew_error(mock_capture_exception: MagicMock) -> None:
+    # S3 rejects a signed request whose clock has drifted too far from its own with
+    # RequestTimeTooSkewed, which s3fs maps onto the same generic PermissionError as a real access
+    # denial. The worker's own clock resyncs and the identical delete succeeds later, so this must
+    # not mint an error-tracking issue any more than a connection blip would.
+    s3 = _mock_s3()
+    s3._rm = AsyncMock(
+        side_effect=PermissionError("The difference between the request time and the current time is too large.")
     )
 
     with _mock_s3_context(s3):

@@ -11,7 +11,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { useStorybookMocks } from '~/mocks/browser'
 
-import { expect, spyOn, waitFor } from 'storybook/test'
+import { expect, spyOn, userEvent, waitFor } from 'storybook/test'
 
 import { TerminalDock } from './TerminalDock'
 import { terminalDockLogic } from './terminalDockLogic'
@@ -48,7 +48,10 @@ const meta: Meta<typeof TerminalScene> = {
     title: 'Scenes-App/Terminal',
     component: TerminalScene,
     parameters: { layout: 'padded', featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL] },
-    beforeEach: () => {
+    beforeEach: ({ parameters }) => {
+        if (parameters.liveRuntime) {
+            return
+        }
         // Visual snapshots must not depend on firmware downloads or Linux boot timing.
         const start = spyOn(TerminalRuntime.prototype, 'start').mockImplementation(
             async (_server, _signal, onReady) => {
@@ -292,6 +295,11 @@ const meta: Meta<typeof TerminalScene> = {
 export default meta
 
 export const Default: StoryObj<typeof TerminalScene> = {}
+
+export const LiveRuntime: StoryObj<typeof TerminalScene> = {
+    tags: ['!test'],
+    parameters: { liveRuntime: true },
+}
 export const Docked: StoryObj<typeof TerminalScene> = {
     parameters: {
         docked: true,
@@ -321,4 +329,29 @@ export const Narrow: StoryObj<typeof TerminalScene> = {
             </div>
         ),
     ],
+}
+
+export const DeleteConfirmation: StoryObj<typeof TerminalScene> = {
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        void terminalLogic.cache.filesystem
+            .confirmOperation({
+                title: 'Delete PostHog files and folders?',
+                description:
+                    'Remove 4 files and folders from project 1. Removing the last file reference also deletes the PostHog object. This affects everyone in the project.',
+                items: [
+                    '/posthog/files/Research/Welcome.md (notebook: demonote)',
+                    '/posthog/files/Research/Overview.json (dashboard: 101)',
+                    '/posthog/files/Research/Signups.json (insight: demoinsight)',
+                    '/posthog/files/Research',
+                ],
+            })
+            .catch(() => {})
+        await waitFor(() => expect(document.querySelector('[data-attr="terminal-confirmation"]')).not.toBeNull())
+        const approve = document.querySelector<HTMLButtonElement>('[data-attr="terminal-confirmation-approve"]')!
+        approve.focus()
+        await userEvent.keyboard('{Enter} {Escape}{Tab}')
+        approve.click()
+        expect(document.querySelector('[data-attr="terminal-confirmation"]')).not.toBeNull()
+    },
 }
