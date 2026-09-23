@@ -1,4 +1,4 @@
-{% from "_macros.jinja" import cite_in, rate_notability %}Categorize this session according to: {{ user_prompt }}
+{% from "_macros.jinja" import cite_in, pick_media, rate_notability %}Categorize this session according to: {{ user_prompt }}
 
 In `reasoning`, work through what the session shows that bears on this; then choose tags from this fixed vocabulary: [{{ vocabulary }}]. {% if multi_label %}Pick every tag that applies.{% else %}Pick exactly one tag.{% endif %} A tag is required even when the session never shows what the criterion describes, so in that case pick the least wrong one and follow the relevance rules: lead the `reasoning` with the fact that the session doesn't show it, and keep `confidence` low.
 {% if allow_freeform_tags %}
@@ -9,3 +9,5 @@ Freeform tags this scanner has already used on other sessions: [{{ known_freefor
 {{ cite_in('reasoning') }}
 
 {{ rate_notability() }}
+
+{{ pick_media() }}
