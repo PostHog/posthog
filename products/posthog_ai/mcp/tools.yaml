@@ -137,3 +137,6 @@ tools:
     terminal-ai-create:
         operation: terminal_ai_create
         enabled: false
+    turn-suggestions-resolve-create:
+        operation: turn_suggestions_resolve_create
+        enabled: false
