@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.contrib.auth.models import AnonymousUser
 from django.db.utils import IntegrityError
 from django.utils import timezone
 
@@ -13,7 +14,15 @@ from parameterized import parameterized
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    Change,
+    Detail,
+    Trigger,
+    load_activity,
+    load_all_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_INTENT_MAX_LENGTH,
@@ -525,6 +534,35 @@ class TestActivityLogVisibilityManager(BaseTest):
 
         staff = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
         assert staff.filter(scope="conversations_ticket", activity="commented").exists()
+
+    @parameterized.expand(
+        [
+            ("load_activity_no_user", "load_activity", None, False),
+            ("load_activity_anonymous", "load_activity", "anonymous", False),
+            ("load_activity_non_staff", "load_activity", "non_staff", False),
+            ("load_activity_staff", "load_activity", "staff", True),
+            ("load_all_activity_no_user", "load_all_activity", None, False),
+            ("load_all_activity_non_staff", "load_all_activity", "non_staff", False),
+            ("load_all_activity_staff", "load_all_activity", "staff", True),
+        ]
+    )
+    def test_activity_readers_apply_restrictions(
+        self, _name: str, reader: str, user_kind: str | None, expect_restricted_visible: bool
+    ) -> None:
+        ActivityLog.objects.create(team_id=self.team.id, scope="Team", activity="email_sending_suspended")
+        ActivityLog.objects.create(team_id=self.team.id, scope="Team", activity="updated")
+        self.user.is_staff = user_kind == "staff"
+        self.user.save()
+        user = {None: None, "anonymous": AnonymousUser(), "non_staff": self.user, "staff": self.user}[user_kind]
+
+        if reader == "load_activity":
+            page = load_activity(scope="Team", team_id=self.team.id, user=user)
+        else:
+            page = load_all_activity(scope_list=["Team"], team_id=self.team.id, user=user)
+
+        activities = {log.activity for log in page.results}
+        assert "updated" in activities
+        assert ("email_sending_suspended" in activities) == expect_restricted_visible
 
     def test_queryset_includes_all_logs_for_staff(self) -> None:
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_in", was_impersonated=True)
