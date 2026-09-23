@@ -56,6 +56,14 @@ jobs:
             # ruleid: github-actions-publish-on-pull-request
             - run: cargo publish -p posthog-symbol-data
 
+    cut-release-with-an-archived-action:
+        runs-on: ubuntu-24.04
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - uses: actions/create-release@v1
+            # ruleid: github-actions-publish-on-pull-request
+            - uses: actions/upload-release-asset@v1
+
     cut-release:
         runs-on: ubuntu-24.04
         steps:

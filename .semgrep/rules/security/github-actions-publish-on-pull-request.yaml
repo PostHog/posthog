@@ -206,5 +206,5 @@ rules:
                       - pattern: 'uses: $ACTION'
                       - metavariable-regex:
                             metavariable: $ACTION
-                            regex: '^(?:pypa/gh-action-pypi-publish|JS-DevTools/npm-publish|softprops/action-gh-release|ncipollo/release-action)@'
+                            regex: '^(?:pypa/gh-action-pypi-publish|JS-DevTools/npm-publish|softprops/action-gh-release|ncipollo/release-action|actions/create-release|actions/upload-release-asset)@'
       severity: ERROR
