@@ -45,7 +45,8 @@ Iterate on saved cases, validate promising changes with parallel live runs, then
 Live copies need the same starting history, private subsequent memory, and complete report capture without downstream delivery.
 Enforce memory isolation on both reads and writes so copies cannot influence one another or the production scout.
 The production safeguards identified in the [round-1 report](FINAL_REPORT.md) remain prerequisites for another live comparison; the isolated runner does not implement those safeguards for production copies.
-The [lightweight live comparison proposal](PLAN.md#proposed-lightweight-live-comparisons) describes a one-off trial API and script, including the memory, output, prompt, and telemetry boundaries needed before those runs.
+The [lightweight live comparison proposal](PLAN.md#proposed-lightweight-live-comparisons) reuses existing run records and storage, with per-run overrides and a coordinating script.
+It describes the memory, report, prompt, and telemetry boundaries needed before those runs, plus the proposed split into offline and live branches.
 
 For bounded code and feedback investigations, retained inputs and the normal tools appear sufficient for useful comparisons without copying an entire production project.
 Treat that as a working assumption supported by the completed investigations, not a demonstrated guarantee of production performance.
