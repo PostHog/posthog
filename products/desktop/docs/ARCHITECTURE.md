@@ -313,6 +313,9 @@ The result is an agent interpretation of inspected source, not a verified model 
 The schema rejects duplicate IDs, invalid connections, and absolute or parent-relative source paths.
 
 The map shows areas at low zoom, components at medium zoom, and source paths at high zoom.
+Compact cards show summaries and connection counts. Connected areas are placed near each other.
+Hover or focus a card to highlight its direct connections and connected components. Other cards fade while the card is active.
+Select **Fit map** to return to the area overview.
 Select a node or use the details list to inspect its source citations and connections.
 Expand **Scan coverage** in the overview to see the source scopes and any gaps.
 Select a component to see its public operations and whether each operation reads state, changes state, or has an unknown effect.
