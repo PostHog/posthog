@@ -92,33 +92,27 @@ class TestBuildDefaultSchemas:
             }
         ]
 
-    def test_introspected_keyless_table_falls_back_to_append(self) -> None:
+    @parameterized.expand(
+        [
+            ("keyless", [("email", "String", False)], "append"),
+            ("id_column", [("id", "Int64", False)], "incremental"),
+        ]
+    )
+    def test_introspected_primary_key_cases(
+        self, _name: str, columns: list[tuple[str, str, bool]], expected: str
+    ) -> None:
         schemas = build_default_schemas(
             [
                 SourceSchema(
-                    name="events_introspected_keyless",
+                    name="events_introspected",
                     supports_incremental=True,
                     supports_append=True,
                     incremental_fields=[_field("created_at")],
-                    columns=[("email", "String", False)],
+                    columns=columns,
                 )
             ]
         )
-        assert schemas[0]["sync_type"] == "append"
-
-    def test_introspected_id_column_keeps_incremental_default(self) -> None:
-        schemas = build_default_schemas(
-            [
-                SourceSchema(
-                    name="events_with_id",
-                    supports_incremental=True,
-                    supports_append=True,
-                    incremental_fields=[_field("created_at")],
-                    columns=[("id", "Int64", False)],
-                )
-            ]
-        )
-        assert schemas[0]["sync_type"] == "incremental"
+        assert schemas[0]["sync_type"] == expected
 
     def test_non_introspected_source_keeps_incremental_default(self) -> None:
         schemas = build_endpoint_schemas(
