@@ -333,14 +333,16 @@ Operational controls:
 
 ## Prometheus metrics
 
-| Metric                                     | Labels                         | Purpose                         |
-| ------------------------------------------ | ------------------------------ | ------------------------------- |
-| `posthog_hypercache_get_from_cache`        | `result`, `namespace`, `value` | Cache hit/miss tracking         |
-| `posthog_hypercache_sync`                  | `result`, `namespace`, `value` | Cache sync task outcomes        |
-| `posthog_hypercache_sync_duration_seconds` | `result`, `namespace`, `value` | Cache sync timing               |
-| `posthog_remote_config_via_cache`          | `result`                       | Remote config cache performance |
-| `posthog_hypercache_read_repair`           | `result`, `namespace`, `value` | Rust reader repair outcomes     |
-| `flags_flag_definitions_etag_total`        | `result`                       | Rust reader ETag read outcomes  |
+| Metric                                         | Labels                               | Purpose                                  |
+| ---------------------------------------------- | ------------------------------------ | ---------------------------------------- |
+| `posthog_hypercache_get_from_cache`            | `result`, `namespace`, `value`       | Cache hit/miss tracking                  |
+| `posthog_hypercache_sync`                      | `result`, `namespace`, `value`       | Cache sync task outcomes                 |
+| `posthog_hypercache_sync_duration_seconds`     | `result`, `namespace`, `value`       | Cache sync timing                        |
+| `posthog_remote_config_via_cache`              | `result`                             | Remote config cache performance          |
+| `posthog_hypercache_read_repair`               | `result`, `namespace`, `value`       | Rust reader repair outcomes              |
+| `flags_flag_definitions_etag_total`            | `result`                             | Rust reader ETag read outcomes           |
+| `posthog_hypercache_verify_errors_total`       | `cache_type`, `reason`               | Teams the verify sweep could not check   |
+| `posthog_hypercache_verify_fix_failures_total` | `cache_type`, `issue_type`, `reason` | Repairs the verify sweep could not write |
 
 Result labels: `hit_redis`, `hit_s3`, `hit_db`, `missing`, `batch_miss`
 
@@ -353,6 +355,10 @@ ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stal
 Read repair result labels: `success`, `skipped` (key already existed, repair deferred to it), `error`
 
 `skipped` also covers replica lag: reads go to the replica and repairs to the primary, so a key written to the primary but not yet replicated reads as cold and its repair is correctly refused.
+
+The verify sweep counts a team it cannot check, and a repair it cannot write, then continues. Both carry a closed `reason` label, so every series is pre-created at import and an alert catches the first occurrence rather than the second. Verify reasons: `dependency_unavailable`, `data_error` (an entry the sweep cannot parse, which repeats on the same teams every run), `unknown`. Fix failures add `update_fn_returned_false` for a write path that refused without raising. The exception class name is in the log line as `error_type`. A write the config vetoes is counted as neither a fix nor a failure.
+
+The sweep's other give-ups stay log-only on purpose: a team the grace period skips, and the batch-level fallbacks that degrade a batch to per-team reads. Both slow the sweep rather than leave an entry broken, and a sweep that runs out of time is already counted by `posthog_hypercache_verification_incomplete_runs_total`.
 
 ## Debugging
 

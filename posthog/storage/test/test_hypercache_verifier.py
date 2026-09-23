@@ -22,6 +22,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
+from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.storage.hypercache_verifier import (
     MAX_FIXED_TEAM_IDS_TO_LOG,
@@ -256,24 +257,38 @@ class TestFixAndRecord(BaseTest):
         assert result.cache_mismatch_fixed == 1
         assert result.fix_failed == 0
 
-    def test_exception_in_update_fn_increments_fix_failed(self):
-        """Test that exception in update_fn increments fix_failed."""
+    @parameterized.expand(
+        [
+            ("write_refused_without_raising", {"return_value": False}, "update_fn_returned_false"),
+            ("write_raised_a_parse_error", {"side_effect": ValueError("bad payload")}, "data_error"),
+            (
+                "write_raised_a_dependency_error",
+                {"side_effect": HyperCacheDependencyUnavailable("flags down")},
+                "dependency_unavailable",
+            ),
+            ("write_raised_anything_else", {"side_effect": RuntimeError("boom")}, "unknown"),
+        ]
+    )
+    def test_fix_failure_metric_carries_reason(self, _name, update_fn_behaviour, expected_reason):
         mock_config = MagicMock()
-        mock_config.should_skip_write = None  # default: no write guard
+        mock_config.should_skip_write = None
         mock_config.get_primary_writer_fn = None
-        mock_config.update_fn.side_effect = Exception("Update failed")
+        mock_config.update_fn.configure_mock(**update_fn_behaviour)
 
         result = VerificationResult()
 
-        _fix_and_record(
-            team=self.team,
-            config=mock_config,
-            issue_type="cache_miss",
-            cache_type="test_cache",
-            result=result,
-            verification={"status": "miss"},
-        )
+        with patch("posthog.storage.hypercache_verifier.HYPERCACHE_VERIFY_FIX_FAILURE_COUNTER") as mock_counter:
+            _fix_and_record(
+                team=self.team,
+                config=mock_config,
+                issue_type="cache_miss",
+                cache_type="flags",
+                result=result,
+                verification={"status": "miss"},
+            )
 
+        mock_counter.labels.assert_called_once_with(cache_type="flags", issue_type="cache_miss", reason=expected_reason)
+        mock_counter.labels.return_value.inc.assert_called_once_with()
         assert result.cache_miss_fixed == 0
         assert result.fix_failed == 1
 
@@ -569,7 +584,10 @@ class TestVerifyAndFixBatch(BaseTest):
         def verify_fn(team, db_batch_data, cache_batch_data):
             raise Exception("Verification failed")
 
-        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+        with (
+            patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}),
+            patch("posthog.storage.hypercache_verifier.HYPERCACHE_VERIFY_ERROR_COUNTER") as mock_error_counter,
+        ):
             _verify_and_fix_batch(
                 teams=[self.team],
                 config=mock_config,
@@ -581,6 +599,8 @@ class TestVerifyAndFixBatch(BaseTest):
         assert result.total == 1
         assert result.errors == 1
         assert result.total_fixed == 0
+        mock_error_counter.labels.assert_called_once_with(cache_type="test_cache", reason="unknown")
+        mock_error_counter.labels.return_value.inc.assert_called_once_with()
 
     def test_soft_time_limit_exceeded_propagates_and_stops_batch(self):
         """SoftTimeLimitExceeded from verify_team_fn must propagate so the run winds

@@ -7,14 +7,13 @@ from prometheus_client import Counter
 
 logger = structlog.get_logger(__name__)
 
+# Every zstd frame starts with this magic number (RFC 8878, section 3.1.1).
+ZSTD_FRAME_MAGIC = b"\x28\xb5\x2f\xfd"
+
 COULD_NOT_DECOMPRESS_VALUE_COUNTER = Counter(
     "posthog_redis_could_not_decompress_value_counter",
-    """
-    Number of times decompression from redis failed while the setting was on.
-    This is probably a sign that either there are still uncompressed values in redis
-    or a value that was too small to compress and so doesn't need decompressing
-    and so, seeing positive values here isn't necessarily an error.
-    """,
+    "Zstd frames read from redis that this decoder could not decompress. The caller gets "
+    "the compressed bytes in place of its value, so any sustained rate is a defect.",
 )
 
 
@@ -39,11 +38,16 @@ class ZstdCompressor(BaseCompressor):
         return value
 
     def decompress(self, value: bytes) -> bytes:
+        # Values at or below min_length are stored raw, so most reads hand this method
+        # something zstd never wrote. The magic number settles that without the decoder.
+        if not value.startswith(ZSTD_FRAME_MAGIC):
+            return value
         try:
             return zstd.decompress(value)
         except zstd.Error:
-            if settings.USE_REDIS_COMPRESSION:
-                COULD_NOT_DECOMPRESS_VALUE_COUNTER.inc()
+            # Counted whatever USE_REDIS_COMPRESSION says: old frames stay in redis after
+            # compression is turned off, and turning it off is a plausible response to this.
+            COULD_NOT_DECOMPRESS_VALUE_COUNTER.inc()
             # if the decompression fails, behave like the IdentityCompressor
             # this way if the compressor is turned off we can still read values
             return value
