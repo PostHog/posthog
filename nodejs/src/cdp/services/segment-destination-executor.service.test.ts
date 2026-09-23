@@ -113,6 +113,50 @@ describe('SegmentDestinationExecutorService', () => {
             `)
         })
 
+        it.each([
+            {
+                name: 'forwards content fields and a set value',
+                customData: {
+                    value: '149.9',
+                    content_name: 'Basic tee',
+                    content_brand: 'Example brand',
+                    content_category: 'Shirts',
+                },
+                expected: {
+                    value: '149.9',
+                    content_name: 'Basic tee',
+                    content_brand: 'Example brand',
+                    content_category: 'Shirts',
+                },
+            },
+            { name: 'omits an unset value', customData: { value: '' }, expected: {} },
+        ])('pinterest conversions $name', async ({ customData, expected }) => {
+            const pinterestPlugin = SEGMENT_DESTINATIONS_BY_ID['segment-actions-pinterest-conversions-api']
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'segment-actions-pinterest-conversions-api',
+                inputs_schema: pinterestPlugin.template.inputs_schema,
+            })
+            const invocation = createExampleSegmentInvocation(fn, {
+                ad_account_id: 'ad-account',
+                conversion_token: 'token',
+                internal_partner_action: 'reportConversionEvent',
+                event_name: 'checkout',
+                action_source: 'web',
+                event_time: '2025-01-01T00:00:00Z',
+                event_id: 'event-id',
+                user_data: { email: ['buyer@example.com'] },
+                custom_data: { currency: 'USD', ...customData },
+            })
+
+            const result = await service.execute(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            const body = parseJSON(mockFetch.mock.calls[0][1].body)
+            expect(body.data[0].custom_data).toEqual({ currency: 'USD', ...expected })
+        })
+
         it('should redact a credential input that a stale stored schema leaves non-secret', async () => {
             const fn = createHogFunction({
                 name: 'Plugin test',

@@ -1,0 +1,51 @@
+diff --git a/dist/destinations/pinterest-conversions/pinterest-capi-custom-data.js b/dist/destinations/pinterest-conversions/pinterest-capi-custom-data.js
+index 8aa7c65aa595746c1c0fe561320529f09d0fecef..3808e1a460eafb8d66c9b91f76254efcef6e74e0 100644
+--- a/dist/destinations/pinterest-conversions/pinterest-capi-custom-data.js
++++ b/dist/destinations/pinterest-conversions/pinterest-capi-custom-data.js
+@@ -64,6 +64,21 @@ exports.custom_data_field = {
+             label: 'Opt Out Type',
+             description: 'opt_out_type is the field where we accept opt outs for your users’ privacy preference.  It can handle multiple values with commas separated.',
+             type: 'string'
++        },
++        content_brand: {
++            label: 'Content Brand',
++            description: 'The brand of the content associated with the event.',
++            type: 'string'
++        },
++        content_category: {
++            label: 'Content Category',
++            description: 'The category of the content associated with the event.',
++            type: 'string'
++        },
++        content_name: {
++            label: 'Content Name',
++            description: 'The name of the page or product associated with the event.',
++            type: 'string'
+         }
+     },
+     default: {
+diff --git a/dist/destinations/pinterest-conversions/reportConversionEvent/index.js b/dist/destinations/pinterest-conversions/reportConversionEvent/index.js
+index 4a81037ad73097ae6a8107ce2760f953eaff9e00..03d7fd8966d0dd425f61effe5ac45cdaec9c6ad6 100644
+--- a/dist/destinations/pinterest-conversions/reportConversionEvent/index.js
++++ b/dist/destinations/pinterest-conversions/reportConversionEvent/index.js
+@@ -187,13 +187,18 @@ function createPinterestPayload(payload) {
+             user_data: (0, pinterset_capi_user_data_1.hash_user_data)({ user_data: payload.user_data }),
+             custom_data: {
+                 currency: payload?.custom_data?.currency,
+-                value: String(payload?.custom_data?.value),
++                value: payload?.custom_data?.value == null || payload.custom_data.value === ''
++                    ? undefined
++                    : String(payload.custom_data.value),
+                 content_ids: payload.custom_data?.content_ids,
+                 contents: payload.custom_data?.contents,
+                 num_items: payload.custom_data?.num_items,
+                 order_id: payload.custom_data?.order_id,
+                 search_string: payload.custom_data?.search_string,
+-                opt_out_type: payload.custom_data?.opt_out_type
++                opt_out_type: payload.custom_data?.opt_out_type,
++                content_brand: payload.custom_data?.content_brand,
++                content_category: payload.custom_data?.content_category,
++                content_name: payload.custom_data?.content_name
+             },
+             app_id: payload.app_id,
+             app_name: payload.app_name,

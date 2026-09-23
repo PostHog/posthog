@@ -107,6 +107,7 @@ patchedDependencies:
     v86@0.5.458: patches/v86@0.5.458.patch
     jest-junit@16.0.0: patches/jest-junit@16.0.0.patch
     '@connectrpc/connect-node@2.1.1': patches/@connectrpc__connect-node@2.1.1.patch
+    '@segment/action-destinations@3.387.0': patches/@segment__action-destinations@3.387.0.patch
     heatmap.js@2.0.5: patches/heatmap.js@2.0.5.patch
     dayjs@1.11.11: patches/dayjs@1.11.11.patch
     html-to-image@1.11.13: patches/html-to-image@1.11.13.patch

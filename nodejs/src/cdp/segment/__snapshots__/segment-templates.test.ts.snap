@@ -19456,7 +19456,10 @@ exports[`segment templates template segment-actions-pinterest-conversions-api ma
         },
         {
           "default": {
+            "content_brand": undefined,
+            "content_category": undefined,
             "content_ids": undefined,
+            "content_name": undefined,
             "contents": undefined,
             "currency": "{event.properties.currency}",
             "num_items": undefined,
@@ -19742,7 +19745,10 @@ exports[`segment templates template segment-actions-pinterest-conversions-api ma
         },
         {
           "default": {
+            "content_brand": undefined,
+            "content_category": undefined,
             "content_ids": undefined,
+            "content_name": undefined,
             "contents": undefined,
             "currency": "{event.properties.currency}",
             "num_items": undefined,
@@ -20028,7 +20034,10 @@ exports[`segment templates template segment-actions-pinterest-conversions-api ma
         },
         {
           "default": {
+            "content_brand": undefined,
+            "content_category": undefined,
             "content_ids": undefined,
+            "content_name": undefined,
             "contents": undefined,
             "currency": "{event.properties.currency}",
             "num_items": undefined,
@@ -20314,7 +20323,10 @@ exports[`segment templates template segment-actions-pinterest-conversions-api ma
         },
         {
           "default": {
+            "content_brand": undefined,
+            "content_category": undefined,
             "content_ids": undefined,
+            "content_name": undefined,
             "contents": undefined,
             "currency": "{event.properties.currency}",
             "num_items": undefined,
@@ -20600,7 +20612,10 @@ exports[`segment templates template segment-actions-pinterest-conversions-api ma
         },
         {
           "default": {
+            "content_brand": undefined,
+            "content_category": undefined,
             "content_ids": undefined,
+            "content_name": undefined,
             "contents": undefined,
             "currency": "{event.properties.currency}",
             "num_items": undefined,
@@ -20886,7 +20901,10 @@ exports[`segment templates template segment-actions-pinterest-conversions-api ma
         },
         {
           "default": {
+            "content_brand": undefined,
+            "content_category": undefined,
             "content_ids": undefined,
+            "content_name": undefined,
             "contents": undefined,
             "currency": "{event.properties.currency}",
             "num_items": undefined,
@@ -21172,7 +21190,10 @@ exports[`segment templates template segment-actions-pinterest-conversions-api ma
         },
         {
           "default": {
+            "content_brand": undefined,
+            "content_category": undefined,
             "content_ids": undefined,
+            "content_name": undefined,
             "contents": undefined,
             "currency": "{event.properties.currency}",
             "num_items": undefined,
@@ -21458,7 +21479,10 @@ exports[`segment templates template segment-actions-pinterest-conversions-api ma
         },
         {
           "default": {
+            "content_brand": undefined,
+            "content_category": undefined,
             "content_ids": undefined,
+            "content_name": undefined,
             "contents": undefined,
             "currency": "{event.properties.currency}",
             "num_items": undefined,
