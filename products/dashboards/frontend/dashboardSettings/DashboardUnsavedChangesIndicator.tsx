@@ -67,13 +67,13 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
     return (
         <span
             data-attr="dashboard-filters-unsaved"
-            className="flex max-w-full items-center overflow-hidden rounded border border-warning bg-warning-highlight text-xs font-semibold text-warning"
+            className="flex max-w-full items-center rounded border border-warning bg-warning-highlight text-xs font-semibold text-warning"
         >
             <DashboardSettingsChangesTooltip changes={dashboardSettingsChanges} title="Unsaved changes">
                 <LemonButton
                     type="tertiary"
                     size="small"
-                    className="rounded-none text-inherit"
+                    className="rounded-l text-inherit"
                     aria-label={`Show ${changeSummary}`}
                 >
                     <span className="flex items-center gap-1.5">
@@ -87,13 +87,13 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                 </LemonButton>
             </DashboardSettingsChangesTooltip>
             <span className="flex items-center @max-lg/dashboard-filters:hidden">
-                {actions.map((action) => (
+                {actions.map((action, index) => (
                     <LemonButton
                         key={action.key}
                         data-attr={action.dataAttr}
                         type="tertiary"
                         size="small"
-                        className="rounded-none border-l border-warning"
+                        className={`border-l border-warning ${index === actions.length - 1 ? 'rounded-r' : 'rounded-none'}`}
                         disabledReason={action.disabledReason}
                         tooltip={action.tooltip}
                         onClick={action.onClick}
@@ -115,7 +115,7 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
                 placement="bottom-end"
             >
                 <LemonButton
-                    className="@min-lg/dashboard-filters:hidden rounded-none border-l border-warning"
+                    className="@min-lg/dashboard-filters:hidden rounded-r border-l border-warning"
                     type="tertiary"
                     size="small"
                     loading={dashboardFiltersSaving}
