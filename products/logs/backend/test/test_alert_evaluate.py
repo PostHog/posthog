@@ -252,6 +252,15 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert event.value is None
         assert event.error_message is not None
 
+        # Delivery states why a check failed, so the projection has to carry the reason and the
+        # count. Without them a message says an alert could not be checked and stops there.
+        delivery = evaluation.deliveries[0]
+        announced = announcement(self.team.id, delivery.configuration_id, delivery.evaluation_key)
+        assert announced is not None
+        transition = announced.notifications[0].transitions[0]
+        assert transition.error_message == event.error_message
+        assert announced.consecutive_failures == event.consecutive_failures
+
     def test_delivery_reads_the_transition_out_of_history(self) -> None:
         configuration = self._configuration()
 

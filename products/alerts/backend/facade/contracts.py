@@ -207,6 +207,7 @@ class GroupTransition:
     labels: dict[str, str]
     condition: dict[str, Any]
     source_config: dict[str, Any]
+    error_message: str | None
 
 
 @frozen

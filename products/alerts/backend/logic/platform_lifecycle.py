@@ -330,6 +330,7 @@ def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> Ev
             labels=event.labels,
             condition=event.condition_snapshot,
             source_config=event.source_config_snapshot,
+            error_message=event.error_message,
         )
         for event in events
     )
