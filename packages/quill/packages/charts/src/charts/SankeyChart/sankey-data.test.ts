@@ -72,6 +72,21 @@ describe('computeSankeyLayout', () => {
         expect(layout.columnCount).toBe(5)
     })
 
+    it('lays out a pinned graph with an empty column between the pins', () => {
+        // Only two nodes, pinned three columns apart with nothing to naturally fill the columns
+        // between them: the graph must not crash spacing out a column with zero nodes in it.
+        const nodes: SankeyNodeInput[] = [
+            { id: 'x', column: 0 },
+            { id: 'y', column: 3 },
+        ]
+        const links: SankeyLinkInput[] = [{ source: 'x', target: 'y', value: 5 }]
+        expect(() => layoutOf({ nodes, links, nodeAlign: 'left' })).not.toThrow()
+        const layout = layoutOf({ nodes, links, nodeAlign: 'left' })
+        const columnOf = (id: string): number | undefined => layout.nodes.find((n) => n.id === id)?.column
+        expect([columnOf('x'), columnOf('y')]).toEqual([0, 3])
+        expect(layout.columnCount).toBe(4)
+    })
+
     it('resolves node colors by label and defaults link color to the source node', () => {
         const layout = layoutOf({
             nodes: [...NODES.slice(0, 3), { id: 'done', label: 'Completed', color: 'var(--success)' }],
