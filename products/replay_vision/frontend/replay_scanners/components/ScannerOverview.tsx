@@ -8,7 +8,7 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { pluralize } from 'lib/utils/strings'
 
-import { type ObservationVerdictValue, replayScannerLogic } from '../replayScannerLogic'
+import { type AffectedCohortQualifier, type ObservationVerdictValue, replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
@@ -105,12 +105,53 @@ const VERDICT_ROWS: { verdict: ObservationVerdictValue; label: string; tagType: 
     { verdict: 'inconclusive', label: 'Inconclusive', tagType: 'muted' },
 ]
 
+function SaveCohortButton({
+    scannerId,
+    qualifier,
+    cohortKey,
+    tooltip,
+    ariaLabel,
+    emptyReason,
+    dataAttr,
+    children,
+}: {
+    scannerId: string
+    qualifier: AffectedCohortQualifier
+    cohortKey: string
+    tooltip: string
+    ariaLabel?: string
+    emptyReason?: string
+    dataAttr: string
+    children?: React.ReactNode
+}): JSX.Element {
+    const { cohortDisabledReason } = useValues(scannerOverviewLogic({ scannerId }))
+    const { saveCohort } = useActions(scannerOverviewLogic({ scannerId }))
+    const { affectedCohortLoading, savingCohortKey } = useValues(replayScannerLogic({ id: scannerId }))
+    return (
+        <LemonButton
+            type="secondary"
+            size="xsmall"
+            icon={<IconPeople />}
+            tooltip={tooltip}
+            aria-label={ariaLabel}
+            onClick={() => saveCohort(qualifier)}
+            loading={affectedCohortLoading && savingCohortKey === cohortKey}
+            disabledReason={
+                emptyReason ??
+                cohortDisabledReason ??
+                (affectedCohortLoading && savingCohortKey !== cohortKey ? 'Another cohort is being created' : undefined)
+            }
+            data-attr={dataAttr}
+        >
+            {children}
+        </LemonButton>
+    )
+}
+
 function VerdictMixOverview({ scannerId }: { scannerId: string }): JSX.Element {
     const { monitorStats, hasActiveOverviewFilters, overviewStatsApiLoading, cohortWindowDays } = useValues(
         scannerOverviewLogic({ scannerId })
     )
-    const { saveCohort } = useActions(scannerOverviewLogic({ scannerId }))
-    const { affectedCohortLoading, savingCohortKey } = useValues(replayScannerLogic({ id: scannerId }))
     const counts: Record<ObservationVerdictValue, number> = {
         yes: monitorStats.yesTotal,
         no: monitorStats.noTotal,
@@ -144,29 +185,21 @@ function VerdictMixOverview({ scannerId }: { scannerId: string }): JSX.Element {
                             <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-20">
                                 {count.toLocaleString()} ({percent}%)
                             </span>
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                icon={<IconPeople />}
+                            <SaveCohortButton
+                                scannerId={scannerId}
+                                qualifier={{ verdict }}
+                                cohortKey={verdict}
                                 tooltip={`Save users with a ${label.toLowerCase()} verdict from the last ${pluralize(cohortWindowDays, 'day')} as a cohort`}
-                                onClick={() => saveCohort({ verdict })}
-                                loading={affectedCohortLoading && savingCohortKey === verdict}
-                                disabledReason={
-                                    count === 0
-                                        ? 'No sessions with this verdict'
-                                        : affectedCohortLoading && savingCohortKey !== verdict
-                                          ? 'Another cohort is being created'
-                                          : undefined
-                                }
+                                emptyReason={count === 0 ? 'No sessions with this verdict' : undefined}
                                 // pinned: the yes row keeps the data-attr the single cohort button shipped with.
-                                data-attr={
+                                dataAttr={
                                     verdict === 'yes'
                                         ? 'vision-save-affected-cohort'
                                         : `vision-save-verdict-cohort-${verdict}`
                                 }
                             >
                                 Save as cohort
-                            </LemonButton>
+                            </SaveCohortButton>
                         </div>
                     )
                 })}
@@ -178,8 +211,6 @@ function VerdictMixOverview({ scannerId }: { scannerId: string }): JSX.Element {
 function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner, classifierTagStats, hasActiveOverviewFilters, overviewStatsApiLoading, cohortWindowDays } =
         useValues(scannerOverviewLogic({ scannerId }))
-    const { affectedCohortLoading, savingCohortKey } = useValues(replayScannerLogic({ id: scannerId }))
-    const { saveCohort } = useActions(scannerOverviewLogic({ scannerId }))
     const { fixedRanked, freeformRanked } = classifierTagStats
     // Wait for the scanner config — without it `freeformAllowed` defaults to `false` and the panel flashes the
     // "disabled" copy while the config is still loading.
@@ -195,18 +226,13 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
         : 'No freeform categories emitted yet.'
 
     const cohortAction = (tag: string): JSX.Element => (
-        <LemonButton
-            type="secondary"
-            size="xsmall"
-            icon={<IconPeople />}
+        <SaveCohortButton
+            scannerId={scannerId}
+            qualifier={{ tag }}
+            cohortKey={tag}
             tooltip="Save as cohort"
-            aria-label={`Save users in category "${tag}" from the last ${pluralize(cohortWindowDays, 'day')} as a cohort`}
-            onClick={() => saveCohort({ tag })}
-            loading={affectedCohortLoading && savingCohortKey === tag}
-            disabledReason={
-                affectedCohortLoading && savingCohortKey !== tag ? 'Another cohort is being created' : undefined
-            }
-            data-attr="vision-save-tag-cohort"
+            ariaLabel={`Save users in category "${tag}" from the last ${pluralize(cohortWindowDays, 'day')} as a cohort`}
+            dataAttr="vision-save-tag-cohort"
         />
     )
 

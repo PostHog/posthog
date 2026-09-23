@@ -3,6 +3,7 @@ import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, r
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -23,6 +24,11 @@ const ACTIVE_POLL_INTERVAL_MS = 10_000
 
 export function isBackfillActive(backfill: ReplayScannerBackfillApi): boolean {
     return backfill.status === 'running' || backfill.status === 'paused_quota'
+}
+
+/** Converts a DateFilter token (`-30d`, an ISO date, or null) into an ISO instant for the API. */
+function resolveWindowBound(value: string | null, fallback: dayjs.Dayjs): string {
+    return ((value && dateStringToDayJs(value)) || fallback).toISOString()
 }
 
 // Re-scanning the last day after a prompt fix is the common case, so a new backfill starts there.
@@ -66,8 +72,10 @@ export interface backfillsLogicActions {
     }
     requestEstimate: (
         windowStart: string,
-        windowEnd: string
+        windowEnd: string,
+        quiet?: boolean
     ) => {
+        quiet: boolean
         windowEnd: string
         windowStart: string
     }
@@ -113,7 +121,11 @@ export const backfillsLogic = kea<backfillsLogicType>([
         loadBackfills: (background = false) => ({ background }),
         loadBackfillsSuccess: (backfills: ReplayScannerBackfillApi[]) => ({ backfills }),
         loadBackfillsFailure: true,
-        requestEstimate: (windowStart: string, windowEnd: string) => ({ windowStart, windowEnd }),
+        requestEstimate: (windowStart: string, windowEnd: string, quiet: boolean = false) => ({
+            windowStart,
+            windowEnd,
+            quiet,
+        }),
         requestEstimateSuccess: (estimate: BackfillEstimateResponseApi) => ({ estimate }),
         requestEstimateFailure: true,
         createBackfill: (windowStart: string, windowEnd: string) => ({ windowStart, windowEnd }),
@@ -207,7 +219,22 @@ export const backfillsLogic = kea<backfillsLogicType>([
                     lemonToast.error('Couldn’t load backfills. Refresh the page to try again.')
                 }
             },
+            setWindowRange: ({ dateFrom, dateTo }) => {
+                actions.requestEstimate(
+                    resolveWindowBound(dateFrom, dayjs().subtract(30, 'day')),
+                    resolveWindowBound(dateTo, dayjs())
+                )
+            },
             loadBackfillsSuccess: () => {
+                // The default window's estimate waits for the list, so it is skipped while a backfill already runs.
+                if (!cache.defaultEstimateRequested && !values.backfills.some(isBackfillActive)) {
+                    cache.defaultEstimateRequested = true
+                    actions.requestEstimate(
+                        resolveWindowBound(values.windowDateFrom, dayjs().subtract(30, 'day')),
+                        resolveWindowBound(values.windowDateTo, dayjs()),
+                        true
+                    )
+                }
                 if (values.backfills.some((b) => b.status === 'running')) {
                     cache.disposables.add(() => {
                         const timerId = window.setTimeout(() => actions.loadBackfills(true), ACTIVE_POLL_INTERVAL_MS)
@@ -217,7 +244,7 @@ export const backfillsLogic = kea<backfillsLogicType>([
                     cache.disposables.dispose('backfillPoll')
                 }
             },
-            requestEstimate: async ({ windowStart, windowEnd }, breakpoint) => {
+            requestEstimate: async ({ windowStart, windowEnd, quiet }, breakpoint) => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
                     return
@@ -233,7 +260,9 @@ export const backfillsLogic = kea<backfillsLogicType>([
                 } catch (error: any) {
                     breakpoint()
                     actions.requestEstimateFailure()
-                    lemonToast.error(apiErrorMessage(error))
+                    if (!quiet) {
+                        lemonToast.error(apiErrorMessage(error))
+                    }
                 }
             },
             createBackfill: async ({ windowStart, windowEnd }) => {
@@ -274,7 +303,6 @@ export const backfillsLogic = kea<backfillsLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadBackfills()
-        actions.requestEstimate(dayjs().subtract(24, 'hour').toISOString(), dayjs().toISOString())
     }),
 ])
 

@@ -29,7 +29,7 @@ const TAB_ALIASES: Record<string, ReplayScannerTab> = {
 }
 
 function parseTab(tab: unknown): ReplayScannerTab {
-    if (typeof tab === 'string' && tab in TAB_ALIASES) {
+    if (typeof tab === 'string' && Object.hasOwn(TAB_ALIASES, tab)) {
         return TAB_ALIASES[tab]
     }
     return SCANNER_TABS.includes(tab as ReplayScannerTab) ? (tab as ReplayScannerTab) : DEFAULT_TAB

@@ -1,6 +1,4 @@
-import { useState } from 'react'
-
-import { LemonModal, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
@@ -12,24 +10,17 @@ const CLIPS = {
 
 export function ClippedPreview({
     clip,
-    modalTitle,
     buttonLabel,
     children,
-    modalContent,
     onOpenFull,
     dataAttr,
 }: {
     clip: keyof typeof CLIPS
-    /** Title of the built-in modal. Unused with `onOpenFull`. */
-    modalTitle?: string
     buttonLabel: string
     children: React.ReactNode
-    modalContent?: React.ReactNode
-    /** Opens the caller's own full view instead of this component's modal, for content that has a richer one. */
-    onOpenFull?: () => void
+    onOpenFull: () => void
     dataAttr: string
 }): JSX.Element {
-    const [open, setOpen] = useState(false)
     const { ref, height } = useResizeObserver()
     const { className, px } = CLIPS[clip]
     const overflows = (height ?? 0) > px
@@ -45,18 +36,9 @@ export function ClippedPreview({
                 <div ref={ref}>{children}</div>
             </div>
             {overflows && (
-                <Link
-                    className="self-start text-xs"
-                    onClick={() => (onOpenFull ? onOpenFull() : setOpen(true))}
-                    data-attr={dataAttr}
-                >
+                <Link className="self-start text-xs" onClick={onOpenFull} data-attr={dataAttr}>
                     {buttonLabel}
                 </Link>
-            )}
-            {!onOpenFull && (
-                <LemonModal isOpen={open} onClose={() => setOpen(false)} title={modalTitle} width={720}>
-                    {modalContent ?? children}
-                </LemonModal>
             )}
         </div>
     )

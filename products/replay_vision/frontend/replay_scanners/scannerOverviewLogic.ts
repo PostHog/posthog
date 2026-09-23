@@ -16,6 +16,7 @@ import { router } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -101,6 +102,7 @@ export interface scannerOverviewLogicValues {
     firstScanPending: boolean
     firstScanSettled: boolean
     hasActiveOverviewFilters: boolean
+    cohortDisabledReason: string | null
     cohortWindowDays: number
     monitorStats: MonitorStats
     overviewDateFrom: string | null
@@ -195,6 +197,7 @@ export interface scannerOverviewLogicMeta {
         ) => boolean
         firstScanCheckFailing: (firstScanPending: boolean, overviewStatsFailureCount: number) => boolean
         cohortWindowDays: (overviewDateFrom: string | null, overviewDateTo: string | null) => number
+        cohortDisabledReason: (overviewDateTo: string | null) => string | null
     }
 }
 
@@ -381,6 +384,16 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
             (s) => [s.overviewDateFrom, s.overviewDateTo],
             (dateFrom: string | null, dateTo: string | null): number =>
                 Math.min(MAX_COHORT_WINDOW_DAYS, Math.max(1, daysFromDateRange(dateFrom, dateTo))),
+        ],
+        // A cohort always covers the last N days, so a range that ended earlier would save different users than the panels show.
+        cohortDisabledReason: [
+            (s) => [s.overviewDateTo],
+            (dateTo: string | null): string | null => {
+                const end = dateTo && dateTo !== 'all' ? dateStringToDayJs(dateTo) : null
+                return end && end.endOf('day').isBefore(dayjs().subtract(1, 'day'))
+                    ? 'Cohorts cover the most recent days. Pick a date range that ends today to save one.'
+                    : null
+            },
         ],
     }),
 

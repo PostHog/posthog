@@ -1,43 +1,22 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
+import { LabeledRow } from '../../components/LabeledRow'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditCount } from '../../utils/credits'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { SCANNER_TYPE_OPTIONS, modelName, modelNamingVariant, scannerTypeLabel } from '../types'
 import { ClippedPreview } from './ClippedPreview'
 import { ScannerRecordingFilters } from './ScannerRecordingFilters'
-
-function Row({
-    label,
-    tooltip,
-    children,
-}: {
-    label: string
-    tooltip?: string
-    children: React.ReactNode
-}): JSX.Element {
-    return (
-        <div className="flex flex-col gap-0.5">
-            <span className="flex items-center gap-1 text-xs text-muted">
-                {label}
-                {tooltip && (
-                    <Tooltip title={tooltip}>
-                        <IconInfo className="text-sm" />
-                    </Tooltip>
-                )}
-            </span>
-            <div className="text-sm min-w-0">{children}</div>
-        </div>
-    )
-}
 
 function EnabledText({ enabled }: { enabled: boolean }): JSX.Element {
     return <span>{enabled ? 'Enabled' : 'Disabled'}</span>
@@ -46,12 +25,12 @@ function EnabledText({ enabled }: { enabled: boolean }): JSX.Element {
 export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner, experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
     const { featureFlags } = useValues(featureFlagLogic)
+    const [promptOpen, setPromptOpen] = useState(false)
     if (!scanner) {
         return null
     }
     const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const config = scanner.scanner_config
-    const samplingPercent = Math.round((scanner.sampling_rate ?? 0) * 1000) / 10
     const targeting = scanner.experiment_targeting
 
     return (
@@ -65,6 +44,7 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
                     size="xsmall"
                     type="secondary"
                     to={urls.replayVisionScannerConfigure(scannerId)}
+                    disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
                     data-attr="vision-setup-edit"
                 >
                     Edit scanner
@@ -91,39 +71,39 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
                 )}
             </div>
 
-            <Row label="Prompt">
+            <LabeledRow label="Prompt">
                 {config.prompt ? (
                     <div className="bg-surface-secondary border rounded p-2">
                         <ClippedPreview
                             clip="short"
-                            modalTitle="Prompt"
                             buttonLabel="Show full prompt"
                             dataAttr="vision-setup-show-prompt"
-                            modalContent={
-                                <div className="whitespace-pre-wrap font-mono text-sm bg-surface-tertiary border rounded p-3">
-                                    {config.prompt}
-                                </div>
-                            }
+                            onOpenFull={() => setPromptOpen(true)}
                         >
                             <div className="whitespace-pre-wrap text-sm">{config.prompt}</div>
                         </ClippedPreview>
+                        <LemonModal isOpen={promptOpen} onClose={() => setPromptOpen(false)} title="Prompt" width={720}>
+                            <div className="whitespace-pre-wrap font-mono text-sm bg-surface-tertiary border rounded p-3">
+                                {config.prompt}
+                            </div>
+                        </LemonModal>
                     </div>
                 ) : (
                     <span className="text-muted">—</span>
                 )}
-            </Row>
+            </LabeledRow>
 
             {scanner.scanner_type === 'monitor' && (
-                <Row
+                <LabeledRow
                     label="Inconclusive verdicts"
                     tooltip="When enabled, the model can answer 'inconclusive' instead of yes or no when a recording doesn't show enough to decide."
                 >
                     <EnabledText enabled={!!scanner.scanner_config.allow_inconclusive} />
-                </Row>
+                </LabeledRow>
             )}
             {scanner.scanner_type === 'classifier' && (
                 <>
-                    <Row label="Categories">
+                    <LabeledRow label="Categories">
                         {scanner.scanner_config.tags.length ? (
                             <div className="flex flex-wrap gap-1">
                                 {scanner.scanner_config.tags.map((tag) => (
@@ -135,30 +115,32 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
                         ) : (
                             <span className="text-muted">—</span>
                         )}
-                    </Row>
-                    <Row label="Multiple categories per recording">
+                    </LabeledRow>
+                    <LabeledRow label="Multiple categories per recording">
                         <EnabledText enabled={!!scanner.scanner_config.multi_label} />
-                    </Row>
-                    <Row label="Freeform categories">
+                    </LabeledRow>
+                    <LabeledRow label="Freeform categories">
                         <EnabledText enabled={!!scanner.scanner_config.allow_freeform_tags} />
-                    </Row>
+                    </LabeledRow>
                 </>
             )}
             {scanner.scanner_type === 'scorer' && (
-                <Row label="Scale">
+                <LabeledRow label="Scale">
                     {scanner.scanner_config.scale.min} to {scanner.scanner_config.scale.max}
                     {scanner.scanner_config.scale.label ? ` (${scanner.scanner_config.scale.label})` : ''}
-                </Row>
+                </LabeledRow>
             )}
             {scanner.scanner_type === 'summarizer' && scanner.scanner_config.length && (
-                <Row label="Summary length">
+                <LabeledRow label="Summary length">
                     <span className="capitalize">{scanner.scanner_config.length}</span>
-                </Row>
+                </LabeledRow>
             )}
 
-            <Row label="Recordings">Scans {samplingPercent}% of matching recordings</Row>
+            <LabeledRow label="Recordings">
+                Scans {percentage(scanner.sampling_rate ?? 0, 1)} of matching recordings
+            </LabeledRow>
             {targeting && (
-                <Row label="Experiment">
+                <LabeledRow label="Experiment">
                     {/* The name loads with the scanner; until then, or for an experiment the viewer can't open, the ID stands in. */}
                     <Link to={urls.experiment(targeting.experiment_id)}>
                         {experimentContext?.experiment.id === targeting.experiment_id
@@ -169,13 +151,13 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
                         {' · '}
                         {targeting.variant ? `${targeting.variant} variant` : 'every variant'}
                     </span>
-                </Row>
+                </LabeledRow>
             )}
-            <Row label="Filters">
+            <LabeledRow label="Filters">
                 <div className="[&_.PropertyFilterButton]:h-6 [&_.PropertyFilterButton]:text-xs [&_.UniversalFilterButton]:h-6 [&_.UniversalFilterButton]:text-xs">
                     <ScannerRecordingFilters query={scanner.query} />
                 </div>
-            </Row>
+            </LabeledRow>
 
             {(scanner.created_by || scanner.updated_at) && (
                 <div className="border-t pt-2 flex flex-col gap-1 text-xs text-muted">

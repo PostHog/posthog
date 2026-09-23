@@ -25,5 +25,12 @@ export function sessionIdFromInput(input: string): string | null {
         return fromParam
     }
     const match = url.pathname.match(/\/replay\/([^/]+)\/?$/)
-    return match && !NON_RECORDING_REPLAY_PATHS.has(match[1]) ? decodeURIComponent(match[1]) : null
+    if (!match || NON_RECORDING_REPLAY_PATHS.has(match[1])) {
+        return null
+    }
+    try {
+        return decodeURIComponent(match[1])
+    } catch {
+        return null
+    }
 }

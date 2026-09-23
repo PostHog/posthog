@@ -47,6 +47,7 @@ from products.replay_vision.backend.temporal.metrics import (
     record_sweep_outcome,
 )
 from products.replay_vision.backend.temporal.read_meter_types import (
+    buckets_or_pre_split,
     current_sweep_throttle_factor,
     deep_spend_bytes_per_day,
     deep_sweep_throttle_factor,
@@ -276,12 +277,6 @@ def _priming_pass(scanner: ReplayScanner, query: RecordingsQuery, limit: int) ->
         return []
 
 
-def _buckets_or_pre_split(buckets: dict[str, int] | None, scanner: ReplayScanner) -> dict[str, int] | None:
-    """`is None`, not truthiness: only a column the meter has never written falls back to the
-    pre-split total bucket, which keeps throttled scanners throttled across the deploy."""
-    return scanner.sweep_read_bytes_by_hour if buckets is None else buckets
-
-
 # Kept back for the activity's own wrap-up (exclusion filtering, result serialization).
 _DEEP_QUERY_RESERVE_SECONDS = 60
 # Below this a deep query over a padded events window has no realistic chance of finishing.
@@ -327,7 +322,9 @@ def _deep_sweep(
     if now - last_attempt < DEEP_SWEEP_INTERVAL:
         return [], None
     factor = deep_sweep_throttle_factor(
-        deep_spend_bytes_per_day(_buckets_or_pre_split(scanner.deep_read_bytes_by_hour, scanner), now)
+        deep_spend_bytes_per_day(
+            buckets_or_pre_split(scanner.deep_read_bytes_by_hour, scanner.sweep_read_bytes_by_hour), now
+        )
     )
     if now - last_attempt < DEEP_SWEEP_INTERVAL * factor:
         return [], None

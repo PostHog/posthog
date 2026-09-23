@@ -109,6 +109,20 @@ describe('scannerOverviewLogic', () => {
             ])
         })
 
+        it.each([
+            ['a range ending today', '-7d', null, null],
+            ['a relative range ending yesterday', '-14d', '-1d', null],
+            [
+                'a fixed range that ended weeks ago',
+                '2020-01-01',
+                '2020-01-14',
+                'Cohorts cover the most recent days. Pick a date range that ends today to save one.',
+            ],
+        ])('with %s, saving a cohort is blocked only when the range ended in the past', (_name, from, to, expected) => {
+            logic.actions.setOverviewDateRange(from, to)
+            expect(logic.values.cohortDisabledReason).toBe(expected)
+        })
+
         it('clearOverviewFilters resets the date back to the default, not null', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setOverviewDateRange('-90d', null)

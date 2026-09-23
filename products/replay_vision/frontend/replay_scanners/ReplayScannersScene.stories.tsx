@@ -1180,7 +1180,7 @@ const scoutReport = {
     updated_at: '2026-05-12T09:03:00Z',
 }
 
-// A realistic multi-section digest in the Overview's side column, so its clamp and "Show more" render.
+// A realistic multi-section digest in the Overview's side column, so its clamp and "Show full report" render.
 export const MonitorOverviewWithScoutReport: StoryObj = {
     parameters: { pageUrl: urls.replayVision(monitorOverviewScanner.id) },
     decorators: [

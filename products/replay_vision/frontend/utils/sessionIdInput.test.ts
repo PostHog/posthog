@@ -15,6 +15,7 @@ describe('sessionIdFromInput', () => {
         ['a replay list link with nothing selected', 'https://us.example.com/project/2/replay/home', null],
         ['a playlist link', 'https://us.example.com/project/2/replay/playlists/xyz', null],
         ['a link to some other page', 'https://us.example.com/project/2/insights/abc', null],
+        ['a link with broken percent-encoding', '/project/2/replay/abc%E0%A4%A', null],
         ['nothing', '   ', null],
     ])('%s', (_name, input, expected) => {
         expect(sessionIdFromInput(input)).toBe(expected)

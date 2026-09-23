@@ -29,7 +29,6 @@ const BACKFILL_STATUS_TAG: Record<BackfillStatusEnumApi, { label: string; type: 
 /** Raw instant, so two window bounds can be compared at a glance. */
 const WINDOW_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
 
-/** Convert a DateFilter token (`-30d`, an ISO date, or null) into an ISO instant for the API. */
 /** Every backfill this scanner has run, with its progress, spend, and pause or cancel controls. */
 export function BackfillHistoryTable({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = backfillsLogic({ scannerId })

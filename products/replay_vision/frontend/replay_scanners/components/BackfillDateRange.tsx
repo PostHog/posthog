@@ -4,8 +4,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
-import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { DateMappingOption } from '~/types'
 
@@ -25,21 +23,12 @@ const BACKFILL_DATE_OPTIONS: DateMappingOption[] = [
     { key: 'Last 90 days', values: ['-90d'] },
 ]
 
-export function resolveWindowBound(value: string | null, fallback: dayjs.Dayjs): string {
-    return ((value && dateStringToDayJs(value)) || fallback).toISOString()
-}
-
 export function BackfillDateRange({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = backfillsLogic({ scannerId })
     const { backfills, estimate, estimateLoading, creatingBackfill, windowDateFrom, windowDateTo } = useValues(logic)
-    const { requestEstimate, createBackfill, setWindowRange } = useActions(logic)
+    const { createBackfill, setWindowRange } = useActions(logic)
 
     const activeBackfill = backfills.find(isBackfillActive)
-
-    const estimateWindow = (dateFrom: string | null, dateTo: string | null): void => {
-        setWindowRange(dateFrom, dateTo)
-        requestEstimate(resolveWindowBound(dateFrom, dayjs().subtract(30, 'day')), resolveWindowBound(dateTo, dayjs()))
-    }
 
     const startDisabledReason = activeBackfill
         ? 'This scanner already has an active backfill'
@@ -64,7 +53,7 @@ export function BackfillDateRange({ scannerId }: { scannerId: string }): JSX.Ele
                         dateFrom={windowDateFrom}
                         dateTo={windowDateTo}
                         dateOptions={BACKFILL_DATE_OPTIONS}
-                        onChange={(dateFrom, dateTo) => estimateWindow(dateFrom, dateTo)}
+                        onChange={(dateFrom, dateTo) => setWindowRange(dateFrom, dateTo)}
                         allowTimePrecision
                         allowFixedRangeWithTime
                         allowedRollingDateOptions={['hours', 'days', 'weeks', 'months']}
