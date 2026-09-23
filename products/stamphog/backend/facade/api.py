@@ -9,7 +9,6 @@ dataclasses. Never return ORM instances or import DRF.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
-from functools import partial
 from typing import Any, TypeVar, overload
 from uuid import UUID
 
@@ -207,11 +206,8 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
     return _build_review_run_dto(obj, output=output, trigger=trigger)
 
 
-# The `output` keys the API returns. The full blob also holds the PR payload, patches and policy
-# files, and loading it for a page of runs costs the web worker hundreds of MB.
-_SUMMARY_OUTPUT_KEYS = ("stamphog_version", "reviewer_exit_code")
 # Retrieve also parses the reviewer's reasoning out of its raw stdout.
-_RETRIEVE_OUTPUT_KEYS = (*_SUMMARY_OUTPUT_KEYS, "reviewer_raw")
+_RETRIEVE_OUTPUT_KEYS = (*contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS, "reviewer_raw")
 
 
 def _slim_review_runs(qs: _RunQS, output_keys: tuple[str, ...]) -> _RunQS:
@@ -229,6 +225,10 @@ def _slim_review_run_to_dto(obj: ReviewRun, output_keys: tuple[str, ...]) -> con
         obj, has_inbox_review=obj.slim_has_inbox_review, has_manual_review=obj.slim_has_manual_review
     )
     return _build_review_run_dto(obj, output=output, trigger=trigger)
+
+
+def _review_run_list_row_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
+    return _slim_review_run_to_dto(obj, contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS)
 
 
 def get_repo_config(team_id: int, repository: str) -> contracts.RepoConfigDTO | None:
@@ -451,9 +451,7 @@ def list_review_runs(
         qs = qs.filter(status=status)
     if trigger:
         qs = _filter_by_trigger(qs, trigger)
-    return LazyDTOList(
-        _slim_review_runs(qs, _SUMMARY_OUTPUT_KEYS), partial(_slim_review_run_to_dto, output_keys=_SUMMARY_OUTPUT_KEYS)
-    )
+    return LazyDTOList(_slim_review_runs(qs, contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS), _review_run_list_row_to_dto)
 
 
 def list_pull_requests(
