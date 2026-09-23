@@ -2142,7 +2142,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Choose which email notifications your members receive. Anything you set here they cannot change back themselves.',
                 component: <NotificationGovernanceSetting />,
-                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
+                organizationAdminOnly: true,
                 keywords: ['notification', 'email', 'member', 'lock', 'digest', 'pipeline'],
             },
         ],
