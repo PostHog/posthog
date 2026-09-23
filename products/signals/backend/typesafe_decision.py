@@ -1,26 +1,22 @@
-import math
 import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from time import perf_counter
-from typing import Generic, Literal, TypedDict, TypeVar
-
-from django.conf import settings
+from typing import Generic, Literal, TypeVar
 
 import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 
 from posthog.dataclasses import frozen
-from posthog.egress.cloudflare_ai.transport import cloudflare_ai_request
+
+from products.signals.backend.typesafe_client import TypesafeClient, TypesafeResult, get_typesafe_client
 
 logger = structlog.get_logger(__name__)
 
 MODEL_MODE_FLAG = "signals-typesafe-mode"
 ModelMode = Literal["traditional-only", "typesafe-shadow", "traditional-shadow", "typesafe-only"]
-CLOUDFLARE_MODEL = "typesafe/jev"
 TYPESAFE_DIRECT_INPUT_USD_PER_MILLION = 0.042
-TIMEOUT_SECONDS = 3.0
 
 ACTIONABILITY_THRESHOLD = 0.95
 SIGNAL_SAFETY_THRESHOLD = 0.90
@@ -62,16 +58,6 @@ _DIRECT_LIST_COST = Counter(
 )
 
 
-class TypesafeResult(TypedDict):
-    probability: float
-    model: str
-    input_tokens: int
-    output_tokens: int
-    latency_seconds: float
-    category: str | None
-    category_confidence: float | None
-
-
 T = TypeVar("T")
 
 
@@ -87,8 +73,6 @@ class TypesafeDecisionError(RuntimeError):
 
 
 async def _mode(team_id: int) -> ModelMode:
-    if not settings.SIGNALS_TYPESAFE_CLOUDFLARE_ACCOUNT_ID or not settings.SIGNALS_TYPESAFE_CLOUDFLARE_API_TOKEN:
-        return "traditional-only"
     try:
         value = await asyncio.to_thread(
             posthoganalytics.get_feature_flag,
@@ -110,10 +94,9 @@ async def _mode(team_id: int) -> ModelMode:
     return "traditional-only"
 
 
-async def _query(stage: str, state: dict[str, object], instructions: str) -> TypesafeResult:
-    import aiohttp  # noqa: PLC0415 — keeps the HTTP client off the Django startup path
-
-    started = perf_counter()
+async def _query(
+    stage: str, state: dict[str, object], instructions: str, client: TypesafeClient | None = None
+) -> TypesafeResult:
     question = "actionable" if stage == "actionability" else "safe"
     questions: dict[str, object] = {question: {"type": "noul", "instructions": instructions}}
     if stage != "actionability":
@@ -122,67 +105,13 @@ async def _query(stage: str, state: dict[str, object], instructions: str) -> Typ
             "instructions": "Which safety category best describes the content? Choose none when no category applies.",
             "criteria": SAFETY_CATEGORIES,
         }
-    payload: dict[str, object] = {
-        "model": CLOUDFLARE_MODEL,
-        "input": {"state": state, "questions": questions},
-    }
-    timeout = aiohttp.ClientTimeout(total=TIMEOUT_SECONDS)
-    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-        response = await cloudflare_ai_request(
-            session,
-            account_id=settings.SIGNALS_TYPESAFE_CLOUDFLARE_ACCOUNT_ID,
-            api_token=settings.SIGNALS_TYPESAFE_CLOUDFLARE_API_TOKEN,
-            source="signals_decision",
-            payload=payload,
-        )
-        async with response:
-            response.raise_for_status()
-            body = await response.json()
-    if not isinstance(body, dict):
-        raise ValueError("Cloudflare AI returned a non-object response")
-    result = body.get("result", body)
-    if not isinstance(result, dict):
-        raise ValueError("Cloudflare AI returned an invalid result")
-    answers = result["answers"]
-    if not isinstance(answers, dict):
-        raise ValueError("Cloudflare AI returned invalid answers")
-    answer = answers[question]
-    if not isinstance(answer, dict):
-        raise ValueError("Cloudflare AI returned an invalid answer")
-    probability = float(answer["noul"])
-    if not math.isfinite(probability) or not 0 <= probability <= 1:
-        raise ValueError("Cloudflare AI returned an invalid probability")
-    category: str | None = None
-    category_confidence: float | None = None
-    if stage != "actionability":
-        category_answer = answers["category"]
-        if not isinstance(category_answer, dict):
-            raise ValueError("Cloudflare AI returned an invalid category")
-        category = category_answer["choice"]
-        if not isinstance(category, str) or category not in SAFETY_CATEGORIES:
-            raise ValueError("Cloudflare AI returned an unknown safety category")
-        category_confidence = float(category_answer["confidence"])
-        if not math.isfinite(category_confidence) or not 0 <= category_confidence <= 1:
-            raise ValueError("Cloudflare AI returned an invalid category confidence")
-    usage = result["usage"]
-    if not isinstance(usage, dict):
-        raise ValueError("Cloudflare AI returned invalid usage")
-    input_tokens = int(usage["input_tokens"])
-    output_tokens = int(usage["output_tokens"])
-    if input_tokens < 0 or output_tokens < 0:
-        raise ValueError("Cloudflare AI returned negative token usage")
-    model = result["model"]
-    if not isinstance(model, str) or not model.startswith("jev-"):
-        raise ValueError("Cloudflare AI returned a different model")
-    return {
-        "probability": probability,
-        "model": model,
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "latency_seconds": perf_counter() - started,
-        "category": category,
-        "category_confidence": category_confidence,
-    }
+    resolved_client = client or get_typesafe_client()
+    if resolved_client is None:
+        raise RuntimeError("TypeSafe client is not configured")
+    result = await resolved_client.query(state=state, questions=questions)
+    if result["category"] is not None and result["category"] not in SAFETY_CATEGORIES:
+        raise ValueError("TypeSafe returned an unknown safety category")
+    return result
 
 
 async def run_model_decision(
@@ -200,7 +129,8 @@ async def run_model_decision(
     typesafe_result: Callable[[bool, str | None], T],
     traditional_category: Callable[[T], str | None] | None = None,
 ) -> T:
-    mode = await _mode(team_id) if team_id is not None else "traditional-only"
+    typesafe_client = get_typesafe_client()
+    mode = await _mode(team_id) if team_id is not None and typesafe_client is not None else "traditional-only"
     if mode == "traditional-only":
         return await traditional()
 
@@ -218,7 +148,7 @@ async def run_model_decision(
     async def run_typesafe() -> _ModelCallResult[TypesafeResult]:
         started = perf_counter()
         try:
-            result = await _query(stage, state, instructions)
+            result = await _query(stage, state, instructions, typesafe_client)
             return _ModelCallResult(value=result, error=None, latency_seconds=perf_counter() - started)
         except Exception as error:
             logger.warning("TypeSafe call failed", stage=stage, error_type=type(error).__name__)

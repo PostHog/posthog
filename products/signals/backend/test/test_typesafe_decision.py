@@ -55,7 +55,7 @@ class _MalformedCloudflareResponse(_CloudflareResponse):
 )
 async def test_safety_requests_category_in_same_call() -> None:
     with patch(
-        "products.signals.backend.typesafe_decision.cloudflare_ai_request",
+        "products.signals.backend.typesafe_client.cloudflare_ai_request",
         new_callable=AsyncMock,
         return_value=_CloudflareSafetyResponse(),
     ) as request:
@@ -83,7 +83,7 @@ async def test_typesafe_primary_safety_preserves_category() -> None:
         ),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
-            "products.signals.backend.typesafe_decision.cloudflare_ai_request",
+            "products.signals.backend.typesafe_client.cloudflare_ai_request",
             new_callable=AsyncMock,
             return_value=_CloudflareSafetyResponse(),
         ),
@@ -116,7 +116,7 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
         ),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
-            "products.signals.backend.typesafe_decision.cloudflare_ai_request",
+            "products.signals.backend.typesafe_client.cloudflare_ai_request",
             new_callable=AsyncMock,
             return_value=_CloudflareResponse(),
         ) as request,
@@ -164,7 +164,7 @@ async def test_disabled_or_failed_shadow_does_not_change_primary_result(
     with (
         patch("products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag", return_value=mode),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
-        patch("products.signals.backend.typesafe_decision.cloudflare_ai_request", request),
+        patch("products.signals.backend.typesafe_client.cloudflare_ai_request", request),
     ):
         result = await run_model_decision(
             team_id=7,
@@ -203,7 +203,7 @@ async def test_typesafe_primary_modes(mode: str, expected_traditional_calls: int
         patch("products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag", return_value=mode),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
-            "products.signals.backend.typesafe_decision.cloudflare_ai_request",
+            "products.signals.backend.typesafe_client.cloudflare_ai_request",
             new_callable=AsyncMock,
             return_value=_CloudflareResponse(),
         ),
@@ -300,7 +300,7 @@ async def test_traditional_shadow_falls_back_when_typesafe_fails() -> None:
         ),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
-            "products.signals.backend.typesafe_decision.cloudflare_ai_request",
+            "products.signals.backend.typesafe_client.cloudflare_ai_request",
             new_callable=AsyncMock,
             side_effect=RuntimeError("Cloudflare unavailable"),
         ),
@@ -336,7 +336,7 @@ async def test_typesafe_only_failure_does_not_run_traditional() -> None:
         ),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture"),
         patch(
-            "products.signals.backend.typesafe_decision.cloudflare_ai_request",
+            "products.signals.backend.typesafe_client.cloudflare_ai_request",
             new_callable=AsyncMock,
             side_effect=RuntimeError("Cloudflare unavailable"),
         ),
@@ -388,7 +388,7 @@ async def test_malformed_typesafe_response_keeps_pipeline_running(mode: str) -> 
         patch("products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag", return_value=mode),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
-            "products.signals.backend.typesafe_decision.cloudflare_ai_request",
+            "products.signals.backend.typesafe_client.cloudflare_ai_request",
             new_callable=AsyncMock,
             return_value=_MalformedCloudflareResponse(),
         ),
@@ -427,7 +427,7 @@ async def test_typesafe_result_conversion_error_falls_back() -> None:
         ),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
-            "products.signals.backend.typesafe_decision.cloudflare_ai_request",
+            "products.signals.backend.typesafe_client.cloudflare_ai_request",
             new_callable=AsyncMock,
             return_value=_CloudflareResponse(),
         ),
