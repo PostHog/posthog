@@ -1264,17 +1264,11 @@ class FeatureFlagUsageDashboardErrorSerializer(FeatureFlagUsageDashboardSuccessS
     error = serializers.CharField(help_text="Why the usage dashboard operation failed.")
 
 
-_NO_STORED_VALUE = object()
-
-
-def _comparable_value(field: str, value: Any) -> Any:
-    """A request value in the form the stored value is compared against.
-
-    Tags carry no order and no duplicates, so a reordered list is not a change.
-    """
-    if field == "tags" and isinstance(value, list):
-        return normalize_tag_names(tag for tag in value if isinstance(tag, str))
-    return value
+def _tag_name_set(value: Any) -> set[str]:
+    """The tag names a client-supplied value resolves to, so a reorder is not a change."""
+    if not isinstance(value, list):
+        return set()
+    return normalize_tag_names(tag for tag in value if isinstance(tag, str))
 
 
 class FeatureFlagSerializer(
@@ -2679,11 +2673,18 @@ class FeatureFlagSerializer(
         for field, new_value in validated_data.items():
             if field not in original_flag:
                 continue
-            current_value = self._stored_value(current_instance, field)
-            if current_value is _NO_STORED_VALUE:
+            if field == "tags":
+                # Tags are written through a separate relationship, so the row carries no
+                # attribute of that name and a plain getattr would raise here.
+                current_value = normalize_tag_names(current_tag_names(current_instance))
+                original_value = _tag_name_set(original_flag[field])
+                requested_value = _tag_name_set(new_value)
+            elif hasattr(current_instance, field):
+                current_value = getattr(current_instance, field)
+                original_value = original_flag[field]
+                requested_value = new_value
+            else:
                 continue
-            original_value = _comparable_value(field, original_flag[field])
-            requested_value = _comparable_value(field, new_value)
             # The user changes the field, another writer changed it too, and the two disagree.
             if (
                 requested_value != original_value
@@ -2693,16 +2694,6 @@ class FeatureFlagSerializer(
                 conflicts.append(field)
 
         return conflicts
-
-    def _stored_value(self, current_instance: FeatureFlag, field: str) -> Any:
-        """The flag's current value of a request field, in the form ``_comparable_value`` returns.
-
-        A serializer-only field such as ``tags`` has no model attribute, so a plain ``getattr``
-        would raise instead of reporting the conflict this method serves.
-        """
-        if field == "tags":
-            return normalize_tag_names(current_tag_names(current_instance))
-        return getattr(current_instance, field, _NO_STORED_VALUE)
 
     def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all disabled flags that the given flag depends on."""
