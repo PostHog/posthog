@@ -41,7 +41,6 @@ def test_accepts_bucket_local_aggregations(aggregate: str, column: str | None) -
     "sql",
     [
         SQL.replace("ASC", "DESC"),
-        SQL + " LIMIT 1",
         SQL.replace("ORDER BY bucket ASC", "ORDER BY bucket ASC WITH FILL"),
         SQL.replace("count()", "sum(rand())"),
         SQL.replace("count()", "row_number() OVER (ORDER BY bucket)"),
@@ -86,16 +85,21 @@ def test_rejects_a_column_that_is_not_the_aggregate() -> None:
     assert match_detector_series_query(_query(), column="bucket") is None
 
 
-@pytest.mark.parametrize(
-    "hours,limit,eligible",
-    [(48, "", True), (336, "", False), (336, " LIMIT 1000", True), (48, " LIMIT 20", False)],
-)
-def test_requires_the_full_window_to_fit_in_the_result(hours: int, limit: str, eligible: bool) -> None:
-    sql = SQL.replace("48 HOUR", f"{hours} HOUR") + limit
+@pytest.mark.parametrize("hours,eligible", [(48, True), (336, True), (49_999, True), (50_000, False)])
+def test_the_window_is_bounded_by_a_sanity_ceiling_not_by_limits(hours: int, eligible: bool) -> None:
+    sql = SQL.replace("48 HOUR", f"{hours} HOUR")
     matched = match_detector_series_query(_query(sql), column="value")
     assert (matched is not None) == eligible
     if matched is not None:
         assert matched.window_hours == hours
+
+
+def test_an_explicit_limit_never_gates_eligibility() -> None:
+    # Completeness is the evaluation guard's job: a scan the limit cuts fails loud and disables
+    # the alert, so the matcher does not second-guess limits it would have to keep in sync.
+    matched = match_detector_series_query(_query(SQL + " LIMIT 20"), column="value")
+    assert matched is not None
+    assert matched.window_hours == 48
 
 
 NESTED_SQL = """

@@ -14,16 +14,12 @@ from dataclasses import field, fields
 from datetime import datetime
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext, get_default_limit_for_context
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_select
 
 from posthog.dataclasses import frozen
 
-# The result must hold every bucket of the window, or the series a full scan returns is a
-# truncated prefix and the cached series would silently disagree with it. Reserve headroom for
-# the extra buckets a timezone offset can add at the edges of the window.
-_ROW_LIMIT_HEADROOM = 48
 # Below this the window is too short for the narrowed scan to save anything.
 _MIN_WINDOW_HOURS = 2
 
@@ -146,15 +142,8 @@ class _HourlySeriesMatcher:
     ordering and the limit, and the output column names are the projection's.
     """
 
-    def __init__(
-        self,
-        query: ast.SelectQuery,
-        column: str | None,
-        outer: _OuterShape | None = None,
-        explicit_limit: ast.Expr | None = None,
-    ) -> None:
+    def __init__(self, query: ast.SelectQuery, column: str | None, outer: _OuterShape | None = None) -> None:
         self.outer = outer
-        self.explicit_limit = explicit_limit
         self.query = query
         self.column = column
 
@@ -352,22 +341,13 @@ class _HourlySeriesMatcher:
         time advances without moving the window this returns, so the cache would keep buckets a
         full scan no longer reads.
 
-        The window must fit under the limit the query really runs with — the author's explicit
-        LIMIT, or the context default — because the full scan the cache is compared against would
-        otherwise come back truncated.
+        Limits are not this matcher's concern: every scan the cache issues runs through the
+        evaluation guard that fails loud, and disables the alert, on a result the row limit cut.
+        The window bound here is only a sanity ceiling.
         """
         query = self.query
         if not isinstance(query.where, ast.And):
             return None
-        row_limit = get_default_limit_for_context(LimitContext.QUERY_ASYNC)
-        if self.explicit_limit is not None:
-            if (
-                not isinstance(self.explicit_limit, ast.Constant)
-                or type(self.explicit_limit.value) is not int
-                or self.explicit_limit.value <= 0
-            ):
-                return None
-            row_limit = min(self.explicit_limit.value, MAX_SELECT_RETURNED_ROWS)
         hours: int | None = None
         has_end = False
         for predicate in query.where.exprs:
@@ -383,7 +363,7 @@ class _HourlySeriesMatcher:
                 return None
         if not has_end or hours is None:
             return None
-        if not _MIN_WINDOW_HOURS < hours < row_limit - _ROW_LIMIT_HEADROOM:
+        if not _MIN_WINDOW_HOURS < hours < MAX_SELECT_RETURNED_ROWS:
             return None
         return hours
 
@@ -508,11 +488,9 @@ def match_detector_series_query(query: object, *, column: str | None) -> Detecto
         outer = _match_outer(parsed, column)
         if outer is None:
             return None
-        matched = _HourlySeriesMatcher(
-            parsed.select_from.table, column, outer=outer, explicit_limit=parsed.limit
-        ).match()
+        matched = _HourlySeriesMatcher(parsed.select_from.table, column, outer=outer).match()
     else:
-        matched = _HourlySeriesMatcher(parsed, column, explicit_limit=parsed.limit).match()
+        matched = _HourlySeriesMatcher(parsed, column).match()
     if matched is None:
         return None
     return DetectorSeriesQuery(
