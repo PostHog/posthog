@@ -27,6 +27,12 @@ export const urls = {
     productTour: (id: string): string => `/product_tours/${id}`,
     // ruleid: frontend-url-hyphen
     login2FASetup: (): string => '/login/2fa_setup',
+    // ruleid: frontend-url-hyphen
+    savedView: (id: string): string => `/items/${id}/saved_view`,
+    // ok: frontend-url-hyphen
+    savedViewHyphen: (item_id: string): string => `/items/${item_id}/saved-view`,
+    // ok: frontend-url-hyphen
+    hogFunction: (id: string, tab?: string): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     // ok: frontend-url-hyphen
     featureFlagStaff: (teamId: string): string => `/feature-flags/staff?team_id=${teamId}`,
     // ok: frontend-url-hyphen

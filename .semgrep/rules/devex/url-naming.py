@@ -39,6 +39,10 @@ class ExampleViewSet:
         request.GET.get("no-cache", False)
         # ruleid: api-query-param-underscore
         request.query_params["date-to"]
+        # ruleid: api-query-param-underscore
+        request.query_params.getlist("event-names")
+        # ruleid: api-query-param-underscore
+        request.GET.getlist("event-names")
         # ok: api-query-param-underscore
         request.query_params.get("date_from")
         # ok: api-query-param-underscore

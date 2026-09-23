@@ -57,8 +57,10 @@ rules:
       patterns:
           - pattern-either:
                 - pattern: $REQ.query_params.get("$NAME", ...)
+                - pattern: $REQ.query_params.getlist("$NAME", ...)
                 - pattern: $REQ.query_params["$NAME"]
                 - pattern: $REQ.GET.get("$NAME", ...)
+                - pattern: $REQ.GET.getlist("$NAME", ...)
                 - pattern: $REQ.GET["$NAME"]
                 - pattern: OpenApiParameter("$NAME", ...)
                 - pattern: OpenApiParameter(..., name="$NAME", ...)
@@ -110,8 +112,11 @@ rules:
           include:
               - 'frontend/src/scenes/urls.ts'
       # Match a string or template literal that starts with `/`. Walk its segments up to the
-      # first `?`, `#` or `${`, and flag a segment that is not a `:param` and has an underscore.
-      pattern-regex: '[`''"](?:/(?::[\w-]+|[\w.*-]*))*?/[A-Za-z0-9.*-]*_[\w.*-]*(?=[/`''"?#$])'
+      # first `?` or `#`, and flag a segment that is not a `:param` and has an underscore in its
+      # literal text. A simple `${expr}` counts as part of a segment, so the walk continues past it.
+      # An interpolation with nested braces or backticks, such as a conditional query string, ends
+      # the walk.
+      pattern-regex: '[`''"](?:/(?::[\w-]+|(?:[\w.*-]|\$\{[^{}`]*\})*))*?/(?:[A-Za-z0-9.*-]|\$\{[^{}`]*\})*_[\w.*-]*(?=[/`''"?#$])'
       metadata:
           category: best-practice
 
