@@ -1130,6 +1130,12 @@ export class AgentServer {
               Promise.resolve()),
         5_000,
       );
+      // An abort during initialization leaves the root span open with no session
+      // to carry it, and the caller exits the process as soon as this returns.
+      await withTimeout(
+        this.initializingTelemetry?.shutdown() ?? Promise.resolve(),
+        5_000,
+      );
     } finally {
       this.server?.close();
       this.server = null;
@@ -1834,7 +1840,12 @@ export class AgentServer {
     try {
       await this.initializationPromise;
     } catch (error) {
-      if (this.shutdownController.signal.aborted) throw error;
+      if (this.shutdownController.signal.aborted) {
+        // No session owns the telemetry yet, so cleanupSession never reaches it.
+        // End and flush the run's root span before the finally drops the handle.
+        await this.initializingTelemetry?.shutdown();
+        throw error;
+      }
       this.bootTracker.markFailed();
       if (error instanceof CredentialRelayError) {
         this.initializationFailureCode = "claude_credential_unavailable";

@@ -277,6 +277,7 @@ export class OtelRunTelemetry implements SessionLogSink {
   private runId: string;
   private debugLogger?: Logger;
   private shutdownStarted = false;
+  private shutdownPromise?: Promise<void>;
 
   constructor(
     config: OtelTelemetryConfig,
@@ -370,14 +371,16 @@ export class OtelRunTelemetry implements SessionLogSink {
   /**
    * Ends open spans, flushes batched records, then stops the providers.
    * Idempotent and best-effort: the two providers shut down independently
-   * and a failure in one never skips the other. Never rejects.
+   * and a failure in one never skips the other. Never rejects. A second
+   * caller waits for the first flush rather than returning early, because the
+   * process can exit as soon as the last caller resolves.
    */
   async shutdown(): Promise<void> {
-    if (this.shutdownStarted) return;
     this.shutdownStarted = true;
-    await Promise.allSettled([
+    this.shutdownPromise ??= Promise.allSettled([
       this.traceBuilder?.shutdown(),
       this.loggerProvider.shutdown(),
-    ]);
+    ]).then(() => undefined);
+    await this.shutdownPromise;
   }
 }

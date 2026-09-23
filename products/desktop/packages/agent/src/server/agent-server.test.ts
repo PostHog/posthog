@@ -611,6 +611,43 @@ describe("AgentServer HTTP Mode", () => {
     expect(shutdown).toHaveBeenCalledOnce();
   });
 
+  it("flushes telemetry when initialization is aborted by shutdown", async () => {
+    const append = vi.fn();
+    const shutdown = vi.fn(async () => {});
+    const testServer = createServer() as unknown as {
+      shutdownController: AbortController;
+      initializingTelemetry:
+        | { append: typeof append; shutdown: typeof shutdown }
+        | undefined;
+      _doInitializeSession(
+        payload: JwtPayload,
+        controller: null,
+      ): Promise<void>;
+      initializeSession(payload: JwtPayload, controller: null): Promise<void>;
+    };
+    testServer._doInitializeSession = vi.fn(async () => {
+      testServer.initializingTelemetry = { append, shutdown };
+      testServer.shutdownController.abort(new Error("cancelled"));
+      testServer.shutdownController.signal.throwIfAborted();
+    });
+    const payload = {
+      task_id: "test-task-id",
+      run_id: "test-run-id",
+      team_id: 1,
+      user_id: 1,
+      distinct_id: "test-distinct-id",
+      mode: "interactive" as const,
+    };
+
+    await expect(testServer.initializeSession(payload, null)).rejects.toThrow(
+      "cancelled",
+    );
+
+    expect(shutdown).toHaveBeenCalledOnce();
+    expect(append).not.toHaveBeenCalled();
+    expect(testServer.initializingTelemetry).toBeUndefined();
+  });
+
   it("replays ACP notifications emitted before cloud session assignment", () => {
     const testServer = createServer() as unknown as {
       session: { sseController: null } | null;

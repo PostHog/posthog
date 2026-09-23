@@ -771,6 +771,23 @@ describe("OtelRunTelemetry", () => {
       expect(surface).not.toContain("SECRET");
     });
 
+    it("makes a concurrent shutdown wait for the same flush", async () => {
+      const order: string[] = [];
+      mockLogShutdown.mockImplementationOnce(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        order.push("flushed");
+      });
+
+      await Promise.all([
+        telemetry.shutdown().then(() => order.push("first")),
+        telemetry.shutdown().then(() => order.push("second")),
+      ]);
+
+      expect(mockLogShutdown).toHaveBeenCalledOnce();
+      expect(order[0]).toBe("flushed");
+      expect(order).toContain("second");
+    });
+
     it("shuts down logs even when the traces endpoint fails", async () => {
       mockSpanShutdown.mockRejectedValueOnce(new Error("traces endpoint down"));
       telemetry.append(RUN_ID, makeEntry("_posthog/run_started", {}));
