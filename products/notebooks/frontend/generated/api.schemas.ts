@@ -1521,11 +1521,11 @@ export type NotebooksListParams = {
      */
     created_by?: string
     /**
-     * Filter for notebooks created after this date & time
+     * Filter for notebooks last modified after this date & time
      */
     date_from?: string
     /**
-     * Filter for notebooks created before this date & time
+     * Filter for notebooks last modified before this date & time
      */
     date_to?: string
     /**

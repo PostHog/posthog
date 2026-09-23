@@ -53,11 +53,11 @@ export const NotebooksListQueryParams = () => zod.object({
     date_from: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Filter for notebooks created after this date & time'),
+        .describe('Filter for notebooks last modified after this date & time'),
     date_to: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Filter for notebooks created before this date & time'),
+        .describe('Filter for notebooks last modified before this date & time'),
     last_modified_by: zod.string().optional().describe('The UUID of the user who last modified the Notebook'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
