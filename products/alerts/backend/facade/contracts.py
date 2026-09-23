@@ -175,14 +175,11 @@ class PlatformAlertOutcome:
     """
 
     configuration_id: UUID
-    # Names the occasion, not the attempt. A retried batch recomputes the same key, so the
-    # unique constraint on the event row rejects the replay rather than recording it twice.
     evaluation_key: str
     kind: AlertEventKind
     new_state: str
     notified: bool
     consecutive_failures: int
-    # What the check measured. None when it reached no value, as a failed query does.
     value: float | None = None
     labels: dict[str, str] = field(default_factory=dict)
     error_message: str | None = None

@@ -52,10 +52,7 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
     next_check_at = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
 
-    # Whether to keep an event row for a check that decided nothing. Off by default: a
-    # one-minute alert produces about 43,000 such rows a month, and the only reader that
-    # wants them is a comparison against the source's own stack, which runs on a cohort
-    # rather than on the fleet.
+    # Off by default: only a comparison against the source's own stack reads these rows.
     record_every_check = models.BooleanField(default=False, db_default=False)
 
     # The row this was copied from, so a backfill can run twice and so a comparison can line
@@ -121,7 +118,6 @@ class PlatformAlertEvent(TeamScopedRootMixin, UUIDTModel):
     """
 
     class Kind(models.TextChoices):
-        # Nothing moved. Written only when the configuration asks for it.
         CHECK = "check", "Check"
         FIRING = "firing", "Firing"
         RESOLVED = "resolved", "Resolved"
@@ -131,16 +127,14 @@ class PlatformAlertEvent(TeamScopedRootMixin, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     alert = models.ForeignKey(PlatformAlert, on_delete=models.CASCADE, related_name="events")
 
-    # Supplied by the source and stable across retries, which is what makes the unique
-    # constraint below reject a replayed batch instead of double-writing it.
+    # Stable across retries, which is what lets the unique constraint below reject a replay.
     evaluation_key = models.CharField(max_length=255)
     kind = models.CharField(max_length=32, choices=Kind.choices)
 
     previous_state = models.CharField(max_length=32)
     state = models.CharField(max_length=32)
 
-    # Float rather than an integer count, because a source may measure something other than
-    # a number of records. Null when the check reached no value, as a failed query does.
+    # Float rather than a count: a source may measure something other than records.
     value = models.FloatField(null=True, blank=True)
     labels = models.JSONField(default=dict)
 
@@ -150,8 +144,7 @@ class PlatformAlertEvent(TeamScopedRootMixin, UUIDTModel):
     query_duration_ms = models.PositiveIntegerField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
 
-    # The occasion the check was for, not the moment the row was written. A retry writes the
-    # same instant, so rows from the two stacks line up by window rather than by clock.
+    # The occasion the check was for, not when the row was written, so a retry repeats it.
     occurred_at = models.DateTimeField()
 
     class Meta:
@@ -159,6 +152,5 @@ class PlatformAlertEvent(TeamScopedRootMixin, UUIDTModel):
             models.UniqueConstraint(fields=["alert", "evaluation_key"], name="platform_alert_event_one_per_evaluation")
         ]
         indexes = [
-            # Newest first for one alert, which is how history is read.
             models.Index(fields=["alert", "-occurred_at"], name="platform_alert_event_ts_idx"),
         ]

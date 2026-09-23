@@ -247,9 +247,7 @@ def record_outcomes(
                 unblocked[unblocked_key] = scan_next_unblocked_utc(next_check_at, team_timezone, windows)
             configuration.next_check_at = unblocked[unblocked_key] or next_check_at
 
-        # `ignore_conflicts` leans on the unique constraint, so an attempt that raced another
-        # cycle on the same evaluation writes the row once. The rows go in before the schedule
-        # advances past them, in the one transaction.
+        # `ignore_conflicts` leans on the unique constraint, so a racing cycle writes it once.
         PlatformAlertEvent.objects.for_team(team_id).bulk_create(events, ignore_conflicts=True)
         PlatformAlert.objects.for_team(team_id).bulk_update(list(alerts.values()), ["state", "last_notified_at"])
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(

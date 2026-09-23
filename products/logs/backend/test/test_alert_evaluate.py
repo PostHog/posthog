@@ -225,8 +225,6 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(configuration)
 
-        # Scoped to the alert by the unique constraint on the history row, not by the string,
-        # so every source spells the key the same way.
         assert [p.evaluation_key for p in evaluation.previews] == [f"window:{self.cutoff.isoformat()}"]
 
     def test_a_breach_records_the_count_it_measured(self) -> None:
@@ -235,8 +233,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        # The breach flags alone say an alert fired, not by how much. A comparison against the
-        # logs stack has nothing to diff without the count, and a message cannot name it.
+        # The breach flags say an alert fired, not by how much, so a comparison has nothing.
         with team_scope(self.team.id):
             event = PlatformAlertEvent.objects.get(alert__configuration=configuration)
         assert event.kind == PlatformAlertEvent.Kind.FIRING
@@ -249,8 +246,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, _ = self._run(configuration, query_error=ExposedHogQLError("bad filter"))
         self._record(evaluation)
 
-        # A recorded zero would read as a measured absence of logs, which resolves an alert
-        # that is actually unevaluable.
+        # A recorded zero reads as an absence of logs, resolving an unevaluable alert.
         with team_scope(self.team.id):
             event = PlatformAlertEvent.objects.get(alert__configuration=configuration)
         assert event.value is None

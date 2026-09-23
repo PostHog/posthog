@@ -103,9 +103,8 @@ _NOTIFICATION_EVENT_KINDS: dict[NotificationAction, EventKind] = {
     NotificationAction.BROKEN: "broken",
 }
 
-# What the check decided, as the history row names it. A check that announced nothing is a
-# CHECK, whether or not it moved the alert; the row carries both states, so a silent move is
-# still visible in one.
+# A check that announced nothing is a CHECK even when it moved the alert; the row's two
+# states carry the move.
 _NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
     NotificationAction.NONE: AlertEventKind.CHECK,
     NotificationAction.FIRE: AlertEventKind.FIRING,
@@ -245,9 +244,7 @@ def _evaluate_one(
     current_breached, *prior_windows_breached = _derive_breaches(
         buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
     ) or (False,)
-    # The newest bucket, matching what the production activity records. ClickHouse emits no
-    # bucket for a window with no data, so an empty result is a count of zero rather than
-    # an absent value.
+    # ClickHouse emits no bucket for an empty window, so no buckets is a measured zero.
     return _decide(
         check,
         CheckInput(threshold_breached=current_breached),
@@ -289,8 +286,7 @@ def _held(
     recorded = PlatformAlertOutcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(now),
-        # Named here rather than derived from the notification, which is NONE on this path
-        # because the check machine never ran. A control-plane transition is still a transition.
+        # The notification is NONE here only because the check machine never ran.
         kind=AlertEventKind.BROKEN,
         new_state=outcome.new_state.value,
         notified=False,
@@ -330,8 +326,7 @@ def _evaluate_cohort(
         # counter unmoved, never reaching the escalation that stops it.
         return [_failed(check, error, window_end=date_to, now=now) for check in checks]
 
-    # One query serves the whole cohort, so every check in it is recorded against the same
-    # duration. This is what the production activity measures too.
+    # One query serves the cohort, so every check in it records the same duration.
     query_duration_ms = int((time.monotonic() - query_started_at) * 1000)
 
     decided: list[Decision] = []

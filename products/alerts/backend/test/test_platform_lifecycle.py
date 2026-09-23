@@ -82,14 +82,11 @@ class TestPlatformAlertLifecycle(APIBaseTest):
 
         self._record(kind=AlertEventKind.CHECK, new_state="not_firing", notified=False)
 
-        # Off, a one-minute alert would mint about 43,000 rows a month that nothing reads.
-        # On, the comparison cohort has no data at all without them.
         assert len(self._events()) == expected_rows
 
     def test_a_state_change_nobody_was_notified_of_is_still_recorded(self) -> None:
         self._record(kind=AlertEventKind.FIRING, new_state="firing", notified=True)
-        # A cooldown suppresses the notification while the alert still moves. Keying retention
-        # on the notification alone would lose the move, which is the thing history is for.
+        # A cooldown holds the notification while the alert still moves.
         self._record(
             now=self.cutoff + timedelta(minutes=10),
             kind=AlertEventKind.CHECK,
@@ -106,8 +103,7 @@ class TestPlatformAlertLifecycle(APIBaseTest):
     def test_a_recorded_check_carries_what_it_was_evaluated_against(self) -> None:
         self._record(value=42.0, query_duration_ms=17)
 
-        # Without the snapshot a retried delivery renders the message against a threshold the
-        # check never saw, and a comparison has no bound to line the two stacks up on.
+        # Without the snapshot a retried delivery renders against a threshold nothing measured.
         event = self._events()[0]
         assert event.value == 42.0
         assert event.query_duration_ms == 17
@@ -119,6 +115,5 @@ class TestAlertEventKindVocabulary(SimpleTestCase):
     """Two enums, no database."""
 
     def test_the_contract_and_the_column_name_the_same_kinds(self) -> None:
-        # Django does not check `choices` on save, so a kind added to one and not the other
-        # writes a value no reader recognizes, silently.
+        # Django does not check `choices` on save, so a drifted kind writes silently.
         assert {k.value for k in AlertEventKind} == set(PlatformAlertEvent.Kind.values)
