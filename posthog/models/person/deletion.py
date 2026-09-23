@@ -230,7 +230,7 @@ class _Mapping:
     max_version: int
 
 
-@dataclass
+@dataclass(frozen=False)
 class OrphanRepairResult:
     orphaned_person_uuids: list[str]
     tombstoned_persons: int = 0
