@@ -30,6 +30,7 @@ from prometheus_client import Counter
 from posthog import redis
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
+from posthog.token_bucket import BucketDecision, Budget, consume
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     EXPIRY_BUFFER_SECONDS,
@@ -59,6 +60,11 @@ REVALIDATION_DEBOUNCE_SECONDS = 10 * 60
 # rather than staying suppressed for 10 minutes with no rebuild in flight.
 ENQUEUE_FAILURE_BACKOFF_SECONDS = 30
 
+# The debounce key is the user-controlled query shape, so distinct date ranges or draft goals each get
+# their own slot. This per-team budget caps the total background warms a team can queue, so a flood of
+# cold shapes cannot fill the shared analytics queue with long ClickHouse rebuilds.
+TEAM_WARM_BUDGET = Budget(burst=10, per_hour=30)
+
 # Fields that shape only the final read, never what gets materialized, so they must not split the debounce
 # key — paging or re-sorting a stale table would otherwise enqueue a rebuild per interaction. Kept
 # deliberately narrow: excluding a field that *does* select precomputes (`select` gates which conversion
@@ -78,6 +84,11 @@ MARKETING_PRECOMPUTE_REVALIDATION_ENQUEUED = Counter(
 MARKETING_PRECOMPUTE_REVALIDATION_ENQUEUE_FAILED = Counter(
     "marketing_analytics_precompute_revalidation_enqueue_failed_total",
     "Revalidation enqueues that failed (e.g. broker unavailable); the stale read is still served.",
+)
+
+MARKETING_PRECOMPUTE_REVALIDATION_THROTTLED = Counter(
+    "marketing_analytics_precompute_revalidation_throttled_total",
+    "Background warms skipped because the team used up its warm budget.",
 )
 
 MARKETING_PRECOMPUTE_NOT_READY_WARMED = Counter(
@@ -157,6 +168,13 @@ def enqueue_stale_revalidation(*, team: Team, query: Any) -> None:
         debounce_key = f"ma_swr_reval:{team.id}:{_query_shape_key(query)}"
         claimed = bool(redis.get_client().set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True))
         if not claimed:
+            return
+        budget = consume(f"ma_swr_reval_rate:{team.id}", TEAM_WARM_BUDGET)
+        if isinstance(budget, BucketDecision) and not budget.allowed:
+            # Hold the slot only for a backoff, so this shape can retry once the budget refills.
+            redis.get_client().set(debounce_key, "1", ex=ENQUEUE_FAILURE_BACKOFF_SECONDS)
+            MARKETING_PRECOMPUTE_REVALIDATION_THROTTLED.inc()
+            logger.info("marketing_precompute.swr_revalidation_throttled", team_id=team.id)
             return
         revalidate_marketing_analytics_precompute.delay(
             team_id=team.id, query=query.model_dump(mode="json", exclude_none=True)

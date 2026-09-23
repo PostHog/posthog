@@ -13,6 +13,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precomput
     ENQUEUE_FAILURE_BACKOFF_SECONDS,
     PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
     REVALIDATION_TRIGGER,
+    TEAM_WARM_BUDGET,
     _query_shape_key,
     handle_not_ready,
     handle_stale_served,
@@ -31,6 +32,7 @@ class TestMarketingLazyPrecompute(BaseTest):
         super().setUp()
         self.query = MarketingAnalyticsTableQuery(dateRange=DateRange(date_from="-7d"), properties=[])
         redis.get_client().delete(f"ma_swr_reval:{self.team.id}:{_query_shape_key(self.query)}")
+        redis.get_client().delete(f"ma_swr_reval_rate:{self.team.id}")
         reset_query_tags()
 
     def tearDown(self):
@@ -114,6 +116,22 @@ class TestMarketingLazyPrecompute(BaseTest):
         handle_stale_served(team=self.team, query=variant)
 
         assert delay.call_count == expected_enqueues
+
+    @mock.patch(_DELAY)
+    def test_distinct_shapes_are_capped_by_the_team_warm_budget(self, delay):
+        # Each date range gets its own debounce slot, so a flood of cold shapes must still stop at the
+        # team's budget instead of queueing one long rebuild per shape.
+        shapes = [
+            self.query.model_copy(update={"dateRange": DateRange(date_from=f"-{days}d")})
+            for days in range(1, TEAM_WARM_BUDGET.burst + 4)
+        ]
+        for shape in shapes:
+            redis.get_client().delete(f"ma_swr_reval:{self.team.id}:{_query_shape_key(shape)}")
+            handle_not_ready(team=self.team, query=shape)
+
+        assert delay.call_count == TEAM_WARM_BUDGET.burst
+        throttled_key = f"ma_swr_reval:{self.team.id}:{_query_shape_key(shapes[-1])}"
+        assert 0 < redis.get_client().ttl(throttled_key) <= ENQUEUE_FAILURE_BACKOFF_SECONDS
 
     @mock.patch(_DELAY)
     @mock.patch(f"{_MODULE}.redis.get_client", side_effect=Exception("redis down"))
