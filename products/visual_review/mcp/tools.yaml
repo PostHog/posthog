@@ -214,6 +214,32 @@ tools:
     visual-review-repos-thumbnails-retrieve:
         operation: visual_review_repos_thumbnails_retrieve
         enabled: false
+    visual-review-repos-toleration-pileups-retrieve:
+        operation: visual_review_repos_toleration_pileups_retrieve
+        enabled: false
+        scopes:
+            - visual_review:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Visual review toleration pile-ups
+        description: >
+            Snapshots in a repo that keep getting tolerated, counted across baselines, most manual tolerations first. A
+            toleration accepts one exact rendering, so a snapshot that keeps needing them renders differently from run
+            to run, and the fix belongs in the story (a pinned date, a disabled animation, a wait for a loader). Called
+            with no parameters it applies the weekly debt digest's rule and keeps quarantined snapshots, marked with
+            `is_quarantined`. Tune it with `min_tolerations`, `min_automatic_tolerations`, `window_days`,
+            `include_quarantined`, `run_type` and `limit`; the response echoes the rule it applied. The list is short
+            and returns quickly, so use it instead of the flakiness overview to find flaky stories worth fixing, then
+            read one snapshot's history with `visual-review-runs-snapshot-history-list` or its tolerations with
+            `visual-review-runs-tolerated-hashes-list`.
+        param_overrides:
+            id:
+                description: The repo's UUID, from `visual-review-repos-list`.
+                aliases:
+                    - repo_id
+        feature_flag: visual-review
     visual-review-runs-add-snapshots-create:
         operation: visual_review_runs_add_snapshots_create
         enabled: false

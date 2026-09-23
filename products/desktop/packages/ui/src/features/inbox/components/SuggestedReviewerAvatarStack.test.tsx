@@ -168,6 +168,41 @@ describe("SuggestedReviewerAvatarStack", () => {
     document.removeEventListener("click", onCardClick);
   });
 
+  it("lists a reviewer who has no GitHub login", async () => {
+    const user = userEvent.setup();
+    // The avatar stack can only draw reviewers with a login, but this one still routes the report.
+    const unlinked: SuggestedReviewer = {
+      github_login: null,
+      github_name: null,
+      relevant_commits: [],
+      user: {
+        id: 2,
+        uuid: "user-carol",
+        email: "carol@example.com",
+        first_name: "Carol",
+        last_name: "Diaz",
+      },
+      explanation: "Owns the checkout service.",
+    };
+    render(
+      <SuggestedReviewerAvatarStack
+        report={report}
+        artefacts={{
+          count: 1,
+          results: [{ ...artefacts.results[0], content: [teammate, unlinked] }],
+        }}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "View suggested reviewer rationale",
+      }),
+    );
+
+    expect(screen.getByText("Carol Diaz")).toBeTruthy();
+  });
+
   it("does not render the reviewer action as a report status", async () => {
     const user = userEvent.setup();
     const { rerender } = render(

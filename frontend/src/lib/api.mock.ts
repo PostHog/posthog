@@ -7,7 +7,6 @@ import {
     ActivationTaskStatus,
     CohortType,
     DataColorThemeModel,
-    ExperimentStatsMethod,
     ExperimentVelocityStats,
     FilterLogicalOperator,
     GroupType,
@@ -197,6 +196,7 @@ export const MOCK_DEFAULT_PROJECT: ProjectType = {
     organization_id: MOCK_ORGANIZATION_ID,
     created_at: '2020-06-30T09:53:35.932534Z',
     is_pending_deletion: false,
+    deletion_scheduled_at: null,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
@@ -219,7 +219,6 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     available_product_features: [],
     member_count: 2,
     logo_media_id: null,
-    default_experiment_stats_method: ExperimentStatsMethod.Bayesian,
     is_active: true,
     is_not_active_reason: null,
     is_pending_deletion: false,

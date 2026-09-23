@@ -21,6 +21,7 @@ from posthog.migration_helpers import (
     AddForeignKeyNotValid,
     DropForeignKey,
     SafeAddIndexConcurrently,
+    SafeDropTable,
     SafeRemoveIndexConcurrently,
     ValidateConstraint,
 )
@@ -563,6 +564,16 @@ class TestRunSQLOperations:
         assert risk.level == RiskLevel.SAFE
         assert "Unknown operation" not in risk.reason
 
+    def test_safe_drop_table_helper_is_scored_like_the_raw_drop(self):
+        # Without migration context the helper stays blocked, like a raw DROP TABLE.
+        op = SafeDropTable("posthog_mymodel")
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
+        assert "Unknown operation" not in risk.reason
+
     def test_run_sql_drop_constraint(self):
         """Test DROP CONSTRAINT - fast but needs deployment safety review (score 2)."""
         op = create_mock_operation(
@@ -831,6 +842,9 @@ class TestDropTableValidation:
         # Should be NEEDS_REVIEW (score 2) since properly staged
         assert migration_risk.level == RiskLevel.NEEDS_REVIEW
         assert migration_risk.max_score == 2
+        # Staging is not the whole story: the raw form keeps the deadlock-prone lock order.
+        guidance = migration_risk.operations[0].guidance
+        assert guidance and "SafeDropTable" in guidance
 
     def test_drop_table_resolves_deleted_model_with_custom_db_table(self):
         """

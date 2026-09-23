@@ -16,7 +16,9 @@
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
+        "@testing-library/dom": "*",
         "@types/react": "*",
         "@xyflow/react": "*",
         "clsx": "*",

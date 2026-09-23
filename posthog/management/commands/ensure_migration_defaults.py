@@ -9,6 +9,8 @@ from typing import Any
 from django.contrib.auth.models import Group as AuthGroup
 from django.core.management.base import BaseCommand
 
+from oauth2_provider.settings import oauth2_settings
+
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.oauth import OAuthApplication
 
@@ -316,8 +318,31 @@ _FEATURE_FLAG_TEMPLATE: dict[str, Any] = {
 class Command(BaseCommand):
     help = "Ensure default data from migrations exists for schema-only restores."
 
+    def _seed_streamlit_oauth_app(self, created_items: list[str], skipped_items: list[str]) -> None:
+        # OAuthApplication.clean() rejects RS256 where no OIDC RSA private key is
+        # configured, and an error here would skip every seed after this one.
+        if not oauth2_settings.OIDC_RSA_PRIVATE_KEY:
+            skipped_items.append(f"OAuth app: {_STREAMLIT_OAUTH_APP_NAME} (no OIDC_RSA_PRIVATE_KEY configured)")
+            return
+
+        if OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).exists():
+            return
+
+        OAuthApplication.objects.create(
+            name=_STREAMLIT_OAUTH_APP_NAME,
+            client_id=_STREAMLIT_OAUTH_CLIENT_ID,
+            client_secret=secrets.token_urlsafe(48),
+            client_type="confidential",
+            authorization_grant_type="authorization-code",
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+            is_first_party=True,
+        )
+        created_items.append(f"OAuth app: {_STREAMLIT_OAUTH_APP_NAME}")
+
     def handle(self, *args: Any, **options: Any) -> None:
         created_items: list[str] = []
+        skipped_items: list[str] = []
 
         for group_name in _AUTH_GROUPS:
             _, created = AuthGroup.objects.get_or_create(name=group_name)
@@ -350,18 +375,7 @@ class Command(BaseCommand):
             ai_pilled.save(update_fields=["is_active"])
             created_items.append("Growth enrichment prompt config: ai_pilled")
 
-        if not OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).exists():
-            OAuthApplication.objects.create(
-                name=_STREAMLIT_OAUTH_APP_NAME,
-                client_id=_STREAMLIT_OAUTH_CLIENT_ID,
-                client_secret=secrets.token_urlsafe(48),
-                client_type="confidential",
-                authorization_grant_type="authorization-code",
-                redirect_uris="https://localhost",
-                algorithm="RS256",
-                is_first_party=True,
-            )
-            created_items.append(f"OAuth app: {_STREAMLIT_OAUTH_APP_NAME}")
+        self._seed_streamlit_oauth_app(created_items, skipped_items)
 
         for template_data in (_PRODUCT_ANALYTICS_TEMPLATE, _FEATURE_FLAG_TEMPLATE):
             name = template_data["template_name"]
@@ -376,3 +390,6 @@ class Command(BaseCommand):
             self.stdout.write("Created defaults:\n- " + "\n- ".join(created_items))
         else:
             self.stdout.write("Default migration data already present.")
+
+        if skipped_items:
+            self.stdout.write("Skipped defaults:\n- " + "\n- ".join(skipped_items))

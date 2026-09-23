@@ -549,6 +549,11 @@ class ExportedAssetViewSet(
         if not instance.is_session_recording_export and instance.created_by_id != self.request.user.id:
             raise NotFound()
 
+        if export_context.get("observation_id"):
+            # Media a product owns and authorizes on its own endpoint. This endpoint checks the recording,
+            # which is a weaker gate than the one the owner applies, and asset ids are guessable integers.
+            raise NotFound()
+
         session_recording_id = export_context.get("session_recording_id")
 
         # Both can be set on one asset, and the renderer prefers the insight, so checking only the

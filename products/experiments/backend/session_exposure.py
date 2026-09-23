@@ -31,11 +31,8 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 from products.experiments.backend.models.experiment import Experiment
 
 # How long a session can run, so a window anchored on one of the session's own events still covers
-# the rest of it. The two session-scoped surfaces read it in opposite directions. The delta scan
-# resolves its ceiling from each session's last activity, so it has to reach this far back or a
-# session that began earlier is read from the middle and the events it opened with go missing. The
-# bucket scan anchors on the last exposure, so it has to reach this far forward or the metric
-# events that follow that exposure read as absence.
+# the rest of it. The bucket scan anchors on the last exposure, so it has to reach this far forward
+# or the metric events that follow that exposure read as absence.
 MAX_SESSION_DURATION_HOURS = 24
 
 

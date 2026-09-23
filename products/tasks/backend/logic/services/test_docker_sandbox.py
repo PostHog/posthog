@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 from typing import TYPE_CHECKING, Any
@@ -11,7 +12,15 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.tasks.backend.exceptions import ProcessTaskError, SandboxExecutionError, SandboxProvisionError
-from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+from products.tasks.backend.logic.services.agent_server_launcher import (
+    AGENT_SERVER_LAUNCH_CAPABILITIES,
+    AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
+)
+from products.tasks.backend.logic.services.docker_sandbox import (
+    DockerSandbox,
+    _base_dockerfile_path,
+    _pinned_agent_version,
+)
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS, ENV_LOCAL_SKILLS_HOST_PATH
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
@@ -24,6 +33,8 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pytest_django.fixtures import Settings
 
 
@@ -38,6 +49,10 @@ def _agent_server_launch_command(mock_execute: Any) -> str:
         if "./node_modules/.bin/agent-server" in command:
             return command
     raise AssertionError("agent-server launch command not found among execute calls")
+
+
+def _preflight_stdout(capabilities: tuple[str, ...] = AGENT_SERVER_LAUNCH_CAPABILITIES) -> str:
+    return "\n".join(f"{AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX}{capability}" for capability in capabilities)
 
 
 def docker_available() -> bool:
@@ -517,7 +532,7 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(mode) in command
                 assert "--createPr true" in command
 
-    def test_start_agent_server_preserves_pi_protocol_without_branch_retry(self) -> None:
+    def test_start_agent_server_preserves_pi_protocol_on_branch_retry(self) -> None:
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -526,16 +541,13 @@ class TestDockerSandboxUnit:
 
         with (
             patch.object(sandbox, "is_running", return_value=True),
-            patch.object(sandbox, "write_file"),
-            patch.object(sandbox, "agent_server_supports_auto_publish", return_value=True),
-            patch.object(sandbox, "agent_server_supports_pi_runtime", return_value=True),
-            patch.object(sandbox, "execute") as mock_execute,
-            patch.object(sandbox, "_launch_and_check", side_effect=[False, True]),
             patch.object(
-                sandbox, "_build_agent_server_command", wraps=sandbox._build_agent_server_command
-            ) as mock_build,
+                sandbox, "write_file", return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+            ),
+            patch.object(sandbox, "execute") as mock_execute,
+            patch.object(sandbox, "_launch_and_check", side_effect=[False, True]) as launch,
         ):
-            mock_execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+            mock_execute.return_value = ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=0, error=None)
             sandbox.start_agent_server(
                 "posthog/posthog",
                 "task-123",
@@ -544,8 +556,13 @@ class TestDockerSandboxUnit:
                 agent_runtime="pi",
             )
 
-        assert mock_build.call_count == 2
-        assert mock_build.call_args_list[1].kwargs["agent_runtime"] == "pi"
+        assert launch.call_count == 2
+        first_command = launch.call_args_list[0].args[0]
+        retry_command = launch.call_args_list[1].args[0]
+        assert "--baseBranch main" in first_command
+        assert "--baseBranch" not in retry_command
+        assert "POSTHOG_AGENT_RUNTIME=pi" in first_command
+        assert "POSTHOG_AGENT_RUNTIME=pi" in retry_command
 
     def test_start_agent_server_rejects_an_image_without_pi_support(self) -> None:
         sandbox = DockerSandbox.__new__(DockerSandbox)
@@ -556,11 +573,12 @@ class TestDockerSandboxUnit:
 
         with (
             patch.object(sandbox, "is_running", return_value=True),
-            patch.object(sandbox, "write_file"),
+            patch.object(
+                sandbox, "write_file", return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+            ),
             patch.object(
                 sandbox, "execute", return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
             ),
-            patch.object(sandbox, "agent_server_supports_pi_runtime", return_value=False),
             pytest.raises(RuntimeError, match="does not support the Pi runtime"),
         ):
             sandbox.start_agent_server(
@@ -673,7 +691,9 @@ class TestDockerSandboxUnit:
         clear_index = next(
             index for index, command in enumerate(commands) if "rm -rf" in command and "skills" in command
         )
-        launch_index = next(index for index, command in enumerate(commands) if "agent-server" in command)
+        launch_index = next(
+            index for index, command in enumerate(commands) if "./node_modules/.bin/agent-server" in command
+        )
         assert clear_index < launch_index
 
     def test_start_agent_server_without_domains_skips_agentsh(self):
@@ -816,7 +836,9 @@ class TestDockerSandboxUnit:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
-                mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+                mock_execute.return_value = ExecutionResult(
+                    stdout=_preflight_stdout(), stderr="", exit_code=0, error=None
+                )
                 sandbox.start_agent_server(
                     "posthog/posthog",
                     "task-123",
@@ -998,3 +1020,17 @@ class TestDockerSandboxIntegration:
             assert result.stdout.strip() != ""
         finally:
             DockerSandbox.delete_snapshot(snapshot_id)
+
+
+class TestPinnedAgentVersion:
+    def test_reads_a_semver_from_the_base_dockerfile(self) -> None:
+        version = _pinned_agent_version(_base_dockerfile_path())
+
+        assert version is not None
+        assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
+
+    def test_ignores_lines_that_are_not_the_arg(self, tmp_path: Path) -> None:
+        dockerfile = tmp_path / "Dockerfile"
+        dockerfile.write_text("FROM scratch\nENV AGENT_VERSION=1.2.3\n# ARG AGENT_VERSION=4.5.6\n")
+
+        assert _pinned_agent_version(str(dockerfile)) is None

@@ -4,7 +4,7 @@ import uuid
 import random
 import asyncio
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -206,9 +206,18 @@ class TestProcessTaskWorkflow:
         ).encode()
         server = Path(__file__).with_name("workflow_api.py").read_bytes()
 
+        def task_api_is_already_serving(sandbox: SandboxBase) -> bool:
+            result = sandbox.execute(
+                "curl --fail --silent --max-time 2 http://127.0.0.1:8765/health",
+                timeout_seconds=30,
+            )
+            return result.exit_code == 0
+
         def prepare_api(sandbox: SandboxBase) -> None:
             # The remote agent cannot read this process's test database. Serve its
             # task context inside the sandbox, without sending a prompt to an LLM.
+            if task_api_is_already_serving(sandbox):
+                return
             for path, content in [("/tmp/workflow-api.json", payload), ("/tmp/workflow_api.py", server)]:
                 result = sandbox.write_file(path, content)
                 assert result.exit_code == 0, result.stderr
@@ -1769,6 +1778,17 @@ class TestProcessTaskWorkflowUnit:
         assert workflow._agent_lost_mid_turn() is expected
 
     @pytest.mark.parametrize(
+        "origin_product, expected",
+        [("workflow", True), ("slack", False), ("user_created", False), (None, False)],
+    )
+    async def test_only_a_workflow_run_fails_on_a_lost_agent(self, origin_product, expected):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, origin_product=origin_product)
+        workflow._end_of_turn_received = False
+
+        assert workflow._agent_lost_exit_is_failure() is expected
+
+    @pytest.mark.parametrize(
         "outcome, expected",
         [(None, False), (STEER_DECLINED_OUTCOME, True), (RuntimeError("Sandbox session is dead"), True)],
     )
@@ -1826,7 +1846,10 @@ class TestProcessTaskWorkflowUnit:
             extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
         )
 
-    async def test_run_cleans_up_sandbox_when_provisioning_fails_after_creation(self, monkeypatch):
+    @pytest.mark.parametrize("organization_blocked", [False, True])
+    async def test_run_cleans_up_sandbox_when_provisioning_fails_after_creation(
+        self, monkeypatch, organization_blocked
+    ):
         workflow = ProcessTaskWorkflow()
         get_task_processing_context_mock = AsyncMock(return_value=_build_context(github_integration_id=123))
         update_task_run_status_mock = AsyncMock()
@@ -1847,6 +1870,20 @@ class TestProcessTaskWorkflowUnit:
 
         async def fail_after_sandbox_creation() -> GetSandboxForRepositoryOutput:
             workflow._sandbox_id_for_cleanup = "sandbox-123"
+            if organization_blocked:
+                raise ActivityError(
+                    "Activity task failed",
+                    scheduled_event_id=10,
+                    started_event_id=11,
+                    identity="worker",
+                    activity_type="start_agent_server",
+                    activity_id="activity",
+                    retry_state=RetryState.NON_RETRYABLE_FAILURE,
+                ) from ApplicationError(
+                    "This organization is scheduled for deletion.",
+                    type="OrganizationExecutionError",
+                    non_retryable=True,
+                )
             raise RuntimeError("clone failed")
 
         monkeypatch.setattr(workflow, "_get_sandbox_for_repository", fail_after_sandbox_creation)
@@ -1854,7 +1891,15 @@ class TestProcessTaskWorkflowUnit:
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
 
         assert result.success is False
-        assert result.error == "clone failed"
+        assert result.error == (
+            "This organization is scheduled for deletion." if organization_blocked else "clone failed"
+        )
+        update_task_run_status_mock.assert_awaited_with(
+            "failed",
+            error_message=result.error,
+            run_id="run-id",
+            error_type="OrganizationExecutionError" if organization_blocked else "RuntimeError",
+        )
         assert result.sandbox_id == "sandbox-123"
         read_sandbox_logs_mock.assert_awaited_once_with("sandbox-123")
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
@@ -2062,8 +2107,13 @@ class TestProcessTaskWorkflowUnit:
         [
             (None, False, 1, None, "completed"),
             (None, False, 1, True, "completed"),
-            # The agent was mid-turn when the sandbox vanished, so its work is gone.
-            (None, False, 1, False, "failed"),
+            # The agent was mid-turn when the sandbox vanished, so the workflow step waiting on
+            # this run has no work to continue from.
+            ("workflow", False, 1, False, "failed"),
+            # Every other origin keeps completing: the run is the snapshot its reader or its resume
+            # flow picks up, and a red run in the task list would report breakage that never was.
+            (None, False, 1, False, "completed"),
+            ("slack", False, 1, False, "completed"),
             ("user_created", False, 1, None, "completed"),
             # Onboarding runs are one-shot, so a vanished sandbox is a failed setup rather than a
             # resumable snapshot.
@@ -2192,15 +2242,27 @@ class TestProcessTaskWorkflowUnit:
                 "completed",
                 {"timed_out_inactivity": True},
             ),
-            # The agent was still mid-turn when the timer fired, so it died rather than finished.
+            # The agent was still mid-turn when the timer fired, so the step waiting on this run
+            # has to hear that its work never happened.
             (
                 process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
-                None,
+                "workflow",
                 False,
                 1,
                 False,
                 "failed",
                 {"error_message": AGENT_LOST_ERROR_MESSAGE, "timed_out_inactivity": True},
+            ),
+            # An attended run ends the same way every time it answers and then idles out, so the
+            # open turn is its normal exit rather than a lost agent.
+            (
+                process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
+                "slack",
+                False,
+                1,
+                False,
+                "completed",
+                {"timed_out_inactivity": True},
             ),
             (
                 process_task_workflow_module.TaskEvent.MAX_DURATION_REACHED,
@@ -2234,8 +2296,9 @@ class TestProcessTaskWorkflowUnit:
         expected_kwargs,
     ):
         # The wall-clock cap is a failure for every origin; the inactivity timeout only fails for
-        # onboarding runs that delivered nothing, because other origins resume from the timed-out
-        # run and a PR-bearing onboarding run already succeeded.
+        # onboarding runs that delivered nothing and workflow runs whose turn never closed, because
+        # other origins resume from the timed-out run and a PR-bearing onboarding run already
+        # succeeded.
         workflow = ProcessTaskWorkflow()
         workflow._pr_progress_emitted = pr_progress_emitted
         workflow._ci_repetitions = ci_repetitions
@@ -2426,6 +2489,78 @@ class TestProcessTaskWorkflowUnit:
 
         assert result.success is True
         assert post_slack_update_mock.await_count == expected_post_slack_calls
+
+    async def test_run_drains_boot_progress_cards_still_pending_at_exit(self, monkeypatch):
+        workflow_instance = ProcessTaskWorkflow()
+        release = asyncio.Event()
+        started: list[tuple[str, str]] = []
+        emitted: list[tuple[str, str]] = []
+
+        async def blocked_emit(activity_input: EmitProgressInput) -> None:
+            started.append((activity_input.step, activity_input.status))
+            await release.wait()
+            emitted.append((activity_input.step, activity_input.status))
+
+        def fake_execute_activity(activity_fn: Any, activity_input: Any, **kwargs: Any) -> Awaitable[None]:
+            assert activity_fn is emit_progress_activity
+            return blocked_emit(activity_input)
+
+        monkeypatch.setattr(
+            workflow_instance,
+            "_get_task_processing_context",
+            AsyncMock(return_value=_build_context(github_integration_id=123)),
+        )
+        monkeypatch.setattr(workflow_instance, "_update_task_run_status", AsyncMock())
+        monkeypatch.setattr(workflow_instance, "_track_workflow_event", AsyncMock())
+        monkeypatch.setattr(workflow_instance, "_post_slack_update", AsyncMock())
+        monkeypatch.setattr(workflow_instance, "_read_sandbox_logs", AsyncMock())
+        monkeypatch.setattr(workflow_instance, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(workflow_instance, "_create_resume_snapshot", AsyncMock())
+        monkeypatch.setattr(workflow_instance, "_forward_pending_user_message", AsyncMock())
+        monkeypatch.setattr(
+            workflow_instance,
+            "_get_sandbox_for_repository",
+            AsyncMock(
+                return_value=GetSandboxForRepositoryOutput(
+                    sandbox_id="sandbox-123",
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                    used_snapshot=False,
+                    should_create_snapshot=False,
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow_instance,
+            "_start_agent_server",
+            AsyncMock(
+                return_value=StartAgentServerOutput(
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow_instance,
+            "_wait_for_event",
+            AsyncMock(return_value=process_task_workflow_module.TaskEvent.TIMEOUT_REACHED),
+        )
+        monkeypatch.setattr(workflow_instance, "_relay_sandbox_events", AsyncMock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module, "_progress_emit_nonblocking", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        run_task = asyncio.create_task(workflow_instance.run(ProcessTaskInput(run_id="run-id")))
+        done, _ = await asyncio.wait([run_task], timeout=0.2)
+        assert not done, "run() finished while a boot progress card was still pending"
+        assert started == [("sandbox", "in_progress")]
+
+        release.set()
+        result = await asyncio.wait_for(run_task, timeout=5)
+
+        assert result.success is True
+        assert emitted == [("sandbox", "in_progress"), ("agent", "in_progress"), ("agent", "completed")]
+        assert workflow_instance._pending_progress_activities == {}
 
     async def test_get_sandbox_for_repository_skips_clone_and_checkout_for_private_repo_without_github_integration(
         self, monkeypatch

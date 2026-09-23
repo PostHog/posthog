@@ -52,7 +52,6 @@ import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
-import { buildSkillsSessionState } from './skills-session'
 import type { ToolCatalog } from './tool-catalog'
 
 interface ResolvedTool {
@@ -102,6 +101,19 @@ function shouldSuppressStructuredContent(args: {
 }): boolean {
     const isRenderUiHostInSingleExec = args.useSingleExec && args.renderUiEnabled
     return args.isCliModeEnabled && !isRenderUiHostInSingleExec
+}
+
+// The state is shared by every call in a JSON-RPC batch, so the client is copied, not written to.
+// The intent is extra detail on an audit row: if the copy fails, the call runs without it.
+function stateCarryingIntent(state: ResolvedState, intent: string | undefined): ResolvedState {
+    if (!intent) {
+        return state
+    }
+    try {
+        return { ...state, context: { ...state.context, api: state.context.api.withIntent(intent) } }
+    } catch {
+        return state
+    }
 }
 
 export class ToolExecutor {
@@ -187,10 +199,11 @@ export class ToolExecutor {
                 ? (rawRequestMeta as Record<string, unknown>)
                 : undefined
         const { analyticsMeta, args } = this.extractAnalyticsMetadata(toolName, rawArgs, originalTool, requestMeta)
+        const callState = stateCarryingIntent(state, analyticsMeta.intent)
         const callParams = { ...params, arguments: args }
 
         if (toolName === 'exec') {
-            return this.callExecTool(callParams, state, analyticsMeta)
+            return this.callExecTool(callParams, callState, analyticsMeta)
         }
 
         if (toolName === 'render-ui') {
@@ -199,7 +212,7 @@ export class ToolExecutor {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }
-            return this.callRenderUiTool(callParams, state, analyticsMeta)
+            return this.callRenderUiTool(callParams, callState, analyticsMeta)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -222,7 +235,7 @@ export class ToolExecutor {
                 _meta: tool._meta,
             },
             callParams,
-            state,
+            callState,
             analyticsMeta
         )
     }
@@ -679,9 +692,6 @@ export class ToolExecutor {
                 ),
                 flagGatedTools: state.flagGatedTools,
                 builtInSkillHint: this.builtInSkillHint(state),
-                skillsSession: this.instructionsBuilder.execSkillsEnabled(state)
-                    ? buildSkillsSessionState(state.reqCtx, state.requestContext.mcpSessionId)
-                    : undefined,
                 ...(state.gatewayToolsEnabled ? { gatewayToolsProvider: () => this.gatewayToolsFor(state) } : {}),
                 // A verb-only report lands first; `search` then reports again with its query
                 // and counts. Merge so the richer report wins without losing the verb.

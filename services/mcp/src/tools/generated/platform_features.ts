@@ -629,7 +629,6 @@ const OrganizationEnforce2faSchema = () => {
             read_only_mcp_access: true,
             is_ai_data_processing_approved: true,
             is_ai_training_opted_in: true,
-            default_experiment_stats_method: true,
             default_anonymize_ips: true,
             default_role_id: true,
         }).shape
