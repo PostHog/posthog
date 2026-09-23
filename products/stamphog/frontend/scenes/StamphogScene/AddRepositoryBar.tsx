@@ -89,6 +89,7 @@ export function AddRepositoryBar(): JSX.Element {
         repositoryToAdd,
         addingRepository,
         stamphogAccessLevel,
+        availableSearch,
     } = useValues(stamphogSceneLogic)
     const { setAvailableSearch, setRepositoryToAdd, addRepository, loadAvailableRepositories } =
         useActions(stamphogSceneLogic)
@@ -121,7 +122,10 @@ export function AddRepositoryBar(): JSX.Element {
             {availableRepositoriesFailed && (
                 <LemonBanner
                     type="error"
-                    action={{ children: 'Try again', onClick: () => loadAvailableRepositories({ search: '' }) }}
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadAvailableRepositories({ search: availableSearch }),
+                    }}
                     data-attr="stamphog-available-repositories-search-error"
                 >
                     Could not load the repositories you can add. Try again.

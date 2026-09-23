@@ -65,12 +65,14 @@ async function redirectToGitHub(projectId: string, target: 'authorize_url' | 'in
 export interface stamphogSceneLogicValues {
     currentProjectId: number | string // teamLogic
     addableCount: number | null
+    addedRepoIds: string[]
     addingRepository: boolean
     appNotInstalled: boolean
     availableRepositories: StamphogAvailableRepositoriesApi | null
     availableRepositoriesFailed: boolean
     availableRepositoriesLoading: boolean
     availableRepositoryOptions: LemonInputSelectOption[]
+    availableSearch: string
     connectDisabledReason: string | null
     discoveredInstallations: readonly StamphogDiscoveredInstallationApi[]
     expandedRepoIds: string[]
@@ -142,7 +144,9 @@ export interface stamphogSceneLogicActions {
         installInfo: StamphogInstallInfoApi
         payload?: any
     }
-    loadRepoConfigs: () => any
+    loadRepoConfigs: () => {
+        value: true
+    }
     loadRepoConfigsFailure: (
         error: string,
         errorObject?: any
@@ -152,10 +156,14 @@ export interface stamphogSceneLogicActions {
     }
     loadRepoConfigsSuccess: (
         repoConfigs: StamphogRepoConfigApi[],
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         repoConfigs: StamphogRepoConfigApi[]
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     openInstallPage: () => {
         value: true
@@ -276,6 +284,9 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
     })),
 
     actions({
+        // Declared here because the loader takes a breakpoint: typegen would otherwise infer a required
+        // payload from its first parameter, and every `loadRepoConfigs()` call would stop compiling.
+        loadRepoConfigs: true,
         updateRepoConfig: (id: string, patch: PatchedStamphogRepoConfigWriteApi) => ({ id, patch }),
         repoUpdateDone: (id: string) => ({ id }),
         repoConfigUpdated: (config: StamphogRepoConfigApi) => ({ config }),
@@ -311,9 +322,13 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                             break
                         }
                     }
-                    // Drop a response that started before an add, so it cannot hide the added repository.
                     breakpoint()
-                    return sortByRepository(all)
+                    // A read replica can trail the add, so keep a row this page added until the list has it.
+                    const fetchedIds = new Set(all.map((repo) => repo.id))
+                    const addedHere = values.repoConfigs.filter(
+                        (repo) => values.addedRepoIds.includes(repo.id) && !fetchedIds.has(repo.id)
+                    )
+                    return sortByRepository([...all, ...addedHere])
                 },
             },
         ],
@@ -391,6 +406,13 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 loadAvailableRepositoriesFailure: () => true,
             },
         ],
+        addedRepoIds: [
+            [] as string[],
+            {
+                addRepositorySuccess: (state, { config }) => [...state.filter((x) => x !== config.id), config.id],
+            },
+        ],
+        availableSearch: ['', { setAvailableSearch: (_, { search }) => search }],
         expandedRepoIds: [
             [] as string[],
             {
