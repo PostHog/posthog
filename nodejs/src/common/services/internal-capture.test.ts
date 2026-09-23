@@ -5,7 +5,7 @@ import { DateTime } from 'luxon'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
-import { InternalCaptureError, InternalCaptureService } from './internal-capture'
+import { InternalCaptureError, InternalCaptureService, isRemoteOriginError } from './internal-capture'
 
 describe('InternalCaptureService', () => {
     let service: InternalCaptureService
@@ -103,16 +103,36 @@ describe('InternalCaptureService', () => {
         loggerErrorSpy.mockRestore()
     })
 
-    it('wraps a failure with the caller and the target url', async () => {
-        mockInternalFetch.mockRejectedValue(new Error('connect ECONNREFUSED'))
+    // The wrapper has to keep the rejection reachable as `cause`, because that is what callers
+    // classify to decide whether the failure is worth an exception.
+    it.each([
+        {
+            name: 'a timeout',
+            rejection: Object.assign(new Error('aborted'), { name: 'TimeoutError' }),
+            detail: 'aborted',
+            remoteOrigin: true,
+        },
+        {
+            name: 'a refused connection',
+            rejection: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
+            detail: 'connect ECONNREFUSED',
+            remoteOrigin: true,
+        },
+        { name: 'an unexpected failure', rejection: new Error('boom'), detail: 'boom', remoteOrigin: false },
+    ])('wraps $name with the caller and the target url', async ({ rejection, detail, remoteOrigin }) => {
+        mockInternalFetch.mockRejectedValue(rejection)
 
-        await expect(
-            service.capture({ team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' }, 'caller-name')
-        ).rejects.toMatchObject({
+        const thrown = await service
+            .capture({ team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' }, 'caller-name')
+            .catch((error: unknown) => error)
+
+        expect(thrown).toMatchObject({
             name: 'InternalCaptureError',
             caller: 'caller-name',
             url: 'http://localhost:8010/capture',
-            message: 'Internal capture from caller-name to http://localhost:8010/capture failed: connect ECONNREFUSED',
+            cause: rejection,
+            message: `Internal capture from caller-name to http://localhost:8010/capture failed: ${detail}`,
         })
+        expect(isRemoteOriginError(thrown)).toBe(remoteOrigin)
     })
 })
