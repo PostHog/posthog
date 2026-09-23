@@ -1,18 +1,20 @@
-import gc
-import asyncio
 import logging
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
+import grpc
 import structlog
 import temporalio.api.enums.v1 as enums
 import temporalio.api.operatorservice.v1 as ops
+from temporalio.api.operatorservice.v1.service_pb2_grpc import OperatorServiceStub
 from temporalio.common import SearchAttributeKey
 
-from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SEARCH_ATTRIBUTES
 
 logger = structlog.get_logger(__name__)
+
+_RPC_TIMEOUT_SECONDS = 60
 
 # Maps SearchAttributeKey value_type to the protobuf IndexedValueType enum
 _TYPE_MAP: dict[type, enums.IndexedValueType.ValueType] = {
@@ -28,6 +30,17 @@ def _resolve_type(key: SearchAttributeKey) -> enums.IndexedValueType.ValueType:
     if value_type is None:
         raise ValueError(f"Unsupported search attribute type: {key.value_type} for {key.name}")
     return value_type
+
+
+def _open_channel() -> grpc.Channel:
+    target = f"{settings.TEMPORAL_HOST}:{settings.TEMPORAL_PORT}"
+    if settings.TEMPORAL_CLIENT_CERT and settings.TEMPORAL_CLIENT_KEY:
+        credentials = grpc.ssl_channel_credentials(
+            private_key=settings.TEMPORAL_CLIENT_KEY.encode(),
+            certificate_chain=settings.TEMPORAL_CLIENT_CERT.encode(),
+        )
+        return grpc.secure_channel(target, credentials)
+    return grpc.insecure_channel(target)
 
 
 class Command(BaseCommand):
@@ -51,17 +64,20 @@ class Command(BaseCommand):
 
     def handle(self, **options):
         logger.setLevel(logging.INFO)
-        asyncio.run(self._run(options))
-
-    async def _run(self, options):
         namespace = options["namespace"]
         dry_run = options["dry_run"]
-        temporal = await async_connect()
 
-        try:
+        # Use a plain gRPC channel here, not the temporalio Client. The Client delivers each RPC result
+        # from a Tokio thread, and the interpreter drops the Tokio runtime during finalization. If that
+        # thread still needs the GIL to finish delivering the last result, CPython parks it forever, and
+        # the runtime drop waits for it, so a short-lived process can hang at exit.
+        # https://github.com/temporalio/sdk-python/issues/300 tracks the same race.
+        with _open_channel() as channel:
+            operator_service = OperatorServiceStub(channel)
+
             # List existing attributes
-            resp = await temporal.operator_service.list_search_attributes(
-                ops.ListSearchAttributesRequest(namespace=namespace)
+            resp = operator_service.ListSearchAttributes(
+                ops.ListSearchAttributesRequest(namespace=namespace), timeout=_RPC_TIMEOUT_SECONDS
             )
             existing = set(resp.custom_attributes.keys())
 
@@ -84,18 +100,9 @@ class Command(BaseCommand):
 
             logger.info(f"Registering {len(to_register)} search attribute(s)", attributes=list(to_register.keys()))
 
-            await temporal.operator_service.add_search_attributes(
-                ops.AddSearchAttributesRequest(
-                    namespace=namespace,
-                    search_attributes=to_register,
-                )
+            operator_service.AddSearchAttributes(
+                ops.AddSearchAttributesRequest(namespace=namespace, search_attributes=to_register),
+                timeout=_RPC_TIMEOUT_SECONDS,
             )
 
             logger.info("Done")
-        finally:
-            # Drop the Temporal client reference and force GC before the event
-            # loop tears down.  The Rust/gRPC bridge spawns background threads
-            # that crash during CPython finalization ("PyGILState_Release: thread
-            # state … must be current") if the bridge destructor hasn't run yet.
-            del temporal
-            gc.collect()
