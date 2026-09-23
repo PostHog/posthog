@@ -2308,6 +2308,8 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
             format="json",
         )
         self._make_prompt("plain", prompt="No tags.", label="production")
+        # Second row sharing the partial: provenance must survive the memo hit.
+        self._make_prompt("agent-two", prompt="Also @@@prompt:name=guardrails|label=shared@@@", label="production")
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production&content=full")
 
@@ -2315,6 +2317,8 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         rows = {row["name"]: row for row in response.json()["results"]}
         assert rows["agent"]["prompt"] == "Intro. G."
         assert rows["agent"]["resolved_references"] == [{"name": "guardrails", "version": 1, "label": "shared"}]
+        assert rows["agent-two"]["prompt"] == "Also G."
+        assert rows["agent-two"]["resolved_references"] == [{"name": "guardrails", "version": 1, "label": "shared"}]
         assert rows["plain"]["prompt"] == "No tags."
         assert rows["plain"]["resolved_references"] == []
 

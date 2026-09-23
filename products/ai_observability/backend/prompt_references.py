@@ -307,7 +307,9 @@ def _confirm_reference_missing(team_id: int, name: str, version: str | None, lab
 
 
 def assemble_prompt_payload(
-    team: Team, payload: dict[str, Any], memoized: dict[tuple[str, str | None, str | None], str] | None = None
+    team: Team,
+    payload: dict[str, Any],
+    memoized: dict[tuple[str, str | None, str | None], tuple[str, int]] | None = None,
 ) -> dict[str, Any]:
     """Splice referenced prompts' content into a fetched payload.
 
@@ -332,6 +334,9 @@ def assemble_prompt_payload(
     # many prompts is read once.
     if memoized is None:
         memoized = {}
+    # Provenance is per payload while the memo may span payloads, so a memo
+    # hit must still record the reference for this payload's list.
+    seen: set[tuple[str, str | None, str | None]] = set()
     # Running total of the true assembled size: each replacement removes the
     # tag's bytes and adds the spliced content's bytes.
     assembled_bytes = len(content.encode("utf-8"))
@@ -342,8 +347,8 @@ def assemble_prompt_payload(
         version = match.group("version")
         label = match.group("label")
         key = (name, version, label)
-        child_content = memoized.get(key)
-        if child_content is None:
+        cached = memoized.get(key)
+        if cached is None:
             child = get_prompt_by_name_from_cache(
                 team, name, int(version) if version is not None else None, label=label
             )
@@ -374,8 +379,12 @@ def assemble_prompt_payload(
                     message=f"The referenced prompt '{name}' contains references of its own and cannot be spliced in.",
                     missing=False,
                 )
-            memoized[key] = child_content
-            resolved.append({"name": name, "version": child["version"], "label": label})
+            cached = (child_content, child["version"])
+            memoized[key] = cached
+        child_content, child_version = cached
+        if key not in seen:
+            seen.add(key)
+            resolved.append({"name": name, "version": child_version, "label": label})
         assembled_bytes += len(child_content.encode("utf-8")) - len(match.group(0).encode("utf-8"))
         if assembled_bytes > MAX_PROMPT_PAYLOAD_BYTES:
             raise PromptReferenceResolutionError(

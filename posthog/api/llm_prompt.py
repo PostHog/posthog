@@ -297,7 +297,7 @@ class LLMPromptViewSet(
         if not prompt_partials_enabled(self.team):
             return items
         resolved_items: list[dict[str, Any]] = []
-        shared_memo: dict[tuple[str, str | None, str | None], str] = {}
+        shared_memo: dict[tuple[str, str | None, str | None], tuple[str, int]] = {}
         for item in items:
             if not has_tags(item):
                 resolved_items.append(item)
