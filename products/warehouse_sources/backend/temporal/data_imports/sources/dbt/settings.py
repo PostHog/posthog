@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
 from typing import Literal, Optional
 
@@ -91,7 +91,7 @@ class DbtDiscoveryConfig:
     per_model: bool = False
 
 
-@dataclass
+@frozen
 class DbtEndpointConfig:
     name: str
     # Path template under {base_url}/api, with an {account_id} placeholder. The API version is part

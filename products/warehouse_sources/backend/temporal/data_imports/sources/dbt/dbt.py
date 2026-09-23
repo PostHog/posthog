@@ -1,5 +1,4 @@
 import json
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -45,7 +44,7 @@ class DbtHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class DbtResumeConfig:
     # Row offset of the next page to fetch. Resuming mid-list is safe against rows landing between
     # attempts: runs are walked newest-first, so inserts shift already-read rows deeper and a resume
