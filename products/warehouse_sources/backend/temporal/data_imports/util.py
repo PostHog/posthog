@@ -135,6 +135,39 @@ _COPY_FILES_MAX_ATTEMPTS = 6
 # cumulative backoff (2+4+8s), the same budget `_purge_s3_prefix` uses against the same condition.
 _DELETE_FOLDER_MAX_ATTEMPTS = 4
 
+# Ceiling on the per-file S3 operations below. It bounds live asyncio tasks as well as in-flight S3
+# calls, which is the point: a Delta table can hold tens of thousands of parquet files, and one task
+# per file grows the worker's memory with the size of the table rather than with the concurrency it
+# actually uses.
+_S3_FILE_CONCURRENCY = 50
+
+
+async def _for_each_file(files: list[str], operation: Callable[[str], Awaitable[None]]) -> None:
+    """Apply `operation` to every file, with at most `_S3_FILE_CONCURRENCY` tasks alive at once.
+
+    The first failure cancels the remaining workers before it propagates, so a caller that retries
+    the whole pass never races leftovers from the attempt that failed.
+    """
+    if not files:
+        return
+
+    remaining = iter(files)
+
+    async def worker() -> None:
+        # `next()` never awaits, so the workers can share one iterator without a lock.
+        for file in remaining:
+            await operation(file)
+
+    workers = [asyncio.create_task(worker()) for _ in range(min(_S3_FILE_CONCURRENCY, len(files)))]
+    try:
+        await asyncio.gather(*workers)
+    finally:
+        for task in workers:
+            task.cancel()
+        # Collect every worker's outcome - the gather above only surfaces the first - so a second
+        # failure cannot resurface later as an unretrieved-exception warning.
+        await asyncio.gather(*workers, return_exceptions=True)
+
 
 def is_posthog_team(team_id: int) -> bool:
     DEBUG: bool = get_from_env("DEBUG", False, type_cast=str_to_bool)
@@ -255,17 +288,14 @@ async def prepare_s3_files_for_querying(
         # Copy files concurrently with limited concurrency to avoid overwhelming S3
         await _log(f"Copying {len(file_uris)} files to {s3_path_for_querying}")
 
-        semaphore = asyncio.Semaphore(50)
-
         async def copy_file(file: str) -> None:
-            async with semaphore:
-                file_name = file.replace(f"{s3_folder_for_schema}/", "")
-                # _cp_file() copies a single known source to a known destination key directly.
-                # The generic _copy() also globs the source and probes whether the destination
-                # is a directory, each requiring its own S3 ListObjectsV2 call — with hundreds of
-                # files copied concurrently, that multiplies into enough LIST traffic to trigger
-                # S3's SlowDown rate limiting on the destination prefix.
-                await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
+            file_name = file.replace(f"{s3_folder_for_schema}/", "")
+            # _cp_file() copies a single known source to a known destination key directly.
+            # The generic _copy() also globs the source and probes whether the destination
+            # is a directory, each requiring its own S3 ListObjectsV2 call — with hundreds of
+            # files copied concurrently, that multiplies into enough LIST traffic to trigger
+            # S3's SlowDown rate limiting on the destination prefix.
+            await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
 
         import deltalake.exceptions  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
 
@@ -277,7 +307,7 @@ async def prepare_s3_files_for_querying(
         while True:
             attempt += 1
             try:
-                await asyncio.gather(*[copy_file(file) for file in file_uris])
+                await _for_each_file(file_uris, copy_file)
                 break
             except FileNotFoundError as e:
                 if refresh_file_uris is None or attempt >= _COPY_FILES_MAX_ATTEMPTS:
@@ -330,38 +360,37 @@ async def prepare_s3_files_for_querying(
             await _log(f"Deleting {len(files_to_delete)} old query folders")
 
             async def delete_folder(file: str) -> None:
-                async with semaphore:
-                    delete_attempt = 0
-                    while True:
-                        delete_attempt += 1
-                        try:
-                            await s3._rm(file, recursive=True)
-                            return
-                        except FileNotFoundError:
-                            # The folder is already gone: another sync's cleanup pass took it, or an
-                            # earlier attempt of this one deleted it and lost the response. That is
-                            # the outcome this delete wanted, so there is nothing to report.
-                            await _log(f"Old query folder was already deleted: {file}")
-                            return
-                        except Exception as e:
-                            if _is_s3_throttling_error(e) and delete_attempt < _DELETE_FOLDER_MAX_ATTEMPTS:
-                                await _log(
-                                    f"S3 throttled the delete of old query folder {file} (attempt "
-                                    f"{delete_attempt}/{_DELETE_FOLDER_MAX_ATTEMPTS}), retrying: {e}",
-                                    level="error",
-                                )
-                                await asyncio.sleep(2**delete_attempt)
-                                continue
+                delete_attempt = 0
+                while True:
+                    delete_attempt += 1
+                    try:
+                        await s3._rm(file, recursive=True)
+                        return
+                    except FileNotFoundError:
+                        # The folder is already gone: another sync's cleanup pass took it, or an
+                        # earlier attempt of this one deleted it and lost the response. That is
+                        # the outcome this delete wanted, so there is nothing to report.
+                        await _log(f"Old query folder was already deleted: {file}")
+                        return
+                    except Exception as e:
+                        if _is_s3_throttling_error(e) and delete_attempt < _DELETE_FOLDER_MAX_ATTEMPTS:
+                            await _log(
+                                f"S3 throttled the delete of old query folder {file} (attempt "
+                                f"{delete_attempt}/{_DELETE_FOLDER_MAX_ATTEMPTS}), retrying: {e}",
+                                level="error",
+                            )
+                            await asyncio.sleep(2**delete_attempt)
+                            continue
 
-                            await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                            if not (_is_transient_s3_connection_error(e) or is_transient_object_store_error(e)):
-                                capture_exception(S3OperationError("delete an old query folder for this table", e))
-                            # Cleanup stays best effort: the folder is timestamped, so the age-based
-                            # GC above picks it up on a later sync. Failing the sync over it would
-                            # throw away a load that has already landed.
-                            return
+                        await _log(f"Error while deleting old query folder {file}: {e}", level="error")
+                        if not (_is_transient_s3_connection_error(e) or is_transient_object_store_error(e)):
+                            capture_exception(S3OperationError("delete an old query folder for this table", e))
+                        # Cleanup stays best effort: the folder is timestamped, so the age-based
+                        # GC above picks it up on a later sync. Failing the sync over it would
+                        # throw away a load that has already landed.
+                        return
 
-            await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
+            await _for_each_file(files_to_delete, delete_folder)
 
         await _log(f"Returning S3 folder for querying: {s3_folder_for_querying}")
 
