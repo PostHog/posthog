@@ -70,7 +70,7 @@ from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SK
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
-from products.signals.backend.scout_harness.tools.profile import PROFILE_BUILD_ATTEMPTS, compute_project_profile
+from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 
@@ -2282,9 +2282,8 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
 
     def test_scout_read_retries_a_transient_build_failure(self) -> None:
-        # The build is a long run of Postgres reads, so one dropped connection anywhere in it used
-        # to fail the whole orientation call and cost the scout a discovery round trip. The second
-        # attempt succeeds and the caller sees an ordinary full profile.
+        # One dropped connection during the build used to fail the whole orientation call and cost
+        # the scout a discovery round trip. The second attempt succeeds and it sees a full profile.
         _authenticate_as_scout(self)
         built = build_inventory(self.team)
         with patch(
@@ -2311,13 +2310,11 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             response = self.client.get(self._list_url())
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert build.call_count == PROFILE_BUILD_ATTEMPTS
+        assert build.call_count == 2
         body = response.json()
-        assert body["transient_error"] == {
-            "code": "profile_build_failed",
-            "message": body["transient_error"]["message"],
-            "retryable": True,
-        }
+        assert body["transient_error"]["code"] == "profile_build_failed"
+        assert body["transient_error"]["retryable"] is True
+        assert body["transient_error"]["message"]
         # Degraded, and shaped so a caller can tell: no row was read or written, and no inventory.
         assert body["profile_id"] is None
         assert "payload" not in body

@@ -20,19 +20,16 @@ from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from django.db import InterfaceError, OperationalError, connection, transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
+from posthog.temporal.common.db_errors import is_transient_db_error
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.signals.backend.models import SignalProjectProfile
-from products.signals.backend.scout_harness.profile import (
-    INVENTORY_SOURCE_VERSION,
-    SUMMARY_SECTIONS,
-    build_inventory,
-    build_summary_sections,
-)
+from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, SUMMARY_SECTIONS, build_inventory
 
 logger = logging.getLogger(__name__)
 
@@ -58,26 +55,12 @@ PROFILE_KEEP_N = 10
 _PROFILE_LOCK_NAMESPACE = 0x5191A1A6  # "SIGNAL"-ish leetspeak; just needs to be unique enough.
 
 
-# How many times a cache miss tries to build before the caller is told the profile is
-# unavailable. The build is a long run of Postgres reads, so a single dropped connection or
-# lock timeout anywhere in it fails the whole orientation call — and a scout reads the profile
-# once, at the start of a run, so that one failure costs it a discovery round trip before it
-# can start work. One extra attempt covers a momentary fault without turning a real outage
-# into a sustained double load.
-PROFILE_BUILD_ATTEMPTS = 2
-
-# Build failures worth a second attempt: a dropped or reset connection, a lock or statement
-# timeout, a deadlock. Any other error repeats identically, so it goes straight to the
-# unavailable path instead of paying for the build twice.
-_RETRYABLE_BUILD_ERRORS = (OperationalError, InterfaceError)
-
-
 class ProfileUnavailable(Exception):
-    """No profile could be read or built for the team.
+    """A transient database fault stopped the profile being read or built.
 
-    Raised after `PROFILE_BUILD_ATTEMPTS` failed builds, with the last failure as `__cause__`.
-    The endpoint answers this with the compact summary envelope and a transient-error marker
-    rather than a 500, because the gate is what the scout has to have before it can start.
+    The read already retried once. Rather than answer an error status, the endpoint degrades to
+    the summary envelope: the profile is a scout's first call, so an error there costs it a whole
+    discovery round trip before it can start work.
     """
 
 
@@ -127,6 +110,28 @@ def get_project_profile(*, team_id: int, force_refresh: bool = False, lazy_build
     token) and the Temporal workflow keep the default build-on-miss path. `force_refresh`
     always builds, regardless of `lazy_build`.
 
+    The whole read is wrapped rather than the build alone, because a cache hit is the
+    steady-state path and one indexed `SELECT` can hit a recycled pooled connection just as
+    the long build can. `retry_on_db_connection_drop` evicts the dead connection before the
+    second attempt, which a bare retry cannot: Django marks the connection unusable, so
+    retrying on it fails identically. A transient fault that survives the retry becomes
+    `ProfileUnavailable`, which the endpoint degrades rather than raises; every other error
+    propagates, so a missing team or a real bug still reaches error tracking.
+    """
+    try:
+        return retry_on_db_connection_drop(
+            lambda: _read_or_build(team_id=team_id, force_refresh=force_refresh, lazy_build=lazy_build)
+        )
+    except Exception as error:
+        if not is_transient_db_error(error):
+            raise
+        logger.warning("signals.profile.unavailable", extra={"team_id": team_id}, exc_info=True)
+        raise ProfileUnavailable("Project profile could not be read or built") from error
+
+
+def _read_or_build(*, team_id: int, force_refresh: bool, lazy_build: bool) -> ProjectProfile | None:
+    """Cache read, then the build a miss needs. Idempotent, so the retry above can re-run it.
+
     `SignalProjectProfile` is a `TeamScopedRootMixin` model, so `RootTeamMixin.save()`
     stores every row under the *canonical* (root) team. Resolve the requested `team_id`
     to its canonical id up front so the cache read keys on the same id the write used —
@@ -153,43 +158,8 @@ def get_project_profile(*, team_id: int, force_refresh: bool = False, lazy_build
             # Pure cache read: a miss returns None rather than triggering an inline build,
             # so an untrusted (CSRF-reachable) GET stays side-effect-free.
             return None
-    return _build_with_retry(team_id=team_id, force=force_refresh)
-
-
-def _build_with_retry(*, team_id: int, force: bool) -> ProjectProfile:
-    """Build a profile, retrying a transient failure once before giving up.
-
-    `Team.objects.get` stays outside the retry: a missing team is not transient, and letting
-    `DoesNotExist` propagate keeps it distinguishable from a build that could not run.
-    """
     team = Team.objects.get(id=team_id)
-    for attempt in range(1, PROFILE_BUILD_ATTEMPTS + 1):
-        try:
-            return compute_project_profile(team=team, force=force)
-        except _RETRYABLE_BUILD_ERRORS as error:
-            logger.warning(
-                "signals.profile.build_failed",
-                extra={"team_id": team_id, "attempt": attempt, "attempts": PROFILE_BUILD_ATTEMPTS},
-                exc_info=True,
-            )
-            if attempt == PROFILE_BUILD_ATTEMPTS:
-                raise ProfileUnavailable("Project profile build failed") from error
-    raise ProfileUnavailable("Project profile build failed")
-
-
-def unavailable_profile_summary(*, team_id: int) -> dict[str, Any]:
-    """The `SUMMARY_SECTIONS` for a team whose profile build failed.
-
-    Reads the two sections directly instead of through the inventory, so a scout still learns
-    whether its findings can reach the inbox and what is already there. A section that also
-    fails reads as None, which the envelope already documents as "unknown".
-    """
-    try:
-        team = Team.objects.get(id=team_id)
-    except Exception:
-        logger.exception("signals.profile.summary_team_read_failed", extra={"team_id": team_id})
-        return dict.fromkeys(SUMMARY_SECTIONS)
-    return build_summary_sections(team)
+    return compute_project_profile(team=team, force=force_refresh)
 
 
 def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfile:

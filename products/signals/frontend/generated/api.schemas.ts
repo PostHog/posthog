@@ -3532,10 +3532,8 @@ export interface ProjectProfileSummaryApi {
 /**
  * Why a profile response is degraded rather than a 500.
  *
- * The profile is the first call of a scout run, so a failed build that answers with an error
- * status costs the scout a whole discovery round trip before it can investigate anything. This
- * block says the build failed and the response is thin, while the summary envelope still
- * carries the emit gate the scout has to read.
+ * Present only alongside a thin response: the summary envelope still carries the emit gate, and
+ * `payload` is gone. See `tools/profile.ProfileUnavailable` for why this is not an error status.
  */
 export interface TransientProfileErrorApi {
     /** Stable machine-readable cause. Currently `profile_build_failed` only. */
