@@ -11761,7 +11761,7 @@
         "feature_flag": "stamphog"
     },
     "stamphog-review-runs-list": {
-        "description": "List stamphog's automated review runs for pull requests in this project, newest first. Filter by `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Each run reports its lifecycle `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the reviewer ran. The reviewer's reasoning is null in list results — use `stamphog-review-runs-get` on a run to read it.",
+        "description": "List stamphog's automated review runs for pull requests in this project, newest first. Filter by `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Leave `trigger` unset unless you want one trigger only: `trigger: all` does not mean every trigger. Each run reports its lifecycle `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the reviewer ran. The reviewer's reasoning is null in list results — use `stamphog-review-runs-get` on a run to read it.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "List stamphog review runs",
