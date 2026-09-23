@@ -63,17 +63,9 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                 rung('/static/' + paths[0]);
             }
 
-            function attemptTimeout() {
-                var multiplier;
-                try {
-                    var connection = window.navigator.connection;
-                    multiplier = connection && ${JSON.stringify(CSS_TIMEOUT_MULTIPLIER_BY_EFFECTIVE_TYPE)}[connection.effectiveType];
-                } catch (e) {
-                    // the Network Information API is optional, so treat it as absent
-                }
-                return ${CSS_ATTEMPT_TIMEOUT_MS} * (multiplier || 1);
-            }
-            var timeoutMs = attemptTimeout();
+            var connection = window.navigator && window.navigator.connection;
+            var multiplier = connection && ${JSON.stringify(CSS_TIMEOUT_MULTIPLIER_BY_EFFECTIVE_TYPE)}[connection.effectiveType];
+            var timeoutMs = ${CSS_ATTEMPT_TIMEOUT_MS} * (multiplier || 1);
 
             var resolveReady;
             window.${CSS_READY_GLOBAL} = new Promise(function (resolve) { resolveReady = resolve; });
