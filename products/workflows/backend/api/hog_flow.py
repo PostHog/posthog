@@ -819,7 +819,14 @@ def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
 def _event_trigger_targets_something(filters: Any) -> bool:
     if not isinstance(filters, dict):
         return False
-    return any(filters.get(key) for key in ("events", "actions", "properties"))
+    # Person updates and warehouse rows filter on the payload alone, and the filters serializer drops
+    # events and actions for them, so only the events source has to name one.
+    if filters.get("source", "events") != "events":
+        return True
+    entries = [*(filters.get("events") or []), *(filters.get("actions") or [])]
+    if any(isinstance(entry, dict) and entry.get("id") not in (None, "") for entry in entries):
+        return True
+    return any(isinstance(prop, dict) and prop.get("key") for prop in filters.get("properties") or [])
 
 
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:

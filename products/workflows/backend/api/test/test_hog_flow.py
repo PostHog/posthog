@@ -1203,6 +1203,20 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Pick at least one event, or the trigger will never fire." in response.json()["detail"]
 
+        # An entry that names nothing is not a target either.
+        for filters in ({"events": [{}]}, {"actions": [{"name": "x"}]}, {"properties": [{}]}):
+            hog_flow["actions"][0]["config"]["filters"] = filters
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+            assert response.status_code == 400, (filters, response.json())
+
+        # Person updates filter on the person alone; the serializer drops events for that source.
+        hog_flow["actions"][0]["config"]["filters"] = {
+            "source": "person-updates",
+            "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
         # A property filter alone is a real target.
         hog_flow["actions"][0]["config"]["filters"] = {
             "properties": [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]
