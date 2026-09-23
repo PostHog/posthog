@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
-    AUTO_WIDEN_RESYNC_SCHEDULED_MESSAGE,
+    COLUMN_TYPE_WIDENED_KEY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
@@ -134,13 +134,6 @@ DISABLE_SCHEMA_ERROR_PATTERNS: tuple[str, ...] = (
     "Source column type changed",
 )
 
-# A failure the pipeline has already scheduled its own recovery for. It matches
-# ``DISABLE_SCHEMA_ERROR_PATTERNS`` above (the amended message keeps the "Source column type changed"
-# prefix so the batch still counts as non-retryable), but that recovery is a reset stamped for the
-# *next* scheduled sync, which pausing the schedule would prevent.
-SELF_RECOVERING_ERROR_PATTERNS: tuple[str, ...] = (AUTO_WIDEN_RESYNC_SCHEDULED_MESSAGE,)
-
-
 # The schema or job row was deleted mid-sync — no retry can bring it back, and no more of that
 # run's queued batches should load into a destination whose schema record is gone.
 DELETION_ERROR_PATTERNS: tuple[str, ...] = (
@@ -179,13 +172,6 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
 # with dead entries alone.
 JOB_STATUS_CACHE_TTL_SECONDS = 30
 JOB_STATUS_CACHE_MAX_ENTRIES = 1000
-
-
-def _should_disable_schema(error: str) -> bool:
-    """Whether a failure message means the schema must stop syncing until the customer acts."""
-    return any(pattern in error for pattern in DISABLE_SCHEMA_ERROR_PATTERNS) and not any(
-        pattern in error for pattern in SELF_RECOVERING_ERROR_PATTERNS
-    )
 
 
 def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConnection[Any]) -> bool:
@@ -353,13 +339,16 @@ class DeltaBatchConsumerAdapter:
                 logger.exception("fail_run_job_status_update_failed", job_id=batch.job_id, run_uuid=batch.run_uuid)
                 capture_exception(e)
 
-        if _should_disable_schema(reason):
+        if any(pattern in reason for pattern in DISABLE_SCHEMA_ERROR_PATTERNS):
             try:
-                await sync_to_async(_disable_schema_after_permanent_failure)(
-                    schema_id=batch.schema_id,
-                    team_id=batch.team_id,
-                    reason=reason,
-                )
+                if not await sync_to_async(_auto_widen_reset_is_pending)(
+                    schema_id=batch.schema_id, team_id=batch.team_id
+                ):
+                    await sync_to_async(_disable_schema_after_permanent_failure)(
+                        schema_id=batch.schema_id,
+                        team_id=batch.team_id,
+                        reason=reason,
+                    )
             except Exception as e:
                 # The run is already failed and the message recorded; a failed disable only means
                 # the next run retries, so log it rather than crashing the consumer.
@@ -831,9 +820,8 @@ class DeltaBatchConsumerAdapter:
         - A permanent failure (``DISABLE_SCHEMA_ERROR_PATTERNS``) means the data itself cannot
           land, and a deletion failure (``DELETION_ERROR_PATTERNS``) means the schema or job row
           is gone; loading more in either case writes into a destination the run has already
-          given up on. Matched raw here rather than through ``_should_disable_schema``: a
-          self-recovering widening keeps its schedule, but its next run still resets the table,
-          so draining into the table this run gave up on is wasted either way.
+          given up on. A widening whose schedule stayed on is no exception: its next run resets
+          the table, so draining into the one this run gave up on is wasted either way.
 
         ``incremental`` is left because its next run continues from a staged cursor that
         only promotes on a Completed job (``load/processor.py``). The job stays Failed here,
@@ -991,6 +979,27 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str, run_u
         # The job row itself was deleted between the check above and this write (e.g. its
         # source/schema was removed mid-sync) — nothing left to mark failed.
         pass
+
+
+def _auto_widen_reset_is_pending(*, schema_id: str, team_id: int) -> bool:
+    """Whether an automatic reset-and-resync is already stamped on this schema and not yet consumed.
+
+    ``maybe_schedule_auto_widen_resync`` stamps the reset for the *next* scheduled sync, so pausing
+    the schedule strands it. The stamp is the only reliable signal: only the first failure to
+    schedule one carries the reworded message, and the cooldown hands every later batch of the same
+    widening the manual-reset wording instead. The reset pops the marker when it runs, so a failure
+    after that disables as usual.
+    """
+    close_old_connections()
+
+    config = (
+        ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id)
+        .values_list("sync_type_config", flat=True)
+        .first()
+    )
+    if not isinstance(config, dict):
+        return False
+    return bool(config.get("reset_pipeline")) and COLUMN_TYPE_WIDENED_KEY in config
 
 
 def _disable_schema_after_permanent_failure(*, schema_id: str, team_id: int, reason: str) -> bool:

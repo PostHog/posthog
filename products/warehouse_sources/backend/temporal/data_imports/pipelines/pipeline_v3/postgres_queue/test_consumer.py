@@ -16,9 +16,6 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SYNC_DISABLED_JOB_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
-    AUTO_WIDEN_RESYNC_SCHEDULED_MESSAGE,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
     batch_consumer as batch_consumer_module,
 )
@@ -1486,12 +1483,6 @@ class TestFailRun:
                 True,
                 id="column_type_changed",
             ),
-            pytest.param(
-                "Source column type changed: 'total_cost' has values that no longer fit its stored type int64 "
-                f"(incoming data is now double). {AUTO_WIDEN_RESYNC_SCHEDULED_MESSAGE}",
-                False,
-                id="column_type_changed_with_auto_widen_resync_scheduled",
-            ),
             pytest.param("Decimal value is too large to store in a Decimal128", True, id="decimal_overflow"),
             pytest.param("Primary key required for incremental syncs", True, id="missing_primary_key"),
             pytest.param(
@@ -1512,11 +1503,33 @@ class TestFailRun:
         with (
             patch(f"{self.MODULE}.BatchQueue.fail_run", new_callable=AsyncMock),
             patch(f"{self.MODULE}._update_job_status_to_failed"),
+            patch(f"{self.MODULE}._auto_widen_reset_is_pending", return_value=False),
             patch(f"{self.MODULE}._disable_schema_after_permanent_failure") as mock_disable,
         ):
             await consumer._fail_run(batch, reason=reason, conn=consumer._poll_conn)
 
         assert mock_disable.called is expect_disabled
+
+    @pytest.mark.asyncio
+    async def test_a_widening_with_a_reset_already_stamped_keeps_its_schedule(self):
+        # Disabling pauses the schema's schedule, and the stamped reset only runs on the next
+        # scheduled sync — so disabling here strands the recovery the pipeline just promised.
+        consumer = _make_consumer()
+        batch = _make_batch()
+
+        with (
+            patch(f"{self.MODULE}.BatchQueue.fail_run", new_callable=AsyncMock),
+            patch(f"{self.MODULE}._update_job_status_to_failed"),
+            patch(f"{self.MODULE}._auto_widen_reset_is_pending", return_value=True),
+            patch(f"{self.MODULE}._disable_schema_after_permanent_failure") as mock_disable,
+        ):
+            await consumer._fail_run(
+                batch,
+                reason="Source column type changed: 'total_cost' has values that no longer fit its stored type int64",
+                conn=consumer._poll_conn,
+            )
+
+        assert mock_disable.called is False
 
     @pytest.mark.asyncio
     async def test_disable_failure_does_not_crash_the_consumer(self):
