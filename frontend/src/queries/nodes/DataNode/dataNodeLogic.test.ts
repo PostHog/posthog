@@ -7,7 +7,7 @@ import {
     dataNodeLogic,
 } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
-import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
+import { DashboardFilter, DataNode, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
@@ -645,6 +645,25 @@ describe('dataNodeLogic', () => {
         expect(performQuery).toHaveBeenCalledTimes(0)
 
         await expectLogic(logic).toMatchValues({ response: { result: [1, 2, 3] } })
+    })
+
+    it('does not throw when the node arrives without a query', async () => {
+        logic = dataNodeLogic({
+            key: 'missingQuery',
+            query: undefined as unknown as DataNode,
+        })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({ isShowingCachedResults: false })
+
+        // kea catches a throw inside a listener and logs it, so the loadDataSuccess guard shows up
+        // as a logged error rather than a failed action.
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+        logic.actions.loadData()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+        const loggedErrors = consoleError.mock.calls
+        consoleError.mockRestore()
+        expect(loggedErrors).toEqual([])
     })
 
     it('passes filtersOverride to api', async () => {
