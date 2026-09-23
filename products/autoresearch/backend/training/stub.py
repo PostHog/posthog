@@ -200,9 +200,10 @@ def run_stub_training(
         )
         return training_run
 
-    except Exception:
+    except Exception as e:
         training_run.status = AutoresearchTrainingRun.Status.FAILED
         training_run.completed_at = django_timezone.now()
-        training_run.save(update_fields=["status", "completed_at"])
+        training_run.error = str(e)[:2000]
+        training_run.save(update_fields=["status", "completed_at", "error"])
         logger.exception("autoresearch_stub_training_failed", pipeline_id=str(pipeline.pk))
         raise

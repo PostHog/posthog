@@ -93,6 +93,7 @@ class Command(BaseCommand):
             return
 
         if options["create"]:
+            options["target"] = (options["target"] or "").strip()
             if not options["team_id"]:
                 raise CommandError("--team-id is required with --create.")
             if not options["target"]:
@@ -111,6 +112,9 @@ class Command(BaseCommand):
             # The creator is who every later fit and scheduled score runs as, so a pipeline
             # without one has a champion that can never be fitted.
             creator = self._team_user(team, options["user_id"])
+            # Checked before the row exists, so a refused real run leaves no draft holding the output property.
+            if not options["stub"]:
+                self._require_flag(creator, team.id)
 
             safe_name = _UNSAFE_PROPERTY_CHARS.sub("_", options["target"].lstrip("$")).lower() or "target"
             suffix = f"_{options['horizon']}d"
@@ -137,6 +141,13 @@ class Command(BaseCommand):
 
         raise CommandError("Provide --pipeline-id or use --create to make a new pipeline.")
 
+    def _require_flag(self, user: User, team_id: int) -> None:
+        # This command skips the flag, but the sandbox agent calls the flag-gated API.
+        if not has_autoresearch_access(user, team_id=team_id):
+            raise CommandError(
+                f"The autoresearch flag is off for team {team_id}, so the agent's API calls would be refused."
+            )
+
     def _team_user(self, team: Team, user_id: int | None) -> User:
         if user_id is None:
             raise CommandError("--user-id is required: pass a member of the pipeline's team.")
@@ -157,11 +168,7 @@ class Command(BaseCommand):
         else:
             user = self._team_user(pipeline.team, options["user_id"])
             user_id = user.pk
-            # This command skips the flag, but the sandbox agent calls the flag-gated API.
-            if not has_autoresearch_access(user, team_id=pipeline.team_id):
-                raise CommandError(
-                    f"The autoresearch flag is off for team {pipeline.team_id}, so the agent's API calls would be refused."
-                )
+            self._require_flag(user, pipeline.team_id)
 
             iteration_budget = options["iterations"]
             self.stdout.write(f"\nLaunching real agent training for pipeline '{pipeline.name}' ({pipeline.pk})")

@@ -34,6 +34,7 @@ from posthog.hogql.property import action_to_expr
 from posthog.dataclasses import frozen
 
 from products.actions.backend.models.action import Action
+from products.autoresearch.backend.dataset.labeling import build_target_condition
 from products.autoresearch.backend.inference.sandbox import _resolve_acting_user
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
 from products.tasks.backend.facade import api as tasks_facade
@@ -574,6 +575,11 @@ def run_training(
     # Completion fits the champion as the pipeline's creator, so a creator who has left
     # would consume the paid run and leave a champion that no scoring run can load.
     _resolve_acting_user(team=pipeline.team, pipeline=pipeline, user=None)
+    # Every materialization labels through this condition, so a target it refuses (a deleted
+    # action, or one with no steps) would fail the whole paid run.
+    build_target_condition(
+        target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
+    )
 
     now = django_timezone.now()
     with transaction.atomic():

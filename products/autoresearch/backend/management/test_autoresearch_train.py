@@ -29,6 +29,7 @@ class TestAutoresearchTrainCommand(BaseTest):
             ("archived_pipeline", {"status": AutoresearchPipeline.Status.ARCHIVED}),
             ("zero_iterations", {"iterations": 0}),
             ("flag_off", {"flag": False}),
+            ("malformed_pipeline_id", {"pipeline_id": "not-a-uuid"}),
         ]
     )
     def test_real_training_is_refused_before_launch(self, _name, case) -> None:
@@ -49,7 +50,7 @@ class TestAutoresearchTrainCommand(BaseTest):
         ):
             call_command(
                 "autoresearch_train",
-                pipeline_id=str(self.pipeline.pk),
+                pipeline_id=case.get("pipeline_id", str(self.pipeline.pk)),
                 user_id=user_id,
                 iterations=case.get("iterations", 5),
             )
@@ -59,14 +60,21 @@ class TestAutoresearchTrainCommand(BaseTest):
         [
             ("prediction_event_target", {"target": "autoresearch_prediction", "user_id": 1}),
             ("brace_in_target", {"target": "sign{up}", "user_id": 1}),
+            ("whitespace_target", {"target": "   ", "user_id": 1}),
             ("no_user_id", {"target": "$pageview"}),
+            ("real_run_with_flag_off", {"target": "$pageview", "user_id": 1, "stub": False}),
         ]
     )
     def test_inline_creation_is_refused_before_any_row(self, _name, case) -> None:
         if "user_id" in case:
             case = {**case, "user_id": self.user.pk}
-        with self.assertRaises(CommandError):
-            call_command("autoresearch_train", create=True, team_id=self.team.pk, stub=True, **case)
+        case = {"stub": True, **case}
+        with (
+            patch(f"{COMMAND}.has_autoresearch_access", return_value=False),
+            patch(f"{COMMAND}.run_training"),
+            self.assertRaises(CommandError),
+        ):
+            call_command("autoresearch_train", create=True, team_id=self.team.pk, **case)
         with team_scope(self.team.id):
             assert AutoresearchPipeline.objects.count() == 1
 

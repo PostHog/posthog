@@ -4,9 +4,12 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.models.organization import Organization
 from posthog.models.user import User
 
+from products.actions.backend.models.action import Action
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
 from products.autoresearch.backend.testing import TeamScopedTestMixin
@@ -196,12 +199,19 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
 
         assert training_run.status == AutoresearchTrainingRun.Status.COMPLETED
 
-    def test_a_creator_without_team_access_is_refused_before_anything_is_written(self, facade: MagicMock) -> None:
-        outsider = User.objects.create_and_join(Organization.objects.create(name="elsewhere"), "out@example.com", None)
-        self.pipeline.created_by = outsider
+    @parameterized.expand([("creator_without_team_access",), ("action_target_with_no_steps",)])
+    def test_an_unrunnable_pipeline_is_refused_before_anything_is_written(self, facade: MagicMock, case: str) -> None:
+        if case == "creator_without_team_access":
+            outsider = User.objects.create_and_join(
+                Organization.objects.create(name="elsewhere"), "out@example.com", None
+            )
+            self.pipeline.created_by = outsider
+        else:
+            action = Action.objects.create(team=self.team, name="empty", steps_json=[])
+            self.pipeline.target_definition = {"type": "action", "action_id": action.id}
         self.pipeline.save()
 
-        with self.assertRaises(SandboxInferenceError):
+        with self.assertRaises((SandboxInferenceError, ValueError)):
             run_training(self.pipeline, iteration_budget=5, user_id=self.user.id)
 
         facade.create_and_run_task.assert_not_called()
