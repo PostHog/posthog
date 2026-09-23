@@ -98518,6 +98518,24 @@ export namespace Schemas {
       readonly days: readonly VisionSpendDay[];
     }
 
+    export interface VoiceSessionRequest {
+      /**
+         * The client's WebRTC SDP offer.
+         * @maxLength 32768
+         */
+      sdp: string;
+      /**
+         * Recent conversation text for voice context.
+         * @maxLength 8000
+         */
+      context?: string;
+    }
+
+    export interface VoiceSessionResponse {
+      /** OpenAI's WebRTC SDP answer. Contains no project API key. */
+      sdp: string;
+    }
+
     export interface WarehouseConnection {
       /** Connection host — the warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com */
       host: string;
