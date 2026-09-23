@@ -652,6 +652,7 @@ const ConditionContent = ({
                                             hasRowOperator={false}
                                             errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
+                                            showCohortFlagTargeting
                                         />
                                     </div>
 

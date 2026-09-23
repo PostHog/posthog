@@ -66,6 +66,45 @@ async def test_workflow_exports_model_successfully(
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("file_format", ["Parquet"], indirect=True)
+@pytest.mark.parametrize("compression", ["zstd"], indirect=True)
+@pytest.mark.parametrize(("legacy_parquet_extension", "expected_suffix"), [(True, ".parquet.zst"), (False, ".parquet")])
+async def test_workflow_names_parquet_blobs_by_the_extension_setting(
+    ateam,
+    azure_batch_export,
+    azurite_container,
+    container_name,
+    blob_prefix,
+    interval,
+    file_format,
+    compression,
+    data_interval_end,
+    generate_test_data,
+    legacy_parquet_extension,
+    expected_suffix,
+):
+    run = await run_azure_blob_batch_export_workflow(
+        team=ateam,
+        batch_export_id=str(azure_batch_export.id),
+        container_name=container_name,
+        prefix=blob_prefix,
+        interval=interval,
+        data_interval_end=data_interval_end,
+        integration_id=azure_batch_export.destination.integration.id,
+        file_format=file_format,
+        compression=compression,
+        batch_export_model=BatchExportModel(name="events", schema=None),
+        legacy_parquet_extension=legacy_parquet_extension,
+    )
+
+    assert run.status == "Completed"
+
+    blobs = [name for name in await list_blobs(azurite_container, blob_prefix) if not name.endswith("manifest.json")]
+    assert blobs
+    assert all(name.endswith(expected_suffix) for name in blobs), blobs
+
+
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
 @pytest.mark.parametrize("compression", [None], indirect=True)
 async def test_workflow_handles_no_data_gracefully(

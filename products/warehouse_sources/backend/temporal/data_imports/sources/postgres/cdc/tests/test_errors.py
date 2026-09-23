@@ -45,6 +45,19 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.CONNECTION_FAILED,
             ),
             (
+                # Observed on a managed provider (Neon-style): the account or project exceeded a
+                # usage quota, so the connection is blocked until the customer upgrades or the
+                # quota resets. Must classify as QUOTA_EXCEEDED, not the generic CONNECTION_FAILED,
+                # so it stops retrying instead of looping into the same wall.
+                "account_quota_exceeded_is_non_retryable",
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "203.0.113.1", port 5432 failed: '
+                    "ERROR:  Your account or project has exceeded the quota. Upgrade your plan to "
+                    "increase limits."
+                ),
+                CDCErrorCategory.QUOTA_EXCEEDED,
+            ),
+            (
                 "network_unreachable_is_non_retryable_host",
                 psycopg.OperationalError(
                     'connection to server at "2001:db8::1", port 5432 failed: Network is unreachable'
@@ -90,6 +103,20 @@ class TestClassifyPostgresCDCError:
                 "slot_in_use",
                 psycopg.errors.ObjectInUse('replication slot "posthog_slot" is active for PID 123'),
                 CDCErrorCategory.SLOT_IN_USE,
+            ),
+            (
+                # Recreating a customer-owned publication (e.g. after slot invalidation recovery)
+                # requires owning every table added to it, not just SELECT. This must not fall
+                # through to the retryable UNKNOWN bucket, or recovery retries forever against the
+                # same permission wall.
+                "must_be_owner_is_non_retryable_permission_denied",
+                psycopg.errors.InsufficientPrivilege("must be owner of table orders"),
+                CDCErrorCategory.PERMISSION_DENIED,
+            ),
+            (
+                "permission_denied_for_table_is_non_retryable_permission_denied",
+                psycopg.errors.InsufficientPrivilege("permission denied for table orders"),
+                CDCErrorCategory.PERMISSION_DENIED,
             ),
             (
                 "wal_decode_struct_error",

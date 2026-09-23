@@ -1,5 +1,7 @@
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
 import { KnowledgeSource } from '../scenes/businessKnowledgeLogic'
 
 function inAppPath(url: string): string {
@@ -17,7 +19,13 @@ export function KnowledgeSourceNameCell({ source }: { source: KnowledgeSource })
     return (
         <div className="flex flex-col min-w-0 max-w-full">
             <span className="flex items-center gap-1 min-w-0">
-                <strong className="truncate">{source.name}</strong>
+                <Link
+                    to={urls.businessKnowledgeSource(source.id)}
+                    className="font-semibold truncate"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {source.name}
+                </Link>
                 {source.is_generated ? (
                     <LemonTag
                         type="highlight"

@@ -91,10 +91,14 @@ FULL_RUN_PATTERNS = (
     "frontend/public/email/",
     "rust/feature-flags/src/properties/property_models.rs",
     "common/plugin_transpiler/src",
-    # C++ parser and HogQL VM: no Python import edge reaches them, but they change
-    # what every HogQL query evaluates to.
+    # Both HogQL parsers and the HogQL VM: no Python import edge reaches them, but they
+    # change what every HogQL query evaluates to.
     "common/hogql_parser/",
+    "rust/hogql/parser/",
     "common/hogvm/",
+    # The personhog gRPC stubs are an installed package, so the import graph has no edge from
+    # `personhog.*` to these files. Every personhog_client consumer depends on them.
+    "packages/personhog-proto/",
     # Generates frontend/src/products.json, which is a full-run pattern in its own right.
     "manifest.tsx",
 )

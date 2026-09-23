@@ -27,6 +27,7 @@ from products.signals.backend.ranking.features import (
     NO_EXTRAS,
     REPORT_EMBEDDINGS_FEATURE_SET,
     TABULAR_FEATURE_SET,
+    TITLE_EMBEDDINGS_FEATURE_SET,
     Extras,
     FeatureSet,
     feature_set_by_name,
@@ -57,6 +58,7 @@ CHAMPION_ROLE = "champion"
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
 TABULAR_MODEL_NAME = "tabular_xgb"
 REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
+TITLE_EMBEDDINGS_MODEL_NAME = "title_embeddings"
 
 # A shuffle plus one AUC rather than a refit, so this sits far above the trainer's NULL_PERMUTATIONS.
 NULL_PERMUTATIONS = 25
@@ -80,6 +82,7 @@ _SCORE_TYPES: dict[str, pa.DataType] = {
     "score": pa.float64(),
     "age_hours": pa.float64(),
     "label_at_scoring": pa.bool_(),
+    "head_readable": pa.bool_(),
 }
 SCORES_SCHEMA = pa.schema(_SCORE_TYPES)
 SCORE_COLUMNS = tuple(_SCORE_TYPES)
@@ -99,20 +102,23 @@ FEATURE_INPUT_COLUMNS = (
 
 @frozen
 class UnseenModel:
-    """One model to score the pool with, the feature set it was fit on, and the readable heads it
-    can score. Models that share a feature set share one matrix."""
+    """One model to score the pool with, the feature set it was fit on, and the heads it can score.
+    Models that share a feature set share one matrix."""
 
     model_name: str
     model_version: str
     model_role: str
     feature_set: FeatureSet
     boosters: Mapping[str, bytes]
+    # Of those heads, the ones whose holdout could be read. Carried onto every scored row, because
+    # the grade runs `horizon_days` later and has no metadata of the model that wrote the row.
+    readable_heads: frozenset[str] = frozenset()
 
 
 @frozen
 class ModelFamily:
     """One family the training job fits and the unseen read grades: its name, and the feature set
-    its trainer fits. Both families are per-head XGBoost, so the learner is not a field yet; a
+    its trainer fits. Every family is per-head XGBoost, so the learner is not a field yet; a
     family with its own predict (the MMoE) adds one at the `UnseenModel` boundary."""
 
     name: str
@@ -122,9 +128,14 @@ class ModelFamily:
 # The families the training job trains and the unseen read grades, in the order they are trained. A
 # family with no metadata for the day is skipped, so an entry can be added here before its trainer
 # writes its first candidate, and a family that fails costs its own series rather than every one.
+# The two embedding families read one `ReportEmbeddingsFeatureSet` instance each and fit with the
+# same module-level `XGB_PARAMS`, so their width, grain, row budget, sampling, split and booster
+# settings match by construction. Keep it that way: the pair is a measurement of the text choice,
+# and a recipe that differed between them would answer a question nobody asked.
 MODEL_FAMILIES: tuple[ModelFamily, ...] = (
     ModelFamily(name=TABULAR_MODEL_NAME, feature_set=TABULAR_FEATURE_SET),
     ModelFamily(name=REPORT_EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
+    ModelFamily(name=TITLE_EMBEDDINGS_MODEL_NAME, feature_set=TITLE_EMBEDDINGS_FEATURE_SET),
 )
 
 
@@ -140,6 +151,10 @@ class HeadGrade:
     model_name: str
     model_version: str
     model_role: str
+    # Whether this head's holdout could be read on the model that wrote the scores. A rare head is
+    # scored and graded while unreadable, so the pooled grade over many days can give it a number
+    # its one-day holdout never will; read the two populations apart.
+    readable: bool
     rows: int
     positives: int
     # Of the positives, how many had already happened when the report was scored: on this pool the
@@ -186,6 +201,7 @@ class HeadGrade:
             "model_name": self.model_name,
             "model_version": self.model_version,
             "model_role": self.model_role,
+            "readable": self.readable,
         }
 
     def as_dict(self) -> dict[str, object]:
@@ -260,13 +276,24 @@ def model_mismatch(metadata: Mapping[str, Any]) -> str | None:
     return None
 
 
-def readable_head_files(metadata: Mapping[str, Any]) -> dict[str, str]:
-    """The `<head>.ubj` object name per readable head. Only a readable head is worth an unseen
-    read; an unreadable one has no holdout AUC to compare the unseen AUC against."""
+def readable_head_names(metadata: Mapping[str, Any]) -> frozenset[str]:
+    """The heads of a model whose holdout AUC could be read."""
+    return frozenset(entry["head"] for entry in metadata.get("heads", []) if entry.get("readable"))
+
+
+def trained_head_files(metadata: Mapping[str, Any]) -> dict[str, str]:
+    """The `<head>.ubj` object name per head the candidate fit.
+
+    Every trained head is scored, readable or not. A rare head never clears `min_holdout_positives`
+    on one day's holdout, and the pooled newborn grade over many days is the only read that can
+    ever give it a number; gating the scoring on readability means that read never starts. An
+    unreadable head has no holdout AUC to compare against, so read its grade on its own, and the
+    promotion gate still ignores it.
+    """
     return {
         entry["head"]: entry["file"]
         for entry in metadata.get("heads", [])
-        if entry.get("readable") and entry.get("file") and entry.get("head") in HEADS_BY_NAME
+        if entry.get("file") and entry.get("head") in HEADS_BY_NAME
     }
 
 
@@ -335,6 +362,19 @@ def with_model_names(scores: pd.DataFrame) -> pd.DataFrame:
     return scores.assign(model_name=scores["model_name"].fillna(TABULAR_MODEL_NAME))
 
 
+def families_lost_by_rewrite(existing: pd.DataFrame, scores: pd.DataFrame) -> list[str]:
+    """The families whose rows a rewrite of a partition's scores object would delete.
+
+    One object holds every family, and the write replaces it in full, so a run that scored fewer
+    families than the object already holds removes the rest. That is the loss
+    `empty_scores_write_allowed` refuses for a run that scored nothing, and a family is skipped
+    whenever its models or its set's side input are missing for the partition, so the partial case
+    is as ordinary as the empty one. Reading the object settles what it holds, which the row-count
+    stamp alone cannot.
+    """
+    return sorted(set(with_model_names(existing)["model_name"].unique()) - set(scores["model_name"].unique()))
+
+
 def score_pool(
     pool: pd.DataFrame,
     labels: pd.DataFrame,
@@ -385,6 +425,7 @@ def score_pool(
                     "score": _predict(booster_ubj, matrix),
                     "age_hours": age_hours,
                     "label_at_scoring": HEADS_BY_NAME[head_name].label(aligned_labels).to_numpy(),
+                    "head_readable": head_name in model.readable_heads,
                 }
             )
             for head_name, booster_ubj in model.boosters.items()
@@ -473,6 +514,10 @@ def graded_rows(head_scores: pd.DataFrame, labels: pd.DataFrame, head: Head, *, 
     if head.status_labels and "label_provenance_ok" in aligned:
         in_cohort &= aligned["label_provenance_ok"].fillna(False).to_numpy(dtype=bool)
     graded = head_scores.copy()
+    # An object written before the column existed scored a head only when it was readable.
+    graded["head_readable"] = (
+        head_scores["head_readable"].fillna(True).astype(bool) if "head_readable" in head_scores else True
+    )
     graded["in_cohort"] = in_cohort
     graded["outcome"] = pd.array(head.label(aligned).to_numpy(dtype=bool), dtype="boolean")
     graded.loc[~in_cohort, "outcome"] = pd.NA
@@ -506,6 +551,7 @@ def head_grades(graded: pd.DataFrame, head: Head, *, pool: str, scoring_partitio
                 model_name=str(model_name),
                 model_version=str(model_version),
                 model_role=str(model_role),
+                readable=bool(rows["head_readable"].all()),
                 rows=len(rows),
                 positives=int(outcomes.sum()),
                 birth_day_positives=int((outcomes & at_scoring).sum()),

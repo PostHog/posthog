@@ -13,6 +13,7 @@ against it. Neither may hardcode a model list.
 from __future__ import annotations
 
 from products.tasks.backend.facade.model_catalogue import (
+    COST_BASELINE_MODEL,
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     ModelChoice,
@@ -43,10 +44,11 @@ def describe_run_model(model: str | None, reasoning_effort: str | None) -> str:
     label = display_name_for_model(model) if model else "—"
     if not reasoning_effort:
         return f"*{label}*"
-    return f"*{label}* · Reasoning: *{label_for(reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}*"
+    return f"*{label}* [{label_for(reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}]"
 
 
 __all__ = [
+    "COST_BASELINE_MODEL",
     "REASONING_EFFORT_DISPLAY_NAMES",
     "RUNTIME_ADAPTER_DISPLAY_NAMES",
     "ModelChoice",

@@ -67,6 +67,9 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
             "Report no longer exists": report_gone,
             # A row that resolves by id hits the fetch directly, so a deleted report surfaces there.
             "Request to get report failed with status: 404": report_gone,
+            # DoIt's own rejection text for a bad key, stable across both the list and get-report
+            # endpoints since they share the same bearer token check.
+            "invalid or revoked access key": "Your DoIt API key is invalid or has been revoked. Please create a new key and reconnect.",
         }
 
     def source_for_pipeline(self, config: DoItSourceConfig, inputs: SourceInputs) -> SourceResponse:

@@ -1,7 +1,10 @@
-import { IconCopy, IconSparkles } from '@posthog/icons'
+import { useState } from 'react'
+
+import { IconChevronRight, IconCopy, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
@@ -15,6 +18,7 @@ import {
     parseFailureReason,
     parseIneligibleReason,
 } from '../replay_scanners/types'
+import { markSimilarSearchIntent, similarSearchUrl } from '../search/observationQueries'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
 import { readReasoning, scannerLabel } from '../utils/observation'
 import { CitedMarkdown } from './CitedMarkdown'
@@ -318,6 +322,34 @@ export function ObservationPrimaryOutput({
     )
 }
 
+// A reader opens an observation for the result, not the prompt they configured. Collapse the prompt to one
+// peek line so the verdict and reasoning stay above the fold, but keep it in view so the verdict has context.
+export function PromptRow({ prompt }: { prompt: string }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    return (
+        <div>
+            <button
+                type="button"
+                className="flex items-center gap-0.5 text-xs text-muted mb-0.5 hover:text-default"
+                onClick={() => setExpanded(!expanded)}
+                aria-expanded={expanded}
+                data-attr="vision-observation-prompt-toggle"
+            >
+                <IconChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
+                Prompt
+            </button>
+            <p
+                className={cn(
+                    'text-sm m-0 leading-snug',
+                    expanded ? 'text-default whitespace-pre-wrap' : 'text-muted line-clamp-1'
+                )}
+            >
+                {prompt}
+            </p>
+        </div>
+    )
+}
+
 export function ObservationConfidence({
     result,
     standalone = false,
@@ -414,6 +446,10 @@ export function ObservationDockCard({
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
     const result = readResult(observation)
+    // The prompt is the question the scan judged, so it gives the verdict its meaning. Show it inline here so a
+    // reader does not have to open the details page to know what "Yes" answered.
+    const prompt = snapshot ? (configFromSnapshot(snapshot)?.prompt ?? null) : null
+    const similarUrl = observation.status === 'succeeded' ? similarSearchUrl(observation) : null
     // Summarizers excluded: their primary output already is the full text
     const reasoning =
         observation.status === 'succeeded' && scannerType !== 'summarizer' ? readReasoning(observation) : null
@@ -439,6 +475,16 @@ export function ObservationDockCard({
                     <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
                         View details
                     </Link>
+                    {similarUrl && (
+                        <Link
+                            to={similarUrl}
+                            onClick={() => markSimilarSearchIntent(observation)}
+                            className="text-xs whitespace-nowrap"
+                            data-attr="vision-dock-find-similar"
+                        >
+                            Find similar
+                        </Link>
+                    )}
                 </div>
             </div>
 
@@ -484,6 +530,7 @@ export function ObservationDockCard({
                             copyable
                         />
                     </LabeledRow>
+                    {prompt && scannerType !== 'summarizer' && <PromptRow prompt={prompt} />}
                     {reasoning && (
                         <LabeledRow label="Model reasoning">
                             <CitedMarkdown text={reasoning} segments={result.reasoning_segments} onSeek={onSeek} />

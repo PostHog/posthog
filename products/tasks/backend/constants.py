@@ -31,6 +31,7 @@ MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
+REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 # Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi
 # runtime, so the effective audience is teams with both this flag and
 # PI_CLOUD_RUNTIME_FEATURE_FLAG enabled.
@@ -452,6 +453,7 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "AI_GATEWAY_URL",
         "AI_GATEWAY_PRODUCTS",
         "AI_GATEWAY_TOKEN",
+        "AI_GATEWAY_TOKEN_CAP_USD",
         "AI_GATEWAY_PRODUCT",
         "AI_GATEWAY_AI_STAGE",
         "POSTHOG_RESUME_RUN_ID",

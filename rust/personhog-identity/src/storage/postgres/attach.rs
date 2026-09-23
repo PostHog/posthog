@@ -9,6 +9,7 @@ use crate::config::IdentityTables;
 use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::types::AttachOutcome;
+use personhog_common::query_tag;
 
 /// Fresh inserts get version 1, like a stub's extra distinct ids: with no
 /// personless table there is no proof the id never sent events, and 1 is
@@ -57,7 +58,7 @@ pub(super) async fn attach_distinct_ids(
         lop = tables.lifecycle_op_person,
     );
     let mut conn = pools.acquire(Lane::Heavy).await?;
-    let written = sqlx::query(&insert_sql)
+    let written = sqlx::query(&query_tag!("attach_mappings", insert_sql))
         .bind(&sorted)
         .bind(person_id)
         .bind(team_id as i32)
@@ -89,7 +90,7 @@ pub(super) async fn attach_distinct_ids(
         "#,
         pdi = tables.person_distinct_id,
     );
-    let rows = sqlx::query(&losers_sql)
+    let rows = sqlx::query(&query_tag!("attach_losers", losers_sql))
         .bind(team_id as i32)
         .bind(&losers)
         .fetch_all(&mut *conn)

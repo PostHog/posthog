@@ -308,6 +308,89 @@ class TestNestedEndpoints:
                 ],
             ),
             (
+                "interview_tags",
+                "interview_tags",
+                {
+                    "interview": [
+                        {
+                            "id": 6,
+                            "created_at": "2026-01-01",
+                            "updated_at": "2026-01-02",
+                            "tags": [
+                                {"tag": {"id": 20, "name": "Churn risk", "color": "#ff0000"}},
+                                # A tag reference the API resolves to nothing has no key columns
+                                {"tag": None},
+                            ],
+                        }
+                    ]
+                },
+                [
+                    {
+                        "interview_id": 6,
+                        "interview_created_at": "2026-01-01",
+                        "interview_updated_at": "2026-01-02",
+                        "tag_id": 20,
+                        "tag_name": "Churn risk",
+                        "tag_color": "#ff0000",
+                    },
+                ],
+            ),
+            (
+                # An object relationship yields at most one row, built from the type's own fields
+                "interview_types",
+                "interview_types",
+                {
+                    "interview": [
+                        {
+                            "id": 7,
+                            "created_at": "2026-01-01",
+                            "updated_at": "2026-01-02",
+                            "type": {"id": 30, "name": "User interview"},
+                        },
+                        {"id": 8, "created_at": "2026-01-03", "updated_at": "2026-01-04", "type": None},
+                    ]
+                },
+                [
+                    {
+                        "interview_id": 7,
+                        "interview_created_at": "2026-01-01",
+                        "interview_updated_at": "2026-01-02",
+                        "type_id": 30,
+                        "type_name": "User interview",
+                    },
+                ],
+            ),
+            (
+                "extraction_types",
+                "extraction_types",
+                {
+                    "extraction": [
+                        {
+                            "id": 9,
+                            "created_at": "2026-01-05",
+                            "types": [
+                                {"type": {"id": 40, "name": "Pain point"}},
+                                {"type": {"id": 41, "name": "Feature request"}},
+                            ],
+                        }
+                    ]
+                },
+                [
+                    {
+                        "extraction_id": 9,
+                        "extraction_created_at": "2026-01-05",
+                        "type_id": 40,
+                        "type_name": "Pain point",
+                    },
+                    {
+                        "extraction_id": 9,
+                        "extraction_created_at": "2026-01-05",
+                        "type_id": 41,
+                        "type_name": "Feature request",
+                    },
+                ],
+            ),
+            (
                 "extraction_topics",
                 "extraction_topics",
                 {

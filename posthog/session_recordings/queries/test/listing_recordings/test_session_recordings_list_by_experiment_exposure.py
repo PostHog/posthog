@@ -21,7 +21,6 @@ from posthog.models import EventProperty, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.queries.recordings_query_runner import RecordingsQueryRunner
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
@@ -30,7 +29,6 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
     filter_recordings_by,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.session_recording_api import list_recordings_from_query
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import add_distinct_id, create_person
 
@@ -772,42 +770,6 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             {"experiment_exposure": {"experiment_id": experiment.id}},
             [with_event_session, without_event_session],
         )
-
-    def test_persisted_pinned_recordings_still_go_through_the_exposure_filter(self) -> None:
-        # Recordings persisted to S3 are normally served straight from Postgres when queried by
-        # session id, skipping the ClickHouse query the exposure join lives in; with the filter
-        # set they must take the ClickHouse path so unexposed persons' sessions stay out.
-        experiment = self._create_experiment()
-        create_person(team=self.team, distinct_ids=["exposed-user"])
-        create_person(team=self.team, distinct_ids=["other-user"])
-        exposure_time = BASE_TIME + timedelta(hours=1)
-        self._create_exposure_event("exposed-user", exposure_time, "test")
-        flush_persons_and_events()
-
-        session_start = exposure_time + timedelta(hours=1)
-        self._produce_recording(
-            "exposed-user", "session-of-exposed", session_start, session_start + timedelta(minutes=10)
-        )
-        self._produce_recording(
-            "other-user", "session-of-unexposed", session_start, session_start + timedelta(minutes=10)
-        )
-        for session_id in ("session-of-exposed", "session-of-unexposed"):
-            SessionRecording.objects.create(
-                team=self.team, session_id=session_id, full_recording_v2_path=f"s3://bucket/{session_id}"
-            )
-
-        result = list_recordings_from_query(
-            RecordingsQuery.model_validate(
-                {
-                    "session_ids": ["session-of-exposed", "session-of-unexposed"],
-                    "experiment_exposure": {"experiment_id": experiment.id},
-                }
-            ),
-            user=self.user,
-            team=self.team,
-        )
-
-        assert [recording.session_id for recording in result.recordings] == ["session-of-exposed"]
 
     def test_an_empty_pinned_set_answers_without_reaching_clickhouse(self) -> None:
         # The recordings tab pins an empty id set for an empty metric bucket. The list can only

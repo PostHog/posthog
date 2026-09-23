@@ -27,6 +27,10 @@ Method taxonomy, most to least automated:
 - ``local_package``: no hosted remote; the agent runs the published package locally.
   Always human-gated: the package is publisher-controlled code, so a person approves
   the exact package (and version) before the agent installs and runs it.
+- ``posthog_gateway``: install the server into PostHog's own MCP servers gateway, which
+  drives the OAuth handshake, holds the credential, and gates each tool behind an
+  approval state. A different destination rather than a different auth path, so it is
+  appended last and never becomes the recommendation.
 
 Values that a registry publisher controls (a remote URL, a package identifier) are
 shell-quoted before they reach a ``command`` string. An agent is told to run these
@@ -127,6 +131,51 @@ def _slug(server: MCPRegistryServer) -> str:
 
 def _remote_url(server: MCPRegistryServer) -> str:
     return server.canonical_url
+
+
+# Route owned by products/mcp_store/manifest.tsx. Python has no access to the frontend
+# route table, so a rename there needs a matching edit here.
+_POSTHOG_GATEWAY_PATH = "/mcp-servers"
+
+
+def _posthog_gateway_method(url: str) -> dict[str, Any]:
+    """Install into PostHog's own MCP servers gateway.
+
+    Every other method hands a `claude mcp add` line to one local client. This one is a
+    different destination, not a different auth path: the gateway drives OAuth, holds the
+    credential, and gates each tool behind an approval state, and the server is then
+    reachable from every PostHog agent surface rather than one machine.
+
+    Appended last, so it never becomes `recommended`. An agent reading these instructions
+    programmatically is better served by the shell command; a person who found the server
+    on the search page has no terminal in front of them and is better served by this. It
+    also keeps the ranking output from preferring PostHog's own path over a vendor's.
+    """
+    return {
+        "method": "posthog_gateway",
+        "automation": "human_required",
+        "summary": "Install into PostHog's MCP servers gateway: it completes the OAuth handshake, keeps the "
+        "credential, and holds each tool behind an approval state. Reachable from every PostHog agent "
+        "surface once installed, rather than from one local client.",
+        "steps": [
+            {
+                "actor": "human",
+                "description": f"Open {_POSTHOG_GATEWAY_PATH} in PostHog (needs the mcp-gateway feature flag) "
+                f"and add {url} as a custom server.",
+                "command": None,
+            },
+            {
+                "actor": "human",
+                "description": "Complete the vendor's consent screen if it asks for one.",
+                "command": None,
+            },
+            {
+                "actor": "agent",
+                "description": "Call the server's tools through the gateway, approving each new tool on first use.",
+                "command": None,
+            },
+        ],
+    }
 
 
 def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
@@ -305,6 +354,10 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
                 "steps": steps,
             }
         )
+
+    if url:
+        # A package-only entry has nothing for a hosted gateway to reach.
+        methods.append(_posthog_gateway_method(url))
     return methods
 
 

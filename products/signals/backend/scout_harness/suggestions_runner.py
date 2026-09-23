@@ -46,7 +46,7 @@ from products.signals.backend.temporal.agentic import (
     get_or_create_signals_sandbox_env,
     resolve_acting_user_id_for_team,
 )
-from products.skills.backend.api.skill_serializers import validate_skill_name_value
+from products.skills.backend.api.skill_serializers import validate_new_skill_name_value
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 
@@ -59,10 +59,11 @@ def _valid_cron(expression: str) -> bool:
 
 
 def _valid_custom_name(name: str) -> bool:
-    # Any valid skill name is a valid scout name. The producer prompt still asks for prefixed
-    # names, which is a prompt choice rather than a validity rule.
+    # The same rule the scout create API applies, so a suggestion can never fail on the click.
+    # Any name that can name a new skill is a valid scout name. The producer prompt still asks for
+    # prefixed names, which is a prompt choice rather than a validity rule.
     try:
-        validate_skill_name_value(name)
+        validate_new_skill_name_value(name)
     except serializers.ValidationError:
         return False
     # The inbox-reserved names clear the generic contract but the create serializer refuses them,

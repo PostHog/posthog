@@ -34,8 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("v61.0", "v67.0")
-    default_version = "v67.0"
+    supported_versions = ("v61.0", "v67.0", "v68.0")
+    default_version = "v68.0"
     api_docs_url = "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_rest.htm"
 
     @property

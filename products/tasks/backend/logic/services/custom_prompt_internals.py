@@ -145,6 +145,10 @@ class CustomPromptSandboxContext:
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
     prompt the surface really ships. ``None`` leaves the run originless, like a plain task."""
+    mcp_exclude_tools: tuple[str, ...] = ()
+    """Tool names to omit from the PostHog MCP catalog for this run (``x-posthog-exclude-tools``).
+    Used when a scope grant is broader than the tools this caller should advertise, e.g. hiding
+    ``docs-search`` from a non-PostHog support draft."""
 
 
 class TurnPollTimeout(RuntimeError):
@@ -262,6 +266,7 @@ async def create_task_and_trigger(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
+    output_schema: dict[str, Any] | None = None,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -270,6 +275,9 @@ async def create_task_and_trigger(
     posthog_mcp_scopes: PosthogMcpScopes = (
         context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
     )
+    extra_run_state: dict[str, Any] | None = None
+    if context.mcp_exclude_tools:
+        extra_run_state = {"mcp_exclude_tools": list(context.mcp_exclude_tools)}
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
@@ -302,6 +310,8 @@ async def create_task_and_trigger(
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         interaction_origin=context.interaction_origin,
+        extra_run_state=extra_run_state,
+        output_schema=output_schema,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()

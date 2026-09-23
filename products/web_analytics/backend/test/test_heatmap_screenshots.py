@@ -464,6 +464,31 @@ class TestHeatmapsAPI(APIBaseTest):
         r = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
         self.assertEqual(r.status_code, 400)
 
+    @parameterized.expand(
+        [
+            ("default_order", None, True),
+            ("requested_descending", "-created_at", True),
+            ("requested_ascending", "created_at", False),
+        ]
+    )
+    def test_tied_timestamps_keep_a_stable_order_across_pages(self, _name, order, newest_first):
+        created = [
+            SavedHeatmap.objects.create(team=self.team, url=f"https://example.com/{index}", created_by=self.user)
+            for index in range(5)
+        ]
+        timestamp = timezone.now()
+        SavedHeatmap.objects.filter(team=self.team).update(created_at=timestamp, updated_at=timestamp)
+
+        query = f"&order={order}" if order else ""
+        seen: list[str] = []
+        for offset in range(5):
+            r = self.client.get(f"/api/environments/{self.team.id}/saved/?limit=1&offset={offset}{query}")
+            self.assertEqual(r.status_code, 200)
+            seen.extend(row["id"] for row in r.data["results"])
+
+        expected = [str(saved.id) for saved in sorted(created, key=lambda heatmap: heatmap.id, reverse=newest_first)]
+        self.assertEqual(seen, expected)
+
 
 class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
@@ -495,6 +520,12 @@ class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):
 def _jpeg_bytes(width: int = 12, height: int = 12) -> bytes:
     buf = BytesIO()
     Image.new("RGB", (width, height), (200, 30, 30)).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def _tiff_bytes() -> bytes:
+    buf = BytesIO()
+    Image.new("RGB", (12, 12), (200, 30, 30)).save(buf, format="TIFF")
     return buf.getvalue()
 
 
@@ -562,6 +593,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         [
             ("wildcard_url", "https://app.example.com/*", _jpeg_bytes()),
             ("not_an_image", "https://app.example.com/x", b"<html>not a jpeg</html>"),
+            ("unsupported_format", "https://app.example.com/x", _tiff_bytes()),
         ]
     )
     def test_capture_rejects_invalid_input(self, _mock_task: MagicMock, _name: str, url: str, content: bytes) -> None:

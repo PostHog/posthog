@@ -30,10 +30,11 @@ PIPELINE_RESULT_TO_EVAL_OUTCOME: dict[str, EvalOutcome] = {
     "skipped_unactionable": "escalate",
     "blocked_unsafe": "escalate",
     "blocked_unsafe_reply": "escalate",
+    "clarified": "needs_clarification",
+    "suggested_clarification": "needs_clarification",
 }
 
-# Persist-reply posts a clarifying question and sets this status. Map it here so
-# fixtures that expect needs_clarification score correctly once that branch exists.
+# Public clarifying questions park the ticket on this ai_triage status.
 CLARIFICATION_TRIAGE_STATUS = "awaiting_clarification"
 
 LIVE_EVAL_ENV_VAR = "SUPPORT_REPLY_EVAL_LIVE"

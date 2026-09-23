@@ -17,7 +17,7 @@ class TestLinking(BaseTest):
         _registry_server("com.thirdparty/posthog", "posthog")
         official = _registry_server("io.github.PostHog/mcp", "PostHog MCP Server")
 
-        resolution = resolve_measured_server("PostHog")
+        resolution = resolve_measured_server("PostHog", self.team.id)
 
         assert resolution.server == official
         assert resolution.link_method == "override"
@@ -29,7 +29,7 @@ class TestLinking(BaseTest):
         _registry_server("io.example/acme", "Acme")
         _registry_server("com.acme/mcp", "acme")
 
-        resolution = resolve_measured_server("Acme")
+        resolution = resolve_measured_server("Acme", self.team.id)
 
         assert resolution.server.listed_in_registry is False
         assert resolution.link_method == "standalone"
@@ -39,15 +39,26 @@ class TestLinking(BaseTest):
         match = _registry_server("io.example/linear", "Linear")
         _registry_server("io.example/linear-docs", "Linear docs helper")
 
-        resolution = resolve_measured_server("Linear")
+        resolution = resolve_measured_server("Linear", self.team.id)
 
         assert resolution.server == match
         assert resolution.link_method == "exact_name"
         assert resolution.link_candidates == []
 
+    def test_two_projects_reporting_one_name_get_separate_rows(self) -> None:
+        # serverInfo.name is client-advertised and often an SDK template default, so
+        # unrelated projects report the same name. Keyed on the name alone, their calls
+        # and tool names merged into one row that then ranked on everyone's traffic.
+        mine = resolve_measured_server("mcp-typescript server", self.team.id)
+        theirs = resolve_measured_server("mcp-typescript server", self.team.id + 1)
+
+        assert mine.link_method == theirs.link_method == "standalone"
+        assert mine.server.id != theirs.server.id
+        assert (mine.server.measured_team_id, theirs.server.measured_team_id) == (self.team.id, self.team.id + 1)
+
     def test_standalone_row_is_reused_across_runs(self) -> None:
-        first = resolve_measured_server("Internal Tools")
-        second = resolve_measured_server("Internal Tools")
+        first = resolve_measured_server("Internal Tools", self.team.id)
+        second = resolve_measured_server("Internal Tools", self.team.id)
 
         assert first.server == second.server
         assert MCPRegistryServer.objects.filter(display_name="Internal Tools").count() == 1
