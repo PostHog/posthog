@@ -221,6 +221,13 @@ def _baseline_lines(*names: str) -> str:
     return "".join(f"{name} {_FIXTURE_ROUTES[name]}\n" for name in names)
 
 
+# A base ref where `hogFlows` never existed.
+API_TS_FIXTURE_WITHOUT_HOGFLOWS = API_TS_FIXTURE.replace(
+    "    public hogFlows(): ApiRequest {\n        return this.environmentsDetail().addPathComponent('hog_flows')\n    }\n\n",
+    "",
+)
+
+
 class TestApiRequestResolver:
     @parameterized.expand(
         [
@@ -612,3 +619,69 @@ class TestCommand:
             "propertyDefinitions projects/{}/property_definitions",
             "organizationMembers organizations/{}/members",
         }
+
+
+class TestExposedBuilders:
+    def _run(self, monkeypatch: pytest.MonkeyPatch, root: Path, base_source: str | None) -> Result:
+        monkeypatch.setattr(api_ratchet, "REPO_ROOT", root)
+        if base_source is None:
+            monkeypatch.delenv(api_ratchet.API_RATCHET_BASE_ENV, raising=False)
+        else:
+            monkeypatch.setenv(api_ratchet.API_RATCHET_BASE_ENV, "HEAD^1")
+            monkeypatch.setattr(api_ratchet, "_read_base_api_ts", lambda repo_root, ref: base_source)
+        return runner.invoke(cmd_lint_api_ratchet, [])
+
+    def test_a_builder_the_base_already_had_is_exposed_not_new_debt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
+        )
+        # Pre-change committed rule: hogFlows had no twin yet, so no rule of its own.
+        pre_change = tmp_path / "_pre_change"
+        _write_repo(pre_change, generated_workflows="")
+        api_ratchet.write_semgrep_rules(tmp_path, Ratchet(pre_change))
+
+        result = self._run(monkeypatch, tmp_path, API_TS_FIXTURE)
+
+        assert result.exit_code == 0
+        assert "hogFlows" in result.output
+        assert "already existed" in result.output
+        assert "✅ No new path methods duplicating a generated client, and the semgrep rules match." in result.output
+
+    def test_a_builder_missing_from_the_base_is_still_new_debt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
+        )
+        result = self._run(monkeypatch, tmp_path, API_TS_FIXTURE_WITHOUT_HOGFLOWS)
+        assert result.exit_code == 1
+        assert "hogFlows" in result.output
+        assert "already existed" not in result.output
+
+    def test_without_the_env_var_the_check_stays_strict(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
+        )
+        result = self._run(monkeypatch, tmp_path, None)
+        assert result.exit_code == 1
+        assert "hogFlows" in result.output
+
+    def test_an_unreadable_base_ref_falls_back_to_strict_with_a_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
+        )
+        monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
+        monkeypatch.setenv(api_ratchet.API_RATCHET_BASE_ENV, "HEAD^1")
+        monkeypatch.setattr(api_ratchet, "_read_base_api_ts", lambda repo_root, ref: None)
+        result = runner.invoke(cmd_lint_api_ratchet, [])
+        assert result.exit_code == 1
+        assert "could not be read" in result.output
+        assert "hogFlows" in result.output
