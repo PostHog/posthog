@@ -915,7 +915,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [`${urls.oauthAuthorize()}/`]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
-    [urls.dataOps()]: [Scene.DataOps, 'dataOps'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
     [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],

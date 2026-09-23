@@ -21,10 +21,11 @@ import { openInAppSupport } from 'lib/components/Support/openInAppSupport'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { TableCombobox } from 'scenes/data-warehouse/TableCombobox'
-import { JoinKeyMode, KeySelectOption, viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
+
+import { JoinKeyMode, KeySelectOption, viewLinkLogic } from '../logics/viewLinkLogic'
+import { TableCombobox } from './TableCombobox'
 
 export type Mode = 'revenue_analytics'
 export interface ViewLinkModalProps {

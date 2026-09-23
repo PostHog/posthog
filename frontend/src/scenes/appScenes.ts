@@ -26,7 +26,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Dashboards]: () => import('./dashboard/dashboards/Dashboards'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
     [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
-    [Scene.DataOps]: () => import('./data-warehouse/DataWarehouseScene'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
     [Scene.Destinations]: () => import('./data-pipelines/DestinationsScene'),
     [Scene.DebugHog]: () => import('./debug/hog/HogRepl'),

@@ -23,8 +23,8 @@ import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api
 import { statusBackgroundClass } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { SEARCH_SYNTAX_HELP } from 'products/data_modeling/frontend/lineage/SearchSyntaxHelp'
 import { StatusTag } from 'products/data_modeling/frontend/lineage/StatusTag'
+import { TableCertificationTag } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
 
-import { TableCertificationTag } from '../TableCertificationBadge'
 import { PAGE_SIZE, ViewTypeFilter, viewsTabLogic } from './viewsTabLogic'
 
 type ViewColumn = LemonTableColumn<DataWarehouseSavedQuerySummary, keyof DataWarehouseSavedQuerySummary | undefined>
