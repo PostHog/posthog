@@ -74,7 +74,8 @@ export function copyIndexHtml(
     to = 'dist/index.html',
     entry = 'index',
     chunks = {},
-    entrypoints = []
+    entrypoints = [],
+    stable = null
 ) {
     // Takes a html file, `from`, and some artifacts from esbuild, and injects
     // some javascript that will load these artifacts dynamically, based on an
@@ -86,54 +87,52 @@ export function copyIndexHtml(
     // Docker image, but serve the js and it's dependencies from e.g. CloudFront
     const buildId = new Date().valueOf()
 
-    const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(absWorkingDir, 'dist'), e))
-    const jsFile = relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.js')) : `${entry}.js?t=${buildId}`
-    const cssFile =
-        relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
+    const bootScript = (chunks, entrypoints) => {
+        const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(absWorkingDir, 'dist'), e))
+        const jsFile =
+            relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.js')) : `${entry}.js?t=${buildId}`
+        const cssFile =
+            relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
 
-    const jsFileFallback = `${entry}.js?t=${buildId}`
-    const scriptCode = `
-        window.ESBUILD_LOAD_SCRIPT = async function (file) {
-            try {
-                await import((window.JS_URL || '') + '/static/' + file)
-            } catch (error) {
-                console.error('Error loading chunk: "' + file + '"')
-                console.error(error)
-                if (file === ${JSON.stringify(jsFile)} && file !== ${JSON.stringify(jsFileFallback)}) {
-                    await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})
+        const jsFileFallback = `${entry}.js?t=${buildId}`
+        const scriptCode = `
+            window.ESBUILD_LOAD_SCRIPT = async function (file) {
+                try {
+                    await import((window.JS_URL || '') + '/static/' + file)
+                } catch (error) {
+                    console.error('Error loading chunk: "' + file + '"')
+                    console.error(error)
+                    if (file === ${JSON.stringify(jsFile)} && file !== ${JSON.stringify(jsFileFallback)}) {
+                        await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})
+                    }
                 }
             }
+            window.ESBUILD_LOAD_SCRIPT(${JSON.stringify(jsFile)})
+        `
+
+        // Esbuild "chunks" a scene into possibly hundreds of tiny files. When we load the first few files,
+        // they tell us which other files to load. This cascading loading is slow. That's why we cache
+        // the list of chunks per scene, and load them all in parallel when a scene is loaded.
+        //
+        // The full map is written to its own content-hashed file in dist and fetched by the inline
+        // loader, instead of being inlined into the HTML: the map is hundreds of KB that changed on
+        // every deploy and had to be downloaded and parsed before the app could boot, on every page.
+
+        // Don't use chunks in dev mode.
+        // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
+        const chunksToServe = isDev ? {} : chunks
+        const chunkMapFile = Object.keys(chunksToServe).length > 0 ? chunkMapFileName(entry, chunksToServe) : null
+        if (chunkMapFile) {
+            fse.writeFileSync(path.resolve(absWorkingDir, 'dist', chunkMapFile), chunkMapFileContents(chunksToServe))
         }
-        window.ESBUILD_LOAD_SCRIPT(${JSON.stringify(jsFile)})
-    `
+        const chunkCode = Object.keys(chunks).length > 0 ? chunkLoaderScript(chunksToServe, chunkMapFile) : ''
 
-    // Esbuild "chunks" a scene into possibly hundreds of tiny files. When we load the first few files,
-    // they tell us which other files to load. This cascading loading is slow. That's why we cache
-    // the list of chunks per scene, and load them all in parallel when a scene is loaded.
-    //
-    // The full map is written to its own content-hashed file in dist and fetched by the inline
-    // loader, instead of being inlined into the HTML: the map is hundreds of KB that changed on
-    // every deploy and had to be downloaded and parsed before the app could boot, on every page.
+        // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed version fails or
+        // stalls (e.g. CDN returns 403, or the request hangs). Mirrors the JS fallback above.
+        const cssFileFallback = `${entry}.css?t=${buildId}`
+        const cssLoader = cssFile ? cssLoaderScript(cssFile, cssFileFallback) : ''
 
-    // Don't use chunks in dev mode.
-    // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
-    const chunksToServe = isDev ? {} : chunks
-    const chunkMapFile = Object.keys(chunksToServe).length > 0 ? chunkMapFileName(entry, chunksToServe) : null
-    if (chunkMapFile) {
-        fse.writeFileSync(path.resolve(absWorkingDir, 'dist', chunkMapFile), chunkMapFileContents(chunksToServe))
-    }
-    const chunkCode = Object.keys(chunks).length > 0 ? chunkLoaderScript(chunksToServe, chunkMapFile) : ''
-
-    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed version fails or
-    // stalls (e.g. CDN returns 403, or the request hangs). Mirrors the JS fallback above.
-    const cssFileFallback = `${entry}.css?t=${buildId}`
-    const cssLoader = cssFile ? cssLoaderScript(cssFile, cssFileFallback) : ''
-
-    fse.writeFileSync(
-        path.resolve(absWorkingDir, to),
-        fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
-            '</head>',
-            `   <script nonce="{{ request.csp_nonce }}" type="application/javascript">
+        return `<script nonce="{{ request.csp_nonce }}" type="application/javascript">
                     // The stylesheet link is added just below, at runtime, so a slow CSS fetch does
                     // not hold up these boot scripts. The loader publishes window.ESBUILD_CSS_READY,
                     // and the app entry waits on it before its first render, so React does not paint
@@ -141,7 +140,20 @@ export function copyIndexHtml(
                     ${cssLoader}
                     ${scriptCode}
                     ${chunkCode}
-                </script>
+                </script>`
+    }
+
+    // With stable chunk names built, the backend picks the boot variant per request. See
+    // stableChunkNames.mjs and the stable_chunks context in posthog/utils.py.
+    const scripts = stable
+        ? `{% if stable_chunks %}${bootScript(stable.chunks, stable.entrypoints)}{% else %}${bootScript(chunks, entrypoints)}{% endif %}`
+        : bootScript(chunks, entrypoints)
+
+    fse.writeFileSync(
+        path.resolve(absWorkingDir, to),
+        fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
+            '</head>',
+            `   ${scripts}
             </head>`
         )
     )

@@ -14,6 +14,7 @@ import {
     reportTopChunks,
     startDevServer,
 } from '@posthog/esbuilder'
+import { writeStableChunks } from '@posthog/esbuilder/stableChunkNames.mjs'
 
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
@@ -106,11 +107,19 @@ await buildInParallel(
                     console.error('Could not get entrypoint for bundle "PostHog App."')
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
                 }
+                let stable = null
                 if (!isDev) {
                     reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
-                    writePreloadManifest(buildResponse.outputs)
+                    const preloadManifest = writePreloadManifest(buildResponse.outputs)
+                    stable = writeStableChunks({
+                        absWorkingDir: __dirname,
+                        outputs: buildResponse.outputs,
+                        chunks,
+                        entrypoints,
+                        preloadManifest,
+                    })
                 }
-                writeIndexHtml(chunks, entrypoints)
+                writeIndexHtml(chunks, entrypoints, stable)
             }
 
             if (config.name === 'Exporter') {
@@ -184,6 +193,7 @@ export function writePreloadManifest(outputs = {}) {
         }
     }
     fs.writeFileSync(path.resolve(distDir, 'preload-manifest.json'), JSON.stringify(manifest, null, 2))
+    return manifest
 }
 
 // EmojiPickerPanel loads frimousse's emoji data from /static/emoji rather than from a CDN. frimousse
@@ -198,9 +208,9 @@ function copyEmojibaseData() {
     }
 }
 
-export function writeIndexHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
-    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
+export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
+    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints, stable)
+    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints, stable)
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {

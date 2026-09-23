@@ -21,6 +21,12 @@
             .Preloader button{border:0;padding:0;background:none;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
             @keyframes preloader-spin{to{transform:rotate(360deg)}}
         </style>
+        {# Stable chunk names (opt-in, see posthog/stable_chunks.py): the import map must come before #}
+        {# the modulepreload hints below, because browsers ignore an import map added after module #}
+        {# loading has started. #}
+        {% if stable_chunks_importmap %}
+            <script type="importmap" nonce="{{ request.csp_nonce }}">{{ stable_chunks_importmap|safe }}</script>
+        {% endif %}
         {# Resource hints so the boot chain (font, CSS, entry -> App chunks) is fetched in parallel #}
         {# instead of discovered as a waterfall. Empty in dev mode and when no build manifest exists. #}
         {% if js_url %}
