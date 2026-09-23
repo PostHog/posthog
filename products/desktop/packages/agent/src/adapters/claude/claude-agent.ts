@@ -2599,8 +2599,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       const newInput = new Pushable<SDKUserMessage>();
       newQuery = query({ prompt: newInput, options: newOptions });
 
+      // The budget guard keeps its running SDK total across this swap. The new
+      // query resumes the same transcript, so its first result already carries
+      // the spend the guard counted before the refresh.
       prev.query = newQuery;
-      prev.budgetGuard?.onQueryReset();
       prev.input = newInput;
       prev.queryOptions = newOptions;
       prev.abortController = newAbortController;
