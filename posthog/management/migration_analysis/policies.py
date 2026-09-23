@@ -953,16 +953,19 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
         )
 
 
-class DropForeignKeyTransactionPolicy(MigrationPolicy):
-    """Keep a DropForeignKey alone in its transaction.
+_LOCK_PHASE_OPERATIONS = {"DropForeignKey", "SafeDropTable"}
 
-    DropForeignKey takes its locks in a bounded, parent-first phase, but the transaction
-    holds them until COMMIT. A second DropForeignKey then waits for new parents while the
-    first one's parents stay locked. Another operation that runs first holds its table while
-    DropForeignKey waits for the parents, and one that runs after waits for new locks while
-    DropForeignKey holds the parents. Each shape recreates the crossed lock order that
-    deadlocks against live reads. With atomic = False, each DropForeignKey commits in a
-    transaction of its own, so nothing accumulates.
+
+class LockPhaseTransactionPolicy(MigrationPolicy):
+    """Keep a DropForeignKey or SafeDropTable alone in its transaction.
+
+    Both take their locks in a bounded, parent-first phase (posthog/migration_helpers/lock_phase.py),
+    but the transaction holds the locks until COMMIT. A second lock phase then waits for new
+    parents while the first one's parents stay locked. Another operation that runs first holds
+    its table while the lock phase waits for the parents, and one that runs after waits for new
+    locks while the lock phase holds the parents. Each shape rebuilds the crossed lock order
+    that deadlocks against live reads. With atomic = False nothing accumulates, because each
+    operation commits on its own.
     """
 
     def check_operation(self, op) -> list[str]:
@@ -974,27 +977,25 @@ class DropForeignKeyTransactionPolicy(MigrationPolicy):
         if not getattr(migration, "atomic", True):
             return []
 
-        db_ops = _database_operations(migration)
-        drops = [op for op in db_ops if op.__class__.__name__ == "DropForeignKey"]
-        if not drops:
+        names = [op.__class__.__name__ for op in _database_operations(migration)]
+        lock_phases = [name for name in names if name in _LOCK_PHASE_OPERATIONS]
+        if not lock_phases:
             return []
 
         violations = []
-        if len(drops) > 1:
-            tables = ", ".join(sorted({op.table for op in drops}))
+        if len(lock_phases) > 1:
             violations.append(
-                f"❌ BLOCKED: {len(drops)} DropForeignKey operations share one transaction ({tables}). "
-                "The transaction holds each one's parent locks until COMMIT, so the later drops wait for "
-                "hot tables while the earlier locks block live reads. Pass every key on a table to one "
-                "DropForeignKey with column=[...], and give keys on other tables a migration of their own."
+                f"❌ BLOCKED: {len(lock_phases)} lock-phase operations ({', '.join(sorted(set(lock_phases)))}) share "
+                "one transaction, which holds every lock until COMMIT. Pass every key on a table to one "
+                "DropForeignKey with column=[...], every table of one retirement to one SafeDropTable, and give "
+                "the rest migrations of their own."
             )
-        others = sorted({op.__class__.__name__ for op in db_ops if op.__class__.__name__ != "DropForeignKey"})
+        others = sorted({name for name in names if name not in _LOCK_PHASE_OPERATIONS})
         if others:
             violations.append(
-                f"❌ BLOCKED: DropForeignKey shares its transaction with {', '.join(others)}. The transaction "
-                "holds every lock until COMMIT, so an operation before the drop holds its table while the drop "
-                "waits for the parents, and an operation after it waits for new locks while the drop holds the "
-                "parents. Move DropForeignKey to a migration of its own. State-only operations can stay with it."
+                f"❌ BLOCKED: {', '.join(sorted(set(lock_phases)))} shares its transaction with {', '.join(others)}, "
+                "which holds every lock until COMMIT. Move it to a migration of its own. State-only operations "
+                "can stay with it."
             )
         return violations
 
@@ -1005,5 +1006,5 @@ POSTHOG_POLICIES = [
     ConcurrentIndexIdempotencyPolicy(),
     HotTableAlterPolicy(),
     OrphanedForeignKeyPolicy(),
-    DropForeignKeyTransactionPolicy(),
+    LockPhaseTransactionPolicy(),
 ]

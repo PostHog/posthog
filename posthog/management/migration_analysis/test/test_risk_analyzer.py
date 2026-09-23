@@ -12,8 +12,8 @@ from posthog.management.migration_analysis.models import MigrationRisk, Operatio
 from posthog.management.migration_analysis.policies import (
     AtomicFalsePolicy,
     ConcurrentIndexIdempotencyPolicy,
-    DropForeignKeyTransactionPolicy,
     HotTableAlterPolicy,
+    LockPhaseTransactionPolicy,
     OrphanedForeignKeyPolicy,
 )
 from posthog.management.migration_analysis.utils import _model_name_for_table
@@ -2976,7 +2976,7 @@ class TestOrphanedForeignKeyPolicy:
         assert len(violations) == expected
 
 
-class TestDropForeignKeyTransactionPolicy:
+class TestLockPhaseTransactionPolicy:
     def _untrack(self, *drops):
         return migrations.SeparateDatabaseAndState(
             state_operations=[migrations.RemoveField(model_name="child", name="owner")],
@@ -2989,16 +2989,18 @@ class TestDropForeignKeyTransactionPolicy:
             ("two_drops_in_one_transaction", True, ["untrack_two"], ["column=[...]"]),
             ("another_operation_first", True, ["remove_constraint", "untrack_one"], ["RemoveConstraint"]),
             ("both_shapes_at_once", True, ["remove_constraint", "untrack_two"], ["column=[...]", "RemoveConstraint"]),
+            ("a_table_drop_beside_a_key_drop", True, ["untrack_one", "safe_drop"], ["SafeDropTable"]),
             ("atomic_false_commits_each_drop_alone", False, ["remove_constraint", "untrack_two"], []),
         ]
     )
-    def test_a_drop_must_own_its_transaction(self, _name, atomic, shape, expected):
+    def test_a_lock_phase_must_own_its_transaction(self, _name, atomic, shape, expected):
         owner = DropForeignKey("posthog_child", column="owner_id")
         other = DropForeignKey("posthog_child", column="other_id")
         operations = {
             "untrack_one": self._untrack(owner),
             "untrack_two": self._untrack(owner, other),
             "remove_constraint": migrations.RemoveConstraint(model_name="child", name="exactly_one_owner"),
+            "safe_drop": SafeDropTable("posthog_retired"),
         }
         migration = MagicMock()
         migration.app_label = "posthog"
@@ -3006,7 +3008,7 @@ class TestDropForeignKeyTransactionPolicy:
         migration.atomic = atomic
         migration.operations = [operations[key] for key in shape]
 
-        violations = DropForeignKeyTransactionPolicy().check_migration(migration)
+        violations = LockPhaseTransactionPolicy().check_migration(migration)
 
         assert len(violations) == len(expected)
         for violation, fragment in zip(violations, expected):

@@ -42,18 +42,13 @@ a bin/migrate retry.
 The op is irreversible. Add the constraint back with `AddForeignKeyNotValid` in a new
 migration rather than by unapplying this one.
 
-The drop itself is a catalog change and scans nothing. The locks are the hazard.
-`DROP CONSTRAINT` takes ACCESS EXCLUSIVE on the child and then on the parent, and the
-transaction holds both until COMMIT. A live query that joins the parent to the child locks
-them in the other order, so a bare drop deadlocks against ordinary reads on a hot parent.
-This op locks every parent and then the child in one `LOCK TABLE` under a budget below the
-server's deadlock_timeout, and only then drops. `lock_phase.py` has the full reasoning.
+The drop is a catalog change and scans nothing, but a bare `DROP CONSTRAINT` locks the child
+before the parent and deadlocks against live reads. This op locks every parent, then the
+child, with `lock_tables`, and only then drops. `lock_phase.py` has the reasoning.
 
-The locks last until COMMIT, so a migration that runs this op holds hot parents for the
-rest of its transaction. Keep the op alone in its migration, next to state-only operations
-at most, and give it every key on the table at once. The migration risk analyzer blocks a
-migration that does otherwise. In a migration marked `atomic = False`, the op opens a
-transaction of its own, so it lets go of the parents as soon as its drops finish.
+The locks last until COMMIT, so keep the op alone in its migration, next to state-only
+operations at most, and give it every key on the table at once. The migration risk analyzer
+blocks a migration that does otherwise.
 """
 
 from collections.abc import Sequence
@@ -123,16 +118,6 @@ class DropForeignKey(Operation):
             )
             return sorted(cursor.fetchall())
 
-    def _lock_and_drop(self, schema_editor, constraints: list[tuple[str, str]]) -> None:
-        # A key that references its own table names the child as its parent, and the child
-        # goes last in the lock list.
-        parents = sorted({parent for _, parent in constraints} - {self.table})
-        lock_tables(schema_editor, [*parents, self.table])
-        for name, _ in constraints:
-            schema_editor.execute(
-                f"ALTER TABLE {schema_editor.quote_name(self.table)} DROP CONSTRAINT {schema_editor.quote_name(name)}"
-            )
-
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         # A product app in products/db_routing.yaml migrates on its own database. Django still
         # traverses this migration on the other aliases, and a raw catalog query cannot tell
@@ -142,13 +127,16 @@ class DropForeignKey(Operation):
         constraints = self._constraints(schema_editor)
         if not constraints:
             return
-        if schema_editor.connection.in_atomic_block:
-            self._lock_and_drop(schema_editor, constraints)
-            return
-        # LOCK TABLE needs a transaction, and a migration marked atomic = False gives this op
-        # none. A transaction of its own also lets go of the parents when the drops finish.
+        # A key that references its own table names the child as its parent, and the child
+        # goes last in the lock list.
+        parents = sorted({parent for _, parent in constraints} - {self.table})
+        drops = ", ".join(f"DROP CONSTRAINT {schema_editor.quote_name(name)}" for name, _ in constraints)
+        # LOCK TABLE needs a transaction. Inside an atomic migration this is a savepoint.
+        # Under atomic = False it is a transaction of its own, which lets go of the parents
+        # as soon as the drops finish.
         with transaction.atomic(using=schema_editor.connection.alias):
-            self._lock_and_drop(schema_editor, constraints)
+            lock_tables(schema_editor, [*parents, self.table])
+            schema_editor.execute(f"ALTER TABLE {schema_editor.quote_name(self.table)} {drops}")
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         raise NotImplementedError("DropForeignKey is irreversible; add the constraint back with AddForeignKeyNotValid")

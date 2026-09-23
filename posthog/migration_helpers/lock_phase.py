@@ -26,6 +26,10 @@ from collections.abc import Sequence
 MAX_LOCK_BUDGET_MS = 1000
 
 
+def quote_tables(schema_editor, tables: Sequence[str]) -> str:
+    return ", ".join(schema_editor.quote_name(table) for table in tables)
+
+
 def lock_tables(schema_editor, tables: Sequence[str]) -> None:
     """Take ACCESS EXCLUSIVE on `tables`, in order, under the deadlock budget.
 
@@ -42,10 +46,11 @@ def lock_tables(schema_editor, tables: Sequence[str]) -> None:
     # so several contended tables cannot add up past the budget between them.
     schema_editor.execute(f"SET LOCAL lock_timeout = '{budget_ms}ms'")
     schema_editor.execute(f"SET LOCAL statement_timeout = '{budget_ms}ms'")
-    quoted = ", ".join(schema_editor.quote_name(table) for table in tables)
-    schema_editor.execute(f"LOCK TABLE {quoted} IN ACCESS EXCLUSIVE MODE")
+    schema_editor.execute(f"LOCK TABLE {quote_tables(schema_editor, tables)} IN ACCESS EXCLUSIVE MODE")
     # The drop needs no new lock, so put back what the transaction came in with. Not
     # DEFAULT: an earlier operation in the same migration can hold a value of its own,
     # and ValidateConstraint disables both timeouts for exactly that reason.
-    schema_editor.execute("SELECT set_config('lock_timeout', %s, true)", [previous_lock])
-    schema_editor.execute("SELECT set_config('statement_timeout', %s, true)", [previous_statement])
+    schema_editor.execute(
+        "SELECT set_config('lock_timeout', %s, true), set_config('statement_timeout', %s, true)",
+        [previous_lock, previous_statement],
+    )

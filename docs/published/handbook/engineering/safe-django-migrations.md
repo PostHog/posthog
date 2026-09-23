@@ -175,7 +175,7 @@ A short `lock_timeout` does not break the cycle, because a cycle is resolved by 
 
 `SafeDropTable` and `DropForeignKey` take the locks from the migration side first. Each reads the referenced parents out of `pg_constraint`, takes `ACCESS EXCLUSIVE` on every parent and then the child in a single `LOCK TABLE`, and only then runs the drop, so the drop needs no new lock. The lock phase runs under a `lock_timeout` and a `statement_timeout` of half the server's `deadlock_timeout`, capped at one second, so the migration abandons its own wait before its own detector runs and `bin/migrate` retries it. That biases a cycle toward the migration. It does not settle every cycle: each backend arms its detector when its own wait starts, so a query that began to wait more than the budget earlier reaches its detector first.
 
-The transaction holds those locks until `COMMIT`. A second drop in the same transaction then waits for new parents while the first drop's parents stay locked, which rebuilds the crossed order. Keep a `DropForeignKey` alone in its migration, next to state-only operations at most, and give it every key on the table at once. The migration risk analyzer blocks a migration that does otherwise.
+The transaction holds those locks until `COMMIT`. A second drop in the same transaction then waits for new parents while the first drop's parents stay locked, which rebuilds the crossed order. Keep a `DropForeignKey` or `SafeDropTable` alone in its migration, next to state-only operations at most, and give it every key or table of the retirement at once. The migration risk analyzer blocks a migration that does otherwise.
 
 ```python
 from posthog.migration_helpers import SafeDropTable

@@ -14,11 +14,8 @@ This operation takes the locks from the migration side first:
         SafeDropTable(["posthog_oldfeature", "posthog_oldfeaturerun"]),
     ]
 
-It reads the referenced parents out of pg_constraint, takes ACCESS EXCLUSIVE on every one
-of them and on the dropped tables in a single `LOCK TABLE`, and only then runs the drop, so
-the drop needs no new lock. The lock phase runs under a budget below the server's own
-`deadlock_timeout`, so a contended lock makes the migration give up and bin/migrate retry it,
-which is the outcome a lock cycle tends toward instead of a killed read.
+It reads the referenced parents out of pg_constraint and locks every parent, then the
+dropped tables, with `lock_tables`, so the drop needs no new lock.
 
 The operation is idempotent, so a bin/migrate retry is free. It tracks no Django state, so
 the model still has to leave state a full deploy cycle earlier with
@@ -31,7 +28,7 @@ from collections.abc import Sequence
 from django.db import router
 from django.db.migrations.operations.base import Operation
 
-from posthog.migration_helpers.lock_phase import lock_tables
+from posthog.migration_helpers.lock_phase import lock_tables, quote_tables
 
 _EXISTING_TABLES_SQL = """
     SELECT relname
@@ -124,17 +121,13 @@ class SafeDropTable(Operation):
         parents = sorted(set(referenced) - set(present))
 
         lock_tables(schema_editor, [*parents, *present])
-        schema_editor.execute(f"DROP TABLE IF EXISTS {self._quote(schema_editor, present)}")
+        schema_editor.execute(f"DROP TABLE IF EXISTS {quote_tables(schema_editor, present)}")
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         raise NotImplementedError("SafeDropTable is irreversible; recreate the table in a new migration")
 
     def describe(self) -> str:
         return f"Drop table {', '.join(sorted(self.tables))} under a deterministic lock order"
-
-    @staticmethod
-    def _quote(schema_editor, tables: list[str]) -> str:
-        return ", ".join(schema_editor.quote_name(table) for table in tables)
 
     @staticmethod
     def _query(schema_editor, sql: str, tables: list[str]) -> list[str]:

@@ -991,7 +991,7 @@ class DropForeignKeyAnalyzer(OperationAnalyzer):
     Dropping a foreign key is a catalog change and scans nothing, so it scores with `ADD
     CONSTRAINT ... NOT VALID` rather than with the operations that rewrite a table. Its locks
     are the risk, and the op takes them in a bounded, parent-first phase of its own. What the
-    op cannot control is the rest of its transaction, so DropForeignKeyTransactionPolicy
+    op cannot control is the rest of its transaction, so LockPhaseTransactionPolicy
     checks that at migration level.
     """
 
