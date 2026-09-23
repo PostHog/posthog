@@ -181,6 +181,28 @@ class TestSharing(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_record_access.assert_called_once_with(expected_access_method)
 
+    @patch("posthog.api.sharing.render_template")
+    def test_password_protected_dashboard_does_not_add_social_metadata(self, mock_render_template: Mock) -> None:
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            enabled=True,
+            password_required=True,
+        )
+        share_password, _ = SharePassword.create_password(
+            sharing_configuration=sharing_configuration,
+            created_by=self.user,
+        )
+        self.client.cookies["posthog_sharing_token"] = sharing_configuration.generate_password_protected_token(
+            share_password
+        )
+        mock_render_template.return_value = HttpResponse("")
+
+        response = self.client.get(f"/shared_dashboard/{sharing_configuration.access_token}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_render_template.call_args.kwargs["context"]["add_og_tags"] is False
+
     @time_machine.travel("2022-01-01", tick=False)
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_does_not_change_token_when_toggling_enabled_state(self, patched_exporter_task: Mock):

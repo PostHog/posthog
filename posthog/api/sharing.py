@@ -1141,7 +1141,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 return get_content_response(resource, request.query_params.get("download") == "true")
             exported_data["type"] = "image"
 
-        add_og_tags = resource.insight or resource.dashboard
+        add_og_tags = resource.insight or (resource.dashboard and not resource.password_required)
         asset_description = ""
 
         # Check both query params (legacy) and settings for configuration options
