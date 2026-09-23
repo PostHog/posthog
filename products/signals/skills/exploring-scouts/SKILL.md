@@ -6,7 +6,8 @@ description: >
   scouts they have, how each one is behaving, and whether the fleet is actually working. Covers
   surveying the fleet and its schedules, reading recent scout runs and drilling into a single
   run's reasoning, inspecting the durable scratchpad memory the fleet has built up, tracing a
-  run to the reports it wrote or edited, and assessing a scout's health and performance over time
+  run to the reports it wrote or edited, reading the follow-up checks still measuring a report,
+  and assessing a scout's health and performance over time
   (cadence, success rate, report rate, signal-to-noise). Read-only and exploratory — to write or
   tune a scout, use `authoring-scouts` instead. Trigger on "what are my scouts doing",
   "how is my <x> scout performing", "show me recent scout runs", "why did this scout find/report
@@ -260,6 +261,19 @@ For the per-run view, work from the runs instead: `scout-runs-list?emitted=true`
 The flip side matters when explaining a gap: a run can narrate "authored a report" in its `summary` yet have the write **silently dropped** by a preflight gate (dry-run at the time, the org hasn't approved AI processing, or the `signals_scout` source is disabled) — those leave `emitted_report_ids` empty, so a claimed-but-absent report is itself a diagnostic.
 To browse the inbox more broadly, use the `inbox-exploration` skill (statuses, suggested reviewers, drilling into a report's underlying signals).
 The report contract behind each report — the report bar, evidence, actionability, reviewer routing — is documented in the `authoring-scouts` skill (`references/report-contract.md`).
+
+**A report's status is not its whole state: read its checks too.** A **check** is a follow-up measurement a scout or the report pipeline attached to a report — an expectation plus a time to test it — so a report can be resolved and still under measurement.
+`inbox-report-checks-list` returns every check on one report, newest first, with its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, `cancelled`), its `last_outcome`, and its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`); `inbox-report-checks-retrieve` returns one check with its full config.
+Read the rows this way:
+
+- **`pending`** — the check is waiting for the report to resolve before its clock starts.
+- **`active`** with a future `next_run_at` — a verdict is on its way. Don't re-derive the answer by hand; say when it lands.
+- Everything else is terminal. A claim still worth watching needs a new check, which is a write — hand off to `authoring-scouts`.
+
+The verdicts themselves are **not** on the check row: each one is a `check_result` artefact on the report, so read them through the report's artefact list.
+`query` and `baseline_value` read as null for a credential that cannot read the data they describe.
+A `failed` check on a resolved report usually has a **fresh report** behind it as well (the breach is re-surfaced as a new report linked to the resolved one), so look for that before reporting the relapse as unhandled.
+The full mechanics — the two check kinds, the soak window, what each verdict does next — are in the `authoring-scouts` skill (`references/report-checks.md`).
 
 ## Workflow: assess health and performance
 

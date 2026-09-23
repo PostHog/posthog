@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconClock, IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
@@ -48,9 +48,15 @@ import { urls } from 'scenes/urls'
 import { insightsModel } from '~/models/insightsModel'
 import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/queryScan'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
+import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isDataVisualizationNodeWithHogQLQuery } from '~/queries/utils'
+import {
+    isDataVisualizationNode,
+    isDataVisualizationNodeWithHogQLQuery,
+    isInsightVizNode,
+    isTrendsQuery,
+} from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -60,7 +66,7 @@ import {
     InsightColor,
     InsightLogicProps,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import {
@@ -109,8 +115,8 @@ interface InsightMetaProps extends Pick<
 > {
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
-    tile?: DashboardTile<QueryBasedInsightModel>
-    insight: QueryBasedInsightModel
+    tile?: DashboardTile
+    insight: InsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     persistDisplayOptions?: (node: Node) => void
@@ -168,8 +174,15 @@ export function InsightMeta({
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, query, savingDisplayOptions, savingSqlVisualization, sqlVisualizationVersion } =
-        useValues(insightDataLogic(insightLogicProps))
+    const {
+        exportContext,
+        insightData,
+        insightDataRaw,
+        query,
+        savingDisplayOptions,
+        savingSqlVisualization,
+        sqlVisualizationVersion,
+    } = useValues(insightDataLogic(insightLogicProps))
     const { persistSqlVisualization } = useActions(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
@@ -191,7 +204,7 @@ export function InsightMeta({
     const { copyImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
-    const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
+    const { reportDashboardInsightMetaUpdated, reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
@@ -247,7 +260,7 @@ export function InsightMeta({
             : true
 
     // A killed run has no result to carry the scan, so it arrives on the query status instead.
-    const queryScan: QueryBasedInsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
+    const queryScan: InsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
     const scanFindings = queryScan?.analysis?.findings ?? []
     const queryScanTooltip =
         canEditInsight && queryScan && scanFindings.length > 0 ? (
@@ -259,6 +272,9 @@ export function InsightMeta({
         metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
     })
     const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
+
+    const showCopyTableData = isInsightVizNode(query) && isTrendsQuery(query.source)
+    const copyTableAdapter = useMemo(() => getInsightExportAdapter(insightDataRaw, query), [insightDataRaw, query])
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
@@ -671,6 +687,33 @@ export function InsightMeta({
                                             export_context: exportContext,
                                         },
                                     ]}
+                                    copyToClipboardItems={
+                                        showCopyTableData
+                                            ? [
+                                                  {
+                                                      title: 'CSV',
+                                                      onClick: () => {
+                                                          if (!copyTableAdapter) {
+                                                              return
+                                                          }
+                                                          copyTableData(
+                                                              copyTableAdapter.toTableData(),
+                                                              ExporterFormat.CSV
+                                                          )
+                                                          reportInsightResultsCopiedToClipboard(
+                                                              'csv',
+                                                              insight.id ?? null,
+                                                              dashboardId ?? null
+                                                          )
+                                                      },
+                                                      disabledReason: copyTableAdapter
+                                                          ? undefined
+                                                          : 'No data to copy yet',
+                                                      'data-attr': 'insight-card-copy-as-csv',
+                                                  },
+                                              ]
+                                            : undefined
+                                    }
                                 />
                             </>
                         ) : null}

@@ -10,7 +10,13 @@ from django.test import override_settings
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_DIRECTORY, SNAPSHOT_KIND_FILESYSTEM
-from products.tasks.backend.exceptions import RepositoryCloneError, SandboxCleanupError, SandboxRateLimitedError
+from products.tasks.backend.exceptions import (
+    ComputeBillingLimitError,
+    OrganizationExecutionError,
+    RepositoryCloneError,
+    SandboxCleanupError,
+    SandboxRateLimitedError,
+)
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.models import Task
@@ -28,6 +34,14 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
 )
+
+
+@pytest.fixture(autouse=True)
+def organization_state(mocker):
+    teams = mocker.patch("products.tasks.backend.temporal.process_task.organization.Team.objects.filter")
+    state = teams.return_value.values_list.return_value.first
+    state.return_value = (False, True)
+    return state
 
 
 def _context_for_desktop_bootstrap(
@@ -515,6 +529,37 @@ def _prepared_for_create() -> PrepareSandboxForRepositoryOutput:
         image_source="fresh",
         image_source_label="fresh image",
     )
+
+
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize(
+    "state, reason",
+    [
+        ((True, True), "organization_pending_deletion"),
+        ((True, False), "organization_pending_deletion"),
+        ((False, False), "organization_deactivated"),
+        (None, "organization_not_found"),
+    ],
+)
+def test_blocked_organization_creates_no_sandbox(
+    mocker, activity_environment, organization_state, warm, state, reason
+) -> None:
+    organization_state.return_value = state
+    context = _context_for_desktop_bootstrap()
+    context.state = {"await_user_message": warm}
+    sandbox_class = mocker.patch.object(provision_sandbox_module, "get_sandbox_class_for_run_backend")
+
+    error_type = ComputeBillingLimitError if reason == "organization_deactivated" else OrganizationExecutionError
+    with pytest.raises(error_type) as error:
+        async_to_sync(activity_environment.run)(
+            create_sandbox_for_repository,
+            CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create()),
+        )
+
+    assert error.value.non_retryable is True
+    assert error.value.type == error_type.__name__
+    assert error.value.context["reason"] == reason
+    sandbox_class.return_value.create.assert_not_called()
 
 
 @pytest.mark.parametrize(

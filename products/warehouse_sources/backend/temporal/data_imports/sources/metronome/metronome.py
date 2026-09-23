@@ -70,14 +70,16 @@ USAGE_COALESCE_ROWS = 20_000
 # first sync costs one request per page whatever the account holds, and a large account runs to
 # hundreds of thousands of requests. Customers are independent, so walk several at once. The
 # endpoint sits in Metronome's default rate tier, 8 requests a second shared with every other table
-# on the same account, so take well under it and leave the rest for the account's other syncs.
-# Two, not more: the pacer below is what governs throughput, and at the latency this endpoint
-# answers in, two workers already saturate it. Each worker holds one customer's rows while it walks
-# them, so a third would buy no request rate and cost another customer's worth of memory. More
-# workers only pay off if the endpoint slows enough for the workers, rather than the rate, to become
-# the limit.
+# on the same account. Hold just under the tier rather than far below it: the request count is what
+# sets how long a first sync takes, so rate left unused is time the walk cannot get back, and a
+# throttle costs one hold instead of the run.
+# Two workers, not more: the pacer is what governs throughput, and two are enough to keep the rate
+# above saturated at the latency this endpoint answers in. Each worker holds one customer's rows
+# while it walks them, so a third would buy no request rate and cost another customer's worth of
+# memory. More workers only pay off if the endpoint slows enough for the workers, rather than the
+# rate, to become the limit.
 USAGE_CUSTOMER_CONCURRENCY = 2
-USAGE_REQUESTS_PER_SECOND = 5.0
+USAGE_REQUESTS_PER_SECOND = 7.5
 # Metronome documents its limit per second and documents no Retry-After, so a throttled pool only
 # has to stand down for a second or two, and it has to decide that for itself. The pacer's own
 # default is sized for a vendor that sends the header and falls back rarely.
@@ -100,8 +102,8 @@ class MetronomeResumeConfig:
     # attempt replays it instead of recomputing from the clock, so one table never mixes rows
     # aggregated to two different cutoffs. None for endpoints that send no window.
     ending_before: str | None = None
-    # The `starting_on` bound of the same request. A bucketed table resolves it against the clock
-    # when the schema recorded no range, so it is pinned for the walk for the same reason.
+    # The `starting_on` bound of the same request. A bucketed table with no watermark resolves it
+    # against the clock, so it is pinned for the walk for the same reason.
     starting_on: str | None = None
     # Partitioned usage walks. The cursor that fetches the customer page being worked on, and the
     # customers within that page whose rows are already written. Both reset together when a page
@@ -221,23 +223,22 @@ def _clamp_window_start(starting_on: str, ending_before: str) -> str:
 def _resolve_window_start(
     config: MetronomeEndpointConfig,
     db_incremental_field_last_value: Any,
-    history_start: datetime | None,
+    usage_history: timedelta | None,
 ) -> str:
     """Where the requested usage window begins.
 
     The lifetime table asks for everything the account has. A bucketed table starts at the period
     its watermark reached, so each run asks only for what it does not already hold. With no
-    watermark it starts where the schema recorded its range on the first sync, and resolves the
-    table's own bound against the clock only when no range was recorded.
+    watermark it reaches back by the depth the source is set to, measured from today, so a depth the
+    user edits takes effect on the next run and the window stays the size they asked for however
+    long the source has existed.
     """
     window_size = config.window_size
     if window_size != "hour" and window_size != "day":
         return EPOCH_RFC_3339
 
-    start = (
-        parse_datetime_value(db_incremental_field_last_value)
-        or coerce_datetime_to_utc(history_start)
-        or datetime.now(UTC) - USAGE_HISTORY[config.name]
+    start = parse_datetime_value(db_incremental_field_last_value) or datetime.now(UTC) - (
+        usage_history or USAGE_HISTORY[config.name]
     )
     return _format_rfc3339(_align_to_utc_midnight(start))
 
@@ -257,7 +258,7 @@ def _walk_start(
     config: MetronomeEndpointConfig,
     resumable_source_manager: "Optional[ResumableSourceManager[MetronomeResumeConfig]]",
     db_incremental_field_last_value: Any,
-    history_start: datetime | None,
+    usage_history: timedelta | None,
 ) -> MetronomeWalkStart:
     """Read the resume checkpoint, then fill in whatever it did not carry.
 
@@ -299,7 +300,7 @@ def _walk_start(
             # Only a freshly resolved start is clamped. A resumed walk replays the exact window its
             # checkpoint stored, and both bounds come back together or neither does.
             starting_on = _clamp_window_start(
-                _resolve_window_start(config, db_incremental_field_last_value, history_start), ending_before
+                _resolve_window_start(config, db_incremental_field_last_value, usage_history), ending_before
             )
 
     return MetronomeWalkStart(
@@ -733,7 +734,7 @@ def metronome_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
-    history_start: Optional[datetime] = None,
+    usage_history: timedelta | None = None,
 ) -> SourceResponse:
     endpoint_config = METRONOME_ENDPOINTS[endpoint]
 
@@ -774,7 +775,7 @@ def metronome_source(
         )
         return _make_source_response(endpoint_config, lambda: dependent_resource)
 
-    walk = _walk_start(endpoint_config, resumable_source_manager, db_incremental_field_last_value, history_start)
+    walk = _walk_start(endpoint_config, resumable_source_manager, db_incremental_field_last_value, usage_history)
 
     # A usage walk pages per customer and billable metric, so one sequential pass is one request
     # per page for the whole account. Partition it by customer and run several walks at once.

@@ -61,6 +61,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
+from posthog.team_notifications.slack import is_shared_channel
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.models import BatchExport, BatchExportDestination
@@ -125,6 +126,216 @@ class TestSlackIntegration:
         assert channels[0]["name"] == "a_channel"
         assert channels[3]["id"] == "CP123"
         assert channels[3]["name"] == "d_private_channel"
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_keeps_only_the_fields_the_api_serves(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.conversations_list.return_value = {
+            "channels": [
+                {
+                    "id": "C123",
+                    "name": "a_channel",
+                    "is_private": False,
+                    "is_ext_shared": False,
+                    "topic": {"value": "x" * 200, "creator": "U1", "last_set": 1},
+                    "purpose": {"value": "y" * 400, "creator": "U1", "last_set": 1},
+                    "shared_team_ids": ["T1"],
+                    "previous_names": ["old_name"],
+                }
+            ],
+            "response_metadata": {"next_cursor": ""},
+        }
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert set(channels[0]) == {
+            "id",
+            "name",
+            "is_private",
+            "is_member",
+            "is_ext_shared",
+            "is_pending_ext_shared",
+            "is_shared",
+            "is_private_without_access",
+        }
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_public_channels_keeps_every_shared_flag(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.conversations_list.return_value = {
+            "channels": [
+                {
+                    "id": "C123",
+                    "name": "shared_with_another_org",
+                    "is_private": False,
+                    "is_ext_shared": False,
+                    "is_pending_ext_shared": False,
+                    "is_shared": True,
+                    "purpose": {"value": "z" * 400, "creator": "U1", "last_set": 1},
+                }
+            ],
+            "response_metadata": {"next_cursor": ""},
+        }
+
+        channels = SlackIntegration(self.integration).list_public_channels()
+
+        # team_notifications reads all three flags to keep an internal message out of a channel
+        # shared beyond the workspace. A dropped flag reads as not shared.
+        assert is_shared_channel(channels[0])
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_follows_the_cursor_past_ten_pages(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # Slack returns fewer channels than the requested limit whenever it likes, so a workspace
+        # needs more pages than its channel count suggests. A page-count cap drops the remainder
+        # with no error, and the channel it drops reads to the user as "the app is not in it".
+        pages = 15
+
+        def conversations_list(cursor=None, **kwargs):
+            page = int(cursor or 0)
+            return {
+                "channels": [
+                    {"id": f"C{page}", "name": f"channel_{page:02d}", "is_private": False, "is_ext_shared": False}
+                ],
+                "response_metadata": {"next_cursor": str(page + 1) if page + 1 < pages else ""},
+            }
+
+        mock_client.conversations_list.side_effect = conversations_list
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert len(channels) == pages
+        assert channels[-1]["name"] == "channel_14"
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_records_a_listing_it_had_to_cut_short(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # A cap that stops a listing early is the failure this whole change is about: the caller
+        # cannot tell a partial list from a complete one, so the cap has to leave a trail.
+        mock_client.conversations_list.side_effect = lambda cursor=None, **kwargs: {
+            "channels": [
+                {"id": f"C{cursor or 0}", "name": f"channel_{cursor or 0}", "is_private": False, "is_ext_shared": False}
+            ],
+            "response_metadata": {"next_cursor": str(int(cursor or 0) + 1)},
+        }
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        with patch("posthog.models.integration.slack.SLACK_LISTING_MAX_REQUESTS", 3):
+            with patch("posthog.models.integration.slack.slack_listing_truncated_counter") as mock_counter:
+                channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert len(channels) == 3
+        mock_counter.labels.assert_called_once_with(kind="channels_public_channel")
+        mock_counter.labels.return_value.inc.assert_called_once()
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_keeps_its_pages_when_slack_rate_limits_mid_walk(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # These endpoints are rate limited per workspace and the client does not retry. Raising
+        # would hand the caller no channels at all, which is worse than the short list it used to
+        # get, and nothing is cached to fall back on.
+        first_page = {
+            "channels": [{"id": "C1", "name": "a_channel", "is_private": False, "is_ext_shared": False}],
+            "response_metadata": {"next_cursor": "1"},
+        }
+        rate_limited = SlackApiError("ratelimited", {"ok": False, "error": "ratelimited"})
+        mock_client.conversations_list.side_effect = [first_page, rate_limited]
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert [channel["id"] for channel in channels] == ["C1"]
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_channel_by_id_keeps_the_channel_when_membership_cannot_be_proven(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # An unfinished member scan means membership is unproven, not disproven. Hiding the channel
+        # here is the same silent empty result this change exists to remove.
+        mock_client.conversations_info.return_value = {
+            "channel": {
+                "id": "C123",
+                "name": "huge_channel",
+                "is_private": False,
+                "is_ext_shared": False,
+                "num_members": 50000,
+            }
+        }
+        mock_client.conversations_members.return_value = {
+            "members": ["U1"],
+            "response_metadata": {"next_cursor": "keep-going"},
+        }
+
+        channel = SlackIntegration(self.integration).get_channel_by_id("C123", True, "test_user_id")
+
+        assert channel is not None
+        assert channel["id"] == "C123"
+        assert channel["name"] == "huge_channel"
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_channel_by_id_masks_a_private_name_it_cannot_prove_access_to(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # Keeping the channel is about availability, not access. An unfinished scan cannot prove the
+        # connecting user is in a private channel, so the name stays masked.
+        mock_client.conversations_info.return_value = {
+            "channel": {
+                "id": "CP123",
+                "name": "secret_leadership_channel",
+                "is_private": True,
+                "is_ext_shared": False,
+                "num_members": 50000,
+            }
+        }
+        mock_client.conversations_members.return_value = {
+            "members": ["U1"],
+            "response_metadata": {"next_cursor": "keep-going"},
+        }
+
+        channel = SlackIntegration(self.integration).get_channel_by_id("CP123", True, "test_user_id")
+
+        assert channel is not None
+        assert channel["name"] == PRIVATE_CHANNEL_WITHOUT_ACCESS
+        assert channel["is_private_without_access"] is True
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_channel_by_id_finds_a_member_past_the_first_page(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # conversations.members returns at most 1000 ids per call whatever limit is asked for, so a
+        # bigger limit does not reach member 1001. Without following the cursor the connecting user
+        # reads as a non-member and the channel resolves to nothing.
+        mock_client.conversations_info.return_value = {
+            "channel": {
+                "id": "C123",
+                "name": "big_channel",
+                "is_private": False,
+                "is_ext_shared": False,
+                "num_members": 1500,
+            }
+        }
+        mock_client.conversations_members.side_effect = [
+            {"members": [f"U{i}" for i in range(1000)], "response_metadata": {"next_cursor": "1000"}},
+            {"members": ["test_user_id"], "response_metadata": {"next_cursor": ""}},
+        ]
+
+        channel = SlackIntegration(self.integration).get_channel_by_id("C123", True, "test_user_id")
+
+        assert channel is not None
+        assert channel["id"] == "C123"
 
     @patch("posthog.models.integration.slack.WebClient")
     def test_list_users_excludes_ineligible_members(self, mock_webclient_class):
@@ -245,13 +456,16 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": True, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        mock_client.conversations_members.return_value = {
+            "members": ["test_user_id", "U2", "U3"],
+            "response_metadata": {"next_cursor": ""},
+        }
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", True, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=1000, cursor=None)
 
         assert channel is not None
         assert channel["id"] == "C123"
@@ -268,13 +482,16 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": True, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        mock_client.conversations_members.return_value = {
+            "members": ["test_user_id", "U2", "U3"],
+            "response_metadata": {"next_cursor": ""},
+        }
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", False, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=1000, cursor=None)
 
         assert channel is not None
         assert channel["id"] == "C123"
@@ -291,13 +508,16 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": False, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        mock_client.conversations_members.return_value = {
+            "members": ["test_user_id", "U2", "U3"],
+            "response_metadata": {"next_cursor": ""},
+        }
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", True, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=1000, cursor=None)
 
         assert channel is not None
         assert channel["id"] == "C123"
@@ -314,13 +534,16 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": False, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        mock_client.conversations_members.return_value = {
+            "members": ["test_user_id", "U2", "U3"],
+            "response_metadata": {"next_cursor": ""},
+        }
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", False, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=1000, cursor=None)
 
         assert channel is not None
         assert channel["id"] == "C123"

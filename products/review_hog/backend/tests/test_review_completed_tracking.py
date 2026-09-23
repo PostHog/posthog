@@ -99,6 +99,7 @@ class TestTrackReviewCompleted(BaseTest):
         published: bool = True,
         turn_trigger_source: str = "manual",
         review_mode: str = REVIEW_MODE_FULL,
+        flash_reasoning_effort: str = "medium",
     ) -> TrackReviewCompletedInput:
         return TrackReviewCompletedInput(
             team_id=self.team.id,
@@ -109,6 +110,7 @@ class TestTrackReviewCompleted(BaseTest):
             workflow_started_at=(datetime.now(UTC) - timedelta(seconds=90)).isoformat(),
             turn_trigger_source=turn_trigger_source,
             review_mode=review_mode,
+            flash_reasoning_effort=flash_reasoning_effort,
         )
 
     @parameterized.expand([(True,), (False,)])
@@ -323,8 +325,14 @@ class TestTrackReviewCompleted(BaseTest):
         # failure against the completion of the same turn.
         assert len({call.kwargs["uuid"] for call in (completed, failed, started)}) == 3
 
-    @parameterized.expand([("current_model", REVIEW_MODEL), ("stale_model", "gpt-9-vanished")])
-    def test_flash_turn_events_name_the_flash_arm_in_both_seats(self, _name: str, model: str) -> None:
+    @parameterized.expand(
+        [
+            ("medium", REVIEW_MODEL, "medium"),
+            ("xhigh", REVIEW_MODEL, "xhigh"),
+            ("stale_model", "gpt-9-vanished", "xhigh"),
+        ]
+    )
+    def test_flash_turn_events_name_the_flash_arm_in_both_seats(self, _name: str, model: str, effort: str) -> None:
         # The cost comparison splits on review_mode and reads the reviewer and validator models off
         # the same events; a flash turn reporting the stored Sol/Opus pins would price every flash
         # review as a full one and contaminate the per-arm dashboards.
@@ -332,10 +340,16 @@ class TestTrackReviewCompleted(BaseTest):
         ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(review_model=model)
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
-            _track_review_completed(self._tracking_input(report_id, review_mode=REVIEW_MODE_FLASH))
+            _track_review_completed(
+                self._tracking_input(report_id, review_mode=REVIEW_MODE_FLASH, flash_reasoning_effort=effort)
+            )
             _track_review_failed(
                 TrackReviewFailedInput(
-                    team_id=self.team.id, report_id=report_id, run_index=1, review_mode=REVIEW_MODE_FLASH
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    run_index=1,
+                    review_mode=REVIEW_MODE_FLASH,
+                    flash_reasoning_effort=effort,
                 )
             )
             _track_review_started(
@@ -346,6 +360,7 @@ class TestTrackReviewCompleted(BaseTest):
                     run_index=1,
                     turn_trigger_source="ui",
                     review_mode=REVIEW_MODE_FLASH,
+                    flash_reasoning_effort=effort,
                 )
             )
 
@@ -353,9 +368,9 @@ class TestTrackReviewCompleted(BaseTest):
             props = call.kwargs["properties"]
             assert props["review_mode"] == "flash"
             assert props["review_model"] == FLASH_ARM.model
-            assert props["review_reasoning_effort"] == FLASH_ARM.reasoning_effort.value
+            assert props["review_reasoning_effort"] == effort
             assert props["validator_model"] == FLASH_ARM.model
-            assert props["validator_reasoning_effort"] == FLASH_ARM.reasoning_effort.value
+            assert props["validator_reasoning_effort"] == effort
             assert props["review_arm_fallback"] is False
             # The tier stays the report's: flash is a per-turn switch, not a tier.
             assert props["review_tier"] == "human"
