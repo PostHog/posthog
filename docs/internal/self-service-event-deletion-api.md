@@ -24,7 +24,8 @@ The API is nested under `/api/projects/:team_id/data_deletion_requests/`.
 
 Preview accepts `query` and an optional `variables` JSON object.
 Creation accepts those fields plus a required client-generated UUID in `submission_id`.
-The server ignores operational fields and assigns the project, actor, request type, approval state, and execution mode.
+The server rejects undeclared fields, including operational fields such as `status`, `request_type`, `team_id`, and `execution_mode`.
+It assigns the project, actor, request type, approval state, and execution mode.
 
 The HogQL query must return exactly one UUID column.
 It runs with the submitting user's HogQL access controls.
