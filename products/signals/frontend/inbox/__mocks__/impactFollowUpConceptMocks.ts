@@ -13,13 +13,29 @@ export interface ImpactEvidence {
 export interface ImpactFollowUpExample {
     id: string
     title: string
+    outcome: string
     goal: string
+    goalShort: string
+    watchingNote: string
+    resultNote: string
     primarySignal: string
     baseline: string
     watchingValue: string
     finishedValue: string
     window: string
     watchingProgress: string
+    windowDays: number
+    elapsedDays: number
+    decisionDate: string
+    sampleLabel: string
+    sampleNeeded: number
+    watchingSample: number
+    finishedSample: number
+    chartLabel: string
+    beforeTrend: number[]
+    afterTrend: number[]
+    chartGoal: number | null
+    chartGoalLabel: string
     releaseGate: string
     minimumEvidence: string
     query: string
@@ -34,13 +50,29 @@ export const impactFollowUpExamples: ImpactFollowUpExample[] = [
     {
         id: 'not-found-pages',
         title: 'False not-found pages',
+        outcome: 'Restore access to these pages',
         goal: 'No false not-found renders on target pages; retry still succeeds.',
+        goalShort: '0 false errors · retries still work',
+        watchingNote: 'The errors have stopped so far. Keep watching for two more days.',
+        resultNote: 'The pages load and retries work. The report can close.',
         primarySignal: 'False not-found renders',
         baseline: '18 in 3 days',
         watchingValue: '0 in 1 day',
         finishedValue: '0 in 3 days',
         window: '3 days after the web release',
         watchingProgress: 'Day 1 of 3 · 33%',
+        windowDays: 3,
+        elapsedDays: 1,
+        decisionDate: 'Sep 26',
+        sampleLabel: 'Successful retries',
+        sampleNeeded: 5,
+        watchingSample: 2,
+        finishedSample: 8,
+        chartLabel: 'False errors each day',
+        beforeTrend: [6, 7, 5],
+        afterTrend: [0, 0, 0],
+        chartGoal: 0,
+        chartGoalLabel: '0 errors',
         releaseGate: 'Web release confirmed; page visits observed',
         minimumEvidence: 'At least 30 target-page views and 5 retries',
         query: `SELECT toDate(timestamp) AS day, countIf(properties.outcome = 'false_not_found') AS false_not_found, countIf(properties.outcome = 'retry_success') AS retry_success, count() AS views\nFROM events WHERE event = 'example_page_result' AND timestamp >= {release_time}\nGROUP BY day ORDER BY day`,
@@ -55,13 +87,29 @@ export const impactFollowUpExamples: ImpactFollowUpExample[] = [
     {
         id: 'missing-check-id',
         title: 'Report-check request validation',
+        outcome: 'Get report checks through without rejections',
         goal: 'No missing identifier rejections once clients have the new tool definition.',
+        goalShort: '0 rejected calls · at least 100 new-client calls',
+        watchingNote: 'Some calls still fail. Wait for enough calls before deciding.',
+        resultNote: 'Calls still fail after the update. Start a new report with these examples.',
         primarySignal: 'Missing identifier rejections',
         baseline: '7 / 90 calls',
         watchingValue: '2 / 45 calls',
         finishedValue: '4 / 120 calls',
         window: '2 days after client exposure',
         watchingProgress: 'Day 1 of 2 · 50%',
+        windowDays: 2,
+        elapsedDays: 1,
+        decisionDate: 'Sep 25',
+        sampleLabel: 'Calls after update',
+        sampleNeeded: 100,
+        watchingSample: 45,
+        finishedSample: 120,
+        chartLabel: 'Rejected calls each day',
+        beforeTrend: [3, 2, 2],
+        afterTrend: [2, 2],
+        chartGoal: 0,
+        chartGoalLabel: '0 rejected',
         releaseGate: 'New tool definition available to active clients',
         minimumEvidence: 'At least 100 calls using the new definition',
         query: `SELECT toDate(timestamp) AS day, countIf(properties.error_kind = 'missing_identifier') AS rejected, count() AS calls\nFROM events WHERE event = 'example_report_check_call' AND properties.definition_version = 'new' AND timestamp >= {exposure_time}\nGROUP BY day ORDER BY day`,
@@ -76,13 +124,29 @@ export const impactFollowUpExamples: ImpactFollowUpExample[] = [
     {
         id: 'unused-field',
         title: 'Unused confidence field',
+        outcome: 'Know when the old field is safe to remove',
         goal: 'Field stays empty on every daily emission for two full weeks.',
+        goalShort: '0 values · data on all 14 days',
+        watchingNote: 'No values so far. Daily data must continue for two weeks.',
+        resultNote: 'Four days have no data. We cannot prove the field stayed unused.',
         primarySignal: 'Emissions with a value',
         baseline: '0 / 20 emissions',
         watchingValue: '0 / 6 emissions',
         finishedValue: '0 / 10 emissions',
         window: '14 days after release',
         watchingProgress: 'Day 6 of 14 · 43%',
+        windowDays: 14,
+        elapsedDays: 6,
+        decisionDate: 'Oct 7',
+        sampleLabel: 'Days with data',
+        sampleNeeded: 14,
+        watchingSample: 6,
+        finishedSample: 10,
+        chartLabel: 'Days with emissions',
+        beforeTrend: [1, 1, 1],
+        afterTrend: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, NaN, NaN, NaN, NaN],
+        chartGoal: 1,
+        chartGoalLabel: 'Data each day',
         releaseGate: 'Producer release confirmed',
         minimumEvidence: 'At least one emission on each of 14 days',
         query: `SELECT toDate(timestamp) AS day, count() AS emissions, countIf(properties.confidence_value IS NOT NULL) AS populated\nFROM events WHERE event = 'example_report_emitted' AND timestamp >= {release_time}\nGROUP BY day ORDER BY day`,
@@ -97,13 +161,29 @@ export const impactFollowUpExamples: ImpactFollowUpExample[] = [
     {
         id: 'large-selection',
         title: 'Large scan selections',
+        outcome: 'Make large scans finish across batches',
         goal: 'A selection over the request limit completes across multiple batches.',
+        goalShort: '2 large selections complete',
+        watchingNote: 'Nobody has tried a large selection yet. There is nothing to judge.',
+        resultNote: 'Nobody tried a large selection. The fix may work, but we cannot tell.',
         primarySignal: 'Successful large selections',
         baseline: '0 / 1 selections',
         watchingValue: '0 / 0 selections',
         finishedValue: '0 / 0 selections',
         window: '7 days after release, or 2 large selections',
         watchingProgress: 'Day 3 of 7 · 43%',
+        windowDays: 7,
+        elapsedDays: 3,
+        decisionDate: 'Sep 30',
+        sampleLabel: 'Large selections seen',
+        sampleNeeded: 2,
+        watchingSample: 0,
+        finishedSample: 0,
+        chartLabel: 'Large selections each day',
+        beforeTrend: [1, 0, 0],
+        afterTrend: [0, 0, 0, 0, 0, 0, 0],
+        chartGoal: null,
+        chartGoalLabel: 'Need 2 selections in all',
         releaseGate: 'Scan client release confirmed',
         minimumEvidence: 'At least 2 selections above the request limit',
         query: `SELECT toDate(timestamp) AS day, countIf(properties.selection_size > 200) AS large_selections, countIf(properties.selection_size > 200 AND properties.completed = true) AS completed\nFROM events WHERE event = 'example_scan_selection_finished' AND timestamp >= {release_time}\nGROUP BY day ORDER BY day`,
@@ -118,13 +198,29 @@ export const impactFollowUpExamples: ImpactFollowUpExample[] = [
     {
         id: 'webhook-errors',
         title: 'Webhook error handling',
+        outcome: 'Keep webhook errors visible without noisy exceptions',
         goal: 'Stop exception captures, preserve 404 responses, and emit one warning per affected response.',
+        goalShort: '0 exceptions · keep 404s and warnings',
+        watchingNote: 'Exceptions stopped. We still need to see the warning.',
+        resultNote: 'Exceptions stopped, but warning data is missing. We cannot confirm visibility.',
         primarySignal: 'Captured exceptions',
         baseline: '5 in 2 days',
         watchingValue: '0 in 1 day',
         finishedValue: '0 in 2 days',
         window: '2 days after release, with ≥5 affected requests',
         watchingProgress: 'Day 1 of 2 · 50%',
+        windowDays: 2,
+        elapsedDays: 1,
+        decisionDate: 'Sep 25',
+        sampleLabel: 'Affected requests',
+        sampleNeeded: 5,
+        watchingSample: 3,
+        finishedSample: 7,
+        chartLabel: 'Exceptions each day',
+        beforeTrend: [2, 3, 0],
+        afterTrend: [0, 0],
+        chartGoal: 0,
+        chartGoalLabel: '0 exceptions',
         releaseGate: 'Webhook handler release confirmed',
         minimumEvidence: 'At least 5 affected 404 responses, plus warning telemetry',
         query: `SELECT toDate(timestamp) AS day, countIf(properties.result = 'exception') AS exceptions, countIf(properties.result = 'not_found') AS not_found, countIf(properties.result = 'warning') AS warnings\nFROM events WHERE event = 'example_webhook_result' AND timestamp >= {release_time}\nGROUP BY day ORDER BY day`,
