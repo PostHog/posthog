@@ -36,7 +36,7 @@ import posthoganalytics
 from pydantic import BaseModel, Field
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.errors import InternalCHQueryError
@@ -557,7 +557,12 @@ def read_team_activity(team_id: int, *, window_days: int) -> TeamActivity:
     spread is then a floor with nothing to mark it as one.
     """
     team_ids = list(Team.objects.filter(Q(id=team_id) | Q(parent_team_id=team_id)).values_list("id", flat=True))
-    tag_queries(trigger="signals_scout_suggestions_activity_check")
+    tag_queries(
+        product=Product.SIGNALS,
+        feature=Feature.DATA_FRESHNESS,
+        query_type="SignalsScoutSuggestionsActivityCheck",
+        trigger="signals_scout_suggestions_activity_check",
+    )
     try:
         rows = sync_execute(
             """

@@ -16,6 +16,7 @@ from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.clickhouse.query_tagging import Feature, Product, QueryTags, get_query_tags
 from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 from posthog.errors import InternalCHQueryError
@@ -686,6 +687,18 @@ class TestReadTeamActivity(ClickhouseTestMixin, BaseTest):
         self.assertEqual(kwargs["workload"], Workload.OFFLINE)
         self.assertGreater(kwargs["settings"]["max_execution_time"], 0)
         self.assertEqual(kwargs["settings"]["timeout_overflow_mode"], "throw")
+
+    def test_the_read_is_attributed_to_the_product(self):
+        seen: list[QueryTags] = []
+
+        def _record(*_args, **_kwargs):
+            seen.append(get_query_tags())
+            return [(0, 0)]
+
+        with patch("products.signals.backend.scout_harness.suggestions.sync_execute", side_effect=_record):
+            read_team_activity(self.team.id, window_days=14)
+
+        self.assertEqual((seen[0].product, seen[0].feature), (Product.SIGNALS, Feature.DATA_FRESHNESS))
 
     @parameterized.expand([("too_many_rows", 158), ("too_many_rows_or_bytes", 396)])
     def test_a_read_that_hits_the_row_cap_reads_as_capped(self, _name, code):
