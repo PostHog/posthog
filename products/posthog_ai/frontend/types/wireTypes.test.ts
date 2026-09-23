@@ -136,8 +136,8 @@ const NOTIFICATION_PARAMS_BY_METHOD: { [M in keyof PosthogNotificationParamsByMe
             kind: 'scout',
             intent: 'metric_state',
             confidence: 0.92,
-            title: 'Get this every week in Slack',
-            description: 'A scout can rerun this count each week and post what moved.',
+            title: 'Get this in Slack every week',
+            description: 'A scout runs this analysis again every week and posts the results to Slack.',
             scout: {
                 displayName: 'Weekly signups',
                 description: 'Counts signed_up events for the last 7 days.',

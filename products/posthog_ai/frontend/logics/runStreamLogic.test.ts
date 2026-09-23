@@ -4438,8 +4438,8 @@ describe('runStreamLogic', () => {
             kind: 'scout',
             intent: 'metric_state',
             confidence: 0.9,
-            title: 'Get this every week in Slack',
-            description: 'A scout can rerun this count each week.',
+            title: 'Get this in Slack every week',
+            description: 'A scout runs this analysis again every week and posts the results to Slack.',
             scout: { displayName: 'Weekly signups', description: '', body: '# Weekly signups', cadence: 'weekly' },
         }
 

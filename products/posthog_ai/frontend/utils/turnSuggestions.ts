@@ -29,9 +29,9 @@ export const ALERT_DIRECTION_OPTIONS: { value: AlertSuggestionDirection; label: 
 /** One line under the drafted scout that says how this mode behaves differently from a plain report. */
 export const SCOUT_MODE_HINTS: Record<ScoutSuggestionMode, string | null> = {
     report: null,
-    watch: 'Posts only when the number moves past the bound in the prompt, and stays silent otherwise.',
-    investigate: 'Reruns this investigation when the metric dips again and posts what it finds.',
-    digest: 'Covers every metric from this conversation in one post.',
+    watch: 'Posts only when the number crosses a threshold.',
+    investigate: 'When the metric drops, runs this investigation again and posts what it finds.',
+    digest: 'Posts every metric from this conversation together.',
 }
 
 function isOneOf<T extends string>(table: readonly T[], value: unknown): value is T {

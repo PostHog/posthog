@@ -6,19 +6,14 @@ import { mswDecorator } from '~/mocks/browser'
 import { mockIntegration } from '~/test/mocks'
 
 import { runStreamLogic } from '../logics/runStreamLogic'
-import { slackDestinationLogic } from '../logics/slackDestinationLogic'
-import { suggestionActionLogic } from '../logics/suggestionActionLogic'
-import type { AcceptedSuggestion } from '../utils/acceptSuggestion'
 import { ThreadView } from './ThreadView'
 import { TurnFeedbackActions } from './TurnFeedbackActions'
 import { TurnSuggestionCard } from './TurnSuggestionCard'
 
-type Outcome = 'offered' | 'ready' | 'waiting_for_slack' | 'created' | 'failed'
-type Kind = 'scout' | 'watch_scout' | 'notebook' | 'incident_notebook' | 'alert' | 'subscription' | 'error_alert'
+type Kind = 'scout' | 'notebook' | 'alert' | 'subscription' | 'error_alert'
 
 interface StoryArgs {
     kind: Kind
-    outcome: Outcome
 }
 
 const STREAM_KEY = 'turn-suggestion-story'
@@ -63,56 +58,14 @@ const SCOUT_TURN_FRAMES: Record<string, unknown>[] = [
         kind: 'scout',
         intent: 'metric_state',
         confidence: 0.93,
-        title: 'Get this every week in Slack',
-        description: 'A scout can rerun this count on a schedule and post what moved.',
+        title: 'Get this in Slack every week',
+        description: 'A scout runs this analysis again every week and posts the results to Slack.',
         scout: {
             mode: 'report',
             displayName: 'Weekly signups',
             description: 'Counts signed_up events for the last 7 days and compares with the week before.',
             body: '# Weekly signups\n\nCount `signed_up` events for the last 7 days...',
             cadence: 'weekly',
-        },
-    }),
-]
-
-const WATCH_SCOUT_TURN_FRAMES: Record<string, unknown>[] = [
-    notification('_posthog/run_started', {}),
-    notification('_posthog/user_message', { content: 'Is checkout conversion down this week?' }),
-    sessionUpdate({
-        sessionUpdate: 'tool_call',
-        toolCallId: 'story-funnel',
-        title: 'Query funnel',
-        serverName: 'posthog',
-        toolName: 'exec',
-        status: 'completed',
-        rawInput: {
-            command: 'call query-funnel {"series":[{"event":"checkout_started"},{"event":"order_completed"}]}',
-        },
-        rawOutput: { content: [{ type: 'text', text: 'conversion 31.2% (last week 33.8%)' }] },
-        _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
-    }),
-    sessionUpdate({
-        sessionUpdate: 'agent_message_chunk',
-        messageId: 'story-watch-answer',
-        content: {
-            type: 'text',
-            text: 'Checkout conversion is **31.2%** this week against 33.8% last week, a 2.6 point drop. The dip is within the range of the last two months, so nothing looks broken yet.',
-        },
-    }),
-    notification('_posthog/turn_complete', { stopReason: 'end_turn' }),
-    notification('_posthog/turn_suggestion', {
-        turnIndex: 0,
-        kind: 'scout',
-        intent: 'metric_state',
-        confidence: 0.9,
-        title: 'Get a Slack message if this keeps falling',
-        description: 'A scout can check checkout conversion every day and stay quiet until it drops below 30%.',
-        scout: {
-            mode: 'watch',
-            displayName: 'Checkout conversion watch',
-            description: 'Checks the checkout funnel daily and posts only when conversion falls below 30%.',
-            body: '# Checkout conversion watch\n\nRun the checkout funnel for the last 7 days...',
-            cadence: 'daily',
         },
     }),
 ]
@@ -166,35 +119,13 @@ const NOTEBOOK_TURN_FRAMES: Record<string, unknown>[] = [
         kind: 'notebook',
         intent: 'diagnostic',
         confidence: 0.88,
-        title: 'Save this investigation to a notebook',
-        description: 'Keep the question, the queries and the findings together to share and revisit.',
+        title: 'Save this conversation as a notebook',
+        description: 'The notebook keeps the messages, and each query becomes a cell you can run again.',
         notebook: {
             title: 'Why signups dropped on Tuesday',
             summary:
                 'A checkout error on the payment step cut Tuesday signups by a third until the 14:10 release was fixed.',
             incident: null,
-        },
-    }),
-]
-
-const INCIDENT_NOTEBOOK_TURN_FRAMES: Record<string, unknown>[] = [
-    ...NOTEBOOK_TURN_FRAMES.slice(0, -1),
-    notification('_posthog/turn_suggestion', {
-        turnIndex: 0,
-        kind: 'notebook',
-        intent: 'diagnostic',
-        confidence: 0.91,
-        title: 'Write this up as an incident',
-        description: 'A notebook with the timeline, the cause, the evidence and the fix, ready to share.',
-        notebook: {
-            title: 'Incident: checkout error cut Tuesday signups',
-            summary: 'A checkout error on the payment step cut Tuesday signups by a third for about three hours.',
-            incident: {
-                timeline:
-                    '- 14:10 release deployed\n- 14:25 first payment step errors\n- 17:05 fix released, signups recover',
-                cause: 'The 14:10 release broke the payment step on checkout.',
-                fix: 'The fix went out at 17:05 and signups recovered on Wednesday.',
-            },
         },
     }),
 ]
@@ -238,8 +169,8 @@ const ALERT_TURN_FRAMES: Record<string, unknown>[] = [
         kind: 'alert',
         intent: 'metric_state',
         confidence: 0.9,
-        title: 'Get a Slack message when signups drop',
-        description: 'An alert on the saved insight posts to a channel when a day comes in well under the day before.',
+        title: 'Get an alert when this drops',
+        description: 'The alert checks once a day, compares with the day before, and posts to Slack.',
         alert: { ...INSIGHT_REF, direction: 'decrease', changePercent: 20 },
     }),
 ]
@@ -251,8 +182,8 @@ const SUBSCRIPTION_TURN_FRAMES: Record<string, unknown>[] = [
         kind: 'subscription',
         intent: 'metric_state',
         confidence: 0.87,
-        title: 'Get this chart in Slack every Monday',
-        description: 'A subscription posts the saved insight to a channel on a schedule, no agent run needed.',
+        title: 'Send this chart to Slack every week',
+        description: 'The chart posts to a Slack channel every Monday at 9:00.',
         subscription: { ...INSIGHT_REF, cadence: 'weekly' },
     }),
 ]
@@ -287,8 +218,8 @@ const ERROR_ALERT_TURN_FRAMES: Record<string, unknown>[] = [
         kind: 'error_alert',
         intent: 'diagnostic',
         confidence: 0.86,
-        title: 'Get told if this error comes back',
-        description: 'An alert on the issue posts to Slack the moment it reopens.',
+        title: 'Get an alert if this error comes back',
+        description: 'Slack gets a message if this issue reopens after it was resolved.',
         errorAlert: {
             issueId: '0199c0de-1111-7000-8000-0000000000aa',
             issueName: 'TypeError: cart.total is undefined',
@@ -298,124 +229,21 @@ const ERROR_ALERT_TURN_FRAMES: Record<string, unknown>[] = [
 
 const FRAMES_BY_KIND: Record<Kind, Record<string, unknown>[]> = {
     scout: SCOUT_TURN_FRAMES,
-    watch_scout: WATCH_SCOUT_TURN_FRAMES,
     notebook: NOTEBOOK_TURN_FRAMES,
-    incident_notebook: INCIDENT_NOTEBOOK_TURN_FRAMES,
     alert: ALERT_TURN_FRAMES,
     subscription: SUBSCRIPTION_TURN_FRAMES,
     error_alert: ERROR_ALERT_TURN_FRAMES,
 }
 
-const SAVED_NOTEBOOK = {
-    id: 'notebook-1',
-    short_id: 'nb12345',
-    title: 'Why signups dropped on Tuesday',
-    version: 1,
-}
-
-const CREATED_SCOUT = {
-    created: true,
-    skill: {
-        id: 'skill-1',
-        name: 'weekly-signups',
-        description: 'Counts signed_up events for the last 7 days.',
-        version: 1,
-        allowed_tools: ['scout-emit-report'],
-    },
-    config: {
-        id: 'config-1',
-        skill_name: 'weekly-signups',
-        description: 'Counts signed_up events for the last 7 days.',
-        display_name: 'Weekly signups',
-        scout_origin: 'custom',
-        enabled: true,
-        emit: true,
-        run_cron_schedule: '0 9 * * 1',
-    },
-}
-
-const CREATED_ALERT = {
-    id: 'alert-1',
-    name: 'Daily signups: 20% decrease',
-    insight: 42,
-    insight_short_id: 'abc123',
-    subscribed_users: [],
-    threshold: { configuration: { type: 'percentage', bounds: { upper: 0.2 } } },
-    state: 'Not firing',
-    enabled: true,
-}
-
-const CREATED_SUBSCRIPTION = {
-    id: 11,
-    insight: 42,
-    insight_short_id: 'abc123',
-    resource_type: 'insight',
-    target_type: 'slack',
-    target_value: 'C0123456789|#growth',
-    frequency: 'weekly',
-    interval: 1,
-    byweekday: ['monday'],
-    start_date: '2026-09-21T09:00:00Z',
-    title: 'Weekly report: Daily signups',
-    summary: 'sent every week on Monday',
-}
-
-const CREATED_HOG_FUNCTION = {
-    id: 'hog-1',
-    type: 'internal_destination',
-    template_id: 'template-slack',
-    name: 'Post to Slack on issue reopened: #growth',
-    enabled: true,
-}
-
-type LogicProps = { streamKey: string; turnIndex: number; sessionId: string }
-
-const SLACK_KINDS: Kind[] = ['scout', 'watch_scout', 'alert', 'subscription', 'error_alert']
-
-const ACCEPTED_BY_KIND: Record<Kind, AcceptedSuggestion> = {
-    scout: { url: '/inbox/scouts/weekly-signups', slackConnected: true },
-    watch_scout: { url: '/inbox/scouts/checkout-conversion-watch', slackConnected: true },
-    notebook: { url: '/notebooks/nb12345', slackConnected: true },
-    incident_notebook: { url: '/notebooks/nb12345', slackConnected: true },
-    alert: { url: '/alerts?alert_type=insights&alert_id=alert-1', slackConnected: true },
-    subscription: { url: '/insights/abc123/subscriptions/11', slackConnected: true },
-    error_alert: { url: '/error_tracking/alerts/hog-1', slackConnected: true },
-}
-
-function mountStory(kind: Kind, logicProps: LogicProps, outcome: Outcome): () => void {
-    const logic = suggestionActionLogic(logicProps)
-    const unmount = logic.mount()
-    if (SLACK_KINDS.includes(kind)) {
-        const slack = slackDestinationLogic(logicProps)
-        if (outcome === 'waiting_for_slack') {
-            slack.actions.connectSlackClicked()
-        } else if (outcome !== 'offered') {
-            slack.actions.setSlackIntegrationId(mockIntegration.id)
-            slack.actions.setSlackChannel('C0123456789|#growth')
-        }
-    }
-    if (outcome === 'created') {
-        logic.actions.acceptSuccess(ACCEPTED_BY_KIND[kind])
-    } else if (outcome === 'failed') {
-        logic.actions.acceptFailure('Request failed with status 500')
-    }
-    return unmount
-}
-
-function TurnSuggestionStory({ kind, outcome }: { kind: Kind; outcome: Outcome }): JSX.Element {
+function TurnSuggestionStory({ kind }: StoryArgs): JSX.Element {
     useEffect(() => {
         const stream = runStreamLogic({ streamKey: STREAM_KEY })
         const unmountStream = stream.mount()
         for (const frame of FRAMES_BY_KIND[kind]) {
             stream.actions.ingestAcpFrame(frame as any, 'replay')
         }
-        const logicProps = { streamKey: STREAM_KEY, turnIndex: 0, sessionId: SESSION_ID }
-        const unmountSuggestion = mountStory(kind, logicProps, outcome)
-        return () => {
-            unmountSuggestion()
-            unmountStream()
-        }
-    }, [kind, outcome])
+        return unmountStream
+    }, [kind])
 
     return (
         <div className="w-180 max-w-full rounded border p-4">
@@ -463,8 +291,8 @@ const QUERY_RESULT = {
     ],
 }
 
-function mocksFor(slackConnected: boolean): Parameters<typeof mswDecorator>[0] {
-    const integrations = { results: slackConnected ? [mockIntegration] : [] }
+function mocks(): Parameters<typeof mswDecorator>[0] {
+    const integrations = { results: [mockIntegration] }
     return {
         get: {
             '/api/environments/:team_id/integrations/': integrations,
@@ -472,12 +300,6 @@ function mocksFor(slackConnected: boolean): Parameters<typeof mswDecorator>[0] {
             '/api/environments/:team_id/integrations/:id/channels/': CHANNELS,
         },
         post: {
-            '/api/projects/:team_id/signals/scout/': () => [201, CREATED_SCOUT],
-            '/api/projects/:team_id/notebooks/': () => [201, SAVED_NOTEBOOK],
-            '/api/projects/:team_id/alerts/': () => [201, CREATED_ALERT],
-            '/api/projects/:team_id/alerts/:id/destinations/': () => [201, { hog_function_ids: ['hog-1'] }],
-            '/api/projects/:team_id/subscriptions/': () => [201, CREATED_SUBSCRIPTION],
-            '/api/projects/:team_id/hog_functions/': () => [201, CREATED_HOG_FUNCTION],
             '/api/environments/:team_id/query/': () => [200, QUERY_RESULT],
             '/api/environments/:team_id/query/:query_kind/': () => [200, QUERY_RESULT],
         },
@@ -487,9 +309,9 @@ function mocksFor(slackConnected: boolean): Parameters<typeof mswDecorator>[0] {
 const meta: Meta<StoryArgs> = {
     title: 'Products/PostHog AI/TurnSuggestionCard',
     parameters: { mockDate: '2026-09-16', testOptions: { waitForLoadersToDisappear: true } },
-    args: { kind: 'scout', outcome: 'offered' },
-    decorators: [mswDecorator(mocksFor(true))],
-    render: ({ kind, outcome }) => <TurnSuggestionStory kind={kind} outcome={outcome} />,
+    args: { kind: 'scout' },
+    decorators: [mswDecorator(mocks())],
+    render: ({ kind }) => <TurnSuggestionStory kind={kind} />,
 }
 export default meta
 
@@ -497,37 +319,10 @@ type Story = StoryObj<StoryArgs>
 
 export const ScoutSuggestion: Story = {}
 
-export const ScoutSuggestionWithoutSlack: Story = { decorators: [mswDecorator(mocksFor(false))] }
-
-export const ScoutSuggestionWaitingForSlack: Story = {
-    args: { outcome: 'waiting_for_slack' },
-    decorators: [mswDecorator(mocksFor(false))],
-}
-
-export const ScoutSuggestionReadyToCreate: Story = { args: { outcome: 'ready' } }
-
-export const ScoutCreated: Story = { args: { outcome: 'created' } }
-
-export const ScoutCreationFailed: Story = { args: { outcome: 'failed' } }
-
 export const NotebookSuggestion: Story = { args: { kind: 'notebook' } }
 
-export const NotebookSaved: Story = { args: { kind: 'notebook', outcome: 'created' } }
+export const AlertSuggestion: Story = { args: { kind: 'alert' } }
 
-export const NotebookSaveFailed: Story = { args: { kind: 'notebook', outcome: 'failed' } }
+export const SubscriptionSuggestion: Story = { args: { kind: 'subscription' } }
 
-export const WatchScoutSuggestion: Story = { args: { kind: 'watch_scout', outcome: 'ready' } }
-
-export const IncidentNotebookSuggestion: Story = { args: { kind: 'incident_notebook' } }
-
-export const AlertSuggestion: Story = { args: { kind: 'alert', outcome: 'ready' } }
-
-export const AlertCreated: Story = { args: { kind: 'alert', outcome: 'created' } }
-
-export const SubscriptionSuggestion: Story = { args: { kind: 'subscription', outcome: 'ready' } }
-
-export const SubscriptionCreated: Story = { args: { kind: 'subscription', outcome: 'created' } }
-
-export const ErrorAlertSuggestion: Story = { args: { kind: 'error_alert', outcome: 'ready' } }
-
-export const ErrorAlertCreated: Story = { args: { kind: 'error_alert', outcome: 'created' } }
+export const ErrorAlertSuggestion: Story = { args: { kind: 'error_alert' } }

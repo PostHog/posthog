@@ -13,6 +13,13 @@ from parameterized import parameterized
 
 from posthog.egress.typesafe import ChoiceAnswer, NoulAnswer, SystemOneAnswers, TypeSafeRequestFailed
 
+from products.posthog_ai.backend.turn_suggestions.benchmark import (
+    BenchmarkCase,
+    CaseResult,
+    best_threshold,
+    load_cases,
+    score,
+)
 from products.posthog_ai.backend.turn_suggestions.classifier import classify_turn, pick_offer
 from products.posthog_ai.backend.turn_suggestions.dispatch import enqueue_turn_suggestion
 from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL, draft_scout, render_turn_prompt
@@ -189,8 +196,8 @@ def _verdict(offer: OfferKind = OfferKind.SCOUT, intent: TurnIntent = TurnIntent
         show_probability=0.92,
         picked=offer,
         offer_probabilities={offer.value: 0.8},
-        title="Get this every week in Slack",
-        description="A scout can rerun this count each week and post the result.",
+        title="Get this in Slack every week",
+        description="A scout runs this analysis again every week and posts the results to Slack.",
         draft=_DRAFTS.get(offer),
     )
 
@@ -468,6 +475,43 @@ class TestPickOffer(SimpleTestCase):
         assert pick_offer(_judgment(**overrides), available) == expected
 
 
+class TestBenchmark(SimpleTestCase):
+    def test_every_case_expects_offers_its_turn_can_make(self):
+        cases = load_cases()
+
+        assert len({case.name for case in cases}) == len(cases)
+        for case in cases:
+            assert case.acceptable - {OfferKind.NONE} <= case.available, case.name
+
+    def test_scores_count_false_offers_misses_and_ignore_borderline_cases(self):
+        transcript = build_turn_transcript(_metric_turn())
+
+        def result(acceptable: set[OfferKind], show: float) -> CaseResult:
+            case = BenchmarkCase(
+                name="case",
+                category="test",
+                acceptable=frozenset(acceptable),
+                transcript=transcript,
+                available=ALL_OFFERS,
+            )
+            return CaseResult(case=case, judgment=_judgment(show_probability=show), seconds=0.1)
+
+        results = [
+            result({OfferKind.SCOUT}, 0.9),
+            result({OfferKind.SCOUT}, 0.55),
+            result({OfferKind.NONE}, 0.6),
+            result({OfferKind.NONE}, 0.1),
+            result({OfferKind.SCOUT, OfferKind.NONE}, 0.9),
+        ]
+
+        low = score(results, 0.5)
+        high = score(results, 0.7)
+
+        assert (low.offer_rate, low.precision, low.recall, low.false_offers) == (0.8, 2 / 3, 1.0, 1)
+        assert (high.offer_rate, high.precision, high.recall, high.missed) == (0.4, 1.0, 0.5, 1)
+        assert best_threshold([low, high]) == low
+
+
 class TestClassifyTurn(SimpleTestCase):
     def _classify(self, judgment: TurnJudgment | None, scout_draft: ScoutDraft | None = None):
         with (
@@ -487,8 +531,8 @@ class TestClassifyTurn(SimpleTestCase):
 
         assert verdict is not None
         assert verdict.draft == AlertDraft(insight=SAVED_INSIGHT, direction=AlertDirection.INCREASE, change_percent=50)
-        assert verdict.title == "Alert me when this rises"
-        assert verdict.description == "Get a Slack message when Signups rises by 50% or more."
+        assert verdict.title == "Get an alert when this rises"
+        assert verdict.description == "The alert checks once a day, compares with the day before, and posts to Slack."
         draft_scout_mock.assert_not_called()
         draft_notebook_mock.assert_not_called()
 
@@ -508,7 +552,7 @@ class TestClassifyTurn(SimpleTestCase):
         assert verdict is not None and verdict.draft == draft
         assert draft_scout_mock.call_args.kwargs["mode"] == ScoutMode.WATCH
         assert draft_scout_mock.call_args.kwargs["cadence"] == ScoutCadence.DAILY
-        assert verdict.title == "Tell me when this changes"
+        assert verdict.title == "Get a Slack message when this changes"
 
     def test_a_failed_draft_keeps_the_pick_but_offers_nothing(self):
         verdict, _, _ = self._classify(_judgment(), scout_draft=None)

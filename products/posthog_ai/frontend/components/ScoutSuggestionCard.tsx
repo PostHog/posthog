@@ -50,7 +50,7 @@ export function ScoutSuggestionCard(props: TurnSuggestionLogicProps): JSX.Elemen
                 />
             </div>
 
-            <SlackDestinationSection {...props} connectHint="Connect Slack to get each run posted to a channel." />
+            <SlackDestinationSection {...props} connectHint="Connect Slack to post each run to a channel." />
 
             <SuggestionActionRow
                 {...props}

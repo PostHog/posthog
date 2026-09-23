@@ -22,7 +22,7 @@ export function NotebookSuggestionCard(props: TurnSuggestionLogicProps): JSX.Ele
                 type="success"
                 action={accepted.url ? { to: accepted.url, children: 'Open notebook' } : undefined}
             >
-                Saved to notebook.
+                Saved to a notebook.
             </LemonBanner>
         )
     }
@@ -40,12 +40,10 @@ export function NotebookSuggestionCard(props: TurnSuggestionLogicProps): JSX.Ele
                 />
             </div>
             <span className="text-xs text-secondary">
-                {suggestion.notebook.incident
-                    ? 'Written up as an incident: timeline, cause, evidence and fix. The evidence is the conversation so far: '
-                    : 'Saves the conversation so far: '}
+                {suggestion.notebook.incident ? 'Saves the timeline, cause and fix, then ' : 'Saves '}
                 {pluralize(conversationBlocks.messageCount, 'message')}
                 {conversationBlocks.queryCount > 0
-                    ? ` and ${pluralize(conversationBlocks.queryCount, 'query', 'queries')} as live cells`
+                    ? ` and ${pluralize(conversationBlocks.queryCount, 'query', 'queries')}`
                     : ''}
                 .
             </span>

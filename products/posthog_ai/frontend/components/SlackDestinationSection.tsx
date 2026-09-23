@@ -29,7 +29,7 @@ export function SlackDestinationSection({ connectHint, ...logicProps }: SlackDes
             notConfigured={
                 <div className="flex flex-col gap-2">
                     <span className="text-sm text-secondary">
-                        {connectHint} It opens in a new tab, and this card updates when you come back.
+                        {connectHint} Slack opens in a new tab. Come back here to pick a channel.
                     </span>
                     <div className="flex items-center gap-2">
                         <LemonButton
@@ -49,7 +49,7 @@ export function SlackDestinationSection({ connectHint, ...logicProps }: SlackDes
                         {waitingForSlack && (
                             <span className="flex items-center gap-1 text-xs text-secondary">
                                 <Spinner className="text-sm" />
-                                Waiting for Slack
+                                Waiting for Slack to connect
                             </span>
                         )}
                     </div>

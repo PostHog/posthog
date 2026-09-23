@@ -1,0 +1,285 @@
+# Labeled PostHog AI turns for tuning the turn suggestion thresholds against live Jev.
+# Run them with `python manage.py turn_suggestions_benchmark`.
+#
+# Every case is invented. Do not paste real conversations here, even with names changed.
+#
+# `acceptable` lists every offer that would be a good outcome. `[none]` means the card must stay
+# hidden. A case that lists `none` next to an offer is borderline: either outcome is fine, so it
+# counts toward the offer rate but not toward precision or recall.
+#
+# Optional fields: `tool_status` (default completed), `earlier` turns, `insights`, `issues`, and
+# `scouts_available` (default true).
+
+# Recurring metrics
+- name: weekly-signups
+  category: recurring_metric
+  acceptable: [scout]
+  question: How many signups did we get this week compared to last week?
+  tools: [query-trends]
+  answer: You had 412 signups this week, up 8% from 381 last week. Most of the growth came from organic search.
+
+- name: signups-down-today
+  category: recurring_metric
+  acceptable: [scout]
+  question: Are signups down today? It feels slow.
+  tools: [query-trends]
+  answer: Signups today are at 31 so far, about 40% below the same time yesterday (52). The drop started around 09:00 UTC and affects every channel.
+
+- name: revenue-month-to-date
+  category: recurring_metric
+  acceptable: [scout]
+  question: What's our revenue month to date and how does it compare to last month?
+  tools: [execute-sql]
+  answer: Revenue month to date is $48,200, 6% ahead of the same point last month ($45,470). Annual plans make up 38% of it.
+
+- name: checkout-conversion-worry
+  category: recurring_metric
+  acceptable: [scout]
+  question: Is checkout conversion getting worse? I want to keep an eye on it.
+  tools: [query-funnel]
+  answer: Checkout conversion is 31.2% this week against 33.8% last week. It has slipped for three weeks in a row, mostly on mobile.
+
+- name: p95-latency-concern
+  category: recurring_metric
+  acceptable: [scout]
+  question: Is the p95 page load time on the dashboard page OK this week?
+  tools: [execute-sql]
+  answer: The p95 load time for /dashboard is 2.8s this week, up from 2.1s last week. The rise lines up with the new charts rollout.
+
+- name: several-metrics-digest
+  category: recurring_metric
+  acceptable: [scout]
+  question: And what's the trial to paid conversion rate?
+  tools: [query-funnel]
+  answer: Trial to paid conversion is 14.2% for trials that started last month, up from 12.9% the month before.
+  earlier:
+      - question: How many weekly active users do we have?
+        tools: [query-trends]
+        answer: You have 3,420 weekly active users, up 4% on last week.
+      - question: How many new signups this week?
+        tools: [query-trends]
+        answer: 412 signups this week, up 8% on last week.
+
+- name: llm-spend-yesterday
+  category: recurring_metric
+  acceptable: [scout, none]
+  question: How much did we spend on LLM calls yesterday?
+  tools: [execute-sql]
+  answer: LLM spend yesterday was $182.40 across 41,000 generations. The summarization feature accounts for 61% of it.
+
+- name: dau-last-30-days
+  category: recurring_metric
+  acceptable: [scout, none]
+  question: Show me daily active users for the last 30 days
+  tools: [query-trends]
+  answer: Daily active users averaged 1,210 over the last 30 days, with weekday peaks around 1,450 and weekend lows near 760.
+
+# Investigations
+- name: checkout-drop-cause-found
+  category: diagnostic
+  acceptable: [notebook, scout]
+  question: Why did checkout conversion drop on Tuesday?
+  tools: [query-funnel, query-session-recordings-list, query-trends]
+  answer: Checkout conversion fell from 34% to 21% on Tuesday starting at 14:10 UTC. The drop lines up with the 14:05 release, which broke the payment form on Safari. Recordings show users stuck on the card step. Conversion recovered after the 17:30 rollback.
+
+- name: churn-spike-cause-found
+  category: diagnostic
+  acceptable: [notebook]
+  question: Why did so many accounts cancel last week?
+  tools: [execute-sql, query-trends, query-cohorts-list]
+  answer: Cancellations rose to 58 last week from a usual 20. Most of them were accounts on the legacy plan that received the price change email on Monday. 41 of the 58 cancellations came within two days of that email.
+
+- name: retention-exploration
+  category: diagnostic
+  acceptable: [notebook, none]
+  question: Why do users who sign up on mobile retain worse than on desktop?
+  tools: [query-retention, query-trends, query-funnel]
+  answer: Mobile signups retain 18% at week 4 against 31% on desktop. Mobile users rarely finish the onboarding checklist (22% against 58%), and those who do finish retain about as well as desktop users.
+
+# Saved insights
+- name: saved-insight-alert
+  category: saved_insight
+  acceptable: [alert, scout]
+  question: Save a chart of daily signups and let me know if it tanks
+  tools: [insight-create]
+  answer: I saved the insight Daily signups. It shows 58 signups yesterday, in line with the last two weeks.
+  insights:
+      - short_id: sgn001
+        name: Daily signups
+        kind: TrendsQuery
+
+- name: saved-insight-subscription
+  category: saved_insight
+  acceptable: [subscription, scout]
+  question: Make a chart of weekly active users and I'd like the team to see it every Monday
+  tools: [insight-create]
+  answer: I saved the insight Weekly active users. You're at 3,420 this week.
+  insights:
+      - short_id: wau001
+        name: Weekly active users
+        kind: TrendsQuery
+
+- name: saved-funnel-no-alert
+  category: saved_insight
+  acceptable: [subscription, scout, none]
+  question: Save the signup funnel as an insight
+  tools: [insight-create]
+  answer: I saved the insight Signup funnel. 42% of visitors who start signup finish it.
+  insights:
+      - short_id: fnl001
+        name: Signup funnel
+        kind: FunnelsQuery
+
+# Error tracking
+- name: error-resolved
+  category: error_tracking
+  acceptable: [error_alert]
+  question: Is the checkout TypeError fixed now?
+  tools: [query-error-tracking-issues-list, error-tracking-issue-get]
+  answer: Yes. The TypeError in checkout stopped at 14:32 UTC, right after the 14:30 deploy, and I marked the issue resolved. There are no new occurrences in the last 6 hours.
+  issues:
+      - id: 0199c0de-1111-7000-8000-0000000000aa
+        name: "TypeError: cannot read properties of undefined (reading 'total')"
+
+- name: error-still-active
+  category: error_tracking
+  acceptable: [scout, none]
+  question: What's the most common error this week?
+  tools: [query-error-tracking-issues-list]
+  answer: The most common error is a TypeError in checkout with 1,204 occurrences affecting 312 users. It is still happening.
+  issues:
+      - id: 0199c0de-2222-7000-8000-0000000000bb
+        name: 'TypeError: cart.items is not iterable'
+
+# Turns that should get nothing
+- name: docs-install
+  category: knowledge
+  acceptable: [none]
+  question: How do I install posthog-js in a Next.js app?
+  tools: [docs-search]
+  answer: Install the package with npm install posthog-js, then initialize it in a client-side provider component with your project token and host.
+
+- name: docs-cohorts-how-to
+  category: knowledge
+  acceptable: [none]
+  question: How do I make a cohort of users who did an event at least 3 times?
+  tools: [docs-search]
+  answer: Create a new cohort, add a behavioral filter "Completed event", pick the event, and set the count to "at least 3 times" in the time range you want.
+
+- name: concept-explanation
+  category: knowledge
+  acceptable: [none]
+  question: What's the difference between a session and a pageview?
+  tools: []
+  answer: A pageview is one page load. A session groups all of a user's activity until they are inactive for 30 minutes, so one session usually holds several pageviews.
+
+- name: create-feature-flag
+  category: action
+  acceptable: [none]
+  question: Create a feature flag called beta-dashboard for users in the beta cohort
+  tools: [create-feature-flag]
+  answer: Done. I created the feature flag beta-dashboard, rolled out to 100% of the Beta users cohort.
+
+- name: create-survey
+  category: action
+  acceptable: [none]
+  question: Make an NPS survey that shows on the settings page
+  tools: [survey-create]
+  answer: I created the survey Settings NPS. It shows on URLs containing /settings to 10% of users and is saved as a draft.
+
+- name: rename-dashboard
+  category: action
+  acceptable: [none]
+  question: Rename the Growth dashboard to Growth weekly
+  tools: [dashboard-update]
+  answer: Renamed. The dashboard is now called Growth weekly.
+
+- name: clarification
+  category: follow_up
+  acceptable: [none]
+  question: What does DAU mean in that chart?
+  tools: []
+  answer: DAU means daily active users, the number of unique users who sent at least one event that day.
+  earlier:
+      - question: Show me DAU for the last 30 days
+        tools: [query-trends]
+        answer: DAU averaged 1,200 over the last 30 days.
+
+- name: breakdown-follow-up
+  category: follow_up
+  acceptable: [scout, none]
+  question: Break that down by country
+  tools: [query-trends]
+  answer: The US brought 162 of the 412 signups, followed by Germany with 48 and the UK with 41.
+  earlier:
+      - question: How many signups did we get this week?
+        tools: [query-trends]
+        answer: You had 412 signups this week, up 8% on last week.
+
+- name: thanks
+  category: small_talk
+  acceptable: [none]
+  question: Thanks, that's helpful!
+  tools: []
+  answer: Glad it helped. Let me know if you want to dig into anything else.
+  earlier:
+      - question: How many signups did we get this week?
+        tools: [query-trends]
+        answer: You had 412 signups this week, up 8% on last week.
+
+- name: no-data
+  category: failure
+  acceptable: [none]
+  question: How many people used the export feature last week?
+  tools: [read-data-schema]
+  answer: I couldn't find any events related to export in this project. Which event tracks exports?
+
+- name: asks-back
+  category: failure
+  acceptable: [none]
+  question: Show me retention
+  tools: []
+  answer: Which event should count as returning, any event or a specific one like $pageview or purchase_completed?
+
+- name: tool-failed
+  category: failure
+  acceptable: [none]
+  question: What's our revenue this month?
+  tools: [execute-sql]
+  tool_status: failed
+  answer: The query timed out. Do you want me to try a smaller date range?
+
+- name: single-user-lookup
+  category: one_off
+  acceptable: [none]
+  question: When did ada@example.com last log in?
+  tools: [execute-sql]
+  answer: ada@example.com last logged in on September 14 at 16:02 UTC from Chrome on macOS.
+
+- name: rage-click-recordings
+  category: one_off
+  acceptable: [none]
+  question: Find recordings where users rage clicked on the pricing page yesterday
+  tools: [query-session-recordings-list]
+  answer: I found 7 recordings with rage clicks on /pricing yesterday. Most of them are on the plan toggle, which doesn't respond on the first click.
+
+- name: fix-sql
+  category: one_off
+  acceptable: [none]
+  question: Why does my HogQL query fail with "unknown column"?
+  tools: [execute-sql]
+  answer: The column is called properties.$browser, not browser. Here is the fixed query, and it returns 12 rows.
+
+- name: schema-question
+  category: one_off
+  acceptable: [none]
+  question: What events do we track?
+  tools: [read-data-schema]
+  answer: The project tracks 46 custom events. The most frequent are $pageview, button_clicked, signed_up and purchase_completed.
+
+- name: browser-share
+  category: one_off
+  acceptable: [none]
+  question: Which browser do most of our users use?
+  tools: [query-trends]
+  answer: Chrome leads with 64% of users, then Safari with 21% and Firefox with 8%.

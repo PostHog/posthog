@@ -24,19 +24,15 @@ export function AlertSuggestionCard(props: TurnSuggestionLogicProps): JSX.Elemen
                 action={accepted.url ? { to: accepted.url, children: 'View alert' } : undefined}
             >
                 {accepted.slackConnected
-                    ? `Alert created. It checks ${suggestion.alert.insightName} daily and posts to ${slackChannelLabel}.`
-                    : `Alert created, but ${slackChannelLabel} could not be added. Add the Slack destination from the alert.`}
+                    ? `Alert created. It checks ${suggestion.alert.insightName} once a day and posts to ${slackChannelLabel}.`
+                    : `Alert created, but it can't post to ${slackChannelLabel} yet. Open the alert to add Slack.`}
             </LemonBanner>
         )
     }
 
     return (
         <>
-            <SuggestionDraftSummary name={suggestion.alert.insightName}>
-                <span className="text-xs text-secondary">
-                    Checked daily against the previous day. Posts when the change is larger than the bound below.
-                </span>
-            </SuggestionDraftSummary>
+            <SuggestionDraftSummary name={suggestion.alert.insightName} />
 
             <div className="flex flex-wrap items-end gap-2">
                 <div className="flex flex-col gap-1">
@@ -64,7 +60,7 @@ export function AlertSuggestionCard(props: TurnSuggestionLogicProps): JSX.Elemen
                 </div>
             </div>
 
-            <SlackDestinationSection {...props} connectHint="Connect Slack to get the alert posted to a channel." />
+            <SlackDestinationSection {...props} connectHint="Connect Slack to post the alert to a channel." />
 
             <SuggestionActionRow
                 {...props}

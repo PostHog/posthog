@@ -246,13 +246,13 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                 changePercent: number
             ): string | null => {
                 if (currentProjectId === null || !user) {
-                    return 'Project is still loading'
+                    return 'Your project is still loading'
                 }
                 switch (suggestion?.kind) {
                     case 'notebook':
-                        return notebookTitle.trim() ? null : 'Give the notebook a title first'
+                        return notebookTitle.trim() ? null : 'Add a notebook title'
                     case 'alert':
-                        return changePercent > 0 ? slackDestinationDisabledReason : 'Enter a change above zero'
+                        return changePercent > 0 ? slackDestinationDisabledReason : 'Enter a percentage above 0'
                     default:
                         return slackDestinationDisabledReason
                 }

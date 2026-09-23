@@ -133,7 +133,7 @@ def _turn_has_substance(transcript: TurnTranscript) -> bool:
     return bool(transcript.tool_calls) and bool(transcript.assistant_text)
 
 
-def _available_offers(task_run: TaskRun, transcript: TurnTranscript) -> frozenset[OfferKind]:
+def available_offers(transcript: TurnTranscript, *, scouts_available: bool) -> frozenset[OfferKind]:
     """The offers this turn and project can act on; the classifier picks among these or none."""
     offers = set()
     if _turn_has_substance(transcript):
@@ -144,11 +144,15 @@ def _available_offers(task_run: TaskRun, transcript: TurnTranscript) -> frozense
             offers.add(OfferKind.ALERT)
     if transcript.error_issues:
         offers.add(OfferKind.ERROR_ALERT)
-    if task_run.task.created_by is not None and scout_creation_available(
-        team=task_run.team, user=task_run.task.created_by
-    ):
+    if scouts_available:
         offers.add(OfferKind.SCOUT)
     return frozenset(offers)
+
+
+def _available_offers(task_run: TaskRun, transcript: TurnTranscript) -> frozenset[OfferKind]:
+    user = task_run.task.created_by
+    scouts_available = user is not None and scout_creation_available(team=task_run.team, user=user)
+    return available_offers(transcript, scouts_available=scouts_available)
 
 
 def _suggestion_params(verdict: TurnVerdict, turn_index: int) -> dict | None:

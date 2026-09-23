@@ -14,7 +14,7 @@ from posthog.dataclasses import frozen
 
 from products.posthog_ai.backend.turn_suggestions.drafter import draft_notebook, draft_scout
 from products.posthog_ai.backend.turn_suggestions.judgment import TurnJudgment, judge_turn
-from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript, truncate_text
+from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript
 from products.posthog_ai.backend.turn_suggestions.verdict import (
     AlertDirection,
     AlertDraft,
@@ -36,8 +36,6 @@ logger = structlog.get_logger(__name__)
 SHOW_THRESHOLD = 0.5
 ISSUE_RESOLVED_THRESHOLD = 0.5
 
-_NAME_IN_COPY_LIMIT = 50
-
 
 @frozen
 class CardCopy:
@@ -45,10 +43,12 @@ class CardCopy:
     description: str
 
 
-def pick_offer(judgment: TurnJudgment, available: frozenset[OfferKind]) -> OfferKind:
+def pick_offer(
+    judgment: TurnJudgment, available: frozenset[OfferKind], *, show_threshold: float = SHOW_THRESHOLD
+) -> OfferKind:
     """The offer the judgment supports, or ``NONE`` when it does not clear the bar for showing one."""
     offer = judgment.offer
-    if judgment.show_probability < SHOW_THRESHOLD or offer not in available:
+    if judgment.show_probability < show_threshold or offer not in available:
         return OfferKind.NONE
     match offer:
         case OfferKind.ALERT if judgment.insight is None or not judgment.insight.alertable:
@@ -63,7 +63,7 @@ def pick_offer(judgment: TurnJudgment, available: frozenset[OfferKind]) -> Offer
     return offer
 
 
-def _build_draft(
+def build_draft(
     offer: OfferKind, judgment: TurnJudgment, transcript: TurnTranscript, *, team_id: int, today: date
 ) -> Draft | None:
     match offer:
@@ -91,57 +91,54 @@ def _every(cadence: ScoutCadence) -> str:
     return "every day" if cadence == ScoutCadence.DAILY else "every week"
 
 
-def _named(name: str, fallback: str) -> str:
-    return truncate_text(name, _NAME_IN_COPY_LIMIT) if name.strip() else fallback
-
-
 def card_copy(draft: Draft) -> CardCopy:
     match draft:
         case ScoutDraft(mode=ScoutMode.WATCH, cadence=cadence):
             return CardCopy(
-                title="Tell me when this changes",
-                description=f"A scout checks this {_every(cadence)} and posts to Slack only when the number crosses a threshold.",
+                title="Get a Slack message when this changes",
+                description=f"A scout checks this {_every(cadence)}. It posts only when the number crosses a threshold.",
             )
         case ScoutDraft(mode=ScoutMode.INVESTIGATE, cadence=cadence):
             return CardCopy(
-                title="Rerun this investigation if it happens again",
-                description=f"A scout checks the metric {_every(cadence)} and repeats these steps when it dips.",
+                title="Rerun this investigation when the metric drops",
+                description=f"A scout checks the metric {_every(cadence)}. When it drops, the scout repeats these steps and posts what it finds.",
             )
         case ScoutDraft(mode=ScoutMode.DIGEST, cadence=cadence):
             return CardCopy(
                 title="Get these metrics in one Slack post",
-                description=f"A scout covers the metrics from this conversation in one post {_every(cadence)}.",
+                description=f"A scout posts the metrics from this conversation to Slack {_every(cadence)}.",
             )
         case ScoutDraft(cadence=cadence):
             return CardCopy(
-                title=f"Get this {_every(cadence)} in Slack",
-                description=f"A scout reruns this analysis {_every(cadence)} and posts the numbers and what changed.",
+                title=f"Get this in Slack {_every(cadence)}",
+                description=f"A scout runs this analysis again {_every(cadence)} and posts the results to Slack.",
             )
         case NotebookDraft(incident=None):
             return CardCopy(
-                title="Save this as a notebook",
-                description="Keep this conversation and its queries as cells you can rerun.",
+                title="Save this conversation as a notebook",
+                description="The notebook keeps the messages, and each query becomes a cell you can run again.",
             )
         case NotebookDraft():
             return CardCopy(
-                title="Save this as an incident writeup",
-                description="Keep the timeline, cause and fix next to the queries that found them.",
+                title="Save this as an incident report",
+                description="The notebook starts with the timeline, cause and fix, followed by the conversation and its queries.",
             )
-        case AlertDraft(insight=insight, direction=direction, change_percent=change_percent):
+        case AlertDraft(direction=direction):
             verb = "drops" if direction == AlertDirection.DECREASE else "rises"
             return CardCopy(
-                title=f"Alert me when this {verb}",
-                description=f"Get a Slack message when {_named(insight.name, 'this insight')} {verb} by {change_percent}% or more.",
+                title=f"Get an alert when this {verb}",
+                description="The alert checks once a day, compares with the day before, and posts to Slack.",
             )
-        case SubscriptionDraft(insight=insight, cadence=cadence):
+        case SubscriptionDraft(cadence=cadence):
+            schedule = "every day at 9:00" if cadence == ScoutCadence.DAILY else "every Monday at 9:00"
             return CardCopy(
                 title=f"Send this chart to Slack {_every(cadence)}",
-                description=f"Get {_named(insight.name, 'this chart')} in Slack {_every(cadence)}.",
+                description=f"The chart posts to a Slack channel {schedule}.",
             )
-        case ErrorAlertDraft(issue=issue):
+        case ErrorAlertDraft():
             return CardCopy(
-                title="Tell me if this error comes back",
-                description=f"Get a Slack message if {_named(issue.name, 'this issue')} reopens.",
+                title="Get an alert if this error comes back",
+                description="Slack gets a message if this issue reopens after it was resolved.",
             )
 
 
@@ -154,7 +151,7 @@ def classify_turn(
     if judgment is None:
         return None
     picked = pick_offer(judgment, available)
-    draft = _build_draft(picked, judgment, transcript, team_id=team_id, today=today)
+    draft = build_draft(picked, judgment, transcript, team_id=team_id, today=today)
     copy = card_copy(draft) if draft is not None else CardCopy(title="", description="")
     return TurnVerdict(
         intent=judgment.intent,

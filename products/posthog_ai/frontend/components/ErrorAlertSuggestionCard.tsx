@@ -20,20 +20,16 @@ export function ErrorAlertSuggestionCard(props: TurnSuggestionLogicProps): JSX.E
                 type="success"
                 action={accepted.url ? { to: accepted.url, children: 'View alert' } : undefined}
             >
-                Alert created. {slackChannelLabel} gets a message when this issue reopens.
+                Alert created. {slackChannelLabel} gets a message if this issue reopens.
             </LemonBanner>
         )
     }
 
     return (
         <>
-            <SuggestionDraftSummary name={suggestion.errorAlert.issueName}>
-                <span className="text-xs text-secondary">
-                    Posts to Slack when this issue reopens after being resolved.
-                </span>
-            </SuggestionDraftSummary>
+            <SuggestionDraftSummary name={suggestion.errorAlert.issueName} />
 
-            <SlackDestinationSection {...props} connectHint="Connect Slack to get the alert posted to a channel." />
+            <SlackDestinationSection {...props} connectHint="Connect Slack to post the alert to a channel." />
 
             <SuggestionActionRow
                 {...props}
