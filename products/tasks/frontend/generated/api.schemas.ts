@@ -4558,6 +4558,8 @@ export interface VoiceSessionRequestApi {
      * @maxLength 32768
      */
     sdp: string
+    /** Use Responses delegation for structured desktop voice tool calls. */
+    structured_tools?: boolean
     /**
      * Recent conversation text for voice context.
      * @maxLength 8000

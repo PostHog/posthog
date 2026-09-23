@@ -37,7 +37,7 @@ class TestVoiceSessions(APIBaseTest):
         )
         self.provider = self.enterContext(
             patch(
-                "products.tasks.backend.logic.services.voice_sessions.VoiceSessionService.create",
+                "products.tasks.backend.facade.api.create_voice_session",
                 return_value={"sdp": "answer"},
             )
         )
@@ -81,7 +81,7 @@ class TestVoiceSessions(APIBaseTest):
         assert response.status_code == 201
         assert response.json() == {"sdp": "answer"}
         assert response["Cache-Control"] == "no-store"
-        self.provider.assert_called_once_with("offer", "User: Check the task")
+        self.provider.assert_called_once_with("offer", "User: Check the task", structured_tools=False)
 
     def test_sandbox_token_cannot_spend_on_voice_even_for_staff(self) -> None:
         application = OAuthApplication.objects.create(

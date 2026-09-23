@@ -3449,11 +3449,16 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
  */
 export const tasksVoiceCreateBodySdpMax = 32768
 
+export const tasksVoiceCreateBodyStructuredToolsDefault = false
 export const tasksVoiceCreateBodyContextDefault = ``
 export const tasksVoiceCreateBodyContextMax = 8000
 
 export const TasksVoiceCreateBody = /* @__PURE__ */ zod.object({
     sdp: zod.string().max(tasksVoiceCreateBodySdpMax).describe("The client's WebRTC SDP offer."),
+    structured_tools: zod
+        .boolean()
+        .default(tasksVoiceCreateBodyStructuredToolsDefault)
+        .describe('Use Responses delegation for structured desktop voice tool calls.'),
     context: zod
         .string()
         .max(tasksVoiceCreateBodyContextMax)

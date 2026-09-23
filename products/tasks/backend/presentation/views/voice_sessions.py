@@ -3,7 +3,6 @@ from typing import Any, cast
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -12,18 +11,22 @@ from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
-from products.tasks.backend.logic.services.voice_sessions import VoiceSessionService, VoiceSessionUnavailable
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
 
 class VoiceSessionRequestSerializer(serializers.Serializer):
     sdp = serializers.CharField(max_length=32768, trim_whitespace=False, help_text="The client's WebRTC SDP offer.")
+    structured_tools = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Use Responses delegation for structured desktop voice tool calls.",
+    )
     context = serializers.CharField(
         max_length=8000,
         required=False,
@@ -77,8 +80,12 @@ class VoiceSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if enabled is not True:
             raise PermissionDenied("Voice conversations are not enabled for this account.")
         try:
-            result = VoiceSessionService().create(request.validated_data["sdp"], request.validated_data["context"])
-        except VoiceSessionUnavailable:
+            result = tasks_facade.create_voice_session(
+                request.validated_data["sdp"],
+                request.validated_data["context"],
+                structured_tools=request.validated_data["structured_tools"],
+            )
+        except tasks_facade.VoiceSessionUnavailable:
             return Response(
                 TaskRunErrorResponseSerializer(
                     {"error": "Voice could not connect. Use the text box or try again later."}
