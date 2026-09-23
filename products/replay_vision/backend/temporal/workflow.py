@@ -1,6 +1,6 @@
 import asyncio
 import datetime as dt
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import temporalio.workflow as wf
@@ -11,6 +11,7 @@ from temporalio.exceptions import (
     ChildWorkflowError,
     TimeoutError as TemporalTimeoutError,
 )
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
@@ -36,8 +37,11 @@ from products.replay_vision.backend.temporal.activities import (
     emit_classifier_tags_activity,
     emit_observation_event_activity,
     emit_observation_signal_activity,
+    emit_observation_signal_summaries_activity,
+    emit_observation_signals_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
+    fetch_session_network_activity,
     mark_observation_failed_activity,
     mark_observation_ineligible_activity,
     mark_observation_running_activity,
@@ -53,6 +57,11 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
+from products.replay_vision.backend.temporal.media_types import (
+    MEDIA_WORKFLOW_NAME,
+    ObservationMediaInputs,
+    build_media_workflow_id,
+)
 from products.replay_vision.backend.temporal.scanners.base import BaseScannerOutput
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.types import (
@@ -67,9 +76,11 @@ from products.replay_vision.backend.temporal.types import (
     EmitClassifierTagsInputs,
     EmitObservationEventInputs,
     EmitObservationSignalInputs,
+    EmittedSignal,
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
     FetchSessionEventsInputs,
+    FetchSessionNetworkInputs,
     MarkObservationFailedInputs,
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
@@ -148,6 +159,19 @@ _SIDE_EFFECT_RETRY = common.RetryPolicy(
     maximum_interval=dt.timedelta(seconds=10),
     maximum_attempts=3,
 )
+
+
+async def _optional(task: Any) -> None:
+    """Await a side-input activity, absorbing its failure.
+
+    The activity handles its own errors, but a timeout or a spent retry chain is enforced by the server
+    and never reaches that handler. Without this the scan would fail over a side input it can run
+    without. `CancelledError` derives from `BaseException`, so workflow cancellation still propagates.
+    """
+    try:
+        await task
+    except Exception:
+        wf.logger.warning("replay_vision.side_input_failed", exc_info=True)
 
 
 def _has_embeddable_text(model_output: object) -> bool:
@@ -332,25 +356,51 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             )
             self._advance_phase("finalizing")
             signals_count = 0
+            signal_problem_types: list[str] = []
+            signal_summaries: list[EmittedSignal] = []
             if call_output.signals:
-                # The activity fails soft (returns 0 on any error), so there's nothing to retry. The local
-                # catch covers Temporal-level failures (timeout, worker loss) — emission is advisory and
-                # must never demote an otherwise-successful observation to FAILED.
+                emit_inputs = EmitObservationSignalInputs(
+                    team_id=inputs.team_id,
+                    observation_id=observation_id,
+                    exported_asset_id=asset_result.asset_id,
+                    signals=call_output.signals,
+                )
+                # The summaries activity reports every signal it actually emitted, so the count and the
+                # problem types both derive from that list. The two branches below it schedule the activity
+                # an older history recorded — a count, then a list of problem types — so in-flight scans
+                # replay cleanly. All three fail soft (emit nothing extra on error), so there is nothing to
+                # retry; the local catch covers Temporal-level failures (timeout, worker loss) — emission is
+                # advisory and must never demote an otherwise-successful observation. 30s once truncated the
+                # tail on a slow facade, so give it 2 minutes; retries are safe because each finding carries
+                # a deterministic idempotency key.
                 try:
-                    signals_count = await wf.execute_activity(
-                        emit_observation_signal_activity,
-                        EmitObservationSignalInputs(
-                            team_id=inputs.team_id,
-                            observation_id=observation_id,
-                            exported_asset_id=asset_result.asset_id,
-                            signals=call_output.signals,
-                        ),
-                        # 30s truncated the tail on a slow facade and recorded signals_count=0; retries are
-                        # safe because each finding carries a deterministic idempotency key.
-                        start_to_close_timeout=dt.timedelta(minutes=2),
-                        heartbeat_timeout=dt.timedelta(seconds=30),
-                        retry_policy=common.RetryPolicy(maximum_attempts=3),
-                    )
+                    if wf.patched("replay-vision-emitted-signal-summaries"):
+                        signal_summaries = await wf.execute_activity(
+                            emit_observation_signal_summaries_activity,
+                            emit_inputs,
+                            start_to_close_timeout=dt.timedelta(minutes=2),
+                            heartbeat_timeout=dt.timedelta(seconds=30),
+                            retry_policy=common.RetryPolicy(maximum_attempts=3),
+                        )
+                        signal_problem_types = [signal.problem_type for signal in signal_summaries]
+                        signals_count = len(signal_summaries)
+                    elif wf.patched("replay-vision-emitted-signal-problem-types"):
+                        signal_problem_types = await wf.execute_activity(
+                            emit_observation_signals_activity,
+                            emit_inputs,
+                            start_to_close_timeout=dt.timedelta(minutes=2),
+                            heartbeat_timeout=dt.timedelta(seconds=30),
+                            retry_policy=common.RetryPolicy(maximum_attempts=3),
+                        )
+                        signals_count = len(signal_problem_types)
+                    else:
+                        signals_count = await wf.execute_activity(
+                            emit_observation_signal_activity,
+                            emit_inputs,
+                            start_to_close_timeout=dt.timedelta(minutes=2),
+                            heartbeat_timeout=dt.timedelta(seconds=30),
+                            retry_policy=common.RetryPolicy(maximum_attempts=3),
+                        )
                 except Exception:
                     wf.logger.exception("Signal emission activity failed for observation %s", observation_id)
             # Persist the billed result first — everything past this point is fail-soft delivery.
@@ -362,6 +412,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     scanner_result=ScannerResult(
                         model_output=call_output.model_output,
                         signals_count=signals_count,
+                        signal_problem_types=signal_problem_types,
+                        signal_summaries=signal_summaries,
                         verification=call_output.verification,
                     ),
                 ),
@@ -379,6 +431,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 )
             except Exception:
                 wf.logger.exception("Event emission failed for succeeded observation %s", observation_id)
+            await self._render_media(inputs, observation_id, asset_result.asset_id, call_output)
             await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
         except Exception as e:
             ineligible_kind = _extract_kind_for_type(e, INELIGIBLE_SESSION_ERROR_TYPE)
@@ -427,7 +480,22 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_ENSURE_ASSET_RETRY,
         )
-        _, asset_result = await asyncio.gather(fetch_task, asset_task)
+        if wf.patched("replay-vision-session-network-2026-09"):
+            # Rides alongside the other two so the extra recording-block read costs no wall-clock.
+            network_task = wf.execute_activity(
+                fetch_session_network_activity,
+                FetchSessionNetworkInputs(
+                    observation_id=observation_id,
+                    team_id=inputs.team_id,
+                    session_id=inputs.session_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                schedule_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=_FETCH_RETRY,
+            )
+            _, asset_result, _ = await asyncio.gather(fetch_task, asset_task, _optional(network_task))
+        else:
+            _, asset_result = await asyncio.gather(fetch_task, asset_task)
         return asset_result
 
     async def _run_rasterize_child(self, inputs: ApplyScannerInputs, asset_id: int) -> None:
@@ -506,6 +574,40 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     wf.logger.warning("replay_vision.stuck_counter_bump_failed", extra={"error": str(exc)})
             # Re-classify the rasterizer's failure so the user sees a rasterizer label, not a generic "internal error".
             raise ScannerFailureError(_root_cause_message(e), kind=FailureKind.RASTERIZATION_FAILED) from e
+
+    async def _render_media(
+        self,
+        inputs: ApplyScannerInputs,
+        observation_id: UUID,
+        analysis_asset_id: int,
+        call_output: ScannerCallOutput,
+    ) -> None:
+        """Render the observation's thumbnail. Fail-soft: a missing poster must never fail a paid-for scan."""
+        if not wf.patched("replay-vision-media-2026-09"):
+            return
+        try:
+            # Started, not awaited: the poster is delivery, and the scan has no reason to hold a workflow
+            # slot open while one frame is cut. ABANDON keeps the child alive past the parent's close.
+            await wf.start_child_workflow(
+                MEDIA_WORKFLOW_NAME,
+                ObservationMediaInputs(
+                    team_id=inputs.team_id,
+                    observation_id=observation_id,
+                    session_id=inputs.session_id,
+                    analysis_asset_id=analysis_asset_id,
+                    signal_video_times=call_output.signal_video_spans,
+                    thumbnail_video_s=call_output.thumbnail_video_s,
+                ),
+                id=build_media_workflow_id(observation_id),
+                task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+                # A retried observation reuses its id, and the run it supersedes has long closed.
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                retry_policy=common.RetryPolicy(maximum_attempts=2),
+                execution_timeout=dt.timedelta(minutes=20),
+            )
+        except Exception:
+            wf.logger.exception("Media rendering could not be started for observation %s", observation_id)
 
     async def _mark_failed(self, observation_id: UUID, scanner_type: ScannerType, kind: str, message: str) -> None:
         await wf.execute_activity(

@@ -76,6 +76,7 @@ from products.tasks.backend.temporal.observability import (
     log_activity_execution,
     log_with_activity_context,
 )
+from products.tasks.backend.temporal.process_task.organization import check_organization_execution
 from products.tasks.backend.temporal.process_task.sandbox_connection import persist_sandbox_connection
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     replace_sandbox_credentials,
@@ -699,6 +700,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         resume_mode = resume_mode_label(
             same_run_resume=run_state.same_run_resume,
             using_modal_snapshot=resume_snapshot_external_id is not None,
+            from_import_run=run_state.resume_from_import_run,
         )
         resume_decision_log = (
             activity.logger.warning if is_resume and resume_mode == "neither" else activity.logger.info
@@ -772,6 +774,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         image_source=prepared.image_source,
         **ctx.to_log_context(),
     ):
+        check_organization_execution(ctx.team_id)
         if not (ctx.state or {}).get("await_user_message"):
             task = _load_task(ctx)
             if reason := get_compute_quota_denial_reason(task):

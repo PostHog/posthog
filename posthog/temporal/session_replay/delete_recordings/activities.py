@@ -13,6 +13,7 @@ from posthog.models import Team
 from posthog.security.outbound_proxy import internal_httpx_async_client
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError
 from posthog.session_recordings.recordings.recording_api_jwt import recording_api_auth_headers
 from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
@@ -28,7 +29,6 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     LoadRecordingsPage,
     PurgeDeletedMetadataInput,
     PurgeDeletedMetadataResult,
-    RecordingApiConfigurationError,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
     RecordingsWithTeamInput,

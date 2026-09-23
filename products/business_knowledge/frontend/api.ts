@@ -7,9 +7,11 @@ import {
     businessKnowledgeSourcesList,
     businessKnowledgeSourcesPartialUpdate,
     businessKnowledgeSourcesRefreshCreate,
+    businessKnowledgeSourcesRetrieve,
     businessKnowledgeSourcesTextRetrieve,
 } from './generated/api'
 import type {
+    BusinessKnowledgeSourcesListAddedBy,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesListSourceType,
     CrawlModeEnumApi,
@@ -48,19 +50,32 @@ export interface UpdateSourcePayload {
     always_include?: boolean
 }
 
-export async function listSources(params?: { search?: string; sourceType?: string }): Promise<KnowledgeSourceApi[]> {
+export async function listSources(params?: {
+    search?: string
+    sourceType?: string
+    addedBy?: string
+}): Promise<KnowledgeSourceApi[]> {
     const search = params?.search?.trim()
     const sourceType =
         params?.sourceType && params.sourceType !== 'all'
             ? (params.sourceType as BusinessKnowledgeSourcesListSourceType)
             : undefined
+    const addedBy =
+        params?.addedBy && params.addedBy !== 'all'
+            ? (params.addedBy as BusinessKnowledgeSourcesListAddedBy)
+            : undefined
     const query: BusinessKnowledgeSourcesListParams = {
         limit: 1000,
         ...(search ? { search } : {}),
         ...(sourceType ? { source_type: sourceType } : {}),
+        ...(addedBy ? { added_by: addedBy } : {}),
     }
     const response = await businessKnowledgeSourcesList(String(getCurrentTeamId()), query)
     return response.results
+}
+
+export async function getSource(id: string): Promise<KnowledgeSourceApi> {
+    return await businessKnowledgeSourcesRetrieve(String(getCurrentTeamId()), id)
 }
 
 export async function getSourceText(id: string): Promise<{ id: string; text: string }> {

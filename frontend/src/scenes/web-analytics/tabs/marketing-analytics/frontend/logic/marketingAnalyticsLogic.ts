@@ -1,5 +1,17 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+} from 'kea'
 import { actionToUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -40,7 +52,7 @@ import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../../../../../lib/utils/product-intents'
 import { defaultConversionGoalFilter } from '../components/settings/constants'
-import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import { SetupEntryPoint, marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
@@ -94,6 +106,11 @@ export enum SetupSection {
 }
 
 export const DEFAULT_SETUP_SECTION = SetupSection.SUGGESTIONS
+
+export interface DashboardGoalsConfigured {
+    customerGoal: boolean
+    revenueGoal: boolean
+}
 
 /** Where a tab key lands once Setup absorbs it. Applied by the scene, which is what
  * knows whether Setup is rendering — with its flag off `integration-health` is still a
@@ -245,6 +262,7 @@ export interface marketingAnalyticsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     conversion_goals: ConversionGoalFilter[] // marketingAnalyticsSettingsLogic
     filter_test_accounts: boolean // marketingAnalyticsSettingsLogic
+    setupEntryPoint: SetupEntryPoint | null // marketingAnalyticsSettingsLogic
     sources_map: Record<string, SourceMap> // marketingAnalyticsSettingsLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
     dataWarehouseSourcesLoading: boolean // sourceManagementLogic
@@ -318,6 +336,7 @@ export interface marketingAnalyticsLogicValues {
     setupSection: SetupSection
     shouldFilterTestAccounts: boolean
     tileColumnSelection: validColumnsForTiles
+    unconfiguredNativeSources: ExternalDataSource[]
     uniqueConversionGoalName: string
     validExternalTables: ExternalTable[]
     validNativeSources: NativeSource[]
@@ -331,6 +350,9 @@ export interface marketingAnalyticsLogicActions {
     reloadAll: () => {} // dataNodeCollectionLogic
     addOrUpdateConversionGoal: (conversionGoal: ConversionGoalFilter) => {
         conversionGoal: ConversionGoalFilter
+    } // marketingAnalyticsSettingsLogic
+    setSetupEntryPoint: (entryPoint: SetupEntryPoint | null) => {
+        entryPoint: SetupEntryPoint | null
     } // marketingAnalyticsSettingsLogic
     updateFilterTestAccounts: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
@@ -398,6 +420,29 @@ export interface marketingAnalyticsLogicActions {
     }
     loadConversionGoal: (goal: ConversionGoalFilter) => {
         goal: ConversionGoalFilter
+    }
+    openSetup: (
+        section: SetupSection,
+        entryPoint: SetupEntryPoint
+    ) => {
+        entryPoint: SetupEntryPoint
+        section: SetupSection
+    }
+    reportDashboardControlUsed: (
+        section: string,
+        control: string,
+        value?: boolean | string
+    ) => {
+        control: string
+        section: string
+        value: boolean | string | undefined
+    }
+    reportDashboardSectionViewed: (
+        section: string,
+        configured: DashboardGoalsConfigured
+    ) => {
+        configured: DashboardGoalsConfigured
+        section: string
     }
     saveConversionGoal: () => {
         value: true
@@ -523,6 +568,10 @@ export interface marketingAnalyticsLogicMeta {
             nativeSources: ExternalDataSource[],
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
         ) => NativeSource[]
+        unconfiguredNativeSources: (
+            nativeSources: ExternalDataSource[],
+            validNativeSources: NativeSource[]
+        ) => ExternalDataSource[]
         uniqueConversionGoalName: (
             conversionGoalInput: ConversionGoalFilter,
             conversion_goals: ConversionGoalFilter[]
@@ -624,7 +673,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             teamLogic,
             ['baseCurrency'],
             marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals', 'filter_test_accounts'],
+            ['sources_map', 'conversion_goals', 'filter_test_accounts', 'setupEntryPoint'],
             sourceManagementLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
             featureFlagLogic,
@@ -636,7 +685,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
-            ['addOrUpdateConversionGoal', 'updateFilterTestAccounts'],
+            ['addOrUpdateConversionGoal', 'updateFilterTestAccounts', 'setSetupEntryPoint'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -645,6 +694,16 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setAdPerformanceConversionGoals: (include: boolean) => ({ include }),
         setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
         setSetupSection: (section: SetupSection) => ({ section }),
+        openSetup: (section: SetupSection, entryPoint: SetupEntryPoint) => ({ section, entryPoint }),
+        reportDashboardSectionViewed: (section: string, configured: DashboardGoalsConfigured) => ({
+            section,
+            configured,
+        }),
+        reportDashboardControlUsed: (section: string, control: string, value?: string | boolean) => ({
+            section,
+            control,
+            value,
+        }),
 
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
@@ -889,9 +948,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         drillDownLevel: [
             (s) => [s._drillDownLevel, s.featureFlags],
             (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
-                if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]) {
-                    return MarketingAnalyticsDrillDownLevel.Campaign
-                }
                 if (
                     EXTENDED_DRILL_DOWN_LEVELS.has(level) &&
                     !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]
@@ -1030,6 +1086,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     }
                     return validNativeSources
                 }, [])
+            },
+        ],
+        unconfiguredNativeSources: [
+            (s) => [s.nativeSources, s.validNativeSources],
+            (nativeSources: ExternalDataSource[], validNativeSources: NativeSource[]): ExternalDataSource[] => {
+                const validIds = new Set(validNativeSources.map(({ source }) => source.id))
+                return nativeSources.filter((source) => !validIds.has(source.id))
             },
         ],
         uniqueConversionGoalName: [
@@ -1415,6 +1478,27 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         }
 
         return {
+            openSetup: ({ section, entryPoint }) => {
+                actions.setSetupEntryPoint(entryPoint)
+                posthog.capture('marketing analytics dashboard setup opened', { entry_point: entryPoint, section })
+                actions.setSetupSection(section)
+                actions.setActiveTab(MarketingAnalyticsTab.SETUP)
+            },
+            setActiveTab: ({ tab }) => {
+                if (tab !== MarketingAnalyticsTab.SETUP && values.setupEntryPoint) {
+                    actions.setSetupEntryPoint(null)
+                }
+            },
+            reportDashboardSectionViewed: ({ section, configured }) => {
+                posthog.capture('marketing analytics dashboard section viewed', {
+                    section,
+                    customer_goal_configured: configured.customerGoal,
+                    revenue_goal_configured: configured.revenueGoal,
+                })
+            },
+            reportDashboardControlUsed: ({ section, control, value }) => {
+                posthog.capture('marketing analytics dashboard control used', { section, control, value })
+            },
             // Track dashboard interactions for filters and chart controls
             setDates: trackDashboardInteraction,
             setDateInterval: trackDashboardInteraction,
@@ -1496,6 +1580,9 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 }
             },
         }
+    }),
+    beforeUnmount(({ actions }) => {
+        actions.setSetupEntryPoint(null)
     }),
     afterMount(({ actions }) => {
         // Read URL params on initial mount (one-time sync from URL)

@@ -165,10 +165,11 @@ export default function Canvas() {
   const anyLoading = events.loading || visitors.loading
 
   return (
-    // The canvas root must resolve height against the iframe viewport. The
+    // The canvas root fills the iframe viewport and grows past it as content
+    // demands, so tall sections scroll instead of shrinking. The
     // chrome (heading, date picker, card frames) renders immediately — only
     // the value inside each card waits, each for its own query.
-    <div className="flex h-screen flex-col gap-4 overflow-y-auto p-6">
+    <div className="flex min-h-screen flex-col gap-4 p-6">
       <div className="flex items-center justify-between">
         <Heading size="xl" className="mb-4">
           Canvas

@@ -27,6 +27,7 @@ from posthog.schema import (
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
+    DashboardFilter,
     DataTableNode,
     DataVisualizationNode,
     DateRange,
@@ -63,6 +64,7 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, record
 
+from posthog.api.services.query import _run_query_runner
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
@@ -115,8 +117,10 @@ from posthog.slo.types import SloOutcome
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
     "01977f7b-7f29-0000-a028-7275d1a767a4": {
@@ -170,6 +174,7 @@ def setup_test_query_runner_class(base: type[QueryRunner] = QueryRunner):
 
 
 _QUERY_SCAN_FLAG_SHOW = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+_KINDS_WITH_THE_TEST_KIND = frozenset({"TestQuery"})
 _QUERY_SCAN_FLAG_LOG_ONLY = QueryScanFlag(
     mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5
 )
@@ -339,6 +344,7 @@ class TestQueryRunner(BaseTest):
                 return_value=QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
             ),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger._KINDS_A_PERSON_BUILDS", _KINDS_WITH_THE_TEST_KIND),
             mock.patch("posthog.query_scan.trigger.print_prepared_ast", return_value="SELECT 1"),
             mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
             mock.patch.object(
@@ -383,6 +389,7 @@ class TestQueryRunner(BaseTest):
                 return_value=QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
             ),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger._KINDS_A_PERSON_BUILDS", _KINDS_WITH_THE_TEST_KIND),
             mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
             mock.patch.object(
                 TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_until_clickhouse_gives_up
@@ -398,6 +405,50 @@ class TestQueryRunner(BaseTest):
             "killed": True,
             "analysis_requested": True,
         }
+
+    @parameterized.expand([("all time", "all", True), ("a recent range", "-7d", False)])
+    def test_the_analysis_knows_when_the_dashboard_chose_all_time(self, _name, date_from, expected):
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        def calculate_over_the_floor(_self):
+            record(rows_read=90, duration_ms=4000.0)
+            active = get_active()
+            assert active is not None
+            active.record_execution(
+                tree=parse_select("select 1"), context=HogQLContext(team_id=self.team.pk), rows_read=90
+            )
+            return TheTestBasicQueryResponse(results=[])
+
+        redis_client = mock.Mock()
+        redis_client.get.return_value = None
+        redis_client.incr.return_value = 1
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with (
+            mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=_QUERY_SCAN_FLAG_SHOW),
+            mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger._KINDS_A_PERSON_BUILDS", _KINDS_WITH_THE_TEST_KIND),
+            mock.patch("posthog.query_scan.trigger.print_prepared_ast", return_value="SELECT 1"),
+            mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
+            mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_over_the_floor),
+        ):
+            _run_query_runner(
+                runner,
+                dashboard_filters=DashboardFilter(date_from=date_from),
+                variables_override=None,
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                user=self.user,
+                query_id=None,
+                insight_id=None,
+                dashboard_id=None,
+                is_query_service=False,
+                cache_age_seconds=None,
+                pagination_cursor=None,
+                analytics_props=None,
+                allow_raw_results=False,
+            )
+
+        assert delay.call_count == 1
+        assert delay.call_args.kwargs["dashboard_all_time"] is expected
 
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -698,6 +749,20 @@ class TestQueryRunner(BaseTest):
 
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_13361de10d0c3c79451b288eb57ca1147331e86a8b8e63a0a815adf5a2d7bcbb"
+
+    def test_cache_key_ignores_query_log_tags(self):
+        # Query log tags are metadata, so they must never partition the cache. Web
+        # analytics warming leans on this: it stamps the applied filter preset's id into
+        # tags so it can find the shapes a preset produces, and a tagged query has to keep
+        # reading the same cache entry as the untagged one, or every preset user would
+        # miss the cache on every load and the warm set would double.
+        TestQueryRunner = self.setup_test_query_runner_class()
+        team = Team.objects.create(pk=42, organization=self.organization)
+
+        untagged = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+        tagged = TestQueryRunner(query={"some_attr": "bla", "tags": {"presetId": "abc123"}}, team=team)
+
+        assert tagged.get_cache_key() == untagged.get_cache_key()
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_runner_subclass(self):
@@ -1660,19 +1725,44 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert no_user_payload["restricted_resources"] == ["*"]
         assert self._runner(None, base).get_cache_key() != self._runner(self.user, base).get_cache_key()
 
-    def test_hogql_query_runner_partitions_cache_on_access_control(self):
+    @parameterized.expand(
+        [
+            ("notebooks", "notebook"),
+            ("_account_tagged_items", "account"),
+            ("_account_resource_notebooks", "account"),
+            ("_ticket_tagged_items", "ticket"),
+            ("_ticket_assignments", "ticket"),
+            ("_ticket_assignee_roles", "ticket"),
+            ("_task_public_channels", "task"),
+        ]
+    )
+    def test_hogql_query_runner_partitions_cache_on_access_control(self, table: str, scope: str) -> None:
         # Raw HogQL is the only way to reach access-controlled system.* tables.
-        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        query = {"kind": "HogQLQuery", "query": f"select * from system.{table}"}
 
-        self._ac(resource="notebook", access_level="none")
+        resource = "customer_analytics" if scope == "account" else scope
+        self._ac(resource=resource, access_level="none")
         denied_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
-        assert "notebook" in (denied_runner.get_cache_payload().get("restricted_resources") or [])
+        assert scope in (denied_runner.get_cache_payload().get("restricted_resources") or [])
         key_denied = denied_runner.get_cache_key()
 
-        self._ac(resource="notebook", access_level="editor")
+        self._ac(resource=resource, access_level="editor")
         key_granted = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
 
         assert key_denied != key_granted
+
+    def test_default_denied_resource_partitions_cache_without_access_control(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+        query = {"kind": "HogQLQuery", "query": "select * from system.data_deletion_requests"}
+
+        member_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        admin_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        assert member_key != admin_key
 
     @parameterized.expand(RUNNER_BASES)
     def test_query_reading_no_access_controlled_tables_shares_cache(self, _name, base):
@@ -1695,6 +1785,43 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             runner.get_cache_key()
         ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
         assert ac_queries == [], ac_queries
+
+    @parameterized.expand(
+        [
+            ("warehouse table", "select * from warehouse_orders", set(), True),
+            (
+                "system table with the source scope",
+                "select * from system.data_warehouse_sources",
+                {"external_data_source"},
+                False,
+            ),
+            ("saved view over a system table", "select * from notebook_view", {"notebook"}, False),
+        ]
+    )
+    def test_shared_link_viewer_partitions_only_on_scopes_a_table_carries(
+        self, _name, sql, expected_restricted, same_key_as_user
+    ):
+        # A shared-link viewer bypasses warehouse access control, so on a synced table it shares the unrestricted
+        # user's entry, while a system table it cannot read, directly or through a view, keeps it on its own.
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="warehouse_orders",
+            format="Parquet",
+            url_pattern="https://bucket.s3/data/*",
+            columns={},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="notebook_view",
+            query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
+        )
+        query = {"kind": "HogQLQuery", "query": sql}
+        shared_runner = HogQLQueryRunner(query=query, team=self.team, user=_shared_link_user(self.team))
+        user_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+
+        restricted = set(shared_runner.get_cache_payload().get("restricted_resources") or [])
+        assert restricted == expected_restricted
+        assert (shared_runner.get_cache_key() == user_runner.get_cache_key()) == same_key_as_user
 
     def test_hogql_fingerprint_partitions_only_on_queried_tables(self):
         # Two denied resources, but the query only reads notebooks - so only that scope partitions.
@@ -1960,7 +2087,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         self.organization.available_product_features = []
         self.organization.save()
 
-        runner = self._runner(self.user, base=AnalyticsQueryRunner)
+        runner = self._runner(self.user, base=AnalyticsQueryRunner, queried_resources=set())
         with CaptureQueriesContext(connection) as ctx:
             runner.get_cache_key()
 
@@ -2074,6 +2201,7 @@ class TestQueryFailureCaching(BaseTest):
         with (
             mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger._KINDS_A_PERSON_BUILDS", _KINDS_WITH_THE_TEST_KIND),
             mock.patch.object(
                 runner_class, "_calculate", autospec=True, side_effect=calculate_until_clickhouse_gives_up
             ),

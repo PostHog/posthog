@@ -78,6 +78,7 @@ describe('Dashboards', { concurrent: false }, () => {
 
     describe('dashboard-update tool', () => {
         const createTool = getToolByName('dashboard-create')
+        const getTool = getToolByName('dashboard-get')
         const updateTool = getToolByName('dashboard-update')
 
         it('should update dashboard name and description', async () => {
@@ -98,6 +99,47 @@ describe('Dashboards', { concurrent: false }, () => {
 
             expect(updatedDashboard.id).toBe(createdDashboard.id)
             expect(updatedDashboard.name).toBe('Updated Dashboard Name')
+        })
+
+        it('should persist an insight tile layout', async () => {
+            const createResult = await createTool.handler(context, {
+                name: generateUniqueKey('Layout Dashboard'),
+                pinned: false,
+            })
+            const createdDashboard = parseToolResponse(createResult)
+            createdResources.dashboards.push(createdDashboard.id)
+
+            const projectId = await context.stateManager.getProjectId()
+            const insight = await context.api.request<{ id: number }>({
+                method: 'POST',
+                path: `/api/projects/${projectId}/insights/`,
+                body: {
+                    name: generateUniqueKey('Layout Insight'),
+                    query: SAMPLE_HOGQL_QUERIES.pageviews,
+                    saved: true,
+                    dashboards: [createdDashboard.id],
+                },
+            })
+            createdResources.insights.push(insight.id)
+
+            const dashboardResult = await getTool.handler(context, { id: createdDashboard.id })
+            const dashboard = parseToolResponse(dashboardResult)
+            const tile = dashboard.tiles.find((item: { insight?: { id: number } }) => item.insight?.id === insight.id)
+
+            if (!tile) {
+                throw new Error('The created insight tile was not returned by dashboard-get')
+            }
+
+            const layouts = { sm: { x: 6, y: 0, w: 6, h: 5 } }
+            await updateTool.handler(context, { id: createdDashboard.id, tiles: [{ id: tile.id, layouts }] })
+
+            const updatedResult = await getTool.handler(context, { id: createdDashboard.id })
+            const updatedDashboard = parseToolResponse(updatedResult)
+            const updatedTile = updatedDashboard.tiles.find(
+                (item: { insight?: { id: number } }) => item.insight?.id === insight.id
+            )
+
+            expect(updatedTile?.layouts).toEqual(layouts)
         })
     })
 

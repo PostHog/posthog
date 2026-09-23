@@ -153,6 +153,7 @@ from posthog.schema_enums import (
     Key10 as Key10,
     Kind as Kind,
     Kind1 as Kind1,
+    Kind2 as Kind2,
     LegendPosition as LegendPosition,
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
@@ -233,7 +234,7 @@ from posthog.schema_enums import (
     PropertyType as PropertyType,
     QueryIndexUsage as QueryIndexUsage,
     QueryScanFindingKind as QueryScanFindingKind,
-    QueryScanFindingReason as QueryScanFindingReason,
+    QueryScanFixLocation as QueryScanFixLocation,
     QuickFilterContext as QuickFilterContext,
     QuickFilterType as QuickFilterType,
     RecordingOrder as RecordingOrder,
@@ -247,6 +248,7 @@ from posthog.schema_enums import (
     RetentionReference as RetentionReference,
     RetentionType as RetentionType,
     Scale as Scale,
+    SeriesColorMode as SeriesColorMode,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
@@ -459,6 +461,11 @@ class ApprovalResumePayload(BaseModel):
     feedback: str | None = None
     payload: dict[str, Any] | None = None
     proposal_id: str
+
+
+class AssistantBareHogQLQuery(BaseModel):
+    kind: Literal["HogQLQuery"] = "HogQLQuery"
+    query: str = Field(..., description="The HogQL query to run.")
 
 
 class AssistantBaseMultipleBreakdownFilter(BaseModel):
@@ -1031,6 +1038,10 @@ class ChartStyle(BaseModel):
         default=None,
         description=("Line interpolation: straight segments or a smoothed curve through the points."),
     )
+    seriesColorMode: SeriesColorMode | None = Field(
+        default=None,
+        description=("How series are told apart: one color per series, or one color at stepped opacities."),
+    )
 
 
 class ClientToolResultPayload(BaseModel):
@@ -1439,6 +1450,15 @@ class ExperimentExposureEstimateConfig(BaseModel):
         default=None,
         description=("Metric type the manual baseline value refers to. Only used in manual mode."),
     )
+
+
+class ExperimentExposureNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["ExperimentExposureNode"] = "ExperimentExposureNode"
+    response: dict[str, Any] | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentExposureTimeSeries(BaseModel):
@@ -2614,6 +2634,10 @@ class QueryLogTags(BaseModel):
         default=None,
         description=("Name of the query, preferably unique. For example web_analytics_vitals"),
     )
+    presetId: str | None = Field(
+        default=None,
+        description=("Short id of the saved Web analytics filter preset this query was run under, if any."),
+    )
     productKey: str | None = Field(
         default=None,
         description=(
@@ -2640,7 +2664,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative79(BaseModel):
+class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2655,13 +2679,35 @@ class QueryScanWarning(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    actionable: bool = Field(
+        ...,
+        description=(
+            "Whether the person can change the query so it reads less and still answers"
+            ' the same question. Surfaces show the full advice and "Fix with AI" only'
+            " when a finding is actionable."
+        ),
+    )
+    by_design: bool | None = Field(
+        default=None,
+        description=(
+            "True when the query reads this much on purpose, so reading less would change the answer. Absent means no."
+        ),
+    )
+    cause: str | None = Field(
+        default=None,
+        description=(
+            "A label for what in the query text kept the read wide, such as `in_or`."
+            " Only analytics and the assistant read it, and the labels can change."
+        ),
+    )
     evidence: str | None = Field(default=None, description="The one fact the finding rests on.")
     fix: str = Field(..., description='What "Fix with AI" and the assistant are told to do.')
+    fix_location: QueryScanFixLocation | None = Field(
+        default=None,
+        description="Where the change goes. Absent means the query itself.",
+    )
     kind: QueryScanFindingKind
     message: str = Field(..., description="Shown to the person: what happened and what to do.")
-    reason: QueryScanFindingReason | None = Field(
-        default=None, description="Only with `no_event_filter` and `no_start_date`."
-    )
 
 
 class QueryTiming(BaseModel):
@@ -3231,6 +3277,24 @@ class Integer(RootModel[int]):
     root: int
 
 
+class Node(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: NodeKind
+
+
+class NamedArgs1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    node: Node
+
+
+class IsExperimentExposureNode(BaseModel):
+    namedArgs: NamedArgs1 | None = None
+
+
 class AccountCustomPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3367,7 +3431,17 @@ class AggregatedSpanRow(BaseModel):
     p999_duration_nano: float
     p99_duration_nano: float
     service_name: str
+    sessions: int | None = Field(
+        default=None,
+        description=(
+            "Set only when the query asked for `includeImpact`. `sessions` and `users`"
+            " are uniq() estimates; the two span counts are exact."
+        ),
+    )
+    spans_with_distinct_id: int | None = None
+    spans_with_session_id: int | None = None
     total_duration_nano: float
+    users: int | None = None
 
 
 class AlertCondition(BaseModel):
@@ -3404,6 +3478,10 @@ class AssistantArrayPropertyFilter(BaseModel):
             ' convert it to a string "true" or "false".'
         ),
     )
+
+
+class AssistantBareInsightQuery(BaseModel):
+    kind: InsightNodeKind
 
 
 class AssistantBreakdownFilter(BaseModel):
@@ -5165,80 +5243,52 @@ class ExperimentApiEventSource(BaseModel):
     )
 
 
-class ExperimentApiMetric(BaseModel):
+class ExperimentApiRetentionStart(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    completion_event: ExperimentApiEventSource | None = Field(
-        default=None, description="For retention metrics: completion event."
-    )
-    conversion_window: int | None = Field(default=None, description="Conversion window duration.")
-    denominator: ExperimentApiEventSource | None = Field(
-        default=None, description="For ratio metrics: denominator source."
-    )
-    denominator_outlier_handling: ExperimentMetricOutlierHandling | None = Field(
+    event: str | None = Field(
         default=None,
+        description="Event name, e.g. '$pageview'. Required for EventsNode.",
+    )
+    id: int | None = Field(default=None, description="Action ID. Required for ActionsNode.")
+    kind: Kind2 = Field(
+        ...,
         description=(
-            "For ratio metrics: winsorization applied to the denominator aggregate."
-            " Leave unset for a binomial-style denominator, which is never clamped."
+            "Pass 'ExperimentExposureNode' to start retention from the experiment's own"
+            " exposure event; the other fields then stay unset."
         ),
     )
-    goal: ExperimentMetricGoal | None = Field(
-        default=None, description="Whether higher or lower values indicate success."
-    )
-    ignore_zeros: bool | None = Field(
-        default=None,
-        description=("For mean metrics: exclude zero values when computing the winsorization percentile thresholds."),
-    )
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+    math: ExperimentMetricMathType | None = Field(
         default=None,
         description=(
-            "For mean metrics: winsorization lower percentile bound, as a fraction in"
-            " [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this"
-            " percentile are clamped to it before aggregation."
+            "How to aggregate this source. Defaults to 'total' (event count). Use 'sum'"
+            " together with math_property to aggregate a numeric property — e.g. a"
+            " ratio numerator of revenue per order. Other options: 'avg', 'min', 'max',"
+            " 'unique_session', 'dau', 'unique_group', 'hogql'."
         ),
     )
-    metric_type: ExperimentMetricType
-    name: str | None = Field(default=None, description="Human-readable metric name.")
-    numerator: ExperimentApiEventSource | None = Field(default=None, description="For ratio metrics: numerator source.")
-    numerator_outlier_handling: ExperimentMetricOutlierHandling | None = Field(
+    math_group_type_index: MathGroupTypeIndex | None = Field(
+        default=None,
+        description=("Group type index to aggregate over. Required when math is 'unique_group'."),
+    )
+    math_hogql: str | None = Field(
         default=None,
         description=(
-            "For ratio metrics: winsorization applied to the numerator aggregate,"
-            " independently of the denominator and each with its own percentile"
-            " thresholds."
+            "HogQL aggregation expression. Required when math is 'hogql' — without it"
+            " the metric silently falls back to a plain count/sum."
         ),
     )
-    retention_window_end: int | None = None
-    retention_window_start: int | None = None
-    retention_window_unit: FunnelConversionWindowTimeUnit | None = None
-    series: list[ExperimentApiEventSource] | None = Field(
-        default=None,
-        description="For funnel metrics: array of EventsNode/ActionsNode steps.",
-    )
-    source: ExperimentApiEventSource | None = Field(default=None, description="For mean metrics: event source.")
-    start_event: ExperimentApiEventSource | None = Field(
-        default=None, description="For retention metrics: start event."
-    )
-    start_handling: StartHandling | None = None
-    threshold: float | None = Field(
+    math_property: str | None = Field(
         default=None,
         description=(
-            "For mean metrics: when set, reports the percentage of users whose per-user"
-            " summed/counted value reaches or exceeds this threshold. Only meaningful"
-            " for sum/count math types."
+            "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
         ),
     )
-    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+    properties: list[EventPropertyFilter] | None = Field(
         default=None,
-        description=(
-            "For mean metrics: winsorization upper percentile bound, as a fraction in"
-            " [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this"
-            " percentile are clamped to it before aggregation."
-        ),
+        description="Event property filters to narrow which events are counted.",
     )
-    uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
 
 
 class ExperimentExposureQueryResponse(BaseModel):
@@ -6111,6 +6161,34 @@ class MarketingAnalyticsRetentionRow(BaseModel):
     )
 
 
+class MarketingAnalyticsRetentionSummaryRow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    acquired: int
+    breakdownValue: str
+    eligible30d: int
+    eligible7d: int
+    medianReturnDays: float | None = Field(
+        ...,
+        description=(
+            "Estimated median calendar days from the first session to the first return"
+            " on a later day, using the project's timezone. Includes observed returns"
+            " within 30 days. Same-day visits do not count."
+        ),
+    )
+    previous: bool
+    returned30d: int
+    returned7d: int
+    returners: int = Field(
+        ...,
+        description=(
+            "People who returned on a later calendar day in the project's timezone"
+            " within 30 days of their first session, including incomplete windows."
+        ),
+    )
+
+
 class MarketingAnalyticsSchemaField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6376,6 +6454,13 @@ class PathsFilter(BaseModel):
     showFullUrls: bool | None = None
     startPoint: str | None = None
     stepLimit: int | None = 5
+    stripQueryString: bool | None = Field(
+        default=None,
+        description=(
+            "Remove the query string from page view URLs, so pages that differ only in"
+            " query parameters become one path item"
+        ),
+    )
 
 
 class PathsV2Anchor(BaseModel):
@@ -6710,7 +6795,7 @@ class QueryResponseAlternative31(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative86(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6745,7 +6830,10 @@ class QueryScanAnalysis(BaseModel):
             " finding can be fixed in the query."
         ),
     )
-    findings: list[QueryScanWarning] = Field(..., description="Empty when the analysis found nothing to fix.")
+    findings: list[QueryScanWarning] = Field(
+        ...,
+        description=("Every finding, fixable or not. Empty when the analysis found none."),
+    )
     project_share: float | None = Field(
         default=None,
         description="How much of all the project's events the query read, 0 to 1.",
@@ -13539,6 +13627,10 @@ class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MarketingAnalyticsRetentionRow]
+    summary: list[MarketingAnalyticsRetentionSummaryRow] | None = Field(
+        default=None,
+        description=("Only populated in summary mode. Rates use the corresponding eligible population."),
+    )
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -13624,6 +13716,74 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class CachedMetricsHistogramQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bounds: list[float] = Field(..., description="Upper bound per row (y axis), ascending.")
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    counts: list[list[float]] = Field(
+        ...,
+        description=("Observation count per cell: counts[row][column], row = bound, column = time."),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
+    )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    times: list[str] = Field(..., description="Bucket start per column (x axis), ISO 8601, ascending.")
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -17161,9 +17321,11 @@ class ErrorTrackingExternalReference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    external_id: str
     external_url: str
     id: str
     integration: ErrorTrackingExternalReferenceIntegration
+    title: str
 
 
 class ErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
@@ -17529,6 +17691,111 @@ class EventsQueryResponse(BaseModel):
     )
 
 
+class ExperimentApiMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    completion_event: ExperimentApiEventSource | None = Field(
+        default=None, description="For retention metrics: completion event."
+    )
+    conversion_window: int | None = Field(
+        default=None,
+        description=(
+            "Only count metric events within this many units after the user's first"
+            " exposure. Requires conversion_window_unit: a window without a unit is"
+            " ignored and the metric counts events until the experiment ends. Omit both"
+            " to count until the experiment ends."
+        ),
+    )
+    conversion_window_unit: FunnelConversionWindowTimeUnit | None = Field(
+        default=None,
+        description=(
+            "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or"
+            " 'month'. Required when conversion_window is set."
+        ),
+    )
+    denominator: ExperimentApiEventSource | None = Field(
+        default=None, description="For ratio metrics: denominator source."
+    )
+    denominator_outlier_handling: ExperimentMetricOutlierHandling | None = Field(
+        default=None,
+        description=(
+            "For ratio metrics: winsorization applied to the denominator aggregate."
+            " Leave unset for a binomial-style denominator, which is never clamped."
+        ),
+    )
+    funnel_order_type: StepOrderValue | None = Field(
+        default=None,
+        description=(
+            "For funnel metrics: how the steps must occur. 'ordered' (default) or"
+            " 'unordered'. Do not use 'strict': experiment funnels give wrong counts"
+            " with it."
+        ),
+    )
+    goal: ExperimentMetricGoal | None = Field(
+        default=None, description="Whether higher or lower values indicate success."
+    )
+    ignore_zeros: bool | None = Field(
+        default=None,
+        description=("For mean metrics: exclude zero values when computing the winsorization percentile thresholds."),
+    )
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    lower_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "For mean metrics: winsorization lower percentile bound, as a fraction in"
+            " [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this"
+            " percentile are clamped to it before aggregation."
+        ),
+    )
+    metric_type: ExperimentMetricType
+    name: str | None = Field(default=None, description="Human-readable metric name.")
+    numerator: ExperimentApiEventSource | None = Field(default=None, description="For ratio metrics: numerator source.")
+    numerator_outlier_handling: ExperimentMetricOutlierHandling | None = Field(
+        default=None,
+        description=(
+            "For ratio metrics: winsorization applied to the numerator aggregate,"
+            " independently of the denominator and each with its own percentile"
+            " thresholds."
+        ),
+    )
+    retention_window_end: int | None = None
+    retention_window_start: int | None = None
+    retention_window_unit: FunnelConversionWindowTimeUnit | None = None
+    series: list[ExperimentApiEventSource] | None = Field(
+        default=None,
+        description="For funnel metrics: array of EventsNode/ActionsNode steps.",
+    )
+    source: ExperimentApiEventSource | None = Field(default=None, description="For mean metrics: event source.")
+    start_event: ExperimentApiRetentionStart | None = Field(
+        default=None,
+        description=(
+            'For retention metrics: start event. Pass {"kind":'
+            ' "ExperimentExposureNode"} to start retention from the experiment\'s'
+            " exposure event; a conversion window or 'last_seen' start_handling is"
+            " rejected then, because the start is always the user's first exposure."
+        ),
+    )
+    start_handling: StartHandling | None = None
+    threshold: float | None = Field(
+        default=None,
+        description=(
+            "For mean metrics: when set, reports the percentage of users whose per-user"
+            " summed/counted value reaches or exceeds this threshold. Only meaningful"
+            " for sum/count math types."
+        ),
+    )
+    upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=(
+            "For mean metrics: winsorization upper percentile bound, as a fraction in"
+            " [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this"
+            " percentile are clamped to it before aggregation."
+        ),
+    )
+    uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
+
+
 class ExperimentBreakdownResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -17850,8 +18117,12 @@ class InsightActorsQueryBase(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class InsightQuery(RootModel[AssistantInsightVizNode | AssistantDataVisualizationNode]):
-    root: AssistantInsightVizNode | AssistantDataVisualizationNode
+class InsightQuery(
+    RootModel[
+        AssistantInsightVizNode | AssistantDataVisualizationNode | AssistantBareInsightQuery | AssistantBareHogQLQuery
+    ]
+):
+    root: AssistantInsightVizNode | AssistantDataVisualizationNode | AssistantBareInsightQuery | AssistantBareHogQLQuery
 
 
 class IsolationForestDetectorConfig(BaseModel):
@@ -19195,6 +19466,10 @@ class MarketingAnalyticsRetentionQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MarketingAnalyticsRetentionRow]
+    summary: list[MarketingAnalyticsRetentionSummaryRow] | None = Field(
+        default=None,
+        description=("Only populated in summary mode. Rates use the corresponding eligible population."),
+    )
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -19304,6 +19579,59 @@ class MaxBillingContext(BaseModel):
     total_current_amount_usd: str | None = None
     trial: MaxBillingContextTrial | None = None
     usage_history: list[UsageHistoryItem] | None = None
+
+
+class MetricsHistogramQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bounds: list[float] = Field(..., description="Upper bound per row (y axis), ascending.")
+    counts: list[list[float]] = Field(
+        ...,
+        description=("Observation count per cell: counts[row][column], row = bound, column = time."),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    times: list[str] = Field(..., description="Bucket start per column (x axis), ISO 8601, ascending.")
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
 
 
 class MetricsQueryResponse(BaseModel):
@@ -20960,6 +21288,10 @@ class QueryResponseAlternative37(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MarketingAnalyticsRetentionRow]
+    summary: list[MarketingAnalyticsRetentionSummaryRow] | None = Field(
+        default=None,
+        description=("Only populated in summary mode. Rates use the corresponding eligible population."),
+    )
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -22618,6 +22950,59 @@ class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bounds: list[float] = Field(..., description="Upper bound per row (y axis), ascending.")
+    counts: list[list[float]] = Field(
+        ...,
+        description=("Observation count per cell: counts[row][column], row = bound, column = time."),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: Any
+    times: list[str] = Field(..., description="Bucket start per column (x axis), ISO 8601, ascending.")
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class QueryResponseAlternative76(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -22665,7 +23050,7 @@ class QueryResponseAlternative75(BaseModel):
     )
 
 
-class QueryResponseAlternative76(BaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22716,7 +23101,7 @@ class QueryResponseAlternative76(BaseModel):
     )
 
 
-class QueryResponseAlternative77(BaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22767,7 +23152,7 @@ class QueryResponseAlternative77(BaseModel):
     )
 
 
-class QueryResponseAlternative78(BaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22818,7 +23203,7 @@ class QueryResponseAlternative78(BaseModel):
     )
 
 
-class QueryResponseAlternative80(BaseModel):
+class QueryResponseAlternative81(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22868,7 +23253,7 @@ class QueryResponseAlternative80(BaseModel):
     )
 
 
-class QueryResponseAlternative81(BaseModel):
+class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22918,7 +23303,7 @@ class QueryResponseAlternative81(BaseModel):
     )
 
 
-class QueryResponseAlternative82(BaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22965,7 +23350,7 @@ class QueryResponseAlternative82(BaseModel):
     )
 
 
-class QueryResponseAlternative83(BaseModel):
+class QueryResponseAlternative84(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23016,7 +23401,7 @@ class QueryResponseAlternative83(BaseModel):
     )
 
 
-class QueryResponseAlternative87(BaseModel):
+class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23063,7 +23448,7 @@ class QueryResponseAlternative87(BaseModel):
     )
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23110,7 +23495,7 @@ class QueryResponseAlternative88(BaseModel):
     )
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23167,7 +23552,7 @@ class QueryResponseAlternative89(BaseModel):
     )
 
 
-class QueryResponseAlternative90(BaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23222,7 +23607,7 @@ class QueryResponseAlternative90(BaseModel):
     )
 
 
-class QueryResponseAlternative91(BaseModel):
+class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23269,7 +23654,7 @@ class QueryResponseAlternative91(BaseModel):
     )
 
 
-class QueryResponseAlternative92(BaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23321,7 +23706,7 @@ class QueryResponseAlternative92(BaseModel):
     )
 
 
-class QueryResponseAlternative93(BaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23368,7 +23753,7 @@ class QueryResponseAlternative93(BaseModel):
     )
 
 
-class QueryResponseAlternative94(BaseModel):
+class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23415,7 +23800,7 @@ class QueryResponseAlternative94(BaseModel):
     )
 
 
-class QueryResponseAlternative95(BaseModel):
+class QueryResponseAlternative96(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23462,7 +23847,7 @@ class QueryResponseAlternative95(BaseModel):
     )
 
 
-class QueryResponseAlternative96(BaseModel):
+class QueryResponseAlternative97(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23509,7 +23894,7 @@ class QueryResponseAlternative96(BaseModel):
     )
 
 
-class QueryResponseAlternative97(BaseModel):
+class QueryResponseAlternative98(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23560,7 +23945,7 @@ class QueryResponseAlternative97(BaseModel):
     )
 
 
-class QueryResponseAlternative98(BaseModel):
+class QueryResponseAlternative99(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23607,7 +23992,7 @@ class QueryResponseAlternative98(BaseModel):
     )
 
 
-class QueryResponseAlternative99(BaseModel):
+class QueryResponseAlternative100(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23654,7 +24039,7 @@ class QueryResponseAlternative99(BaseModel):
     )
 
 
-class QueryResponseAlternative100(BaseModel):
+class QueryResponseAlternative101(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23701,7 +24086,7 @@ class QueryResponseAlternative100(BaseModel):
     )
 
 
-class QueryResponseAlternative101(BaseModel):
+class QueryResponseAlternative102(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23751,7 +24136,7 @@ class QueryResponseAlternative101(BaseModel):
     )
 
 
-class QueryResponseAlternative102(BaseModel):
+class QueryResponseAlternative103(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23798,7 +24183,7 @@ class QueryResponseAlternative102(BaseModel):
     )
 
 
-class QueryResponseAlternative103(BaseModel):
+class QueryResponseAlternative104(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23849,7 +24234,7 @@ class QueryResponseAlternative103(BaseModel):
     )
 
 
-class QueryResponseAlternative104(BaseModel):
+class QueryResponseAlternative105(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23896,7 +24281,7 @@ class QueryResponseAlternative104(BaseModel):
     )
 
 
-class QueryResponseAlternative105(BaseModel):
+class QueryResponseAlternative106(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23943,7 +24328,7 @@ class QueryResponseAlternative105(BaseModel):
     )
 
 
-class QueryResponseAlternative106(BaseModel):
+class QueryResponseAlternative107(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23990,7 +24375,7 @@ class QueryResponseAlternative106(BaseModel):
     )
 
 
-class QueryResponseAlternative107(BaseModel):
+class QueryResponseAlternative108(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24037,7 +24422,7 @@ class QueryResponseAlternative107(BaseModel):
     )
 
 
-class QueryResponseAlternative108(BaseModel):
+class QueryResponseAlternative109(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24084,7 +24469,7 @@ class QueryResponseAlternative108(BaseModel):
     )
 
 
-class QueryResponseAlternative109(BaseModel):
+class QueryResponseAlternative110(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24131,7 +24516,7 @@ class QueryResponseAlternative109(BaseModel):
     )
 
 
-class QueryResponseAlternative110(BaseModel):
+class QueryResponseAlternative111(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24178,7 +24563,7 @@ class QueryResponseAlternative110(BaseModel):
     )
 
 
-class QueryResponseAlternative111(BaseModel):
+class QueryResponseAlternative112(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24226,7 +24611,7 @@ class QueryResponseAlternative111(BaseModel):
     )
 
 
-class QueryResponseAlternative112(BaseModel):
+class QueryResponseAlternative113(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27166,7 +27551,7 @@ class MCPHarnessBreakdownQuery(BaseModel):
     filterTestAccounts: bool | None = None
     kind: Literal["MCPHarnessBreakdownQuery"] = "MCPHarnessBreakdownQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[AnyPropertyFilterDiscriminated] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPHarnessBreakdownQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str | None = Field(
@@ -27217,7 +27602,7 @@ class MCPModelBreakdownQuery(BaseModel):
         default=None,
         description=("Number of individual models to skip when includeAllModels is enabled."),
     )
-    properties: list[AnyPropertyFilterDiscriminated] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPModelBreakdownQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27235,7 +27620,7 @@ class MCPToolCallBreakdownQuery(BaseModel):
     )
     kind: Literal["MCPToolCallBreakdownQuery"] = "MCPToolCallBreakdownQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[AnyPropertyFilterDiscriminated] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolCallBreakdownQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27253,7 +27638,7 @@ class MCPToolCallsAndErrorsQuery(BaseModel):
     )
     kind: Literal["MCPToolCallsAndErrorsQuery"] = "MCPToolCallsAndErrorsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[AnyPropertyFilterDiscriminated] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolCallsAndErrorsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27264,8 +27649,10 @@ class MCPToolCategoriesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolCategoriesQuery"] = "MCPToolCategoriesQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolCategoriesQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27276,8 +27663,10 @@ class MCPToolCategoryCountsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolCategoryCountsQuery"] = "MCPToolCategoryCountsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolCategoryCountsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -27406,12 +27795,14 @@ class MCPToolQualityDailyStatsQuery(BaseModel):
         description=("Restrict to these $mcp_tool_category values; empty or omitted means all categories."),
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
         description=("Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."),
     )
     kind: Literal["MCPToolQualityDailyStatsQuery"] = "MCPToolQualityDailyStatsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolQualityDailyStatsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str | None = Field(
@@ -27430,6 +27821,7 @@ class MCPToolQualityRowsQuery(BaseModel):
         description=("Restrict to these $mcp_tool_category values; empty or omitted means all categories."),
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolQualityRowsQuery"] = "MCPToolQualityRowsQuery"
     limit: int | None = Field(
         default=None,
@@ -27437,6 +27829,7 @@ class MCPToolQualityRowsQuery(BaseModel):
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of matching tools to skip.")
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolQualityRowsQueryResponse | None = None
     search: str | None = Field(
         default=None,
@@ -27728,6 +28121,10 @@ class MarketingAnalyticsRetentionQuery(BaseModel):
         default=None,
         description=("Breakdown values kept before the rest roll into 'Other'. Defaults to 20."),
     )
+    comparePreviousPeriod: bool | None = Field(
+        default=None,
+        description=("Include the previous acquisition period in summary mode. Defaults to false."),
+    )
     dataColorTheme: float | None = Field(
         default=None,
         description=(
@@ -27763,6 +28160,10 @@ class MarketingAnalyticsRetentionQuery(BaseModel):
     retentionInterval: MarketingAnalyticsRetentionInterval | None = Field(
         default=None,
         description=("Period for both the cohort rows and the return columns. Defaults to week."),
+    )
+    summary: bool | None = Field(
+        default=None,
+        description=("Return session-based 7/30-day metrics instead of the cohort matrix. Defaults to false."),
     )
     tags: QueryLogTags | None = None
     totalIntervals: int | None = Field(
@@ -27895,6 +28296,28 @@ class MaxRecordingUniversalFilters(BaseModel):
             " filtered on in `filter_group`."
         ),
     )
+
+
+class MetricsHistogramQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange | None = Field(
+        default=None,
+        description=("Defaults to the last 24 hours when omitted; dashboard date filters override it"),
+    )
+    filters: list[MetricsQueryFilter] | None = None
+    interval: str | None = Field(default=None, description="Bucket size; auto-picked from the range when omitted")
+    kind: Literal["MetricsHistogramQuery"] = "MetricsHistogramQuery"
+    metricName: str
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: MetricsHistogramQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    unit: str | None = Field(
+        default=None,
+        description=('UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only.'),
+    )
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class MetricsQuery(BaseModel):
@@ -28251,6 +28674,10 @@ class RetentionFilter(BaseModel):
     selectedInterval: int | None = Field(
         default=None,
         description=("The selected interval to display across all cohorts (null = show all intervals for each cohort)"),
+    )
+    showMeanLine: bool | None = Field(
+        default=None,
+        description="Draw the mean across cohorts as one line on the retention graph.",
     )
     showTrendLines: bool | None = None
     targetEntity: RetentionEntity | None = None
@@ -29094,6 +29521,10 @@ class TraceSpansAggregationQuery(BaseModel):
     )
     dateRange: DateRange
     filterGroup: PropertyGroupFilter | None = None
+    includeImpact: bool | None = Field(
+        default=None,
+        description=("Also aggregate sessions and people per operation. Off by default: it reads the attribute maps."),
+    )
     kind: Literal["TraceSpansAggregationQuery"] = "TraceSpansAggregationQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: TraceSpansAggregationQueryResponse | None = None
@@ -29397,44 +29828,6 @@ class ExperimentRatioMetricTypeProps(BaseModel):
     metric_type: Literal["ratio"] = "ratio"
     numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
     numerator_outlier_handling: ExperimentMetricOutlierHandling | None = None
-
-
-class ExperimentRetentionMetric(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdownFilter: BreakdownFilter | None = None
-    completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
-    conversion_window: int | None = None
-    conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
-    fingerprint: str | None = None
-    goal: ExperimentMetricGoal | None = None
-    isSharedMetric: bool | None = None
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    metric_type: Literal["retention"] = "retention"
-    name: str | None = None
-    response: dict[str, Any] | None = None
-    retention_window_end: int
-    retention_window_start: int
-    retention_window_unit: FunnelConversionWindowTimeUnit
-    sharedMetricId: float | None = None
-    start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
-    start_handling: StartHandling
-    uuid: str | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class ExperimentRetentionMetricTypeProps(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
-    metric_type: Literal["retention"] = "retention"
-    retention_window_end: int
-    retention_window_start: int
-    retention_window_unit: FunnelConversionWindowTimeUnit
-    start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
-    start_handling: StartHandling
 
 
 class GroupNode(BaseModel):
@@ -29957,20 +30350,46 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     )
 
 
-class ExperimentMetricTypeProps(
-    RootModel[
-        ExperimentMeanMetricTypeProps
-        | ExperimentFunnelMetricTypeProps
-        | ExperimentRatioMetricTypeProps
-        | ExperimentRetentionMetricTypeProps
-    ]
-):
-    root: (
-        ExperimentMeanMetricTypeProps
-        | ExperimentFunnelMetricTypeProps
-        | ExperimentRatioMetricTypeProps
-        | ExperimentRetentionMetricTypeProps
+class ExperimentRetentionMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
     )
+    breakdownFilter: BreakdownFilter | None = None
+    completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    conversion_window: int | None = None
+    conversion_window_unit: FunnelConversionWindowTimeUnit | None = None
+    fingerprint: str | None = None
+    goal: ExperimentMetricGoal | None = None
+    isSharedMetric: bool | None = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_type: Literal["retention"] = "retention"
+    name: str | None = None
+    response: dict[str, Any] | None = None
+    retention_window_end: int
+    retention_window_start: int
+    retention_window_unit: FunnelConversionWindowTimeUnit
+    sharedMetricId: float | None = None
+    start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentExposureNode = Field(
+        ..., discriminator="kind"
+    )
+    start_handling: StartHandling
+    uuid: str | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentRetentionMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    metric_type: Literal["retention"] = "retention"
+    retention_window_end: int
+    retention_window_start: int
+    retention_window_unit: FunnelConversionWindowTimeUnit
+    start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentExposureNode = Field(
+        ..., discriminator="kind"
+    )
+    start_handling: StartHandling
 
 
 class LifecycleQuery(BaseModel):
@@ -30053,7 +30472,7 @@ class StickinessQuery(BaseModel):
     response: StickinessQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[Annotated[EventsNode | ActionsNode | DataWarehouseNode, Field(discriminator="kind")]] = Field(
-        ..., description="Events and actions to include"
+        ..., description="Events and actions to include", max_length=200
     )
     stickinessFilter: StickinessFilter | None = Field(
         default=None, description="Properties specific to the stickiness insight"
@@ -30088,105 +30507,19 @@ class DatabaseSchemaQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentMetric(
-    RootModel[ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric]
+class ExperimentMetricTypeProps(
+    RootModel[
+        ExperimentMeanMetricTypeProps
+        | ExperimentFunnelMetricTypeProps
+        | ExperimentRatioMetricTypeProps
+        | ExperimentRetentionMetricTypeProps
+    ]
 ):
-    root: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
-
-
-class ExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBaseValidated | None = None
-    breakdown_results: list[ExperimentBreakdownResult] | None = Field(
-        default=None,
-        description=(
-            "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
-        ),
-    )
-    clickhouse_sql: str | None = None
-    credible_intervals: dict[str, list[float]] | None = None
-    hogql: str | None = None
-    insight: list[dict[str, Any]] | None = None
-    is_precomputed: bool | None = Field(
-        default=None,
-        description="Whether exposures were served from the precomputation system",
-    )
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | None = (
-        Field(default=None, discriminator="metric_type")
-    )
-    p_value: float | None = None
-    probability: dict[str, float] | None = None
-    significance_code: ExperimentSignificanceCode | None = None
-    significant: bool | None = None
-    stats_version: int | None = None
-    variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
-    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
-class LegacyExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
-class QueryResponseAlternative20(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBaseValidated | None = None
-    breakdown_results: list[ExperimentBreakdownResult] | None = Field(
-        default=None,
-        description=(
-            "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
-        ),
-    )
-    clickhouse_sql: str | None = None
-    credible_intervals: dict[str, list[float]] | None = None
-    hogql: str | None = None
-    insight: list[dict[str, Any]] | None = None
-    is_precomputed: bool | None = Field(
-        default=None,
-        description="Whether exposures were served from the precomputation system",
-    )
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | None = (
-        Field(default=None, discriminator="metric_type")
-    )
-    p_value: float | None = None
-    probability: dict[str, float] | None = None
-    significance_code: ExperimentSignificanceCode | None = None
-    significant: bool | None = None
-    stats_version: int | None = None
-    variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
-    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    root: (
+        ExperimentMeanMetricTypeProps
+        | ExperimentFunnelMetricTypeProps
+        | ExperimentRatioMetricTypeProps
+        | ExperimentRetentionMetricTypeProps
     )
 
 
@@ -30244,91 +30577,11 @@ class TrendsQuery(BaseModel):
     response: TrendsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     series: list[Annotated[EventsNode | ActionsNode | DataWarehouseNode | GroupNode, Field(discriminator="kind")]] = (
-        Field(..., description="Events and actions to include")
+        Field(..., description="Events and actions to include", max_length=200)
     )
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     trendsFilter: TrendsFilter | None = Field(default=None, description="Properties specific to the trends insight")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class NamedArgs1(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
-
-
-class IsExperimentFunnelMetric(BaseModel):
-    namedArgs: NamedArgs1 | None = None
-
-
-class IsExperimentMeanMetric(BaseModel):
-    namedArgs: NamedArgs1 | None = None
-
-
-class IsExperimentRatioMetric(BaseModel):
-    namedArgs: NamedArgs1 | None = None
-
-
-class IsExperimentRetentionMetric(BaseModel):
-    namedArgs: NamedArgs1 | None = None
-
-
-class CachedExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBaseValidated | None = None
-    breakdown_results: list[ExperimentBreakdownResult] | None = Field(
-        default=None,
-        description=(
-            "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
-        ),
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    clickhouse_sql: str | None = None
-    credible_intervals: dict[str, list[float]] | None = None
-    hogql: str | None = None
-    insight: list[dict[str, Any]] | None = None
-    is_cached: bool
-    is_precomputed: bool | None = Field(
-        default=None,
-        description="Whether exposures were served from the precomputation system",
-    )
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    last_refresh: AwareDatetime
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | None = (
-        Field(default=None, discriminator="metric_type")
-    )
-    next_allowed_client_refresh: AwareDatetime
-    p_value: float | None = None
-    probability: dict[str, float] | None = None
-    query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = Field(
-        default=None,
-        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
-    )
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    significance_code: ExperimentSignificanceCode | None = None
-    significant: bool | None = None
-    stats_version: int | None = None
-    timezone: str
-    variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
-    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
 
 
 class CachedExperimentTrendsQueryResponse(BaseModel):
@@ -30365,47 +30618,6 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
     stats_version: int | None = None
     timezone: str
     variants: list[ExperimentVariantTrendsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
-class CachedLegacyExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: list[dict[str, Any]]
-    is_cached: bool
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    last_refresh: AwareDatetime
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
-    next_allowed_client_refresh: AwareDatetime
-    p_value: float
-    probability: dict[str, float]
-    query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = Field(
-        default=None,
-        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
-    )
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    timezone: str
-    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
@@ -30481,37 +30693,48 @@ class EndpointRequest(BaseModel):
     )
 
 
-class ExperimentMetricTimeseries(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    computed_at: str | None = None
-    created_at: str
-    errors: dict[str, str] | None = None
-    experiment_id: float
-    metric_uuid: str
-    recalculation_created_at: str | None = None
-    recalculation_status: str | None = None
-    status: Status
-    timeseries: dict[str, ExperimentQueryResponse] | None = None
-    updated_at: str
-
-
-class ExperimentQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    experiment_id: int | None = None
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
+class ExperimentMetric(
+    RootModel[ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric]
+):
+    root: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
         ..., discriminator="metric_type"
     )
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    name: str | None = None
-    precomputation_mode: PrecomputationMode | None = None
-    response: ExperimentQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated | None = None
+    breakdown_results: list[ExperimentBreakdownResult] | None = Field(
+        default=None,
+        description=(
+            "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
+        ),
+    )
+    clickhouse_sql: str | None = None
+    credible_intervals: dict[str, list[float]] | None = None
+    hogql: str | None = None
+    insight: list[dict[str, Any]] | None = None
+    is_precomputed: bool | None = Field(
+        default=None,
+        description="Whether exposures were served from the precomputation system",
+    )
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | None = (
+        Field(default=None, discriminator="metric_type")
+    )
+    p_value: float | None = None
+    probability: dict[str, float] | None = None
+    significance_code: ExperimentSignificanceCode | None = None
+    significant: bool | None = None
+    stats_version: int | None = None
+    variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
+    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
 
 
 class ExperimentTrendsQueryResponse(BaseModel):
@@ -30567,6 +30790,28 @@ class FunnelsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class LegacyExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
+        ..., discriminator="metric_type"
+    )
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
 class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -30602,6 +30847,42 @@ class QueryResponseAlternative19(BaseModel):
     significant: bool
     stats_version: int | None = None
     variants: list[ExperimentVariantTrendsBaseStats]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
+class QueryResponseAlternative20(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated | None = None
+    breakdown_results: list[ExperimentBreakdownResult] | None = Field(
+        default=None,
+        description=(
+            "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
+        ),
+    )
+    clickhouse_sql: str | None = None
+    credible_intervals: dict[str, list[float]] | None = None
+    hogql: str | None = None
+    insight: list[dict[str, Any]] | None = None
+    is_precomputed: bool | None = Field(
+        default=None,
+        description="Whether exposures were served from the precomputation system",
+    )
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | None = (
+        Field(default=None, discriminator="metric_type")
+    )
+    p_value: float | None = None
+    probability: dict[str, float] | None = None
+    significance_code: ExperimentSignificanceCode | None = None
+    significant: bool | None = None
+    stats_version: int | None = None
+    variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
+    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
@@ -30732,7 +31013,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative81
         | QueryResponseAlternative82
         | QueryResponseAlternative83
-        | QueryResponseAlternative86
+        | QueryResponseAlternative84
         | QueryResponseAlternative87
         | QueryResponseAlternative88
         | QueryResponseAlternative89
@@ -30759,6 +31040,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative110
         | QueryResponseAlternative111
         | QueryResponseAlternative112
+        | QueryResponseAlternative113
     ]
 ):
     root: (
@@ -30843,7 +31125,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative81
         | QueryResponseAlternative82
         | QueryResponseAlternative83
-        | QueryResponseAlternative86
+        | QueryResponseAlternative84
         | QueryResponseAlternative87
         | QueryResponseAlternative88
         | QueryResponseAlternative89
@@ -30870,7 +31152,33 @@ class QueryResponseAlternative(
         | QueryResponseAlternative110
         | QueryResponseAlternative111
         | QueryResponseAlternative112
+        | QueryResponseAlternative113
     )
+
+
+class NamedArgs2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
+        ..., discriminator="metric_type"
+    )
+
+
+class IsExperimentFunnelMetric(BaseModel):
+    namedArgs: NamedArgs2 | None = None
+
+
+class IsExperimentMeanMetric(BaseModel):
+    namedArgs: NamedArgs2 | None = None
+
+
+class IsExperimentRatioMetric(BaseModel):
+    namedArgs: NamedArgs2 | None = None
+
+
+class IsExperimentRetentionMetric(BaseModel):
+    namedArgs: NamedArgs2 | None = None
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):
@@ -30912,6 +31220,102 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
     )
 
 
+class CachedExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated | None = None
+    breakdown_results: list[ExperimentBreakdownResult] | None = Field(
+        default=None,
+        description=(
+            "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
+        ),
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    clickhouse_sql: str | None = None
+    credible_intervals: dict[str, list[float]] | None = None
+    hogql: str | None = None
+    insight: list[dict[str, Any]] | None = None
+    is_cached: bool
+    is_precomputed: bool | None = Field(
+        default=None,
+        description="Whether exposures were served from the precomputation system",
+    )
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    last_refresh: AwareDatetime
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | None = (
+        Field(default=None, discriminator="metric_type")
+    )
+    next_allowed_client_refresh: AwareDatetime
+    p_value: float | None = None
+    probability: dict[str, float] | None = None
+    query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
+    )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    significance_code: ExperimentSignificanceCode | None = None
+    significant: bool | None = None
+    stats_version: int | None = None
+    timezone: str
+    variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
+    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
+class CachedLegacyExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    is_cached: bool
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    last_refresh: AwareDatetime
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
+        ..., discriminator="metric_type"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    p_value: float
+    probability: dict[str, float]
+    query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
+    )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    timezone: str
+    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
 class Response16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -30932,44 +31336,6 @@ class Response16(BaseModel):
     )
 
 
-class ExperimentActorsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    exposureConfig: ExperimentEventExposureConfig | ActionsNode | None = Field(
-        default=None,
-        description=(
-            "Exposure configuration for filtering events. Defines when users were first exposed to the experiment."
-        ),
-    )
-    featureFlagKey: str | None = Field(default=None, description="Feature flag key for breakdown filtering.")
-    funnelStep: int | None = Field(
-        default=None,
-        description=(
-            "Index of the step for which we want to get actors for, per experiment"
-            " variant. Positive for converted persons, negative for dropped off"
-            " persons."
-        ),
-    )
-    funnelStepBreakdown: int | str | float | list[int | str | float] | None = Field(
-        default=None,
-        description=(
-            "The variant key for filtering actors. For experiments, this filters by"
-            " feature flag variant (e.g., 'control', 'test')."
-        ),
-    )
-    includeRecordings: bool | None = None
-    kind: Literal["ExperimentActorsQuery"] = "ExperimentActorsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    multipleVariantHandling: MultipleVariantHandling | None = Field(
-        default=None, description="How to handle users with multiple variant exposures."
-    )
-    response: ActorsQueryResponse | None = None
-    source: ExperimentQuery
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class ExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -30988,6 +31354,39 @@ class ExperimentFunnelsQueryResponse(BaseModel):
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
+
+
+class ExperimentMetricTimeseries(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computed_at: str | None = None
+    created_at: str
+    errors: dict[str, str] | None = None
+    experiment_id: float
+    metric_uuid: str
+    recalculation_created_at: str | None = None
+    recalculation_status: str | None = None
+    status: Status
+    timeseries: dict[str, ExperimentQueryResponse] | None = None
+    updated_at: str
+
+
+class ExperimentQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiment_id: int | None = None
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
+        ..., discriminator="metric_type"
+    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    name: str | None = None
+    precomputation_mode: PrecomputationMode | None = None
+    response: ExperimentQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentTrendsQuery(BaseModel):
@@ -31178,6 +31577,44 @@ class VisualizationMessage(BaseModel):
     type: Literal["ai/viz"] = "ai/viz"
 
 
+class ExperimentActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposureConfig: ExperimentEventExposureConfig | ActionsNode | None = Field(
+        default=None,
+        description=(
+            "Exposure configuration for filtering events. Defines when users were first exposed to the experiment."
+        ),
+    )
+    featureFlagKey: str | None = Field(default=None, description="Feature flag key for breakdown filtering.")
+    funnelStep: int | None = Field(
+        default=None,
+        description=(
+            "Index of the step for which we want to get actors for, per experiment"
+            " variant. Positive for converted persons, negative for dropped off"
+            " persons."
+        ),
+    )
+    funnelStepBreakdown: int | str | float | list[int | str | float] | None = Field(
+        default=None,
+        description=(
+            "The variant key for filtering actors. For experiments, this filters by"
+            " feature flag variant (e.g., 'control', 'test')."
+        ),
+    )
+    includeRecordings: bool | None = None
+    kind: Literal["ExperimentActorsQuery"] = "ExperimentActorsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    multipleVariantHandling: MultipleVariantHandling | None = Field(
+        default=None, description="How to handle users with multiple variant exposures."
+    )
+    response: ActorsQueryResponse | None = None
+    source: ExperimentQuery
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class ExperimentFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -31318,7 +31755,7 @@ class WebVitalsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class NamedArgs2(BaseModel):
+class NamedArgs3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -31326,11 +31763,11 @@ class NamedArgs2(BaseModel):
 
 
 class IsExperimentFunnelsQuery(BaseModel):
-    namedArgs: NamedArgs2 | None = None
+    namedArgs: NamedArgs3 | None = None
 
 
 class IsExperimentTrendsQuery(BaseModel):
-    namedArgs: NamedArgs2 | None = None
+    namedArgs: NamedArgs3 | None = None
 
 
 class DocumentArtifactContent(BaseModel):
@@ -31812,6 +32249,7 @@ class HogQLAutocomplete(BaseModel):
         | LogAttributesQuery
         | LogValuesQuery
         | MetricsQuery
+        | MetricsHistogramQuery
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
@@ -31938,6 +32376,7 @@ class HogQLMetadata(BaseModel):
         | LogAttributesQuery
         | LogValuesQuery
         | MetricsQuery
+        | MetricsHistogramQuery
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
@@ -32084,6 +32523,7 @@ class MaxInsightContext(BaseModel):
         | LogAttributesQuery
         | LogValuesQuery
         | MetricsQuery
+        | MetricsHistogramQuery
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
@@ -32226,6 +32666,7 @@ class QueryRequest(BaseModel):
         | LogAttributesQuery
         | LogValuesQuery
         | MetricsQuery
+        | MetricsHistogramQuery
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
@@ -32360,6 +32801,7 @@ class QuerySchemaRoot(
         | LogAttributesQuery
         | LogValuesQuery
         | MetricsQuery
+        | MetricsHistogramQuery
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
@@ -32464,6 +32906,7 @@ class QuerySchemaRoot(
         | LogAttributesQuery
         | LogValuesQuery
         | MetricsQuery
+        | MetricsHistogramQuery
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
@@ -32573,6 +33016,7 @@ class QueryUpgradeRequest(BaseModel):
         | LogAttributesQuery
         | LogValuesQuery
         | MetricsQuery
+        | MetricsHistogramQuery
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
@@ -32682,6 +33126,7 @@ class QueryUpgradeResponse(BaseModel):
         | LogAttributesQuery
         | LogValuesQuery
         | MetricsQuery
+        | MetricsHistogramQuery
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
@@ -32836,6 +33281,7 @@ class VisualizationArtifactContent(BaseModel):
         | LogAttributesQuery
         | LogValuesQuery
         | MetricsQuery
+        | MetricsHistogramQuery
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery

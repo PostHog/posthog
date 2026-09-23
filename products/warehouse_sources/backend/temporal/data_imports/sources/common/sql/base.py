@@ -58,6 +58,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
 
     supports_column_selection: bool = True
     supports_row_filters: bool = True
+    detects_primary_keys: bool = True
 
     @property
     @abstractmethod
