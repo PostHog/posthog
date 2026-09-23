@@ -29,6 +29,7 @@ import {
     EventMetadataPropertyFilter,
     EventPropertyFilter,
     FlagPropertyFilter,
+    PropertyFilterRow,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -73,7 +74,7 @@ export interface taxonomicPropertyFilterLogicActions {
 export interface taxonomicPropertyFilterLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        filter: (filters: AnyPropertyFilter[], filterIndex: number) => AnyPropertyFilter | null
+        filter: (filters: PropertyFilterRow[], filterIndex: number) => PropertyFilterRow | null
         activeTaxonomicGroup: (
             filter: AnyPropertyFilter | null,
             taxonomicGroups: TaxonomicFilterGroup[]
@@ -135,12 +136,12 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     selectors({
         filter: [
             (_, p) => [p.filters, p.filterIndex],
-            (filters: AnyPropertyFilter[], filterIndex: number): AnyPropertyFilter | null =>
+            (filters: PropertyFilterRow[], filterIndex: number): PropertyFilterRow | null =>
                 filters[filterIndex] ? sanitizePropertyFilter(filters[filterIndex]) : null,
         ],
         activeTaxonomicGroup: [
             (s) => [s.filter, s.taxonomicGroups],
-            (filter: AnyPropertyFilter | null, groups: TaxonomicFilterGroup[]): TaxonomicFilterGroup | undefined => {
+            (filter: PropertyFilterRow | null, groups: TaxonomicFilterGroup[]): TaxonomicFilterGroup | undefined => {
                 if (isAnyPropertyfilter(filter)) {
                     const taxonomicGroupType = propertyFilterTypeToTaxonomicFilterType(filter)
                     return groups.find((group) => group.type === taxonomicGroupType)

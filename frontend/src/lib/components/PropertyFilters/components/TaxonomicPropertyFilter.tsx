@@ -12,7 +12,9 @@ import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/type
 import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     isGroupPropertyFilter,
+    isPropertyGroupFilterLike,
     propertyFilterTypeToTaxonomicFilterType,
+    propertyGroupSummary,
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -126,9 +128,12 @@ export function TaxonomicPropertyFilter({
         endpointFilters,
     })
     const { dropdownOpen, activeTaxonomicGroup } = useValues(logic)
-    const filter = filters[index] ? sanitizePropertyFilter(filters[index]) : null
+    const row = filters[index] ? sanitizePropertyFilter(filters[index]) : null
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
-    const valuePresent = filter?.type === 'cohort' || !!filter?.key
+    // A group row has no key, operator or value, so everything below it reads the leaf filter only.
+    const nestedGroup = isPropertyGroupFilterLike(row) ? row : undefined
+    const filter = isPropertyGroupFilterLike(row) ? null : row
+    const valuePresent = !!nestedGroup || filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
         !disablePopover &&
         ((!filter?.type && (!filter || !(filter as any)?.key)) || filter?.type === PropertyFilterType.HogQL)
@@ -267,31 +272,34 @@ export function TaxonomicPropertyFilter({
     // tooltip inside the button's. So the tooltip gets the plain string.
     const cohortLabel = filter?.type === 'cohort' ? cohortName || `Cohort #${filter?.value}` : undefined
 
-    const filterContent =
-        filter?.type === 'cohort' ? (
-            <span className="flex items-center gap-2 min-w-0">
-                <span className="truncate">{cohortLabel}</span>
-                {showCohortFlagTargeting && <CohortRealtimeTag realtime={cohort?.realtime} />}
-            </span>
-        ) : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_') ? (
-            filter.label || `Group ${filter?.value}`
-        ) : (filter?.type === PropertyFilterType.Flag ||
-              filterType === PropertyFilterType.AccountRelationship ||
-              filter?.type === PropertyFilterType.AccountCustomProperty) &&
-          filter &&
-          'label' in filter &&
-          filter.label ? (
-            filter.label
-        ) : (
-            filter?.key && (
-                <PropertyKeyInfo
-                    value={filter.key}
-                    disablePopover
-                    ellipsis
-                    type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
-                />
-            )
+    const nestedGroupLabel = nestedGroup ? propertyGroupSummary(nestedGroup, cohortsById) : undefined
+
+    const filterContent = nestedGroup ? (
+        <span className="truncate">{nestedGroupLabel || 'Grouped filters'}</span>
+    ) : filter?.type === 'cohort' ? (
+        <span className="flex items-center gap-2 min-w-0">
+            <span className="truncate">{cohortLabel}</span>
+            {showCohortFlagTargeting && <CohortRealtimeTag realtime={cohort?.realtime} />}
+        </span>
+    ) : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_') ? (
+        filter.label || `Group ${filter?.value}`
+    ) : (filter?.type === PropertyFilterType.Flag ||
+          filterType === PropertyFilterType.AccountRelationship ||
+          filter?.type === PropertyFilterType.AccountCustomProperty) &&
+      filter &&
+      'label' in filter &&
+      filter.label ? (
+        filter.label
+    ) : (
+        filter?.key && (
+            <PropertyKeyInfo
+                value={filter.key}
+                disablePopover
+                ellipsis
+                type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
+            />
         )
+    )
 
     const legacyDropdown = (
         <LemonDropdown
@@ -310,7 +318,7 @@ export function TaxonomicPropertyFilter({
                 truncate={true}
                 tooltip={
                     <>
-                        {cohortLabel ?? filterContent ?? (addText || 'Add filter')}
+                        {cohortLabel ?? nestedGroupLabel ?? filterContent ?? (addText || 'Add filter')}
                         {addFilterDocLink && (
                             <>
                                 <br />
@@ -411,7 +419,10 @@ export function TaxonomicPropertyFilter({
                         {showOperatorValueSelect &&
                             placeOperatorValueSelectOnLeft &&
                             (operatorValueSelect ?? defaultOperatorValueSelect)}
-                        {editable && propertyKeyEditable ? editablePicker : filterContent}
+                        {/* A group row opens no picker: selecting a property there would replace
+                            every clause in the group. Removing it stays deliberate, via the row's
+                            own remove button. */}
+                        {editable && propertyKeyEditable && !nestedGroup ? editablePicker : filterContent}
                         {showOperatorValueSelect &&
                             !placeOperatorValueSelectOnLeft &&
                             (operatorValueSelect ?? defaultOperatorValueSelect)}
