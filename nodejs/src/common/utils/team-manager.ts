@@ -110,7 +110,7 @@ export class TeamManager {
         }
     }
 
-    private async fetchTeamRows(where: string, values: unknown[], tag: string): Promise<RawTeam[]> {
+    private async fetchTeamRows(column: 't.id' | 't.api_token', keys: number[] | string[], tag: string): Promise<RawTeam[]> {
         const result = await this.postgres.query<RawTeam>(
             PostgresUse.COMMON_READ,
             `SELECT
@@ -137,9 +137,9 @@ export class TeamManager {
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
             LEFT JOIN feature_flags_teamfeatureflagsconfig cfg ON cfg.team_id = t.id
-            WHERE ${where}
+            WHERE ${column} = ANY($1)
             `,
-            values,
+            [keys],
             tag
         )
         return result.rows
@@ -165,14 +165,12 @@ export class TeamManager {
             [[] as number[], [] as string[]]
         )
 
-        // One read per column, and none at all for a column with nothing to look up. A single
-        // `WHERE t.id = ANY($1) OR t.api_token = ANY($2)` cannot use the primary key or the token
-        // index, so Postgres reads the whole team table however small the batch is.
+        // One read per column, and none at all for a column the batch does not ask about. Matching
+        // both columns in one statement gives the planner an OR it can only serve by combining two
+        // index scans, and makes it do that even when one side is an empty array.
         const rowsPerColumn = await Promise.all([
-            teamIds.length ? this.fetchTeamRows('t.id = ANY($1)', [teamIds], 'fetch-teams-with-features-by-id') : [],
-            tokens.length
-                ? this.fetchTeamRows('t.api_token = ANY($1)', [tokens], 'fetch-teams-with-features-by-token')
-                : [],
+            teamIds.length ? this.fetchTeamRows('t.id', teamIds, 'fetch-teams-with-features-by-id') : [],
+            tokens.length ? this.fetchTeamRows('t.api_token', tokens, 'fetch-teams-with-features-by-token') : [],
         ])
 
         // Initialize result record with nulls for all requested IDs/tokens
