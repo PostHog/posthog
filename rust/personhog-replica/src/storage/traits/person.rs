@@ -81,6 +81,13 @@ pub trait PersonLookup: Send + Sync {
         uuids: &[Uuid],
     ) -> StorageResult<Vec<TombstonedPerson>>;
 
+    /// Clear queue rows whose ClickHouse tombstones were delivered, at or below the acked version.
+    async fn ack_person_tombstones(
+        &self,
+        team_id: i64,
+        acked: &[(Uuid, i64)],
+    ) -> StorageResult<i64>;
+
     /// Delete up to `batch_size` persons for a team. Selects person IDs with
     /// FOR UPDATE SKIP LOCKED, then splits them into fixed-size chunks and
     /// deletes concurrently. Each chunk deletes distinct_ids first (FK is

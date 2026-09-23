@@ -18,6 +18,8 @@ from posthog.personhog_client.interceptor import (
     RetryInterceptor,
 )
 from posthog.personhog_client.proto import (
+    AckPersonTombstonesRequest,
+    AckPersonTombstonesResponse,
     CheckCohortMembershipRequest,
     CohortMembershipResponse,
     CountCohortMembersRequest,
@@ -229,6 +231,11 @@ class PersonHogClient:
         self, request: GetPersonTombstonesRequest, timeout: float | None = None
     ) -> GetPersonTombstonesResponse:
         return self._stub.GetPersonTombstones(request, timeout=timeout or self._timeout)
+
+    def ack_person_tombstones(
+        self, request: AckPersonTombstonesRequest, timeout: float | None = None
+    ) -> AckPersonTombstonesResponse:
+        return self._stub.AckPersonTombstones(request, timeout=timeout or self._timeout)
 
     # -- Person split --
 

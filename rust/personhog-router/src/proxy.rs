@@ -29,6 +29,7 @@ const IDENTITY_PREFIX: &str = "/personhog.identity.v1.PersonHogIdentity/";
 const LIFECYCLE_PREFIX: &str = "/personhog.lifecycle.v1.PersonHogLifecycle/";
 
 pub const KNOWN_METHODS: &[&str] = &[
+    "AckPersonTombstones",
     "CheckCohortMembership",
     "CountCohortMembers",
     "CountGroupTypeMappings",

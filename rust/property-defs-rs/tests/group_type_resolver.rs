@@ -365,6 +365,12 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<GetPersonTombstonesResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn ack_person_tombstones(
+        &self,
+        _: Request<AckPersonTombstonesRequest>,
+    ) -> Result<Response<AckPersonTombstonesResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
     async fn get_group_type_mapping_by_dashboard_id(
         &self,
         _: Request<GetGroupTypeMappingByDashboardIdRequest>,

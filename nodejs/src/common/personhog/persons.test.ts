@@ -79,6 +79,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
         rowsDeleted: 0n,
     }),
     getPersonTombstones: () => ({ tombstones: [] }),
+    ackPersonTombstones: () => ({ clearedCount: 0n }),
     splitPerson: () => ({ splits: [] }),
     setPersonDistinctIdVersionFloor: () => ({}),
     setPersonVersionFloor: () => ({ updated: false }),

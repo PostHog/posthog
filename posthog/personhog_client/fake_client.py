@@ -70,6 +70,8 @@ class FakePersonHogClient:
         self._distinct_ids: dict[tuple[int, int], list[person_pb2.DistinctIdWithVersion]] = {}
         # keyed by (team_id, distinct_id): mappings tombstoned alongside their person
         self._tombstoned_distinct_ids: set[tuple[int, str]] = set()
+        # Mirrors person_tombstone_publish_queue: (team_id, person_uuid) -> person_version.
+        self.tombstone_queue: dict[tuple[int, str], int] = {}
         # Mirrors the replica's TOMBSTONED_DELETE_MAX_ROWS clamp. The fake tracks distinct ids
         # only, so the row budget counts them alone.
         self.tombstoned_delete_max_rows = 5000
@@ -645,6 +647,7 @@ class FakePersonHogClient:
                 continue
             response.deleted_count += 1
             tombstoned.version = self._tombstone_person(request.team_id, person, tombstoned)
+            self.tombstone_queue[(request.team_id, str(person.uuid))] = tombstoned.version
         response.tombstones.sort(key=lambda t: t.person_uuid)
         return response
 
@@ -663,6 +666,18 @@ class FakePersonHogClient:
             self._tombstoned_distinct_ids.add((team_id, did.distinct_id))
             tombstoned.distinct_ids.add(distinct_id=did.distinct_id, version=did.version)
         return version
+
+    def ack_person_tombstones(
+        self, request: person_pb2.AckPersonTombstonesRequest, timeout: float | None = None
+    ) -> person_pb2.AckPersonTombstonesResponse:
+        self.calls.append(_Call("ack_person_tombstones", request))
+        cleared = 0
+        for acked in request.tombstones:
+            key = (request.team_id, acked.person_uuid)
+            if key in self.tombstone_queue and self.tombstone_queue[key] <= acked.version:
+                del self.tombstone_queue[key]
+                cleared += 1
+        return person_pb2.AckPersonTombstonesResponse(cleared_count=cleared)
 
     def get_person_tombstones(
         self, request: person_pb2.GetPersonTombstonesRequest, timeout: float | None = None

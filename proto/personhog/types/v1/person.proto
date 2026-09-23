@@ -244,6 +244,22 @@ message GetPersonTombstonesResponse {
   repeated TombstonedPerson tombstones = 1;
 }
 
+message AckedPersonTombstone {
+  string person_uuid = 1;
+  int64 version = 2;
+}
+
+// Clears person_tombstone_publish_queue rows once their ClickHouse tombstones are delivered.
+message AckPersonTombstonesRequest {
+  int64 team_id = 1;
+  // Max 1000 per request.
+  repeated AckedPersonTombstone tombstones = 2;
+}
+
+message AckPersonTombstonesResponse {
+  int64 cleared_count = 1;
+}
+
 // DeletePersonsBatchForTeamRequest deletes up to batch_size persons for a team.
 // Also deletes associated posthog_persondistinctid rows (FK is NO ACTION).
 // posthog_featureflaghashkeyoverride rows cascade automatically at the DB level.

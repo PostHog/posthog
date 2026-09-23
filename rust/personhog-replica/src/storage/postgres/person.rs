@@ -612,6 +612,42 @@ impl PersonLookup for PostgresStorage {
         Ok(tombstones)
     }
 
+    async fn ack_person_tombstones(
+        &self,
+        team_id: i64,
+        acked: &[(Uuid, i64)],
+    ) -> StorageResult<i64> {
+        if acked.is_empty() {
+            return Ok(0);
+        }
+        let labels = [
+            ("operation".to_string(), "ack_person_tombstones".to_string()),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let uuids: Vec<Uuid> = acked.iter().map(|(uuid, _)| *uuid).collect();
+        let versions: Vec<i64> = acked.iter().map(|(_, version)| *version).collect();
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM person_tombstone_publish_queue q
+            USING UNNEST($2::uuid[], $3::bigint[]) AS a(person_uuid, person_version)
+            WHERE q.team_id = $1
+              AND q.person_uuid = a.person_uuid
+              AND q.person_version <= a.person_version
+            "#,
+            team_id as i32,
+            &uuids,
+            &versions
+        )
+        .execute(&mut *conn)
+        .await?;
+        Ok(result.rows_affected() as i64)
+    }
+
     async fn delete_tombstoned_persons(
         &self,
         team_id: i64,

@@ -25,9 +25,10 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::{
 };
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
-    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    AckPersonTombstonesRequest, AckPersonTombstonesResponse, CheckCohortMembershipRequest,
+    CohortMembershipResponse, CountCohortMembersRequest, CountCohortMembersResponse,
+    CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse, CreateGroupRequest,
+    CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
     DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
@@ -495,6 +496,13 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<GetPersonTombstonesRequest>,
     ) -> Result<Response<GetPersonTombstonesResponse>, Status> {
         Ok(Response::new(GetPersonTombstonesResponse::default()))
+    }
+
+    async fn ack_person_tombstones(
+        &self,
+        _request: Request<AckPersonTombstonesRequest>,
+    ) -> Result<Response<AckPersonTombstonesResponse>, Status> {
+        Ok(Response::new(AckPersonTombstonesResponse::default()))
     }
 
     async fn split_person(

@@ -663,6 +663,38 @@ async fn test_delete_persons_tombstone_mode_requeues_a_revived_person() {
 }
 
 #[tokio::test]
+async fn test_ack_person_tombstones_clears_only_rows_at_or_below_the_acked_version() {
+    let ctx = TestContext::new().await;
+    let acked = ctx.insert_person("ack_delivered", None).await.unwrap();
+    let stale = ctx.insert_person("ack_stale", None).await.unwrap();
+    ctx.storage
+        .delete_persons(
+            ctx.team_id,
+            &[acked.uuid, stale.uuid],
+            DeletePersonsMode::Tombstone,
+        )
+        .await
+        .unwrap();
+
+    let cleared = ctx
+        .storage
+        .ack_person_tombstones(ctx.team_id, &[(acked.uuid, 1), (stale.uuid, 0)])
+        .await
+        .unwrap();
+
+    assert_eq!(cleared, 1);
+    let remaining: Vec<(uuid::Uuid,)> =
+        sqlx::query_as("SELECT person_uuid FROM person_tombstone_publish_queue WHERE team_id = $1")
+            .bind(ctx.team_id as i32)
+            .fetch_all(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, vec![(stale.uuid,)]);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_get_person_tombstones_reports_only_tombstoned_persons() {
     let ctx = TestContext::new().await;
     let tombstoned = ctx.insert_person("get_tombstoned", None).await.unwrap();
