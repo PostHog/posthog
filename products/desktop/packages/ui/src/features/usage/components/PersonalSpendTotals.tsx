@@ -29,8 +29,8 @@ export function PersonalSpendTotals({
     return (
       <div className="rounded-(--radius-3) border border-border bg-card p-4">
         <Text className="text-muted-foreground text-xs">
-          Couldn't load your spend. Use Refresh in the details below to try
-          again.
+          Couldn't load your spend. In the details below, select 30 days, then
+          Refresh to try again.
         </Text>
       </div>
     );

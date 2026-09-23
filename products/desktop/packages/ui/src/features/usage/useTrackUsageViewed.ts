@@ -7,6 +7,7 @@ import { useEffect, useRef } from "react";
 
 export interface TrackUsageViewedInput {
   isLoading: boolean;
+  spendTotalsLoading: boolean;
   sustainedUsedPercent: number | null;
   burstUsedPercent: number | null;
   meterKind: UsageViewedProperties["meter_kind"];
@@ -18,6 +19,7 @@ export interface TrackUsageViewedInput {
 export function useTrackUsageViewed(input: TrackUsageViewedInput): void {
   const {
     isLoading,
+    spendTotalsLoading,
     sustainedUsedPercent,
     burstUsedPercent,
     meterKind,
@@ -30,7 +32,7 @@ export function useTrackUsageViewed(input: TrackUsageViewedInput): void {
   useEffect(() => {
     if (firedRef.current) return;
     // Wait for data to settle so the once-only event doesn't lock in defaults.
-    if (isLoading) return;
+    if (isLoading || spendTotalsLoading) return;
     firedRef.current = true;
     track(ANALYTICS_EVENTS.USAGE_VIEWED, {
       sustained_used_percent: sustainedUsedPercent,
@@ -42,6 +44,7 @@ export function useTrackUsageViewed(input: TrackUsageViewedInput): void {
     });
   }, [
     isLoading,
+    spendTotalsLoading,
     sustainedUsedPercent,
     burstUsedPercent,
     meterKind,

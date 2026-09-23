@@ -57,6 +57,7 @@ export function PlanUsageSettings() {
   const meter = codeUsageMeter(usage);
   useTrackUsageViewed({
     isLoading: billingEnabled && usageLoading,
+    spendTotalsLoading,
     sustainedUsedPercent: usage?.sustained.used_percent ?? null,
     burstUsedPercent: usage?.burst.used_percent ?? null,
     meterKind: meter.kind,

@@ -15,6 +15,7 @@ const input = (
   overrides: Partial<TrackUsageViewedInput> = {},
 ): TrackUsageViewedInput => ({
   isLoading: false,
+  spendTotalsLoading: false,
   sustainedUsedPercent: 0,
   burstUsedPercent: 0,
   meterKind: "dollars",
@@ -40,20 +41,36 @@ describe("useTrackUsageViewed", () => {
     );
   });
 
-  it("waits for usage to settle, then fires once", () => {
-    trackMock.mockClear();
-    const { rerender } = renderHook(
-      (props: TrackUsageViewedInput) => useTrackUsageViewed(props),
-      { initialProps: input({ isLoading: true, orgUsedUsd: null }) },
-    );
-    expect(trackMock).not.toHaveBeenCalled();
+  it.each([41.18, 0, null])(
+    "waits for usage and personal spend to settle at %s, then fires once",
+    (personalSpend30dUsd) => {
+      trackMock.mockClear();
+      const { rerender } = renderHook(
+        (props: TrackUsageViewedInput) => useTrackUsageViewed(props),
+        {
+          initialProps: input({
+            isLoading: true,
+            spendTotalsLoading: true,
+            orgUsedUsd: null,
+            personalSpend30dUsd: null,
+          }),
+        },
+      );
+      expect(trackMock).not.toHaveBeenCalled();
 
-    rerender(input());
-    rerender(input({ orgUsedUsd: 13.9 }));
-    expect(trackMock).toHaveBeenCalledTimes(1);
-    expect(trackMock).toHaveBeenCalledWith(
-      ANALYTICS_EVENTS.USAGE_VIEWED,
-      expect.objectContaining({ org_used_usd: 12.4 }),
-    );
-  });
+      rerender(input({ spendTotalsLoading: true, personalSpend30dUsd: null }));
+      expect(trackMock).not.toHaveBeenCalled();
+
+      rerender(input({ personalSpend30dUsd }));
+      rerender(input({ orgUsedUsd: 13.9 }));
+      expect(trackMock).toHaveBeenCalledTimes(1);
+      expect(trackMock).toHaveBeenCalledWith(
+        ANALYTICS_EVENTS.USAGE_VIEWED,
+        expect.objectContaining({
+          org_used_usd: 12.4,
+          personal_spend_30d_usd: personalSpend30dUsd,
+        }),
+      );
+    },
+  );
 });
