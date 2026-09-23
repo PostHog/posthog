@@ -99,3 +99,23 @@ def _capture_delivery_failed_event(
             **(properties or {}),
         },
     )
+
+
+def capture_subscription_delivery_completed(subscription: Subscription) -> None:
+    """Record a delivery that reached at least one recipient.
+
+    The set-once person property lets in-app experiences safely wait until the
+    subscription creator has received a delivery, rather than showing immediately
+    after subscription setup.
+    """
+    distinct_id = (subscription.created_by.distinct_id if subscription.created_by else None) or subscription.team_id
+    posthoganalytics.capture(
+        distinct_id=str(distinct_id),
+        event="subscription_delivery_completed",
+        properties={
+            "subscription_id": subscription.id,
+            "team_id": subscription.team_id,
+            "target_type": subscription.target_type,
+            "$set_once": {"subscription_first_delivery_completed": True},
+        },
+    )

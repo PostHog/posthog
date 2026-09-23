@@ -45,7 +45,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.facade.models import Insight
 
-from ee.tasks.subscriptions import _capture_delivery_failed_event
+from ee.tasks.subscriptions import _capture_delivery_failed_event, capture_subscription_delivery_completed
 from ee.tasks.subscriptions.auto_disable import (
     UNSUPPORTED_TARGET_DISABLE_REASON,
     disable_invalid_subscription,
@@ -555,6 +555,8 @@ async def _deliver_insight_dashboard_subscription(
         subscription_id=inputs.subscription_id,
         target_type=subscription.target_type,
     )
+    if any(recipient.status == "success" for recipient in result.recipient_results):
+        capture_subscription_delivery_completed(subscription)
     return result
 
 

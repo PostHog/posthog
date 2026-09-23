@@ -112,6 +112,31 @@ async def test_deliver_subscription_wraps_email_delivery_error(team, user, activ
     assert error.value.details[0]["recipient_results"][0]["status"] == "failed"
 
 
+@pytest.mark.parametrize("activity", [deliver_subscription, deliver_subscription_v2])
+async def test_deliver_subscription_marks_creator_after_successful_delivery(team, user, activity) -> None:
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="delivered", name="Delivered")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight=insight, export_format="image/png", content_location="s3://bucket/delivered.png"
+    )
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[asset.id],
+        total_insight_count=1,
+    )
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.capture_subscription_delivery_completed"
+        ) as capture_completed,
+        patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report"),
+    ):
+        result = await ActivityEnvironment().run(activity, inputs)
+
+    assert result.recipient_results[0].status == "success"
+    capture_completed.assert_called_once_with(subscription)
+
+
 # The patch-gated activity switch is the rollout seam for the v2 delivery campaign: new
 # executions take v2, in-flight pre-patch executions stay on v1 for history compatibility.
 # Driving through the workflow (not just the patched() helper) pins both the selection and
