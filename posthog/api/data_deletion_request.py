@@ -76,6 +76,13 @@ class DataDeletionRequestCreateSerializer(DataDeletionRequestInputSerializer):
         help_text="Client-generated identifier that makes request submission idempotent.",
     )
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        unexpected = set(self.initial_data) - set(self.fields)
+        if unexpected:
+            raise serializers.ValidationError(dict.fromkeys(unexpected, "This field is not accepted."))
+        return attrs
+
 
 class DataDeletionPreviewSerializer(serializers.Serializer):
     count = serializers.IntegerField(

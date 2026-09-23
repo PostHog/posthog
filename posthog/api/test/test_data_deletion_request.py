@@ -1,8 +1,9 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -30,10 +31,6 @@ class TestDataDeletionRequestAPI(APIBaseTest):
             "query": "SELECT uuid FROM events WHERE event = 'checkout'",
             "variables": {},
             "submission_id": str(submission_id),
-            "status": RequestStatus.COMPLETED,
-            "request_type": RequestType.PROPERTY_REMOVAL,
-            "team_id": 123456,
-            "execution_mode": ExecutionMode.IMMEDIATE,
         }
 
         first = self.client.post(f"{self.url}/", payload, format="json")
@@ -52,6 +49,39 @@ class TestDataDeletionRequestAPI(APIBaseTest):
         assert request.requires_approval is True
         assert DataDeletionRequest.objects.filter(team_id=self.team.id).count() == 1
         compile_query.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("status", RequestStatus.COMPLETED),
+            ("request_type", RequestType.PROPERTY_REMOVAL),
+            ("team_id", 123456),
+            ("execution_mode", ExecutionMode.IMMEDIATE),
+        ]
+    )
+    @patch(COMPILE_QUERY)
+    def test_create_rejects_server_owned_fields(
+        self,
+        field: str,
+        value: object,
+        compile_query: MagicMock,
+        _feature_flag: MagicMock,
+    ) -> None:
+        response = self.client.post(
+            f"{self.url}/",
+            {
+                "query": "SELECT uuid FROM events",
+                "variables": {},
+                "submission_id": str(uuid4()),
+                field: value,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == field
+        assert response.json()["detail"] == "This field is not accepted."
+        assert DataDeletionRequest.objects.filter(team_id=self.team.id).count() == 0
+        compile_query.assert_not_called()
 
     def test_list_and_detail_do_not_expose_other_projects(self, _feature_flag) -> None:
         other_team = Team.objects.create(organization=self.organization)
