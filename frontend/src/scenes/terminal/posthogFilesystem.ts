@@ -1,4 +1,5 @@
 import apiMutator from 'lib/api-orval-mutator'
+import { urls } from 'scenes/urls'
 
 import {
     fileSystemCreate,
@@ -106,6 +107,11 @@ Try:
   ph help
   ph tools notebook
   ph notebook-get '/posthog/files/Unfiled/Notebooks/My notebook.md'
+  open .
+  open '/posthog/files/Unfiled/Notebooks/My notebook.md'
+
+open [path] opens a project file or folder in PostHog. With no path, it opens the
+current folder. JSON files open their PostHog item, including files in /posthog/api.
 
 Saving an existing .md notebook updates PostHog using your current permissions.
 JSON files for notebooks, dashboards, insights, feature flags, cohorts, actions,
@@ -182,6 +188,43 @@ export class PosthogFilesystem extends TerminalFilesystem {
     private readonly pendingDirectories = new Map<TerminalNode, Promise<void>>()
     private directoryQueue: Promise<void> = Promise.resolve()
     private markdownNotebooks?: Map<string, NotebookMinimalApi>
+
+    async navigationUrl(value: string, cwd: string): Promise<string> {
+        const parts = (value.startsWith('/') ? value : `${cwd}/${value}`).split('/').filter(Boolean)
+        if (parts.shift() !== 'posthog') {
+            throw new Error('Open a project file or folder under /posthog/files or /posthog/api.')
+        }
+        let node: TerminalNode | undefined = this.root
+        for (const part of parts) {
+            if (!node) {
+                break
+            }
+            if (part === '..') {
+                node = node.parent
+            } else if (part !== '.') {
+                await node.loadChildren?.()
+                node = node.children?.get(part) ?? node.lookupChild?.(part)
+            }
+        }
+        if (!node || node.removed) {
+            throw new Error(`No project file or folder at ${value}. Run ph refresh if it was just created.`)
+        }
+        const projectNode = this.projectNodes.get(node)
+        if (node.children && projectNode) {
+            return urls.projectFiles(joinPath(projectNode.parts))
+        }
+        const entry = this.references.get(this.mountedPath(node))
+        const type = entry?.type
+        const definition =
+            type && Object.hasOwn(fileSystemTypes, type)
+                ? fileSystemTypes[type as keyof typeof fileSystemTypes]
+                : undefined
+        const href = entry?.href || (entry?.ref && definition?.href(entry.ref))
+        if (!href || !href.startsWith('/') || href.startsWith('//') || /[\\\x00-\x20]/.test(href)) {
+            throw new Error('This path has no PostHog page. Use cat to read the file in the terminal.')
+        }
+        return href
+    }
 
     async loadReference(value: string, cwd: string): Promise<void> {
         if (!value.includes('/') && !/\.(md|json)$/.test(value)) {
