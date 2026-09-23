@@ -2,7 +2,6 @@
     "key": "webhook-trigger",
     "name": "Webhook trigger",
     "description": "",
-    "status": "draft",
     "exit_condition": "exit_only_at_end",
     "variables": [],
     "actions": [

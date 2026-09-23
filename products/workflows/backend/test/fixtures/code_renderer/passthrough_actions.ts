@@ -6,7 +6,6 @@ import { onEvent, path, step, workflow } from '@posthog/workflows'
 export const passthroughActions = workflow({
     key: 'passthrough-actions',
     name: 'Pass-through actions',
-    status: 'draft',
     on: onEvent({ event: 'signed_up', description: 'User starts this workflow.' }),
     steps: path(
         step({

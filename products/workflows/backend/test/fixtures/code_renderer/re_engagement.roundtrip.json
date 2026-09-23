@@ -2,7 +2,6 @@
     "key": "re-engagement",
     "name": "Re-engagement",
     "description": "",
-    "status": "active",
     "exit_condition": "exit_only_at_end",
     "variables": [],
     "actions": [

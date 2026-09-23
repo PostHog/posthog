@@ -3,7 +3,6 @@ import { delay, path, trigger, workflow } from '@posthog/workflows'
 export const webhookTrigger = workflow({
     key: 'webhook-trigger',
     name: 'Webhook trigger',
-    status: 'draft',
     on: trigger(
         {
             type: 'webhook',
