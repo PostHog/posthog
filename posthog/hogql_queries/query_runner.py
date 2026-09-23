@@ -205,17 +205,19 @@ from posthog.query_scan.trigger import (
     maybe_trigger_query_scan,
 )
 from posthog.schema_helpers import to_dict
-from posthog.scopes import APIScopeObject
+from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
+from products.access_control.backend.facade.property_access import sort_restricted_properties
 from products.access_control.backend.facade.user_access_control import (
     WAREHOUSE_ACCESS_SCOPES,
     UserAccessControl,
     UserAccessControlError,
+    default_access_level,
 )
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import resolve_first_pageview_filters_modifier
 
@@ -3053,6 +3055,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         restricted = self._get_property_access_restrictions()
         if restricted:
             payload["restricted_properties"] = restricted
+            # A cache hit skips masking. Bump this when masking expands to new tables or mirror columns
+            # so restricted results cached before that change are invalidated.
+            payload["property_access_control_version"] = 1
 
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
@@ -3121,14 +3126,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "property_type": restriction.property_type,
                 "group_type_index": restriction.group_type_index,
             }
-            for restriction in sorted(
-                restricted,
-                key=lambda restriction: (
-                    restriction.name,
-                    restriction.property_type,
-                    restriction.group_type_index if restriction.group_type_index is not None else -1,
-                ),
-            )
+            for restriction in sort_restricted_properties(restricted)
         ]
 
     def get_cache_key(self) -> str:
@@ -3489,19 +3487,34 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
             self._user_access_control = UserAccessControl(user=user, team=self.team)
         return self._user_access_control
 
+    @property
+    def _bypassed_access_scopes(self) -> frozenset[str]:
+        """Scopes whose access control the principal skips. Service tokens and shared-link viewers bypass
+        warehouse access control (see Database.create_for); real users and userless runs bypass nothing."""
+        # `user` is typed Optional[User] but shared renders and service tokens pass other principals at runtime.
+        user = cast("Optional[User | SyntheticUser | SharedLinkUser]", self.user)
+        if user is None or isinstance(user, User):
+            return frozenset()
+        return WAREHOUSE_ACCESS_SCOPES
+
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-
-        # Don't include restricted resources/objects in cache_payload if the ACCESS_CONTROL is unavailable
-        if isinstance(self.user, User) and not self.team.organization.is_feature_available(
-            AvailableFeature.ACCESS_CONTROL
-        ):
-            return payload
 
         # Partition only by the access-controlled tables this query reads that the user is restricted
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
-        queried_resources = queried_access_controlled_resources(self.query, self.team)
+        queried_resources = queried_access_controlled_resources(
+            self.query, self.team, bypassed_scopes=self._bypassed_access_scopes
+        )
+
+        if isinstance(self.user, User) and not self.team.organization.is_feature_available(
+            AvailableFeature.ACCESS_CONTROL
+        ):
+            # Default-denied resources still distinguish privileged users when configurable access control is unavailable.
+            resources = queried_resources if queried_resources is not None else set(API_SCOPE_OBJECTS)
+            queried_resources = {
+                resource for resource in resources if default_access_level(cast(APIScopeObject, resource)) == "none"
+            }
 
         # Reads no access-controlled table -> skip the access-control preload
         if queried_resources == set():
@@ -3565,13 +3578,12 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
         # Non-real principals (service tokens, shared-link viewers) are scope-gated on system tables;
         # partition on the readable scopes so a narrower token can't be served a broader principal's
-        # cached result. Warehouse scopes are excluded: these principals bypass warehouse access
-        # control (see Database.create_for), so warehouse tables are readable for them and listing
-        # them as restricted would collide with users who are genuinely denied those resources.
+        # cached result. Bypassed scopes are readable for them, and listing them as restricted would
+        # collide with users who are genuinely denied those resources.
         if not isinstance(user, User):
             if queried_resources is None:
                 return ["*"]
-            restricted = queried_resources - user.readable_system_table_access_scopes() - WAREHOUSE_ACCESS_SCOPES
+            restricted = queried_resources - user.readable_system_table_access_scopes() - self._bypassed_access_scopes
             return sorted(restricted) or None
 
         user_access_control = self.user_access_control

@@ -378,6 +378,9 @@ class Task(DeletedMetaFields, models.Model):
         # A workflow's "Create AI task" action. Unattended like LOOP; the run executes as
         # the workflow's creator.
         WORKFLOW = "workflow", "Workflow"
+        # The one-off task that sets a space up for a goal or a feature. Started by a person
+        # from the create-space flow, so it is billed and timed like their own tasks.
+        SPACE_SETUP = "space_setup", "Space Setup"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -643,6 +646,8 @@ class Task(DeletedMetaFields, models.Model):
                 all_properties["origin_key"] = self.origin_key
             if self.channel_id:
                 all_properties["channel_id"] = str(self.channel_id)
+            if self.signal_report_id:
+                all_properties["signal_report_id"] = str(self.signal_report_id)
             if properties:
                 all_properties.update(properties)
             (capture_fn or posthoganalytics.capture)(
@@ -2603,7 +2608,7 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
-    def signal_agent_turn_completed(self) -> None:
+    def signal_agent_turn_completed(self, *, succeeded: bool = False) -> None:
         import asyncio
 
         from posthog.temporal.common.client import sync_connect
@@ -2613,7 +2618,12 @@ class TaskRun(models.Model):
         try:
             client = sync_connect()
             handle = client.get_workflow_handle(self.workflow_id)
-            asyncio.run(handle.signal(ProcessTaskWorkflow.agent_state_changed, arg=False))
+
+            async def signal_completion() -> None:
+                await handle.signal(ProcessTaskWorkflow.agent_state_changed, arg=False)
+                await handle.signal(ProcessTaskWorkflow.agent_turn_completed, arg=succeeded)
+
+            asyncio.run(signal_completion())
         except Exception as e:
             logger.warning("task_run.turn_completed_signal_failed", task_run_id=str(self.id), error=str(e))
 
@@ -2740,7 +2750,14 @@ class TaskRun(models.Model):
     # expiry — user history must not silently vanish after 30 days.
     DEFAULT_LOG_TTL_DAYS = 30
 
-    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS, lock_attempts: int = 3):
+    def append_log(
+        self,
+        entries: list[dict],
+        *,
+        ttl_days: int | None = DEFAULT_LOG_TTL_DAYS,
+        lock_attempts: int = 3,
+        batch_id: str | None = None,
+    ):
         """Append log entries to S3 storage.
 
         `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
@@ -2753,7 +2770,7 @@ class TaskRun(models.Model):
         if not entries:
             return
 
-        is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts)
+        is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)
 
         self._mirror_logs_to_posthog_logs(entries)
 
@@ -2773,6 +2790,15 @@ class TaskRun(models.Model):
                     log_url=self.log_url,
                     error=str(e),
                 )
+
+    @property
+    def has_pending_followup_messages(self) -> bool:
+        """The persisted view of the workflow's in-memory follow-up queue.
+
+        A caller outside the workflow reads this to tell that a user queued more work which
+        the agent has not picked up yet.
+        """
+        return bool(_read_pending_followup_messages(self.state))
 
     def record_pending_followup_message(self, message_id: str, content: str, *, accepted_at: datetime) -> None:
         record = {
@@ -2894,6 +2920,25 @@ class TaskRun(models.Model):
         benjamin_version = state.get("benjamin_version")
         if isinstance(benjamin_version, str) and benjamin_version:
             props["benjamin_version"] = benjamin_version
+        agent_version = state.get("agent_version")
+        if isinstance(agent_version, str) and agent_version:
+            props["agent_version"] = agent_version
+        budget = state.get("budget_guard")
+        if isinstance(budget, dict):
+            for key in ("cap_usd", "spent_usd", "estimated_usd", "sdk_total_usd"):
+                value = budget.get(key)
+                if isinstance(value, int | float) and not isinstance(value, bool):
+                    props[f"budget_{key}"] = value
+            for key in ("stage", "mode"):
+                value = budget.get(key)
+                if isinstance(value, str) and value:
+                    props[f"budget_{key}"] = value
+            steers = budget.get("steers")
+            if isinstance(steers, list):
+                props["budget_steers"] = len(steers)
+                props["budget_steers_delivered"] = sum(
+                    1 for steer in steers if isinstance(steer, dict) and steer.get("delivered") is True
+                )
         return props
 
     def analytics_properties(self) -> dict:

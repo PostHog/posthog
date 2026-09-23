@@ -58,7 +58,11 @@ from posthog.temporal.usage_report.metrics import (
     USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS,
 )
 
-from products.alerts.backend.facade.temporal import AlertsProductTelemetryInterceptor
+from products.alerts.backend.facade.temporal import (
+    ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
+    ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
+    AlertsPlatformTelemetryInterceptor,
+)
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
@@ -87,6 +91,8 @@ from products.tasks.backend.facade.temporal import (
     TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
     TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
     TASKS_RUN_TURNS_HISTOGRAM_METRICS,
+    TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS,
+    TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
 )
 
 logger = get_write_only_logger()
@@ -172,7 +178,7 @@ ALL_INTERCEPTOR_CLASSES = [
     LivenessInterceptor,
     PostHogClientInterceptor,
     SloInterceptor,
-    AlertsProductTelemetryInterceptor,
+    AlertsPlatformTelemetryInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
     SurfacingScoringMetricsInterceptor,
@@ -329,6 +335,12 @@ async def create_worker(
                 itertools.repeat(SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
+        | dict(
+            zip(
+                ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
         | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(LOGS_ALERTING_COUNT_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS)))
         | dict(
@@ -362,6 +374,13 @@ async def create_worker(
             zip(
                 DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+    if task_queue == settings.TASKS_TASK_QUEUE:
+        histogram_bucket_overrides |= dict(
+            zip(
+                TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
 

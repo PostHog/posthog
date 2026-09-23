@@ -105,7 +105,7 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
 - Egress is an explicit domain allowlist (`_sandbox_egress_allowlist`). Additions go through
   `STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS`, not code edits.
-- Everything posted to GitHub goes through `_scrub_credentials` AND `_neutralize_active_markdown`
+- Everything posted to GitHub goes through `scrub_credentials` AND `neutralize_active_markdown` (`logic/scrubbing.py`)
   (GitHub's camo proxy auto-fetches images — a markdown image URL is an exfiltration channel).
 - The sandbox checkout is the PR head, so the engine's Agent SDK session runs with `setting_sources=[]` + `strict_mcp_config` (reviewer.py): a PR-shipped `.claude/settings.json` hook, `CLAUDE.md`, or `.mcp.json` is readable as untrusted content, never loaded as configuration.
   Don't reintroduce filesystem settings discovery there.
@@ -171,6 +171,15 @@ narrow:
   The condition is the derived `ReviewTrigger`, not the raw provenance flag, so it stays aligned with
   what the reviewer prompt was told about its own invocation.
 
+## The manual trigger (the one exception to label mode)
+
+`request_manual_review` (`POST review_runs/` and the `stamphog-review-runs-create` MCP tool) queues a review because a project member asked for it.
+The request stands in for the trigger label, so it bypasses `review_mode` and nothing else.
+Every other webhook-path gate still refuses: closed PRs, drafts, bot authors, untrusted author associations, and authors below write permission.
+The requester's own GitHub access is not checked; the `stamphog:write` scope and the product's access control are the gate.
+The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
+A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
+
 ## Trust boundaries
 
 - The review-gating fields (`enabled`, `review_mode`, `trigger_label`) and the soft-delete need the
@@ -204,6 +213,9 @@ narrow:
   moment somebody adds the app.
 - A declared channel that does not resolve is a dead end, never a retry with the audience slug —
   the slug is the wrong name the declaration exists to correct.
+- Retrieving one review run returns the reviewer's parsed reasoning (`reasoning`, `showstoppers`, `review_body`, `change_summary`) to anyone who can read the run.
+  That is the text stamphog posts as its GitHub review, and it passes the same `scrub_credentials` and `neutralize_active_markdown` first.
+  The raw reviewer stdout, the PR payload, patches, and policy files never leave the facade.
 - PR content — title, body, diff, comments, reactions — is untrusted input everywhere, including
   in reviewer prompts and error messages persisted to API-readable fields (`run.error` keeps only
   a truncated first line for exactly this reason).

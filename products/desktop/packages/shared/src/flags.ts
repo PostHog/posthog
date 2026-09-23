@@ -24,6 +24,8 @@ export const LOOPS_FLAG = featureFlagKeys.LOOPS_FLAG;
 /** Desktop Loops read and write workflows (`hog_flows`) instead of the loops API. */
 export const LOOPS_HOG_FLOWS_FLAG = featureFlagKeys.LOOPS_HOG_FLOWS_FLAG;
 export const DESKTOP_HOME_FLAG = featureFlagKeys.DESKTOP_HOME_FLAG;
+export const DESKTOP_WORK_LAYOUT_FLAG =
+  featureFlagKeys.DESKTOP_WORK_LAYOUT_FLAG;
 export const SAVED_SEARCHES_RAIL_FLAG =
   featureFlagKeys.SAVED_SEARCHES_RAIL_FLAG;
 export const TASKS_PREWARM_SANDBOX_FLAG =
@@ -104,9 +106,13 @@ export const BEDROCK_GATEWAY_VARIANTS = ["test", "control"] as const;
 export type BedrockGatewayVariant = (typeof BEDROCK_GATEWAY_VARIANTS)[number];
 /** Gates the organization context wiki: the Context explorer in the nav rails. */
 export const CONTEXT_LAYER_FLAG = featureFlagKeys.CONTEXT_LAYER_FLAG;
+/** Gates the "set up this space for" step in the create-space flow. */
+export const SPACE_SETUP_FLAG = featureFlagKeys.SPACE_SETUP_FLAG;
 
 export const BACKGROUND_AGENT_LOGS_FLAG =
   featureFlagKeys.BACKGROUND_AGENT_LOGS_FLAG;
+/** Gates the settings and sounds backup section in Advanced settings. */
+export const SETTINGS_BACKUP_FLAG = featureFlagKeys.SETTINGS_BACKUP_FLAG;
 export const CUSTOM_IMAGES_FEATURE_FLAG =
   featureFlagKeys.CUSTOM_IMAGES_FEATURE_FLAG;
 export const PI_HARNESS_FLAG = featureFlagKeys.PI_HARNESS_FLAG;

@@ -8,10 +8,9 @@ import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTe
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { HogFunctionType, HogFunctionTypeType } from '~/types'
+import { HogFunctionTypeType } from '~/types'
 
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
-import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
 
 export type DataPipelinesHogFunctionsProps = {
     kind: HogFunctionTypeType
@@ -22,17 +21,17 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
     const humanizedKind = humanizeHogFunctionType(kind)
     const logicKey = `data-pipelines-hog-functions-${kind}`
 
-    const { hogFunctionPluginsDestinations, hogFunctionBatchExports, hogFunctionPluginsSiteApps } =
-        useValues(nonHogFunctionsLogic)
-    const { loadHogFunctionPluginsDestinations, loadHogFunctionBatchExports, loadHogFunctionPluginsSiteApps } =
-        useActions(nonHogFunctionsLogic)
-
-    const { hogFunctionTemplatesBatchExports } = useValues(nonHogFunctionTemplatesLogic)
+    const {
+        hogFunctionPluginsDestinations,
+        hogFunctionPluginsDestinationsLoading,
+        hogFunctionPluginsSiteApps,
+        hogFunctionPluginsSiteAppsLoading,
+    } = useValues(nonHogFunctionsLogic)
+    const { loadHogFunctionPluginsDestinations, loadHogFunctionPluginsSiteApps } = useActions(nonHogFunctionsLogic)
 
     useEffect(() => {
         if (kind === 'destination') {
             loadHogFunctionPluginsDestinations()
-            loadHogFunctionBatchExports()
         }
 
         if (kind === 'site_app') {
@@ -40,15 +39,13 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
         }
     }, [kind]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    // Each source is null until it loads; the list just needs everything in one array.
-    const manualSources: (HogFunctionType[] | null)[] =
+    // Legacy plugins are listed next to the hog functions until the migration off plugins completes.
+    const [manualFunctions, manualFunctionsLoading] =
         kind === 'destination'
-            ? [hogFunctionPluginsDestinations, hogFunctionBatchExports]
+            ? [hogFunctionPluginsDestinations, hogFunctionPluginsDestinationsLoading]
             : kind === 'site_app'
-              ? [hogFunctionPluginsSiteApps]
-              : []
-
-    const manualFunctions = manualSources.length > 0 ? manualSources.flatMap((source) => source ?? []) : undefined
+              ? [hogFunctionPluginsSiteApps, hogFunctionPluginsSiteAppsLoading]
+              : [null, false]
 
     return (
         <SceneContent>
@@ -57,18 +54,14 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                     logicKey={logicKey}
                     type={kind}
                     additionalTypes={additionalKinds}
-                    manualFunctions={manualFunctions}
+                    manualFunctions={manualFunctions ?? undefined}
+                    manualFunctionsLoading={manualFunctionsLoading}
                     truncateDescriptions
                 />
             </SceneSection>
             <SceneDivider />
             <SceneSection title={`Create a new ${humanizedKind}`}>
-                <HogFunctionTemplateList
-                    type={kind}
-                    additionalTypes={additionalKinds}
-                    manualTemplates={kind === 'destination' ? hogFunctionTemplatesBatchExports : undefined}
-                    hideComingSoonByDefault
-                />
+                <HogFunctionTemplateList type={kind} additionalTypes={additionalKinds} hideComingSoonByDefault />
             </SceneSection>
         </SceneContent>
     )

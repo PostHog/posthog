@@ -13,6 +13,7 @@ from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
 
+import structlog
 from dateutil import parser
 
 from posthog.dataclasses import frozen
@@ -23,6 +24,9 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
+    MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -38,6 +42,8 @@ from products.warehouse_sources.backend.types import (
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+
+logger = structlog.get_logger(__name__)
 
 type IncrementalFieldValue = str | int | float | None
 
@@ -162,6 +168,11 @@ def _schema_ids_with_running_jobs(schema_ids: list[uuid.UUID]) -> set[uuid.UUID]
             "schema_id", flat=True
         )
     )
+
+
+# A run parks one cursor per displaced attempt, so the bound must cover the largest attempt cap an
+# import activity gets. The trim keeps the newest entries, and a live run's entries are the newest.
+STAGED_CURSOR_PENDING_LIMIT = MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 
 
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
@@ -911,31 +922,68 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self._save_sync_type_config()
 
     def stage_incremental_field_value(self, run_uuid: str, last_value: Any, earliest_value: Any = None) -> None:
-        existing = self.sync_type_config.get("incremental_staged", {})
-        if existing.get("run_uuid") == run_uuid:
-            staged = existing
-        else:
-            staged = {"run_uuid": run_uuid}
-        if last_value is not None:
-            staged["last_value"] = self._serialize_incremental_value(last_value)
-        if earliest_value is not None:
-            staged["earliest_value"] = self._serialize_incremental_value(earliest_value)
-        self.sync_type_config["incremental_staged"] = staged
-        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
-        # `_get_before_update` SELECT (see save()).
-        self.save(skip_activity_log=True)
+        """Hold a run's cursor in `incremental_staged` until the load side promotes it.
+
+        The outgoing attempt of a run and the incoming attempt stage concurrently, and each holds its
+        own in-memory copy of this row. The merge runs under the row lock so neither copy erases the
+        other's entry.
+        """
+        values = {
+            key: self._serialize_incremental_value(value)
+            for key, value in (("last_value", last_value), ("earliest_value", earliest_value))
+            if value is not None
+        }
+
+        def mutate(config: dict[str, Any]) -> None:
+            live = config.get("incremental_staged", {})
+            if live.get("run_uuid") == run_uuid:
+                staged = live
+            else:
+                # A run that stages after a newer attempt displaced it continues its parked cursor,
+                # so one run's values are never split between the live slot and the parked list.
+                staged = _drop_parked_staged_cursor(config, run_uuid) or {"run_uuid": run_uuid}
+                _park_displaced_staged_cursor(config, live)
+            staged.update(values)
+            config["incremental_staged"] = staged
+
+        # Deferred: this module loads during django.setup() and the util pulls in temporalio.
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
+        )
 
     def promote_staged_incremental_values(self, run_uuid: str) -> bool:
-        staged = self.sync_type_config.get("incremental_staged")
-        if not staged or staged.get("run_uuid") != run_uuid:
-            return False
-        if "last_value" in staged:
-            self.sync_type_config["incremental_field_last_value"] = staged["last_value"]
-        if "earliest_value" in staged:
-            self.sync_type_config["incremental_field_earliest_value"] = staged["earliest_value"]
-        self.sync_type_config.pop("incremental_staged", None)
-        self.save(skip_activity_log=True)
-        return True
+        """Move the staged cursor of `run_uuid` onto the live watermark keys.
+
+        Returns True when a staged cursor for the run existed, in the live slot or the parked list.
+        The monotonic guard can still keep the current watermark, so True does not mean a key changed.
+        """
+        found = False
+
+        def mutate(config: dict[str, Any]) -> None:
+            nonlocal found
+            live: dict[str, Any] | None = config.get("incremental_staged")
+            if live is not None and live.get("run_uuid") != run_uuid:
+                live = None
+            staged = live if live is not None else _drop_parked_staged_cursor(config, run_uuid)
+            if staged is None:
+                return
+            found = True
+            field_type = config.get("incremental_field_type")
+            if "last_value" in staged:
+                _advance_promoted_cursor(
+                    config, "incremental_field_last_value", staged["last_value"], "last", field_type
+                )
+            if "earliest_value" in staged:
+                _advance_promoted_cursor(
+                    config, "incremental_field_earliest_value", staged["earliest_value"], "earliest", field_type
+                )
+            if live is not None:
+                config.pop("incremental_staged", None)
+
+        self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
+        return found
 
     def _serialize_incremental_value(self, value: Any) -> Any:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
@@ -976,6 +1024,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("incremental_field_last_value", None)
         self.sync_type_config.pop("incremental_field_earliest_value", None)
         self.sync_type_config.pop("incremental_staged", None)
+        self.sync_type_config.pop("incremental_staged_pending", None)
         self.sync_type_config.pop("partitioning_enabled", None)
         self.sync_type_config.pop("partition_size", None)
         self.sync_type_config.pop("partition_count", None)
@@ -1086,6 +1135,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             try:
                 client = get_s3_client()
                 client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+            except FileNotFoundError:
+                # s3fs raises this when nothing exists under the prefix. The files are already
+                # gone, which is the state this method wants, so the teardown below still runs.
+                logger.info("delete_table_prefix_already_deleted", schema_id=str(self.id), team_id=self.team_id)
             except Exception as e:
                 capture_exception(e)
 
@@ -1114,6 +1167,89 @@ def _parse_datetime_string(value: str) -> datetime:
         if stripped == value:
             raise
         return parser.parse(stripped)
+
+
+def _align_epoch_cursor(value: Any, partner: Any) -> Any:
+    # Two epoch numbers already order as numbers, so only a mixed pair needs the conversion.
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return value
+    if not isinstance(partner, datetime | date):
+        return value
+    converted = datetime.fromtimestamp(value, tz=UTC)
+    if isinstance(partner, datetime):
+        return converted if partner.tzinfo else converted.replace(tzinfo=None)
+    return converted.date()
+
+
+def _park_displaced_staged_cursor(config: dict[str, Any], staged: dict[str, Any]) -> None:
+    """A run is live or parked, never both: only another run's staging parks it, and its own
+    staging moves it back. Both happen under the row lock."""
+    if not staged.get("run_uuid") or not ({"last_value", "earliest_value"} & staged.keys()):
+        return
+    pending = [*config.get("incremental_staged_pending", []), staged]
+    config["incremental_staged_pending"] = pending[-STAGED_CURSOR_PENDING_LIMIT:]
+
+
+def _drop_parked_staged_cursor(config: dict[str, Any], run_uuid: str) -> dict[str, Any] | None:
+    """Remove the parked cursor of `run_uuid` and return it, or None when the run has none."""
+    pending = config.get("incremental_staged_pending", [])
+    dropped = next((entry for entry in pending if entry.get("run_uuid") == run_uuid), None)
+    if dropped is None:
+        return None
+    remaining = [entry for entry in pending if entry.get("run_uuid") != run_uuid]
+    if remaining:
+        config["incremental_staged_pending"] = remaining
+    else:
+        config.pop("incremental_staged_pending", None)
+    return dropped
+
+
+def _advance_promoted_cursor(
+    config: dict[str, Any],
+    key: str,
+    value: Any,
+    kind: Literal["last", "earliest"],
+    field_type: IncrementalFieldType | None,
+) -> None:
+    current = config.get(key)
+    if current is None:
+        config[key] = value
+        return
+    comparison = _compare_incremental_values(current, value, field_type)
+    # For a pair the comparator cannot order (a null field type, a naive against an aware datetime,
+    # or a millisecond epoch) the newest promotion wins, so those sources still advance their
+    # watermark. Keeping the current value would freeze it for good.
+    if comparison is None or (kind == "last" and comparison < 0) or (kind == "earliest" and comparison > 0):
+        config[key] = value
+
+
+def _compare_incremental_values(current: Any, candidate: Any, field_type: IncrementalFieldType | None) -> int | None:
+    try:
+        left = process_incremental_value(current, field_type)
+        right = process_incremental_value(candidate, field_type)
+        left, right = _align_epoch_cursor(left, right), _align_epoch_cursor(right, left)
+    except Exception:
+        return None
+    if left is None or right is None:
+        return None
+    if field_type == IncrementalFieldType.ObjectID:
+        # An ObjectID is 24 hex digits that open with its creation time, so equal-length ids order
+        # as strings. Anything else is unordered.
+        if isinstance(left, str) and isinstance(right, str) and len(left) == len(right):
+            return (left > right) - (left < right)
+        return None
+    if isinstance(left, bool) or isinstance(right, bool):
+        return None
+    left_is_number = isinstance(left, int | float)
+    right_is_number = isinstance(right, int | float)
+    if left_is_number != right_is_number:
+        return None
+    if not left_is_number and not isinstance(left, datetime | date):
+        return None
+    try:
+        return (left > right) - (left < right)
+    except TypeError:
+        return None
 
 
 def _coerce_incremental_datetime(value: str) -> datetime | int:

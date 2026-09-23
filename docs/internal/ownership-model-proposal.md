@@ -2,6 +2,11 @@
 
 Status: implemented (landed with the PR that introduced this document)
 
+The format itself is now specified in [`packages/owners-yaml/SPEC.md`](../../packages/owners-yaml/SPEC.md), and the package README covers usage.
+This document keeps the design reasoning and how the PostHog monorepo wires the resolver in.
+PostHog's repo settings (`github_org`, `producers`, `reserved_dirs`, `codeowners`) live in the root `owners.yaml`.
+CI regenerates the CODEOWNERS projection before each Trunk test upload in `.github/scripts/trunk-codeowners.sh`, so Trunk Flaky Tests can attribute a test to a team.
+
 Design a single ownership source of truth that multiple consumers (review automation, CI validation, lookup CLIs, service catalogs, future tools) can read, instead of each tool re-parsing `CODEOWNERS-soft` and `product.yaml` on its own.
 
 Scope decisions (locked):
@@ -85,9 +90,16 @@ status: active
 # ancestor owners.yaml. false = Gerrit's `set noparent`.
 inherit: true
 
-# Per-path overrides inside this directory, evaluated last-match-wins
-# *within this file only*. owners, status, and inherit can be overridden
-# per rule. `match` is one glob or a list of globs (each is its own
+# The owners of ADDITIONS below this directory, as opposed to the owners
+# of the files already in it. Names people only; what counts as an
+# addition, and whether a consumer asks them for review or blocks on
+# them, is that consumer's policy. Unlike every other field this one
+# adds up across the walk (see below).
+additions: [team-devex]
+
+# Per-path overrides inside this directory, *within this file only*.
+# Every matching rule applies in order, and each replaces only the fields
+# it sets: owners, status, or inherit. `match` is one glob or a list of globs (each is its own
 # boundary — the list is just shorthand for repeating owners/status).
 rules:
   - match: 'generated/**'
@@ -107,9 +119,36 @@ version: 1
 owners: team-ingestion
 ```
 
+### `additions:` — ownership of the namespace, not the file
+
+`owners:` answers "whose is this file".
+`additions:` answers a different question about the same path: "who owns what gets added here".
+The two are independent: each product under `products/` is owned by its team, while the owners of additions to `products/` can be one team.
+Much of the architecture guidance already has this shape as prose that nothing checks, such as reserving top-level `tools/`, `services/` and `packages/` for cross-product things.
+
+- **It adds up across the walk.** Every declaration on the walk applies, so a nested directory cannot drop the owners of additions that an ancestor names.
+  `owners:` stays nearest-wins, and `inherit: false` still cuts everything, additions included.
+- **Ask about the directory, not a file inside it.** The walk stops at the parent of the path it resolves, so resolving `products/newthing` matches a `match: '/*'` rule on `products/`, while resolving `products/newthing/product.yaml` does not.
+  `/*` therefore means "a direct child", and `/**` reaches any descendant.
+  A directory query also skips that directory's own ownership file, so a new product cannot remove itself from what its parent names.
+- **Newness and enforcement belong to the consumer.** The file only names the owners and where they apply. A consumer works out from the diff that a directory is new, treats a rename into the directory as an addition (git reports it as `R`, not `A`), and decides whether the answer is a review request or a blocking check.
+
+**Why not `owners:` on the parent directory.**
+An owner on `products/` would also claim every file below it that has no nearer owner.
+That misattributes those files, and it satisfies the coverage check for them, which turns real gaps into permanent false coverage.
+Over a hundred files under `products/` are unowned today and would flip.
+`additions:` contributes nothing to `owners`, so the coverage signal survives.
+
+**A consumer can combine `owners` and `additions`.**
+The owners are already responsible for everything in their tree.
+An empty `additions` means that the file names no separate owners of additions, not that nobody owns them.
+That is also why the key does not default to `owners`: a reader could no longer tell a directory with its own owners of additions from one that merely has an owner.
+
+The normative definition is section 3.6 of [`packages/owners-yaml/SPEC.md`](../../packages/owners-yaml/SPEC.md).
+
 ### `product.yaml` as an accepted alias
 
-`products/<name>/product.yaml` with an `owners:` key is read by the resolver as an `owners.yaml` with that same `owners:` list. Every other field in `product.yaml` (`name:` today, anything added later) is ignored for ownership purposes — `product.yaml` remains free to grow product metadata without touching the ownership schema. Rules:
+`products/<name>/product.yaml` with an `owners:` key is read by the resolver as an `owners.yaml` with that same `owners:` list, because the root `owners.yaml` enables it with `alias_files: [product.yaml]`, which is also the default when a root file does not declare the setting. Every other field in `product.yaml` (`name:` today, anything added later) is ignored for ownership purposes — `product.yaml` remains free to grow product metadata without touching the ownership schema. Rules:
 
 - A directory may have `product.yaml`-with-`owners` **or** `owners.yaml`, never both — lint error.
 - Sub-folder overrides inside a product use nested `owners.yaml` as anywhere else (e.g. `products/x/backend/migrations/owners.yaml`).
@@ -143,7 +182,7 @@ Every value is a string starting with `#`, or `false` to mean "no channel, don't
 
 `notifications` may also be a mapping of producer name to channel, so a team can silence or redirect one bot on its own.
 A producer the mapping does not name falls through to `slack`.
-Only a producer the schema knows may be named, so a typo is a lint error rather than an opt-out that never applies.
+Only a producer listed in the root `producers:` setting may be named, so a typo is a lint error rather than an opt-out that never applies.
 
 ```yaml
 # owners.yaml (repo root only)
@@ -197,7 +236,7 @@ For a path `P`:
 
 1. Walk from the repo root toward `P`, collecting every `owners.yaml` (or aliased `product.yaml`) on the way. If a file sets `inherit: false`, drop everything collected above it.
 2. Effective config = shallow merge, nearest file winning per field (lists replace, never merge — predictability over cleverness).
-3. Within the nearest file that has `rules:`, apply the last rule whose `match` glob (gitignore-style semantics, documented with the schema) matches `P` relative to that file's directory. Rule fields override the merged config.
+3. Within each file, apply every rule whose `match` glob (gitignore-style semantics, documented with the schema) matches `P` relative to that file's directory, in file order. Each rule replaces only the fields it sets, before the file's fields merge into the result.
 4. Review tagging = resolved `owners`. Primary owner = its first entry.
 5. No ownership file on the walk and no rule match → **unowned**, which fails the coverage check unless the path is under an `owners: null` rule.
 
@@ -209,22 +248,22 @@ The hard `.github/CODEOWNERS` stays outside this walk entirely. It keeps its own
 
 The stability guarantee is architectural: **consumers never parse ownership files themselves.** One resolver library owns the semantics; everything else calls it.
 
-- **Resolver**: single implementation in the installable `posthog-owners` package at `tools/owners/` exposing `resolve(path)`, `map()`, `unowned()` as a library, and `hogli owners:resolve --json <path...>` (paths also accepted on stdin) as the CLI. Rationale: hogli already lints ownership, and two of the four consumers are Python, so this makes lint, lookup, and the pr-approval agent native library callers with zero subprocess hops. Glob matching for `rules:` uses gitignore-style semantics implemented (and documented) here — the vendored JS matcher stays only for the hard-CODEOWNERS overlay parsing, or is replaced by an equivalent Python CODEOWNERS parser.
+- **Resolver**: single implementation in the installable `owners-yaml` package at `packages/owners-yaml/` exposing `resolve(path)`, `map()`, `unowned()` as a library, and `hogli owners:resolve --json <path...>` (paths also accepted on stdin) as the CLI. Rationale: hogli already lints ownership, and two of the four consumers are Python, so this makes lint, lookup, and the pr-approval agent native library callers with zero subprocess hops. Glob matching for `rules:` uses gitignore-style semantics implemented (and documented) here — the vendored JS matcher stays only for the hard-CODEOWNERS overlay parsing, or is replaced by an equivalent Python CODEOWNERS parser.
 - **JS consumers** shell out to the CLI and read JSON — `assign-reviewers.js` feeds the PR's changed files in and gets resolved owners back; the `establishing-code-ownership` skill does the same. The auto-assign workflow gains a Python/uv setup step (it is node-only today). `gates.py` imports the library directly. No committed lock file, so no freshness-check machinery; if one is ever wanted (offline consumers, Backstage `catalog-info.yaml` emitters), it is a trivial fold over `map()` added later.
-- **Validator**: `hogli owners:lint` — schema check, team slugs and `@handles` against the live GitHub org (reusing `product/gh.py`), dead `rules:` globs (match zero files), same-directory `product.yaml`/`owners.yaml` conflicts, reserved-location rejection (see below), and full-tree coverage (every `git ls-files` path resolves or is `owners: null`). It also prints advisory consolidation suggestions when it spots a cluster of single-purpose owners.yaml files a single parent could absorb (never affects the exit code).
+- **Validator**: `hogli owners:lint` — schema check, team slugs and `@handles` against the live GitHub org (`owners_yaml.github`, which `product/gh.py` reuses), dead `rules:` globs (match zero files), same-directory `product.yaml`/`owners.yaml` conflicts, reserved-location rejection (see below), and full-tree coverage (every `git ls-files` path resolves or is `owners: null`). It also prints advisory consolidation suggestions when it spots a cluster of single-purpose owners.yaml files a single parent could absorb (never affects the exit code).
 
 **Reserved locations.** `owners.yaml` must not live in a directory whose own tooling globs every YAML file there — GitHub Actions/actionlint treat everything under `.github/workflows/` as a workflow, and the `services/mcp` generate-tools step globs YAML configs under `products/*/mcp/`. Lint rejects `owners.yaml` in those spots; hoist the ownership into the parent's `rules:` instead (e.g. a `/workflows/` rule in `.github/owners.yaml`).
 
 - **Lookup**: `hogli owners:who <path>` / `owners:team <slug>` / `owners:unowned` — thin wrappers over the library; the `establishing-code-ownership` skill's `ownership.js` becomes a shim over the CLI (or is deleted in favor of it).
 
-One tradeoff to acknowledge: today `.github/scripts/` sits behind the blocking `CODEOWNERS` (`team-security`), so changes to assignment logic require their approval. Moving the resolver out of `.github/scripts/` takes it out of that gate. Done — the resolver package (`tools/owners/posthog_owners/`) is under the blocking file, a deliberate exception to "leave CODEOWNERS alone" since the auto-assigner executes it on `pull_request_target`.
+One tradeoff to acknowledge: today `.github/scripts/` sits behind the blocking `CODEOWNERS` (`team-security`), so changes to assignment logic require their approval. Moving the resolver out of `.github/scripts/` takes it out of that gate. Done — the resolver package (`packages/owners-yaml/owners_yaml/`) is under the blocking file, a deliberate exception to "leave CODEOWNERS alone" since the auto-assigner executes it on `pull_request_target`.
 
 If the first consumer (say the auto-assigner) is ever replaced, the resolver, schema, and lint are untouched — only one caller changes. That is the "source of truth, not tool config" property.
 
 ### Portability: repo = data, app = resolver
 
 Nothing in the resolver is PostHog-specific — `owners.yaml` is a repo-agnostic format, and the library needs only pyyaml and a way to load files.
-That is why it ships as the standalone, installable `tools/owners` package (`posthog-owners`), which any repo can run without vendoring: `uvx --from "git+https://github.com/PostHog/posthog#subdirectory=tools/owners" owners lint`.
+That is why it ships as the standalone, installable `packages/owners-yaml` package (`owners-yaml`), which any repo can run without vendoring: `uvx owners-yaml lint` (pin the version in CI).
 That last part is the seam: resolution walks an abstract file map, not the filesystem (the `owners:fmt` equivalence proof already runs the real resolver over an in-memory layout).
 So when a consumer like stamphog becomes a hosted app that other repos enable without adding any code, the model is: **the repo contributes only ownership data; the resolver ships inside the app.**
 A hosted reviewer fetches the default-branch tree (one API call), pulls just the ownership files (a few dozen blobs, cacheable per commit SHA), and resolves in-process.
@@ -251,7 +290,7 @@ The division of labor: `owners:lint`'s fold/split suggestions are the everyday i
 
 Everything lands atomically. The delivery order below is a review guide, not a merge sequence.
 
-1. **Resolver + schema.** `tools/owners/` (resolution per §4), `hogli owners:resolve --json`, JSON-schema for `owners.yaml`.
+1. **Resolver + schema.** `packages/owners-yaml/` (resolution per §4), `hogli owners:resolve --json`, JSON-schema for `owners.yaml`.
 2. **Convert `CODEOWNERS-soft` → distributed `owners.yaml`.** Mechanical translation of the 383 lines into per-directory files under `posthog/`, `frontend/src/scenes/`, `nodejs/`, `rust/`, `services/`, `ee/`, plugin-server, etc. Where the soft file relied on last-match ordering (e.g. the trailing managed-reverse-proxy block overriding a broad settings-scene rule), that intent becomes an explicit nested file or `rules:` entry — order-independence is the point. This was driven by a one-shot converter that ran during the PR and was removed once the conversion landed (it remains in the branch history).
 3. **Equivalence proof.** A differ resolved every `git ls-files` path under (old: soft + product.yaml) and (new: owners.yaml + product.yaml) and asserted identical reviewer sets. It ran during the PR to verify the migration and was removed once the conversion landed; intentional divergences (there were a few — dead globs, stale teams the 422 fallback already skips) were listed explicitly in the PR description rather than slipping through.
 4. **Flip consumers.**
@@ -272,4 +311,4 @@ Safety properties of the atomic switch:
 1. **Oncall routing**: resolved — dropped from v1. The Slack channel costs nothing (derived from the team slug by convention, with the root `teams:` registry overriding or setting `slack: false` where needed), but nothing consumes an oncall reference, so it is not carried. Re-adding it is additive once a consumer exists.
 2. **Resolver ownership**: resolved — the resolver package is covered by the hard `CODEOWNERS` (see §5).
 3. **Coverage gating cadence**: how soon after the PR to flip `owners:lint` coverage from warn to fail — immediately for _new_ directories (ratchet), or only once the whole tree is clean?
-4. **Hard-CODEOWNERS future** (explicitly out of scope now): if blocking gates ever move into the schema, approver inheritance should probably union up the tree rather than nearest-wins — parked until `team-security` wants to revisit.
+4. **Hard-CODEOWNERS future** (explicitly out of scope now): if blocking gates ever move into the schema, approver inheritance should probably union up the tree rather than nearest-wins — parked until `team-security` wants to revisit. `additions:` set the precedent for the union half; it is advisory, so it did not settle the blocking half.

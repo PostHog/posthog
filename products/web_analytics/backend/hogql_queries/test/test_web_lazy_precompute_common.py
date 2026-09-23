@@ -42,7 +42,7 @@ from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTab
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     _VOLUME_FLOOR_LOCAL_CACHE,
-    CHANNEL_MAX_WINDOW_DAYS,
+    LAZY_MAX_WINDOW_DAYS,
     OOM_PIN_TTL_SECONDS,
     REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
@@ -60,7 +60,6 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     _oom_pin_key,
     _sticky_team_count_key,
     _team_shape_set_key,
-    channel_ttl_schedule,
     check_common_eligibility,
     compute_filters_eligibility_hash,
     compute_shape_cap_key,
@@ -71,6 +70,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     is_team_above_volume_floor,
     is_team_oom_pinned,
     lazy_precompute_ineligible_reason,
+    lazy_ttl_schedule,
     log_eligibility_outcome,
     pin_team_oom,
     publish_volume_floor_teams,
@@ -143,13 +143,15 @@ class TestChannelModifiersShapeKey(BaseTest):
         assert override_key != default_key
 
 
-class TestChannelTtlSchedule(BaseTest):
+class TestLazyTtlSchedule(BaseTest):
     def test_schedule_caps_job_width_and_holds_old_days(self) -> None:
-        # Without max_window_days, `split_ranges_by_ttl` merges a year-long span's
-        # 90-day-band tail into ONE insert; without the long default hold, annual
-        # shapes re-scan a year of events every three weeks.
-        schedule = channel_ttl_schedule(self.team)
-        assert schedule.max_window_days == CHANNEL_MAX_WINDOW_DAYS
+        # Every family reaches MAX_PRECOMPUTE_DAYS, so both guards must hold for
+        # every family. Without max_window_days, `split_ranges_by_ttl` merges a
+        # year-long span's default-band tail into ONE insert; without the long
+        # default hold, annual shapes re-scan a year of events every time the
+        # band expires.
+        schedule = lazy_ttl_schedule(self.team)
+        assert schedule.max_window_days == LAZY_MAX_WINDOW_DAYS
         assert schedule.default_ttl_seconds == 90 * 24 * 60 * 60
 
 
@@ -749,6 +751,22 @@ class TestWebEnsurePrecomputed(BaseTest):
         mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
         web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         assert is_team_oom_pinned(self.team.pk) is False
+
+    @parameterized.expand(
+        [
+            ("defaults_to_no_quorum", {}, False),
+            ("explicit_override_survives", {"read_after_write": True}, True),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_builds_never_require_replica_quorum(self, _name, extra_kwargs, expected, mock_ensure):
+        # No web analytics build is read back in-request, so the wrapper must opt out of
+        # the framework's quorum wait: with it, one downed aux replica fails every build
+        # (TOO_FEW_LIVE_REPLICAS) and precompute serving collapses region-wide. An
+        # explicit caller override must survive — the default is a setdefault, not a stamp.
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+        web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None, **extra_kwargs)
+        assert mock_ensure.call_args.kwargs["read_after_write"] is expected
 
     @mock.patch(f"{_COMMON}.ensure_precomputed")
     def test_pinned_team_restamps_prebuilt_schedule(self, mock_ensure):
