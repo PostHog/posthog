@@ -7,7 +7,7 @@ from dataclasses import field
 from datetime import date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 import pyarrow as pa
@@ -72,6 +72,22 @@ class AppliedSourceValues:
     written: int
     hashes: dict[str, str]
     failed: bool
+
+
+class _SnapshotS3Client(Protocol):
+    async def _ls(self, path: str, *, detail: bool) -> dict[str, dict[str, Any]] | list[dict[str, Any]]: ...
+
+    async def _cat_file(self, path: str) -> bytes: ...
+
+    async def _pipe_file(self, path: str, data: bytes) -> None: ...
+
+    async def _rm(self, paths: str | list[str], *, recursive: bool = False) -> None: ...
+
+
+@frozen
+class _SnapshotMerge:
+    hashes: dict[str, str]
+    complete: bool
 
 
 @frozen(frozen=False)
@@ -174,36 +190,35 @@ def _s3_key(key: str) -> str:
     return key.removeprefix("s3://").lstrip("/")
 
 
-def _snapshot_file_order(entry: dict[str, Any]) -> tuple[bool, Any, str]:
-    # Oldest first, so a newer run's hash wins for a repeated external id. Order by the file's
-    # last-modified time, falling back to the key when the store omits it. The (is-missing, time,
-    # key) shape keeps missing timestamps first without comparing None to a datetime.
-    last_modified = entry.get("LastModified")
-    return (last_modified is None, last_modified, entry["Key"])
-
-
-async def _list_snapshot_files(s3_client, prefix: str) -> list[str]:
+async def _list_snapshot_files(s3_client: _SnapshotS3Client, prefix: str) -> list[str]:
     try:
         listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
     except FileNotFoundError:
         return []
     entries = listing.values() if isinstance(listing, dict) else listing
-    files = sorted((entry for entry in entries if entry.get("type") != "directory"), key=_snapshot_file_order)
-    return [entry["Key"] for entry in files]
+    entries_by_key = sorted(
+        (entry for entry in entries if entry.get("type") != "directory"), key=lambda entry: entry["Key"]
+    )
+    entries_without_timestamp = [entry for entry in entries_by_key if entry.get("LastModified") is None]
+    entries_with_timestamp = sorted(
+        (entry for entry in entries_by_key if entry.get("LastModified") is not None),
+        key=lambda entry: entry["LastModified"],
+    )
+    return [entry["Key"] for entry in [*entries_without_timestamp, *entries_with_timestamp]]
 
 
-async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, str]:
+async def _merge_snapshot_files(s3_client: _SnapshotS3Client, file_keys: list[str]) -> _SnapshotMerge:
     hashes: dict[str, str] = {}
+    complete = True
     for key in file_keys:
         try:
             data = await s3_client._cat_file(_s3_uri(key))
         except FileNotFoundError:
-            # A concurrent writer compacted this file away after we listed the folder. Its rows
-            # are in the file that replaced it, so skip it rather than fail the whole segment.
+            complete = False
             continue
         for row in await asyncio.to_thread(_decode_parquet_rows, data):
             hashes[str(row["external_id"])] = str(row["value_hash"])
-    return hashes
+    return _SnapshotMerge(hashes=hashes, complete=complete)
 
 
 async def _read_snapshot_hashes(
@@ -211,7 +226,8 @@ async def _read_snapshot_hashes(
 ) -> dict[str, str]:
     prefix = account_property_snapshot_prefix(team_id, binding, source_id, segment.value)
     async with aget_s3_client() as s3_client:
-        return await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
+        merge = await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
+        return merge.hashes
 
 
 async def _write_snapshot_hashes(
@@ -229,17 +245,23 @@ async def _write_snapshot_hashes(
     path = f"{prefix}/{job_id}.parquet"
     async with aget_s3_client() as s3_client:
         existing_files = await _list_snapshot_files(s3_client, prefix)
-        merged = await _merge_snapshot_files(s3_client, existing_files)
-        merged.update(hashes)
+        merge = await _merge_snapshot_files(s3_client, existing_files)
+        merged = {**merge.hashes, **hashes} if merge.complete else hashes
         snapshot = await asyncio.to_thread(_encode_snapshot, merged)
         await s3_client._pipe_file(_s3_uri(path), snapshot)
+        if not merge.complete:
+            return
         stale = [file_path for file_path in existing_files if _s3_key(file_path) != _s3_key(path)]
         if stale:
+            stale_uris = [_s3_uri(file_path) for file_path in stale]
             try:
-                await s3_client._rm([_s3_uri(file_path) for file_path in stale])
+                await s3_client._rm(stale_uris)
             except FileNotFoundError:
-                # Defensive: s3fs batch delete is idempotent, but not every S3-compatible store is.
-                pass
+                for stale_uri in stale_uris:
+                    try:
+                        await s3_client._rm(stale_uri)
+                    except FileNotFoundError:
+                        continue
 
 
 def _matching_account_ids(

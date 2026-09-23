@@ -1,5 +1,6 @@
+from collections.abc import AbstractContextManager, AsyncIterator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Generic, TypeVar
 from uuid import uuid4
 
 import pytest
@@ -122,6 +123,48 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         assert (run.status, run.phase) == ("completed", "completed")
         assert (run.rows_read, run.changed, run.existing, run.produced) == (1, 1, 1, 1)
 
+    def test_segment_sync_completes_when_snapshot_file_disappears_after_listing(self) -> None:
+        source = self._create_source()
+        source.consecutive_failures = 4
+        source.save(update_fields=["consecutive_failures"])
+        start_account_property_sync_runs(
+            AccountPropertySyncRunContext(
+                team_id=self.team.id,
+                saved_query_id=str(source.saved_query_id),
+                job_id="job-1",
+            ),
+            workflow_id="stage-workflow-job-1",
+            workflow_run_id="00000000-0000-4000-8000-000000000001",
+        )
+        client = MagicMock()
+        client._ls = AsyncMock(return_value=[{"Key": "prefix/deleted.parquet", "type": "file"}])
+        client._cat_file = AsyncMock(side_effect=FileNotFoundError())
+
+        async def no_batches(*args: object) -> AsyncIterator[list[dict[str, Any]]]:
+            for _ in range(0):
+                yield []
+
+        with (
+            patch(f"{_MODULE}._segment_already_completed", new=AsyncMock(return_value=False)),
+            patch(f"{_MODULE}._enabled_sources", return_value=[source]),
+            patch(f"{_MODULE}.aget_s3_client", return_value=_S3ClientContext(client)),
+            patch(f"{_MODULE}._iter_parquet_row_batches", side_effect=no_batches),
+            patch(f"{_MODULE}._mark_completed_and_maybe_cleanup", new=AsyncMock()),
+        ):
+            async_to_sync(run_account_property_segment_sync)(
+                team_id=self.team.id,
+                binding=saved_query_binding(str(source.saved_query_id)),
+                job_id="job-1",
+                segment=AccountPropertySyncSegment.TRACKED,
+                final_attempt=True,
+            )
+
+        run = CustomPropertySyncRun.objects.for_team(self.team.id).get(source=source, segment="tracked")
+        source.refresh_from_db()
+        assert run.status == "completed"
+        assert source.consecutive_failures == 0
+        assert source.is_enabled
+
     def test_final_attempt_persists_a_failed_run(self) -> None:
         source = self._create_source()
         start_account_property_sync_runs(
@@ -217,14 +260,17 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         assert run.finished_at is not None
 
 
-class _S3ClientContext:
-    def __init__(self, client: Any) -> None:
+_T = TypeVar("_T")
+
+
+class _S3ClientContext(Generic[_T]):
+    def __init__(self, client: _T) -> None:
         self.client = client
 
-    async def __aenter__(self) -> Any:
+    async def __aenter__(self) -> _T:
         return self.client
 
-    async def __aexit__(self, *args) -> bool:
+    async def __aexit__(self, *args: object) -> bool:
         return False
 
 
@@ -383,7 +429,8 @@ class _FakeS3:
         self.times: dict[str, int] = {}
         self._clock = 0
 
-    async def _ls(self, path, detail=True):
+    async def _ls(self, path: str, *, detail: bool = True) -> list[dict[str, Any]]:
+        del detail
         prefix = aps._s3_key(path).rstrip("/") + "/"
         entries = [
             {"Key": key, "type": "file", "LastModified": self.times[key]}
@@ -394,26 +441,27 @@ class _FakeS3:
             raise FileNotFoundError(path)
         return entries
 
-    async def _cat_file(self, path):
+    async def _cat_file(self, path: str) -> bytes:
         key = aps._s3_key(path)
         if key not in self.store:
             raise FileNotFoundError(path)
         return self.store[key]
 
-    async def _pipe_file(self, path, data):
+    async def _pipe_file(self, path: str, data: bytes) -> None:
         self._clock += 1
         key = aps._s3_key(path)
         self.store[key] = data
         self.times[key] = self._clock
 
-    async def _rm(self, paths, recursive=False):
+    async def _rm(self, paths: str | list[str], *, recursive: bool = False) -> None:
+        del recursive
         for path in [paths] if isinstance(paths, str) else paths:
             key = aps._s3_key(path)
             self.store.pop(key, None)
             self.times.pop(key, None)
 
 
-def _fake_s3_patch(fake: _FakeS3):
+def _fake_s3_patch(fake: _FakeS3) -> AbstractContextManager[object]:
     return patch(f"{_MODULE}.aget_s3_client", lambda: _S3ClientContext(fake))
 
 
@@ -429,6 +477,22 @@ async def _write(fake: _FakeS3, job_id: str, hashes: dict[str, str]) -> None:
 async def _read(fake: _FakeS3) -> dict[str, str]:
     with _fake_s3_patch(fake):
         return await _read_snapshot_hashes(7, _SNAPSHOT_BINDING, "src", _SEGMENT)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_files_without_timestamps_merge_before_dated_files() -> None:
+    client = MagicMock()
+    client._ls = AsyncMock(
+        return_value=[
+            {"Key": "prefix/dated-new.parquet", "type": "file", "LastModified": datetime(2026, 1, 2, tzinfo=UTC)},
+            {"Key": "prefix/undated.parquet", "type": "file"},
+            {"Key": "prefix/dated-old.parquet", "type": "file", "LastModified": datetime(2026, 1, 1, tzinfo=UTC)},
+        ]
+    )
+
+    files = await _list_snapshot_files(client, "prefix")
+
+    assert files == ["prefix/undated.parquet", "prefix/dated-old.parquet", "prefix/dated-new.parquet"]
 
 
 @pytest.mark.asyncio
@@ -449,25 +513,67 @@ async def test_snapshot_read_skips_file_deleted_by_concurrent_compaction() -> No
     listed = await _list_snapshot_files(fake, prefix)
     await fake._rm(listed)
 
-    assert await _merge_snapshot_files(fake, listed) == {}
+    merge = await _merge_snapshot_files(fake, listed)
+
+    assert merge.hashes == {}
+    assert not merge.complete
 
 
 @pytest.mark.asyncio
-async def test_snapshot_write_survives_file_deleted_by_concurrent_compaction() -> None:
+async def test_snapshot_write_persists_only_current_hashes_after_an_incomplete_merge() -> None:
+    fake = _FakeS3()
+    prefix = account_property_snapshot_prefix(7, _SNAPSHOT_BINDING, "src", _SEGMENT.value)
+    job_1 = f"{prefix}/job-1.parquet"
+    job_2 = f"{prefix}/job-2.parquet"
+    replacement = f"{prefix}/concurrent.parquet"
+    await fake._pipe_file(job_1, aps._encode_snapshot({"account": "old"}))
+    await fake._pipe_file(job_2, aps._encode_snapshot({"account": "new"}))
+    original_cat_file = fake._cat_file
+
+    async def _cat_then_compact(path: str) -> bytes:
+        data = await original_cat_file(path)
+        if path.endswith("/job-1.parquet"):
+            await fake._pipe_file(replacement, aps._encode_snapshot({"account": "new"}))
+            await fake._rm([job_1, job_2])
+        return data
+
+    with patch.object(fake, "_cat_file", _cat_then_compact):
+        await _write(fake, "job-3", {"other": "value"})
+
+    assert f"{prefix}/job-3.parquet" in fake.store
+    assert await _read(fake) == {"account": "new", "other": "value"}
+
+
+@pytest.mark.asyncio
+async def test_snapshot_cleanup_retries_files_after_batch_delete_race() -> None:
     fake = _FakeS3()
     prefix = account_property_snapshot_prefix(7, _SNAPSHOT_BINDING, "src", _SEGMENT.value)
     await fake._pipe_file(f"{prefix}/job-1.parquet", aps._encode_snapshot({"a": "h1"}))
     await fake._pipe_file(f"{prefix}/job-2.parquet", aps._encode_snapshot({"b": "h2"}))
-    doomed_key = f"{prefix}/job-2.parquet"
+    original_rm = fake._rm
+    batch_failed = False
 
-    original_cat_file = fake._cat_file
+    async def _rm_with_batch_race(paths: str | list[str], *, recursive: bool = False) -> None:
+        nonlocal batch_failed
+        if isinstance(paths, list) and not batch_failed:
+            batch_failed = True
+            raise FileNotFoundError(paths[0])
+        await original_rm(paths, recursive=recursive)
 
-    async def _cat_then_compact(path):
-        data = await original_cat_file(path)
-        await fake._rm([doomed_key])
-        return data
-
-    with patch.object(fake, "_cat_file", _cat_then_compact):
+    with patch.object(fake, "_rm", _rm_with_batch_race):
         await _write(fake, "job-3", {"c": "h3"})
 
-    assert await _read(fake) == {"a": "h1", "c": "h3"}
+    assert set(fake.store) == {f"{prefix}/job-3.parquet"}
+    assert await _read(fake) == {"a": "h1", "b": "h2", "c": "h3"}
+
+
+@pytest.mark.asyncio
+async def test_snapshot_read_propagates_non_missing_file_errors() -> None:
+    fake = _FakeS3()
+    await _write(fake, "job-1", {"a": "h1"})
+
+    async def _raise_s3_error(path: str) -> bytes:
+        raise OSError(f"S3 unavailable: {path}")
+
+    with patch.object(fake, "_cat_file", _raise_s3_error), pytest.raises(OSError, match="S3 unavailable"):
+        await _read(fake)
