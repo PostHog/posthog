@@ -116,6 +116,7 @@ def rebuild_suggested_reviewer_index(
     after: str | None = None,
     batch_size: int = _REBUILD_BATCH_SIZE,
     only_missing: bool = False,
+    using: str | None = None,
 ) -> Iterator[tuple[int, str]]:
     """Rebuild index rows from the reviewer artefact log, a batch of reports at a time.
 
@@ -131,7 +132,15 @@ def rebuild_suggested_reviewer_index(
     `only_missing` restricts the walk to reports that have no index rows, and inserts without
     deleting. A backfill runs that way, because a report the live code has already indexed needs
     no repair.
+
+    `using` pins every read, every write and the per-batch transaction to one database alias. A
+    caller that reads in order to write has to set it, because the routers send an unbound read to
+    the replica once a model is in `READ_REPLICA_OPT_IN`, and a replica that lags by one reviewer
+    write reports a report as unindexed when the primary already has its rows.
     """
+    if using is not None:
+        reviewer_artefacts = reviewer_artefacts.using(using)
+        index_rows = index_rows.using(using)
     index_model = index_rows.model
     while True:
         batch = reviewer_artefacts if after is None else reviewer_artefacts.filter(report_id__gt=after)
@@ -148,14 +157,16 @@ def rebuild_suggested_reviewer_index(
             for artefact in reviewer_artefacts.filter(report_id__in=targets):
                 by_report[artefact.report_id].append(artefact)
             rows = [row for artefacts in by_report.values() for row in _rows_for_report(artefacts, index_model)]
-            with transaction.atomic():
+            with transaction.atomic(using=using):
                 if only_missing:
                     # The artefact read sits outside this transaction, so a live sync can commit
                     # between the two. Reading the index again here keeps the walk from replacing
-                    # a newer row set with rows built from an older artefact. The window narrows
-                    # rather than closes: a sync that commits after this read leaves the report
-                    # with a second copy of its identities, which both readers match by report id
-                    # and so count once, and the next reviewer write rewrites all of them.
+                    # a newer row set with rows built from an older artefact. It does not close
+                    # the window: a sync that commits between this read and the insert leaves the
+                    # report holding the older identities as well, so a reviewer that artefact
+                    # named still matches until the next reviewer write rewrites the report's
+                    # rows. Closing it needs both write paths to lock the report, which the live
+                    # path does not do today. See #105263.
                     indexed = set(index_rows.filter(report_id__in=targets).values_list("report_id", flat=True))
                     rows = [row for row in rows if row.report_id not in indexed]
                 else:

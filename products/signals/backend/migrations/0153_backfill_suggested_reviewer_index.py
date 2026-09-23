@@ -12,7 +12,7 @@ def backfill_suggested_reviewer_index(apps, schema_editor):
     reviewer and drop out of the scoped lists and counts until their rows exist.
 
     The walk covers every team, because the gap is in every project. It skips a report that
-    already has rows, so it cannot overwrite a write from the running app, and a retry after a
+    already has rows, so it cannot replace a row set the running app wrote, and a retry after a
     partial run picks up only what is left.
     """
     SignalReportArtefact = apps.get_model("signals", "SignalReportArtefact")
@@ -25,6 +25,11 @@ def backfill_suggested_reviewer_index(apps, schema_editor):
         # the unscoped `all_teams`, so the historical model carries no `objects` attribute.
         index_rows=SignalReportSuggestedReviewer._default_manager.all(),
         only_missing=True,
+        # `bin/migrate` migrates over `default_direct`, which bypasses PgBouncer and carries the
+        # migration `lock_timeout`. An unbound queryset would leave that connection and route by
+        # itself, so the walk would read through the pooler, or from the replica once either model
+        # joins `READ_REPLICA_OPT_IN`, while writing to the primary.
+        using=schema_editor.connection.alias,
     )
     for written, cursor in walk:
         print(f"Indexed {written} reports; resume after {cursor}")  # noqa: T201
