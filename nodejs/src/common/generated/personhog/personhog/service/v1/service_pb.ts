@@ -513,8 +513,6 @@ export const PersonHogService: GenService<{
         output: typeof DeleteTombstonedPersonsResponseSchema
     }
     /**
-     * Read-only; reads the primary.
-     *
      * @generated from rpc personhog.service.v1.PersonHogService.GetPersonTombstones
      */
     getPersonTombstones: {
@@ -523,8 +521,6 @@ export const PersonHogService: GenService<{
         output: typeof GetPersonTombstonesResponseSchema
     }
     /**
-     * Write to the tombstone publish queue; routed through the replica like DeletePersons.
-     *
      * @generated from rpc personhog.service.v1.PersonHogService.AckPersonTombstones
      */
     ackPersonTombstones: {

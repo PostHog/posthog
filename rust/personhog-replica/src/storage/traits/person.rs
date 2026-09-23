@@ -74,14 +74,12 @@ pub trait PersonLookup: Send + Sync {
         max_rows: i64,
     ) -> StorageResult<TombstonedDeleteOutcome>;
 
-    /// Versions tombstoned persons hold, from the primary; live and missing persons are omitted.
     async fn get_person_tombstones(
         &self,
         team_id: i64,
         uuids: &[Uuid],
     ) -> StorageResult<Vec<TombstonedPerson>>;
 
-    /// Clear queue rows whose ClickHouse tombstones were delivered, at or below the acked version.
     async fn ack_person_tombstones(
         &self,
         team_id: i64,

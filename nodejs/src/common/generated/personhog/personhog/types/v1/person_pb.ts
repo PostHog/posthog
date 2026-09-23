@@ -850,8 +850,6 @@ export const DeletePersonsResponseSchema: GenMessage<DeletePersonsResponse> =
     messageDesc(file_personhog_types_v1_person, 25)
 
 /**
- * Reads the versions tombstoned persons hold, from the primary, without writing.
- *
  * @generated from message personhog.types.v1.GetPersonTombstonesRequest
  */
 export type GetPersonTombstonesRequest = Message<'personhog.types.v1.GetPersonTombstonesRequest'> & {
@@ -861,8 +859,6 @@ export type GetPersonTombstonesRequest = Message<'personhog.types.v1.GetPersonTo
     teamId: bigint
 
     /**
-     * Person UUIDs. Max 1000 per request.
-     *
      * @generated from field: repeated string person_uuids = 2;
      */
     personUuids: string[]
@@ -881,8 +877,6 @@ export const GetPersonTombstonesRequestSchema: GenMessage<GetPersonTombstonesReq
  */
 export type GetPersonTombstonesResponse = Message<'personhog.types.v1.GetPersonTombstonesResponse'> & {
     /**
-     * Only tombstoned persons; a live or missing person has no entry.
-     *
      * @generated from field: repeated personhog.types.v1.TombstonedPerson tombstones = 1;
      */
     tombstones: TombstonedPerson[]
@@ -920,8 +914,6 @@ export const AckedPersonTombstoneSchema: GenMessage<AckedPersonTombstone> =
     messageDesc(file_personhog_types_v1_person, 28)
 
 /**
- * Clears person_tombstone_publish_queue rows once their ClickHouse tombstones are delivered.
- *
  * @generated from message personhog.types.v1.AckPersonTombstonesRequest
  */
 export type AckPersonTombstonesRequest = Message<'personhog.types.v1.AckPersonTombstonesRequest'> & {
@@ -931,8 +923,6 @@ export type AckPersonTombstonesRequest = Message<'personhog.types.v1.AckPersonTo
     teamId: bigint
 
     /**
-     * Max 1000 per request.
-     *
      * @generated from field: repeated personhog.types.v1.AckedPersonTombstone tombstones = 2;
      */
     tombstones: AckedPersonTombstone[]

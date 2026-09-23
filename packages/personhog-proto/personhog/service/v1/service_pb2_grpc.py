@@ -610,13 +610,13 @@ class PersonHogServiceServicer:
         raise NotImplementedError("Method not implemented!")
 
     def GetPersonTombstones(self, request, context):
-        """Read-only; reads the primary."""
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
     def AckPersonTombstones(self, request, context):
-        """Write to the tombstone publish queue; routed through the replica like DeletePersons."""
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")

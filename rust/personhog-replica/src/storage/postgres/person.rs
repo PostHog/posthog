@@ -584,7 +584,6 @@ impl PersonLookup for PostgresStorage {
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
-        // One snapshot, so the person and distinct-id versions come from the same state.
         let mut tx = sqlx::Connection::begin(&mut *conn).await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
             .execute(&mut *tx)
@@ -1349,7 +1348,6 @@ async fn tombstone_persons_by_uuids(
     }
     let deleted = tombstones.len() as i64;
 
-    // Same transaction, so a crash after the commit still leaves a row for the sweeper.
     if !tombstones.is_empty() {
         let queued_uuids: Vec<Uuid> = tombstones.iter().map(|t| t.uuid).collect();
         let queued_versions: Vec<i64> = tombstones.iter().map(|t| t.version).collect();

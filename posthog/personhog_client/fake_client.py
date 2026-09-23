@@ -70,7 +70,6 @@ class FakePersonHogClient:
         self._distinct_ids: dict[tuple[int, int], list[person_pb2.DistinctIdWithVersion]] = {}
         # keyed by (team_id, distinct_id): mappings tombstoned alongside their person
         self._tombstoned_distinct_ids: set[tuple[int, str]] = set()
-        # Mirrors person_tombstone_publish_queue: (team_id, person_uuid) -> person_version.
         self.tombstone_queue: dict[tuple[int, str], int] = {}
         # Mirrors the replica's TOMBSTONED_DELETE_MAX_ROWS clamp. The fake tracks distinct ids
         # only, so the row budget counts them alone.

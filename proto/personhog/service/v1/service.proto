@@ -88,9 +88,7 @@ service PersonHogService {
   // number of rows per call; pending uuids are sent again by the caller.
   // WARNING: Same routing caveat as DeletePersons above.
   rpc DeleteTombstonedPersons(personhog.types.v1.DeleteTombstonedPersonsRequest) returns (personhog.types.v1.DeleteTombstonedPersonsResponse);
-  // Read-only; reads the primary.
   rpc GetPersonTombstones(personhog.types.v1.GetPersonTombstonesRequest) returns (personhog.types.v1.GetPersonTombstonesResponse);
-  // Write to the tombstone publish queue; routed through the replica like DeletePersons.
   rpc AckPersonTombstones(personhog.types.v1.AckPersonTombstonesRequest) returns (personhog.types.v1.AckPersonTombstonesResponse);
 
   // Person split

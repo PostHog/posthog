@@ -232,15 +232,12 @@ message DeletePersonsResponse {
   repeated TombstonedPerson tombstones = 3;
 }
 
-// Reads the versions tombstoned persons hold, from the primary, without writing.
 message GetPersonTombstonesRequest {
   int64 team_id = 1;
-  // Person UUIDs. Max 1000 per request.
   repeated string person_uuids = 2;
 }
 
 message GetPersonTombstonesResponse {
-  // Only tombstoned persons; a live or missing person has no entry.
   repeated TombstonedPerson tombstones = 1;
 }
 
@@ -249,10 +246,8 @@ message AckedPersonTombstone {
   int64 version = 2;
 }
 
-// Clears person_tombstone_publish_queue rows once their ClickHouse tombstones are delivered.
 message AckPersonTombstonesRequest {
   int64 team_id = 1;
-  // Max 1000 per request.
   repeated AckedPersonTombstone tombstones = 2;
 }
 
