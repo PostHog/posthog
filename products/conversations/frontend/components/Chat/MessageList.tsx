@@ -279,7 +279,10 @@ export function MessageList({
                 ref={containerRef}
                 onScroll={handleScroll}
                 data-attr="message-list-scroll"
-                className="flex-1 min-h-0 overflow-y-auto space-y-1.5"
+                // Named container so a message sizes itself against the thread it sits in rather than the
+                // viewport — the thread is a resizable pane in the ticket scene and a narrow column in
+                // the side panel, either of which is small while the window is not.
+                className="@container/chat-messages flex-1 min-h-0 overflow-y-auto space-y-1.5"
             >
                 {olderMessagesLoading && (
                     <div className="flex items-center justify-center py-2">

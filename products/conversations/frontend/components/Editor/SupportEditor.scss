@@ -140,6 +140,10 @@
         // Fill the wrapper so clicking anywhere in the input focuses it.
         & > div[contenteditable] {
             flex: 1;
+
+            // Restated because this element is prosemirror's, and prosemirror-view's own stylesheet
+            // sets the weaker `word-wrap: break-word` on `.ProseMirror`, beating the rule above.
+            overflow-wrap: anywhere;
             outline: none;
 
             p {
@@ -184,6 +188,13 @@
 .SupportRichContentPreview {
     // Break long unbreakable strings (URLs, tokens) so a message can't grow wider than the ticket pane.
     overflow-wrap: anywhere;
+
+    // prosemirror-view's stylesheet sets `word-wrap: break-word` on `.ProseMirror`, which outranks
+    // the rule above and only wraps — it leaves min-content width at the longest unbreakable run, so
+    // a URL ending in a 32-character id still sizes the bubble past the thread it sits in.
+    .ProseMirror {
+        overflow-wrap: anywhere;
+    }
 
     p {
         margin-bottom: 0;

@@ -112,8 +112,16 @@ export function Message({
         setFeedbackTextSubmitted(true)
     }
 
+    // The far-side gutter is what makes "from them" and "from us" readable at a glance, but a fixed
+    // 40px of it is a tenth of a narrow thread spent restating what the alignment already says.
     return (
-        <div className={`flex ${isCustomer ? 'mr-10' : 'flex-row-reverse ml-10'} mb-4`}>
+        <div
+            className={`flex ${
+                isCustomer
+                    ? 'mr-4 @min-[32rem]/chat-messages:mr-10'
+                    : 'flex-row-reverse ml-4 @min-[32rem]/chat-messages:ml-10'
+            } mb-4`}
+        >
             <div className="flex gap-2 min-w-0">
                 <div className="flex flex-col min-w-0 items-start">
                     {/* The agent's byline takes the AI colour too, so the name, the badge and the
@@ -144,7 +152,10 @@ export function Message({
                             </span>
                         </div>
                     </div>
-                    <div className="max-w-full min-w-80">
+                    {/* The floor keeps a two-word reply from rendering as a sliver, but a min-width can't
+                        yield: in a thread narrower than it plus the gutter it pushes the bubble out of
+                        the ticket instead, so it only applies once there is room for it. */}
+                    <div className="max-w-full @min-[32rem]/chat-messages:min-w-80">
                         {/* A note the customer can't see is set apart by hue, and which hue says who
                             wrote it: the assistant's notes take the AI colour the rest of the app
                             uses for our own agents, a teammate's keep the warning amber. Scanning a
