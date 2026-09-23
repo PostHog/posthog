@@ -59,6 +59,7 @@ from products.notebooks.backend.facade.sql_v2 import (
     notebook_sql_v2_data_plane_status,
 )
 from products.product_tours.backend.api import product_tours
+from products.security.backend.presentation.hub_api import urlpatterns as security_hub_urlpatterns
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import (
@@ -77,7 +78,6 @@ from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.user_interviews.backend.presentation.webhooks import start_call as user_interviews_start_call
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.workflows.backend.api import hog_flow, hog_flow_template
-from products.workflows.backend.api.ses_events_webhook import ses_tenant_events_webhook
 
 from .utils import opt_slash_path
 from .views import (
@@ -154,6 +154,8 @@ urlpatterns = [
     ),
     path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
+    # Routes the security hub calls from outside the cluster (auth: scoped service JWT)
+    path("api/security/", include(security_hub_urlpatterns)),
     path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
     path(
         "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
@@ -333,6 +335,7 @@ urlpatterns = [
     opt_slash_path(".well-known/http-message-signatures-directory", http_message_signatures_directory),
     # auth
     opt_slash_path("logout", authentication.logout, name="logout"),
+    opt_slash_path("reauth/complete", authentication.sso_reauth_complete, name="sso_reauth_complete"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
@@ -356,8 +359,6 @@ urlpatterns = [
     # It stays in core because the App is shared: no single product owns its registration.
     opt_slash_path("webhooks/github/pr", github_app_webhook),
     opt_slash_path("webhooks/github", github_app_webhook),
-    # AWS SES tenant reputation events (EventBridge -> SNS HTTPS subscription)
-    opt_slash_path("webhooks/workflows/ses-events", ses_tenant_events_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

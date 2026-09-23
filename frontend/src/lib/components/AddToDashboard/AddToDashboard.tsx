@@ -6,10 +6,10 @@ import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 interface SaveToDashboardProps {
-    insight: Partial<QueryBasedInsightModel>
+    insight: Partial<InsightModel>
     setOpenModal: (open: boolean) => void
 }
 

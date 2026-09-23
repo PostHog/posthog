@@ -24,13 +24,15 @@ const harnessOption = (
 
 const ANTHROPIC_MODELS = [
   harnessOption("claude", "claude-fable-5-1", "Claude Fable 5.1"),
-  harnessOption("claude", "claude-opus-5", "Claude Opus 5"),
+  harnessOption("claude", "claude-opus-5-5", "Claude Opus 5.5"),
   harnessOption("claude", "claude-opus-4-8", "Claude Opus 4.8"),
   harnessOption("claude", "claude-sonnet-5", "Claude Sonnet 5"),
 ];
 
 const OPENAI_MODELS = [
-  harnessOption("codex", "gpt-5.6-sol", "GPT-5.6 Sol"),
+  harnessOption("codex", "gpt-6-astra", "GPT-6 Astra"),
+  harnessOption("codex", "gpt-6-luna", "GPT-6 Luna"),
+  harnessOption("codex", "gpt-6-sol", "GPT-6 Sol"),
   harnessOption("codex", "gpt-5.6-terra", "GPT-5.6 Terra"),
   harnessOption("codex", "gpt-5.5", "GPT-5.5"),
 ];
@@ -120,7 +122,7 @@ function Harness({
   billingAdapter?: AgentAdapter;
 }): ReactElement {
   const [, setAdapter] = useState<AgentAdapter>("claude");
-  const [model, setModel] = useState("claude-opus-5");
+  const [model, setModel] = useState("claude-opus-5-5");
   const [effort, setEffort] = useState("medium");
 
   // The submenu reads the real useAdapterSubscription hook, which reads the
@@ -188,6 +190,24 @@ type Story = StoryObj<typeof Harness>;
 
 export const Default: Story = {};
 
+export const Codex: Story = {
+  render: function CodexStory(): ReactElement {
+    const [model, setModel] = useState("gpt-6-sol");
+    const [effort, setEffort] = useState("medium");
+    return (
+      <div className="flex h-[520px] items-end p-2">
+        <ReasoningLevelSelector
+          adapter="codex"
+          thoughtOption={effortOption(effort)}
+          modelOption={groupedModelOption(model)}
+          onChange={setEffort}
+          onModelChange={setModel}
+        />
+      </div>
+    );
+  },
+};
+
 export const GroupedModelSubmenu: Story = {
   play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
     const body = within(canvasElement.ownerDocument.body);
@@ -198,7 +218,7 @@ export const GroupedModelSubmenu: Story = {
       await body.findByRole("button", { name: "Advanced" }),
     );
     await userEvent.hover(await body.findByText("Model"));
-    await body.findByText("GPT-5.6 Sol");
+    await body.findByText("GPT-6 Sol");
   },
 };
 

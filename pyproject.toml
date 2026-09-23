@@ -63,7 +63,9 @@ dependencies = [
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
     "google-genai==1.46.0",
-    "granian[uvloop,reload,pname]==2.8.2",
+    # Stay on 2.7.x until the query pool stops relying on a shared TCP accept queue.
+    # 2.8.0 gives each worker its own SO_REUSEPORT socket, so a busy worker holds new connections.
+    "granian[uvloop,reload,pname]==2.7.9",
     "grimp~=3.14",
     "grpcio~=1.75.1",
     "gspread==6.2.1",
@@ -74,6 +76,7 @@ dependencies = [
     "jsonref==1.1.0",
     "kafka-python==2.3.0",
     "kombu==5.6.2",
+    "jsonpatch~=1.33",
     "langchain~=0.3.27",
     "langchain-community~=0.3.31",
     "langchain-core~=0.3.81",
@@ -306,12 +309,7 @@ proto-codegen = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-# TEMPORARY, remove before merging: granian 2.8.2 was published 2026-08-23 and
-# the rolling 7-day cutoff hides it until 2026-08-30. We need 2.8.2 rather than
-# 2.8.1 because it fixes a lost-wakeup race in workers shutdown, which our
-# multi-worker pools hit constantly via worker recycling. Drop this entry and
-# re-lock once the cutoff passes; the resolved version does not change.
-exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
+exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
 members = ["tools/hogli", "packages/owners-yaml", "packages/personhog-proto"]

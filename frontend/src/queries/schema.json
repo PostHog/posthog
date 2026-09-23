@@ -1408,8 +1408,21 @@
                 "service_name": {
                     "type": "string"
                 },
+                "sessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact."
+                },
+                "spans_with_distinct_id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "spans_with_session_id": {
+                    "$ref": "#/definitions/integer"
+                },
                 "total_duration_nano": {
                     "type": "number"
+                },
+                "users": {
+                    "$ref": "#/definitions/integer"
                 }
             },
             "required": [
@@ -24710,8 +24723,8 @@
                     "description": "For mean metrics: event source."
                 },
                 "start_event": {
-                    "$ref": "#/definitions/ExperimentApiEventSource",
-                    "description": "For retention metrics: start event."
+                    "$ref": "#/definitions/ExperimentApiRetentionStart",
+                    "description": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; start_handling and conversion window are ignored then."
                 },
                 "start_handling": {
                     "enum": ["first_seen", "last_seen"],
@@ -24733,6 +24746,51 @@
                 }
             },
             "required": ["kind", "metric_type"],
+            "type": "object"
+        },
+        "ExperimentApiRetentionStart": {
+            "additionalProperties": false,
+            "description": "Slim start source for retention metrics in API payloads. kind stays required so a payload without it fails validation instead of silently becoming an exposure start.",
+            "properties": {
+                "event": {
+                    "description": "Event name, e.g. '$pageview'. Required for EventsNode.",
+                    "type": "string"
+                },
+                "id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Action ID. Required for ActionsNode."
+                },
+                "kind": {
+                    "description": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+                    "enum": ["EventsNode", "ActionsNode", "ExperimentExposureNode"],
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/ExperimentMetricMathType",
+                    "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                },
+                "math_group_type_index": {
+                    "description": "Group type index to aggregate over. Required when math is 'unique_group'.",
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+                    "type": "string"
+                },
+                "math_property": {
+                    "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Event property filters to narrow which events are counted.",
+                    "items": {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         },
         "ExperimentBreakdownResult": {
@@ -26801,6 +26859,7 @@
                 "tracing",
                 "metrics",
                 "workflows",
+                "broadcasts",
                 "notebook",
                 "action",
                 "activity",
@@ -35084,7 +35143,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "medianReturnDays": {
-                    "description": "Median elapsed days to a second session within 30 days, among observed returners.",
+                    "description": "Estimated median calendar days from the first session to the first return on a later day, using the project's timezone. Includes observed returns within 30 days. Same-day visits do not count.",
                     "type": ["number", "null"]
                 },
                 "previous": {
@@ -35098,7 +35157,7 @@
                 },
                 "returners": {
                     "$ref": "#/definitions/integer",
-                    "description": "People with an observed second session within 30 days, including incomplete windows."
+                    "description": "People who returned on a later calendar day in the project's timezone within 30 days of their first session, including incomplete windows."
                 }
             },
             "required": [
@@ -53466,6 +53525,10 @@
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "includeImpact": {
+                    "description": "Also aggregate sessions and people per operation. Off by default: it reads the attribute maps.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "TraceSpansAggregationQuery",

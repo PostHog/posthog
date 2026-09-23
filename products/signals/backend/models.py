@@ -360,7 +360,7 @@ class SignalReport(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
-    # When the report first became user-visible (entered READY or PENDING_INPUT, the statuses the
+    # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
     # field or never surfaced.
@@ -549,19 +549,22 @@ class SignalReport(UUIDModel):
             case (S.RESOLVED, S.READY):
                 pass
 
-            # Only ready reports can resolve
+            # Only researched reports can resolve
             # Reports are marked resolved when the linked implementation PR is merged (see tasks GitHub webhook)
-            case (S.PENDING_INPUT | S.READY, S.RESOLVED):
+            # FAILED resolves too: a run that died in processing still describes real work, and
+            # whoever fixed it needs a way to say so. Without this edge the only exit is a
+            # dismissal, which used to make the report a sink for every later recurrence.
+            case (S.PENDING_INPUT | S.READY | S.FAILED, S.RESOLVED):
                 # Just pass through to status setting
                 pass
 
             case _:
                 raise InvalidStatusTransition(self.status, new_status)
 
-        # First arrival into a user-visible status (the inbox lists READY and PENDING_INPUT).
+        # First arrival into a user-visible status (the inbox lists READY, PENDING_INPUT, and FAILED).
         # Set-once: re-research and suppress/restore cycles keep the original timestamp, so a
         # report only ever counts once toward SignalTeamConfig.max_reports_per_day.
-        if new_status in (S.READY, S.PENDING_INPUT) and self.first_visible_at is None:
+        if new_status in (S.READY, S.PENDING_INPUT, S.FAILED) and self.first_visible_at is None:
             self.first_visible_at = timezone.now()
             updated_fields.add("first_visible_at")
 
@@ -1036,14 +1039,61 @@ class SignalReportGithubComment(TeamScopedRootMixin, UUIDModel):
         verbose_name_plural = "Signal report GitHub comments"
 
 
+class SignalReportSlackThread(UUIDModel):
+    """The Slack thread a report notification started, so a reply in it resolves back to the report.
+
+    A notification invites the reader to reply in the thread and mention PostHog, which starts a
+    task. Without this row that task has no way back to the report it discusses, so the work never
+    reaches the report's own timeline.
+    """
+
+    objects = EnvironmentScopedManager()
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="slack_threads")
+    # SET_NULL rather than CASCADE: a disconnected workspace must not erase the link between a
+    # report and the task somebody already started from its thread.
+    integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    # The resolved Slack channel id, so a config that names the channel differently still matches.
+    slack_workspace_id = models.CharField(max_length=64)
+    channel = models.CharField(max_length=64)
+    # Slack `ts` of the notification message, which is also its thread's root.
+    thread_ts = models.CharField(max_length=64)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            # One Slack message is one thread, and a thread is about at most one report. Keyed
+            # without the team so a second project connected to the same workspace cannot claim a
+            # thread another project's report already owns.
+            models.UniqueConstraint(
+                fields=["slack_workspace_id", "channel", "thread_ts"], name="signals_report_slack_thread_unique"
+            ),
+        ]
+        verbose_name = "Signal report Slack thread"
+        verbose_name_plural = "Signal report Slack threads"
+
+
 class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     State = SignalReportAssignment.PrState
+
+    class ReviewDecision(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"
+        REVIEW_REQUIRED = "review_required", "Review required"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     repository = models.CharField(max_length=200)
     number = models.PositiveBigIntegerField()
     url = models.URLField(max_length=2048)
     state = models.CharField(max_length=10, choices=State, default=State.UNKNOWN)
+    review_decision = models.CharField(max_length=20, choices=ReviewDecision, null=True, blank=True)
+    merged_at = models.DateTimeField(null=True, blank=True)
     checked_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1111,6 +1161,9 @@ class SignalReportArtefact(UUIDModel):
         WORK_RELEASE = "work_release"
         PULL_REQUEST = "pull_request"
         CHECK_RESULT = "check_result"
+        CHECK_SCHEDULED = "check_scheduled"
+        CHECK_EXPIRED = "check_expired"
+        CHECK_CANCELLED = "check_cancelled"
         IMPLEMENTATION_DECISION = "implementation_decision"
         IMPLEMENTATION_DISPATCH = "implementation_dispatch"
         IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
@@ -1164,6 +1217,9 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.WORK_RELEASE,
             ArtefactType.PULL_REQUEST,
             ArtefactType.CHECK_RESULT,
+            ArtefactType.CHECK_SCHEDULED,
+            ArtefactType.CHECK_EXPIRED,
+            ArtefactType.CHECK_CANCELLED,
         }
     )
 
@@ -1789,6 +1845,7 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
         VIEW = "view"
         # The thumbs rating at the end of the report body ("Was this report useful?").
         FEEDBACK = "feedback"
+        SLACK_DISCUSSION = "slack_discussion"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
@@ -2622,6 +2679,12 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
+    # Last touch on the row. The `summary`, the emit and edit tallies, and `metadata` all land after
+    # the row is created, so a reader keyed on `created_at` alone never sees a settled run. Nullable
+    # with no backfill so the AddField stays non-blocking on the populated table: the rows the column
+    # never observed read NULL, and a reader that wants one timestamp per row takes
+    # `coalesce(updated_at, created_at)`.
+    updated_at = models.DateTimeField(auto_now=True, null=True)
 
     class Meta:
         verbose_name = "Signal scout run"
@@ -2646,6 +2709,13 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
             GinIndex(fields=["emitted_report_ids"], name="signal_scout_run_emitted_idx"),
             GinIndex(fields=["edited_report_ids"], name="signal_scout_run_edited_idx"),
         ]
+
+    def save(self, *args: Any, update_fields: Any = None, **kwargs: Any) -> None:
+        # `auto_now` only fires for the fields a narrowed write names, and every post-create writer
+        # on this row narrows. Widening here rather than at each call site keeps a new writer honest.
+        if update_fields is not None:
+            update_fields = [*update_fields, "updated_at"]
+        super().save(*args, update_fields=update_fields, **kwargs)
 
 
 class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
@@ -2689,9 +2759,6 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
     # upstream by `MAX_FINDING_DESCRIPTION_LENGTH` on the emit serializer and the emit_signal
     # token cap, so it stays well clear of row-size concerns.
     description = models.TextField()
-    # Deprecated: the emit contract no longer asks for a confidence score, so new rows are NULL.
-    # Retained until emits carrying one have tailed off.
-    confidence = models.FloatField(null=True, blank=True)
     severity = models.CharField(max_length=20, null=True, blank=True)
     # Slug tags the scout attached to the finding (normalized lowercase kebab-case, capped at
     # emit). This row is what feeds the per-scout tag-vocabulary feedback loop in the run prompt

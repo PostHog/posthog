@@ -304,15 +304,10 @@ class Command(BaseCommand):
             # the schedules onto a state that is genuinely unchanged, not a half-flipped one.
             self.stdout.write("6/7 setting cdc_ingest_mode=buffered and marking the schemas served")
             with transaction.atomic():
-                source.job_inputs = {
-                    **(source.job_inputs or {}),
-                    "cdc_ingest_mode": "buffered",
-                    # Kept across a rollback: it is what tells a later flip that a `_ph_cdc_seq`
-                    # column on the warehouse table may be one this lane wrote, not one the source
-                    # owns.
-                    "cdc_buffered_before": True,
-                }
-                source.save(update_fields=["job_inputs"])
+                # `cdc_buffered_before` is kept across a rollback: it is what tells a later flip
+                # that a `_ph_cdc_seq` column on the warehouse table may be one this lane wrote,
+                # not one the source owns.
+                self._write_job_inputs(source, cdc_ingest_mode="buffered", cdc_buffered_before=True)
                 self._mark_schemas(eligible, served=True)
         except BaseException:
             self.stdout.write(self.style.WARNING("flip aborted, restoring per-schema schedules"))
@@ -381,16 +376,11 @@ class Command(BaseCommand):
             self.stdout.write("5/6 setting cdc_ingest_mode=legacy and unmarking the schemas")
             with transaction.atomic():
                 self._mark_schemas(eligible, served=False)
-                source.job_inputs = {
-                    **(source.job_inputs or {}),
-                    "cdc_ingest_mode": "legacy",
-                    # Set here as well as on the flip, so a source flipped before this marker
-                    # existed still carries it once it rolls back — which is the population that
-                    # would otherwise be refused a second flip over a `_ph_cdc_seq` column the
-                    # buffered lane wrote itself.
-                    "cdc_buffered_before": True,
-                }
-                source.save(update_fields=["job_inputs"])
+                # `cdc_buffered_before` is set here as well as on the flip, so a source flipped
+                # before this marker existed still carries it once it rolls back — which is the
+                # population that would otherwise be refused a second flip over a `_ph_cdc_seq`
+                # column the buffered lane wrote itself.
+                self._write_job_inputs(source, cdc_ingest_mode="legacy", cdc_buffered_before=True)
         except BaseException:
             # The mode is still buffered, so the schemas go back to consuming the buffer, which is
             # what they were doing before this command ran. Leaving them paused instead would stop
@@ -411,6 +401,19 @@ class Command(BaseCommand):
         unpause_cdc_extraction_schedule(source_id)
 
         self.stdout.write(self.style.SUCCESS(f"Source {source_id} is now legacy."))
+
+    def _write_job_inputs(self, source: ExternalDataSource, **updates: Any) -> None:
+        """A queryset update, never `source.save()`.
+
+        Saving goes through the activity-log mixin, which diffs the instance against the row.
+        A sync changing the source's status during the drain makes that diff read every job the
+        source ever ran to describe the change: gigabytes on a busy source, and an OOM-killed
+        worker mid-flip.
+        """
+        source.job_inputs = {**(source.job_inputs or {}), **updates}
+        ExternalDataSource.objects.filter(id=source.id).update(
+            job_inputs=source.job_inputs, updated_at=dt.datetime.now(dt.UTC)
+        )
 
     def _mark_schemas(self, schemas: list[ExternalDataSchema], *, served: bool) -> None:
         """The per-schema opt-in `serves_buffered_lane` reads. `cdc_buffered_before` is never cleared.

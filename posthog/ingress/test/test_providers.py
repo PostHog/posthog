@@ -1,5 +1,4 @@
-from collections.abc import Callable, Mapping
-from typing import Any
+from collections.abc import Callable
 
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase
@@ -26,16 +25,8 @@ def _slack(app: str) -> WebhookProvider:
     return build_slack_provider(secret_getter=lambda: "signing-secret", app=app)
 
 
-def _verified(message: Mapping[str, Any]) -> bool:
-    return True
-
-
-def _no_topics() -> frozenset[str]:
-    return frozenset()
-
-
 def _sns(app: str) -> WebhookProvider:
-    return build_sns_provider(verify_message=_verified, allowed_topic_arns=_no_topics, app=app)
+    return build_sns_provider(topic_arns_setting="WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS", app=app)
 
 
 # One row per builder that takes an app name: the provider, the builder, a declared app, and a
