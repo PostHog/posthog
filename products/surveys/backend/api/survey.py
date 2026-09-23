@@ -3259,7 +3259,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             }
         )
 
-    def _check_duplicate_target_access(self, request: request.Request, target_team: Team) -> None:
+    def _check_duplicate_target_access(
+        self, request: request.Request, target_team: Team, access_control: UserAccessControl
+    ) -> None:
         # The permission classes check only the source project in the URL. Apply the checks that
         # `POST /surveys/` in the target project applies: the key's project scope, project access,
         # and survey editor access.
@@ -3269,7 +3271,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 f"API key does not have access to the requested project: ID {target_team.id}."
             )
 
-        access_control = UserAccessControl(user=cast(User, request.user), team=target_team)
         if (
             self.user_permissions.team(target_team).effective_membership_level is None
             or not access_control.check_access_level_for_object(target_team, required_level="member")
@@ -3310,8 +3311,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if len(target_teams) != len(target_team_ids):
             raise exceptions.ValidationError("One or more target teams not found or you don't have access to them")
 
+        target_access_controls = self.user_access_control.for_team_ids(team.id for team in target_teams)
         for target_team in target_teams:
-            self._check_duplicate_target_access(request, target_team)
+            self._check_duplicate_target_access(request, target_team, target_access_controls[target_team.id])
 
         duplicate_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         created_surveys = []
