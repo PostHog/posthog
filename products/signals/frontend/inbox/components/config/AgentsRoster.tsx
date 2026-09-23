@@ -102,6 +102,7 @@ interface SourceFilters {
     summary: string
     changeLabel: string
     onChange: () => void
+    disabledReason?: string
 }
 
 /** Per-source derived state assembled by `AgentsRoster` from `signalSourcesLogic`. */
@@ -397,6 +398,7 @@ function Expansion({
                             type="secondary"
                             size="xsmall"
                             onClick={filters.onChange}
+                            disabledReason={filters.disabledReason}
                             data-attr="signal-source-change-filters"
                         >
                             {filters.changeLabel}
@@ -953,6 +955,12 @@ export function AgentsRoster(): JSX.Element {
                                           changeLabel: 'Change teams',
                                           onChange: () =>
                                               openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
+                                          // A save or reload can replace the row, and the picker reads it on open.
+                                          disabledReason: isLinearIssuesToggling
+                                              ? 'Saving'
+                                              : sourceConfigsLoading
+                                                ? 'Refreshing'
+                                                : undefined,
                                       }
                                     : undefined
                             return (

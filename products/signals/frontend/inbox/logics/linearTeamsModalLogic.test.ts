@@ -150,6 +150,26 @@ describe('linearTeamsModalLogic', () => {
         expect(logic.values.linearIntegration?.id).toBe(expectedIntegrationId)
     })
 
+    it('ignores a Linear toggle it did not start', async () => {
+        const sourcesLogic = signalSourcesLogic()
+        sourcesLogic.mount()
+        const logic = linearTeamsModalLogic({
+            config: existingConfig,
+            enableOnSave: false,
+            viaSetupWizard: false,
+            onClose,
+        })
+        logic.mount()
+
+        sourcesLogic.actions.toggleSignalSourceSuccess({
+            sourceProduct: SignalSourceProduct.Linear,
+            sourceType: SignalSourceType.Issue,
+            enabled: false,
+        })
+
+        expect(onClose).not.toHaveBeenCalled()
+    })
+
     it('creates the row when Linear was never turned on before', async () => {
         const logic = linearTeamsModalLogic({ config: null, enableOnSave: true, viaSetupWizard: true, onClose })
         logic.mount()
