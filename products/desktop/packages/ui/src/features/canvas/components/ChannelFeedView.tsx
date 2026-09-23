@@ -1013,7 +1013,10 @@ const FeedItem = memo(function FeedItem({
                 </button>
               )}
               <span className="shrink-0 text-(--gray-9) text-xs">
-                · {formatRelativeTimeShort(task.updated_at)}
+                ·{" "}
+                {formatRelativeTimeShort(
+                  task.last_activity_at ?? task.updated_at,
+                )}
               </span>
             </div>
             <div className="flex shrink-0 items-center gap-1">
@@ -1410,7 +1413,7 @@ const FeedLogRow = memo(function FeedLogRow({
         />
 
         <span className="w-8 shrink-0 text-right text-muted-foreground text-xs tabular-nums transition-opacity group-hover:opacity-0">
-          {formatRelativeTimeShort(task.updated_at)}
+          {formatRelativeTimeShort(task.last_activity_at ?? task.updated_at)}
         </span>
         <span className="absolute right-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           <TaskRowDropdownMenu menu={menu} />
