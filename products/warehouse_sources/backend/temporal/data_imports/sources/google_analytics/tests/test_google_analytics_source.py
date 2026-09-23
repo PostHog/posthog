@@ -327,7 +327,7 @@ def test_validate_credentials_succeeds_when_metadata_readable():
         ),
     ],
 )
-def test_non_retryable_errors_cover_refresh_error_codes(observed_error, expected_substring):
+def test_non_retryable_errors_cover_refresh_error_codes(observed_error: str, expected_substring: str) -> None:
     # `_run_report` refreshes credentials via `session.post()` before any HTTP status is
     # available, so these failures surface as a bare `RefreshError` whose `str()` is the raw
     # (message, response_dict) tuple repr, e.g.:

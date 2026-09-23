@@ -196,7 +196,7 @@ def test_canonical_descriptions_cover_every_schema(config):
         ),
     ],
 )
-def test_refresh_error_codes_are_non_retryable(error_message, expected_substring):
+def test_refresh_error_codes_are_non_retryable(error_message: str, expected_substring: str) -> None:
     non_retryable_errors = GoogleSearchConsoleSource().get_non_retryable_errors()
     assert any(key in error_message for key in non_retryable_errors)
 
