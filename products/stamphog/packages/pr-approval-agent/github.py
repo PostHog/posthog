@@ -12,6 +12,7 @@ import tempfile
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -85,6 +86,43 @@ TRUSTED_REACTOR_BOTS = {
     "hex-security-app[bot]",
     "veria-ai[bot]",
 }
+
+# A reviewer bot's 👀 outlives the review it announced when the bot fails
+# mid-run: reactions never expire, and no one can remove another app's
+# reaction. Past this age the 👀 is treated as abandoned instead of in flight,
+# so a wedged bot cannot block a PR forever. A reaction with no timestamp
+# counts as fresh, which fails toward waiting.
+BOT_EYES_MAX_AGE_SECONDS = 45 * 60
+
+
+def _reaction_age_seconds(created_at: str | None) -> float:
+    if not created_at:
+        return 0.0
+    try:
+        created = datetime.fromisoformat(created_at)
+    except ValueError:
+        return 0.0
+    return (datetime.now(UTC) - created).total_seconds()
+
+
+def _is_bot_eyes(reaction: dict) -> bool:
+    return reaction.get("emoji") == "👀" and (reaction.get("user") or "").lower() in TRUSTED_REACTOR_BOTS
+
+
+def is_in_flight_bot_eyes(reaction: dict) -> bool:
+    """True for a 👀 from an allowlisted reviewer bot that has not aged out."""
+    return _is_bot_eyes(reaction) and _reaction_age_seconds(reaction.get("created_at")) <= BOT_EYES_MAX_AGE_SECONDS
+
+
+def drop_abandoned_bot_eyes(reactions: list[dict] | None) -> list[dict]:
+    """Drop reviewer-bot 👀 that aged past the in-flight cutoff.
+
+    The wait gate stops waiting on these, so every reader of a reaction list
+    must hide them too. A stale 👀 left in the reviewer prompt makes the LLM
+    refuse over a review that finished days ago, and the author cannot clear
+    the reaction because it belongs to the bot.
+    """
+    return [r for r in reactions or [] if not _is_bot_eyes(r) or is_in_flight_bot_eyes(r)]
 
 
 def is_bot_author(user: dict) -> bool:

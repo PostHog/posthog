@@ -180,18 +180,22 @@ jobs:
             # The Python SDK sends that id as $release_id on every event, which links a backend
             # exception to the same release the frontend bundles carry: the sourcemap stage of the
             # Dockerfile resolves the release by the same name and version, so it finds this one.
-            # This step must never block a deploy. The action turns the expected failures (no secret,
-            # a download, checksum, or API error) into an empty id with a warning. continue-on-error
-            # and the step timeout cover what the action does not catch, such as a hung API call.
-            # An empty id is fine: the SDK treats a blank value as unset.
+            # Keep release-name and release-version equal to the --release-name and --release-version
+            # of that stage.
+            # This step must never block a deploy. Without the secret, the action passes with an empty
+            # id and a warning. A download, checksum, or API error fails the step, and
+            # continue-on-error keeps the build going with an empty id. The step timeout stops a hung
+            # API call. An empty id is fine: the SDK treats a blank value as unset.
             - name: Resolve error tracking release
               id: release
               if: steps.preflight.outputs.digest == ''
               continue-on-error: true
               timeout-minutes: 5
-              uses: ./.github/actions/resolve-error-tracking-release
+              uses: PostHog/resolve-release@52d3bea6f86a713545874057b7d4bfebb6b5f367 # v1.0.0
               with:
                   api-key: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                  project-id: '2'
+                  release-name: posthog
                   release-version: ${{ github.sha }}
 
             - name: Build and push container image
@@ -1307,27 +1311,6 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-data-warehouse",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger Data Warehouse Metadata Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.dataWarehouse == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-data-warehouse-metadata",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

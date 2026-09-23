@@ -302,7 +302,7 @@ export class PosthogCommands {
         this.connectedLoaded = true
     }
 
-    private parseArguments(tool: Command, argv: string[], cwd: string): Record<string, unknown> {
+    private async parseArguments(tool: Command, argv: string[], cwd: string): Promise<Record<string, unknown>> {
         const args: Record<string, unknown> = Object.create(null)
         const properties = object(tool.inputSchema.properties)
         for (let index = 0; index < argv.length; index++) {
@@ -339,6 +339,7 @@ export class PosthogCommands {
             }
         }
         if (tool.reference && typeof args[tool.reference.parameter] === 'string') {
+            await this.filesystem.loadReference(args[tool.reference.parameter] as string, cwd)
             args[tool.reference.parameter] = this.filesystem.resolveReference(
                 args[tool.reference.parameter] as string,
                 cwd,
@@ -393,7 +394,7 @@ export class PosthogCommands {
             const { invoke: _, ...description } = tool
             return description
         }
-        return tool.invoke(this.parseArguments(tool, rest, cwd))
+        return tool.invoke(await this.parseArguments(tool, rest, cwd))
     }
 
     private async find(name: string): Promise<Command> {
