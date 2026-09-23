@@ -678,13 +678,20 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             team=self.team,
             timestamp=datetime(2025, 1, 15, 14, 30),
         )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace2",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 23, 59, 59, 500000),
+        )
 
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(dateRange=DateRange(date_from="2025-01-15", date_to="2025-01-15")),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
+        self.assertEqual(len(response.results), 2)
+        self.assertEqual(response.results[0].id, "trace2")
+        self.assertEqual(response.results[1].id, "trace1")
 
     def test_capture_range(self):
         _create_person(distinct_ids=["person1"], team=self.team)
