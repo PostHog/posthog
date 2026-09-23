@@ -88,6 +88,7 @@ class _ReportToolState(TypedDict):
     report: EvalReportContent
     trace_id_allowlist: list[str]
     session_id_allowlist: list[str]
+    report_run_handles: NotRequired[dict[str, str]]
     evaluation_target: NotRequired[str]
     team_id: NotRequired[int]
     evaluation_id: NotRequired[str]
@@ -726,6 +727,16 @@ class TestAddSection(SimpleTestCase):
         self.assertNotIn("Error", result)
         self.assertEqual(len(state["report"].sections), 1)
 
+    def test_rejects_section_with_a_backticked_run_handle(self):
+        # A handle is not UUID-shaped, so only the handle map makes the guard read it as an ID.
+        state = _state_with_empty_report()
+        state["report_run_handles"] = {"run_1": _VALID_GEN_ID}
+
+        result = _add_section_fn(state=state, title="Summary", content="Steady since `run_1`.")
+
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].sections, [])
+
     def test_rejects_cited_backticked_id_in_a_section_title(self):
         # Section titles reach the reader as a heading, so citation linking never runs over them.
         state = _state_with_empty_report()
@@ -784,6 +795,13 @@ class TestDeadBacktickedIds(SimpleTestCase):
                 [],
             ),
             (
+                "uncited_uuid_in_double_backtick_span_is_dead",
+                f"Steady since run `` `{_RUN_ID}` ``.",
+                [],
+                set(),
+                [_RUN_ID],
+            ),
+            (
                 "cited_uuid_double_backticks_is_dead",
                 f"See ``{_VALID_GEN_ID}``.",
                 [Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID)],
@@ -802,9 +820,20 @@ class TestDeadBacktickedIds(SimpleTestCase):
         [
             ("uncited_uuid_loses_its_backticks", f"Steady since run `{_RUN_ID}`.", f"Steady since run {_RUN_ID}."),
             (
+                "uncited_uuid_loses_its_double_backtick_span",
+                f"Steady since run `` `{_RUN_ID}` ``.",
+                f"Steady since run {_RUN_ID}.",
+            ),
+            (
                 "cited_id_keeps_its_backticks",
                 f"See `{_OPAQUE_SESSION_ID}`.",
                 f"See `{_OPAQUE_SESSION_ID}`.",
+            ),
+            (
+                # Unwrapping this one would cost the reader a link the renderer can still make.
+                "cited_id_keeps_its_double_backtick_span",
+                f"See `` `{_OPAQUE_SESSION_ID}` ``.",
+                f"See `` `{_OPAQUE_SESSION_ID}` ``.",
             ),
             ("prose_keeps_its_backticks", "The `total_runs` field.", "The `total_runs` field."),
         ]

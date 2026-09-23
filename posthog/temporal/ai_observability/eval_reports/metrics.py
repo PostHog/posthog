@@ -107,7 +107,6 @@ def increment_report_generated(outcome: str) -> None:
 
 
 def increment_dead_ids_unwrapped(count: int) -> None:
-    """IDs that shipped as plain text because no renderer could link them."""
     if not activity.in_activity() and not workflow.in_workflow():
         return
     get_metric_meter().create_counter(

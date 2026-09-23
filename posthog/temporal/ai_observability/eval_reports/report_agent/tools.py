@@ -68,11 +68,14 @@ logger = structlog.get_logger(__name__)
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 # Capture the token inside any inline-code span, so the guard can tell an ID
-# apart from prose regardless of how many backticks or spaces wrap it. The class
-# excludes only the backtick, so the run to the next one is unambiguous and the
-# scan stays linear. A class that also matched the surrounding whitespace makes
-# every split of a whitespace run a candidate, and the agent writes the input.
-_BACKTICKED_TOKEN_RE = re.compile(r"`+([^`]*)`+")
+# apart from prose regardless of how many backticks or spaces wrap it. The
+# `` `id` `` span needs a branch of its own, because its content holds backticks
+# and the general branch would skip straight over the ID. The general branch
+# excludes only the backtick from its character class, so the run to the next one
+# is unambiguous and the scan stays linear. A class that also matched the
+# surrounding whitespace makes every split of a whitespace run a candidate, and
+# the agent writes the input.
+_BACKTICKED_TOKEN_RE = re.compile(r"`` `([^`]*)` ``|`+([^`]*)`+")
 
 # Match a canonical UUID anywhere it is used as a whole token. Opaque IDs are not
 # UUID-shaped, so the guard also checks the session's handled-ID allowlists.
@@ -130,16 +133,21 @@ def _is_allowlisted(state: dict, allowlist_key: str, value: str) -> bool:
 
 
 def _handled_ids(state: dict) -> set[str]:
-    """Return every target ID this run's queries returned, across both allowlists.
+    """Return every identifier this run handed the agent: target IDs and run handles.
 
     The agent state and the finished agent result are the same mapping, so the
     in-loop guard and the final validation key on one definition of a handled ID.
+    A run handle is not UUID-shaped, so without it here the guard reads a backticked
+    handle as prose and ships an internal token to the reader.
     """
     handled: set[str] = set()
     for allowlist_key in (TRACE_ID_ALLOWLIST_KEY, SESSION_ID_ALLOWLIST_KEY):
         allowlist = state.get(allowlist_key)
         if isinstance(allowlist, list):
             handled.update(value for value in allowlist if isinstance(value, str))
+    handles = state.get(REPORT_RUN_HANDLE_KEY)
+    if isinstance(handles, dict):
+        handled.update(handle for handle in handles if isinstance(handle, str))
     return handled
 
 
@@ -1415,7 +1423,7 @@ def get_report_run(
 
     return json.dumps(
         {
-            "run_id": run_id,
+            "run_id": _report_run_handle(state, str(run.id)),
             "period_start": str(run.period_start),
             "period_end": str(run.period_end),
             "content": content,
@@ -1522,6 +1530,12 @@ def set_title(
     return f"Title set: {clean!r}"
 
 
+def _span_token(match: re.Match[str]) -> str:
+    """The candidate identifier inside an inline-code span, whichever branch matched."""
+    inner = match.group(1) if match.group(1) is not None else match.group(2)
+    return inner.strip()
+
+
 def _dead_backticked_ids(text: str, citations: list[Citation], handled_ids: set[str]) -> list[str]:
     """Return backticked IDs in `text` that no report renderer turns into a link.
 
@@ -1532,7 +1546,7 @@ def _dead_backticked_ids(text: str, citations: list[Citation], handled_ids: set[
     cited_ids = {citation.cited_id() for citation in citations}
     dead: list[str] = []
     for match in _BACKTICKED_TOKEN_RE.finditer(text):
-        token = match.group(1).strip()
+        token = _span_token(match)
         if _is_dead_id_span(match.group(0), token, cited_ids, handled_ids) and token not in dead:
             dead.append(token)
     return dead
@@ -1554,7 +1568,7 @@ def strip_dead_backticked_ids(text: str, citations: list[Citation], handled_ids:
     cited_ids = {citation.cited_id() for citation in citations}
 
     def unwrap(match: re.Match[str]) -> str:
-        token = match.group(1).strip()
+        token = _span_token(match)
         if _is_dead_id_span(match.group(0), token, cited_ids, handled_ids):
             return token
         return match.group(0)
