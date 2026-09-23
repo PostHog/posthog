@@ -41,7 +41,7 @@ describe('wizardRunSyncLogic', () => {
     it('streams only the newest active run and switches when it changes', async () => {
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(mockWizardRunsList).toHaveBeenCalledWith('1', { active: true, limit: 1 })
+        expect(mockWizardRunsList).toHaveBeenCalledWith('1', { status: ['created', 'running'], limit: 1 })
         expect(logic.values.activeCount).toBe(2)
         expect(logic.values.run?.id).toBe('newer')
         expect(MockEventSource.instances).toHaveLength(1)

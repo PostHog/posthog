@@ -69,7 +69,17 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         responses={200: WizardRunSerializer(many=True)},
-        parameters=[OpenApiParameter(name="active", type=bool, description="Only return active runs.")],
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                type=str,
+                enum=[status.value for status in WizardRunStatus],
+                many=True,
+                style="form",
+                explode=False,
+                description="Filter by one or more comma-separated run statuses.",
+            )
+        ],
         description="List Wizard runs for this project, ordered from newest to oldest.",
     )
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:
@@ -93,8 +103,13 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = WizardRunCreateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         params = serializer.to_contract(team_id=self.team_id, created_by_id=cast(int, request.user.id))
+
+        # TODO: if creating a local run, only allow the Wizard's client ID.
+        # Users should not be allowed to create local runs.
+
         if params.environment == WizardRunEnvironment.CLOUD:
             self._validate_cloud_creation(request)
+
         try:
             result = wizard_facade.create_run_with_result(params)
         except WIZARD_RUN_CREATION_ERRORS as error:

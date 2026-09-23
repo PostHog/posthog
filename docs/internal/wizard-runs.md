@@ -62,7 +62,7 @@ GET   /api/projects/{project_id}/wizard/runs/{run_id}/stream/
 ```
 
 Run responses include the creator ID and basic creator details for attribution in project-level run lists.
-Use `GET /api/projects/{project_id}/wizard/runs/?active=true&limit=1` to fetch the newest active run; `count` gives the total number of active runs in the project.
+Use `GET /api/projects/{project_id}/wizard/runs/?status=created,running&limit=1` to fetch the newest active run; `count` gives the total number of active runs in the project. The `status` filter also accepts any individual run status.
 The app-wide sync widget polls this summary and opens one event stream for the newest run.
 The `wizard-run-sync` feature flag switches the authenticated shell from the session sync widget to the run sync widget.
 

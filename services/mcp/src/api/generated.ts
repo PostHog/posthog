@@ -112975,10 +112975,6 @@ export namespace Schemas {
 
     export type WizardRunsListParams = {
     /**
-     * Only return active runs.
-     */
-    active?: boolean;
-    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -112986,7 +112982,22 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter by one or more comma-separated run statuses.
+     */
+    status?: WizardRunsListStatusItem[];
     };
+
+    export type WizardRunsListStatusItem = typeof WizardRunsListStatusItem[keyof typeof WizardRunsListStatusItem];
+
+
+    export const WizardRunsListStatusItem = {
+      Cancelled: 'cancelled',
+      Completed: 'completed',
+      Created: 'created',
+      Failed: 'failed',
+      Running: 'running',
+    } as const;
 
     export type WizardRunsArtifactsListParams = {
     /**

@@ -69,7 +69,7 @@ export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
             }
             cache.checking = true
             try {
-                const page = await wizardRunsList(logicProps.projectId, { active: true, limit: 1 })
+                const page = await wizardRunsList(logicProps.projectId, { status: ['created', 'running'], limit: 1 })
                 actions.activeRunsLoaded(page.count, page.results[0] ?? null)
             } catch {
                 return

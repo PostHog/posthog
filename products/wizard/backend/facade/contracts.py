@@ -221,7 +221,7 @@ class ListWizardRunsInput:
     team_id: int
     offset: int
     limit: int
-    active_only: bool = False
+    statuses: tuple[WizardRunStatus, ...] = ()
 
 
 @frozen
