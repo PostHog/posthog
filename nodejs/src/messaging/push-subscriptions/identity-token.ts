@@ -25,24 +25,63 @@ export function verifyPushIdentityToken(params: {
 
 function decodeMatches(token: string, key: string, distinctId: string, appId: string): boolean {
     try {
+        // Only the signature is checked here. The claims are checked below with PyJWT's rules, which
+        // differ from jsonwebtoken's, so a token Django accepts is accepted here and nothing more.
         const payload = jwt.verify(token, key, {
             algorithms: ['ES256'],
-            audience: AUDIENCE,
-            // An external signer can mint a token with no exp, and jsonwebtoken only checks expiry
-            // when the claim is present, so require it.
-            required: ['exp'],
-        } as jwt.VerifyOptions)
+            ignoreExpiration: true,
+            ignoreNotBefore: true,
+        })
         if (typeof payload !== 'object' || payload === null) {
             return false
         }
-        const claims = payload as jwt.JwtPayload & { app_id?: unknown }
-        if (typeof claims.exp !== 'number') {
-            return false
-        }
-        return claims.sub === distinctId && claims.app_id === appId
+        const claims = payload as Record<string, unknown>
+        return claimsValid(claims, Date.now() / 1000) && claims.sub === distinctId && claims.app_id === appId
     } catch {
-        // Covers a bad signature, an expired token, and a key that cannot be used with ES256.
-        // Every such case fails closed rather than raising.
+        // Covers a bad signature and a key that cannot be used with ES256. Every such case fails
+        // closed rather than raising.
         return false
     }
+}
+
+function claimsValid(claims: Record<string, unknown>, now: number): boolean {
+    // An external signer can mint a token with no exp, so require it.
+    if (claims.exp === undefined || claims.exp === null) {
+        return false
+    }
+    for (const name of ['iat', 'nbf', 'exp']) {
+        if (!(name in claims)) {
+            continue
+        }
+        const value = pythonInt(claims[name])
+        if (value === null) {
+            return false
+        }
+        if (name === 'exp' ? value <= now : value > now) {
+            return false
+        }
+    }
+    if ('jti' in claims && typeof claims.jti !== 'string') {
+        return false
+    }
+    const audiences = typeof claims.aud === 'string' ? [claims.aud] : claims.aud
+    if (!Array.isArray(audiences) || audiences.some((audience) => typeof audience !== 'string')) {
+        return false
+    }
+    return audiences.includes(AUDIENCE)
+}
+
+/** Python's `int()` over a JSON value, which is how PyJWT reads a time claim: a number truncates, a
+ * boolean is 0 or 1, and a string must hold a whole number. Returns null where Python raises. */
+function pythonInt(value: unknown): number | null {
+    if (typeof value === 'boolean') {
+        return value ? 1 : 0
+    }
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? Math.trunc(value) : null
+    }
+    if (typeof value === 'string' && /^\s*[+-]?\d+(_\d+)*\s*$/.test(value)) {
+        return Number(value.replace(/_/g, '').trim())
+    }
+    return null
 }

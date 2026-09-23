@@ -99,6 +99,30 @@ describe('verifyPushIdentityToken', () => {
         expect(verify(token)).toEqual(false)
     })
 
+    // Django verifies with PyJWT, whose claim rules differ from jsonwebtoken's. A string payload skips
+    // jsonwebtoken's own claim validation when signing, so these shapes can be minted at all.
+    const now = Math.floor(Date.now() / 1000)
+    it.each([
+        ['exp as a whole-number string', { exp: String(now + 300) }, true],
+        ['nbf as a whole-number string in the past', { exp: now + 300, nbf: String(now - 10) }, true],
+        ['exp as a fractional string', { exp: `${now + 300}.5` }, false],
+        ['iat in the future', { exp: now + 300, iat: now + 600 }, false],
+        ['iat that is not a number', { exp: now + 300, iat: 'yesterday' }, false],
+        ['iat as null', { exp: now + 300, iat: null }, false],
+        ['an audience list holding a non-string', { exp: now + 300, aud: [AUDIENCE, 5] }, false],
+        ['a numeric jti', { exp: now + 300, jti: 7 }, false],
+    ])('matches django for %s', (_name, claims, accepted) => {
+        const token = jwt.sign(
+            JSON.stringify({ sub: distinctId, app_id: appId, aud: AUDIENCE, ...claims }),
+            privateKey,
+            {
+                algorithm: 'ES256',
+            }
+        )
+
+        expect(verify(token)).toEqual(accepted)
+    })
+
     it('refuses everything when the channel registered no key', () => {
         expect(verify(sign({}), { publicKeys: [] })).toEqual(false)
     })
