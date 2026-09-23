@@ -83,6 +83,30 @@ describe('loadPostHogJS', () => {
         })
     })
 
+    describe('onFeatureFlags error', () => {
+        afterEach(() => {
+            window.JS_POSTHOG_API_KEY = undefined
+        })
+
+        it('counts cached flags that evaluate to false', () => {
+            window.JS_POSTHOG_API_KEY = 'test-key'
+            ;(posthog.get_session_id as jest.Mock).mockReturnValue('session-one')
+            posthog.featureFlags.getFlagVariants = jest.fn().mockReturnValue({
+                'flag-one': false,
+                'flag-two': false,
+            })
+
+            loadPostHogJS()
+            const [onFeatureFlags] = (posthog.onFeatureFlags as jest.Mock).mock.calls[0]
+            onFeatureFlags([], {}, { errorsLoading: true })
+
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'onFeatureFlags error',
+                expect.objectContaining({ feature_flag_count: 2 })
+            )
+        })
+    })
+
     describe('without a project key', () => {
         it('starts posthog-js with no request to PostHog', () => {
             window.JS_POSTHOG_API_KEY = undefined
