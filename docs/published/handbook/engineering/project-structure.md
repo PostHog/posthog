@@ -64,31 +64,6 @@ App tooltips reuse the product descriptions from the scene configuration.
 Opening Apps or Files from the collapsed sidebar temporarily expands the navigation over the page without changing the saved collapsed setting.
 Selecting a destination, clicking outside, or pressing Escape closes the temporary navigation.
 
-The app-level terminal lives in `src/scenes/terminal` and opens with Ctrl+backtick when enabled.
-It starts without fetching the project tree.
-Browsing `/posthog/files` loads and caches each folder's immediate children; `/posthog/api` loads objects by type.
-Loading another folder leaves cached folders untouched, and API type directories can be opened directly even if they are not listed yet.
-Notebook format detection waits until notebooks are browsed, and object contents load only when opened.
-`ph refresh` reloads the directories already visited, rebuilds the cached tree once, and reloads the connected tool catalog.
-Deleting mounted PostHog files, saving JSON with `deleted` set, and running connected tools require a centered confirmation with a black overlay before the API call.
-The dialog lists the targets and consequences, blocks terminal input, and accepts pointer clicks only.
-`rm -rf` groups its PostHog targets into one confirmation; direct syscalls from other programs confirm each removal.
-The batch is a snapshot of the loaded targets, with no reusable approval for later deletes.
-Canceled removals return a nonzero exit status without sending delete requests; successful `rm` commands produce no output.
-Invalid removals report the affected path and a readable reason, such as a missing file or a directory requiring `-r`.
-If a delete request fails, the terminal reports the affected path and API error; use `ph refresh` to check the remaining files before retrying a batch.
-Local scratch files retain normal Linux behavior, and mixed local/PostHog batches must be split into separate commands.
-The `rm` wrapper refuses the filesystem root (`/`) and the PostHog mount (`/posthog`) before deleting any targets, including local files in the same command.
-Paths with parents that cannot be resolved also stop the command before deletion.
-Running `node`, `nodejs`, or `pi` installs the tool on first use; `pi` also installs Node.js.
-Optional tools come from commit-pinned archives in [PostHog/terminal-assets](https://github.com/PostHog/terminal-assets), separate from the boot assets.
-The browser verifies each archive's SHA-256 and size before making it available to the VM, and caches verified downloads when browser storage is available.
-Failed installations can be retried by running the command again.
-The VM uses 512 MiB of memory and a separate 256 MiB temporary filesystem for installed tools.
-Stopping the terminal discards the installed tools and local files; verified downloads can be reused from the browser cache.
-The VM has no network bridge, so pi can run locally but cannot call models, log in, or download packages.
-Add future tools to `terminal-packages.json` with pinned archive metadata, dependencies, and command entrypoints, and publish their reproducible build recipes in the assets repository.
-
 ### `posthog`
 
 The Django backend application. Key subdirectories:
