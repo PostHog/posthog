@@ -263,6 +263,9 @@ class TestLogsAlertEvaluation(APIBaseTest):
         announced = announcement(self.team.id, delivery.configuration_id, delivery.evaluation_key)
         assert announced is not None
         assert announced.alert_name == configuration.name
+        # The broken and errored messages interpolate this, and the configuration's running
+        # total moves with every later check, so the announcement has to carry the check's own.
+        assert announced.consecutive_failures == 0
 
         # Renaming the configuration must not change what an in-flight retry announces, or a
         # resolve replies into its own thread under a different name.

@@ -246,6 +246,9 @@ class EvaluationAnnouncement:
     """What one evaluation left for a destination to say."""
 
     alert_name: str
+    # Evaluation-level, so it sits here rather than on a transition: a failed check fails the
+    # whole evaluation, and every group in one announcement saw the same count.
+    consecutive_failures: int
     notifications: tuple[Notification, ...]
 
 

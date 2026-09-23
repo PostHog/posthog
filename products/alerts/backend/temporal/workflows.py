@@ -119,6 +119,7 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
             source=request.source.value,
             alert_id=request.configuration_id,
             alert_name=announced.alert_name,
+            consecutive_failures=announced.consecutive_failures,
             evaluation_key=request.evaluation_key,
             notification_key=notification.notification_key,
             destinations=list(request.destination_names),

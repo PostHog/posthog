@@ -335,5 +335,9 @@ def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> Ev
     )
     if not transitions:
         return None
-    # One name for the configuration, so any row carries it.
-    return EvaluationAnnouncement(alert_name=events[0].alert_name, notifications=_fan_in(transitions))
+    # Both are configuration-level, so any row carries them.
+    return EvaluationAnnouncement(
+        alert_name=events[0].alert_name,
+        consecutive_failures=events[0].consecutive_failures,
+        notifications=_fan_in(transitions),
+    )
