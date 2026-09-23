@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from temporalio.exceptions import ApplicationError
 
 from posthog.llm.gateway_client import build_async_anthropic_client
+from posthog.temporal.common.errors import truncate_for_temporal_payload
 
 from products.review_hog.backend.reviewer.constants import ONESHOT_MODEL, ONESHOT_REASONING_EFFORT
 
@@ -33,12 +34,10 @@ _MAX_PROVIDER_MESSAGE_CHARS = 500
 def _provider_message(error: APIError) -> str:
     # Collapsed to one line because the message lands in a single-line Temporal failure and in an
     # error-tracking title, where an embedded newline hides the rest of the text.
-    message = " ".join(str(getattr(error, "message", "") or "").split())
+    message = " ".join(error.message.split())
     if not message:
         return "no provider message"
-    if len(message) > _MAX_PROVIDER_MESSAGE_CHARS:
-        return f"{message[:_MAX_PROVIDER_MESSAGE_CHARS]}... (truncated)"
-    return message
+    return truncate_for_temporal_payload(message, _MAX_PROVIDER_MESSAGE_CHARS)
 
 
 async def run_oneshot_review(

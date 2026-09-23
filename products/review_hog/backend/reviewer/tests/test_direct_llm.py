@@ -171,7 +171,7 @@ async def test_stage_labels_both_gateway_dialects() -> None:
     "message,expected,unexpected",
     [
         ("prompt is too long:\n 1 > 0 maximum", "prompt is too long: 1 > 0 maximum", "\n"),
-        ("y" * 900, "y" * 500 + "... (truncated)", "y" * 501),
+        ("y" * 900, "y" * 500 + "\u2026 (truncated, original 900 chars)", "y" * 501),
         ("", "no provider message", "None"),
     ],
     ids=["single_line", "truncated", "absent"],
