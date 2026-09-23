@@ -21,6 +21,7 @@ import {
     attachedContextLogic,
     runnerPanelLogic,
     runStreamLogic,
+    taskRunDefaultsLogic,
     wrapWithPosthogContext,
 } from 'products/posthog_ai/frontend/api/logics'
 import type { ActiveCreation } from 'products/posthog_ai/frontend/api/logics'
@@ -80,10 +81,13 @@ export const FREE_TRIAL_PR_DISABLED_REASON =
 // The run endpoint rejects a model without its runtime adapter, so the two are always sent together.
 type ClaudeRuntimeSelection = Pick<ClaudeTaskRunCreateSchemaApi, 'runtime_adapter' | 'model' | 'reasoning_effort'>
 
+/** A pin, or nothing at all so the stored defaults decide. */
+type ReportRuntimeSelection = ClaudeRuntimeSelection | Record<string, never>
+
 // Discuss is a focused exchange about a report (a question to answer, or a suggested next step to
-// carry out) rather than a scheduled implementation run, so it pins the stronger model instead of
-// taking the server-side default of Sonnet: the answer quality is what the user is here for, and
-// the extra cost is bounded by the length of the conversation.
+// carry out) rather than a scheduled implementation run, so answer quality is what the user came
+// for: with no model chosen in settings it launches on the stronger one rather than the agent
+// server's Sonnet, and the extra cost is bounded by the length of the conversation.
 const DISCUSS_RUNTIME: ClaudeRuntimeSelection = {
     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
     model: 'claude-opus-5',
@@ -91,12 +95,18 @@ const DISCUSS_RUNTIME: ClaudeRuntimeSelection = {
 }
 
 // Pressing "Create PR" is a strong engagement signal — the user is committing to a real
-// implementation run — so it pins the stronger model rather than taking the server-side default of
-// Sonnet, giving the change the best shot at landing.
+// implementation run — so it falls back the same way, giving the change the best shot at landing.
 const CREATE_PR_RUNTIME: ClaudeRuntimeSelection = {
     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
     model: 'claude-opus-5',
     reasoning_effort: ReasoningEffortEnumApi.High,
+}
+
+// A model sent with the run is final server-side (`resolve_ai_run_selection`), so honoring the
+// project and personal defaults means sending none. `defaultModel` is the server's own resolution
+// for this user, null exactly when no stored default would apply — the case the pin exists for.
+function launchSelection(pin: ClaudeRuntimeSelection, defaultModel: string | null): ReportRuntimeSelection {
+    return defaultModel ? {} : pin
 }
 
 // The report's state is part of what a run owes the reader, and only the two ends of the happy
@@ -242,7 +252,7 @@ async function createReportTask(
     relationship: SignalReportTaskRelationship,
     prompt: string,
     fallbackTitle: string,
-    runtimeSelection: ClaudeRuntimeSelection,
+    runtimeSelection: ReportRuntimeSelection,
     discussionQuestion?: string,
     warmLease: ReportWarmLease | null = null
 ): Promise<{ taskId: string; runId: string }> {
@@ -322,6 +332,7 @@ export interface inboxTaskKickoffLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | null // projectLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
+    defaultModel: string | null // taskRunDefaultsLogic
     aiConsentDisabledReason: string | null
     createPrDisabledReason: string | null
     freeTrialDisabledReason: string | null
@@ -461,6 +472,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             ['contextItems'],
             runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }),
             ['activeCreation'],
+            taskRunDefaultsLogic,
+            ['defaultModel'],
             aiConsentLogic,
             ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason'],
             featureFlagLogic,
@@ -583,7 +596,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     origin_product: TaskOriginProductEnumApi.SignalReport,
                     signal_report: report.id,
                     branch: null,
-                    ...DISCUSS_RUNTIME,
+                    // The warm sandbox boots its agent on this model and activation cannot change it.
+                    ...launchSelection(DISCUSS_RUNTIME, values.defaultModel),
                 }
                 const warm = await tasksWarmCreate(projectId, request)
                 const newLease: ReportWarmLease | null =
@@ -713,7 +727,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
                     prompt,
                     'Ask AI about report',
-                    DISCUSS_RUNTIME,
+                    launchSelection(DISCUSS_RUNTIME, values.defaultModel),
                     question,
                     warmLease
                 )
@@ -770,7 +784,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
                     buildCreatePrReportPrompt(report, feedback),
                     'Implement report fix',
-                    CREATE_PR_RUNTIME
+                    launchSelection(CREATE_PR_RUNTIME, values.defaultModel)
                 )
                 if (disposables.isDisposed) {
                     return

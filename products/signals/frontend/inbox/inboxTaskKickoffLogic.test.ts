@@ -10,7 +10,12 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { attachedContextLogic, runnerPanelLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
+import {
+    attachedContextLogic,
+    runnerPanelLogic,
+    runStreamLogic,
+    taskRunDefaultsLogic,
+} from 'products/posthog_ai/frontend/api/logics'
 
 import { makeReport } from './__mocks__/inboxMocks'
 import {
@@ -38,7 +43,22 @@ describe('inboxTaskKickoffLogic', () => {
         let createStatus: number
         // Runs while the kickoff awaits its run response, so a test can act as the reader does mid-flight.
         let onRunRequest: (() => void) | null
+        // What settings resolve to for this user; null is a project that never picked a model.
+        let resolvedRunDefaults: Record<string, unknown> | null
         const report = makeReport({ id: 'report-sidebar', status: SignalReportStatus.READY })
+
+        const OPUS_5_5_TEAM_DEFAULT = {
+            runtime: 'acp',
+            runtime_adapter: 'claude',
+            model: 'claude-opus-5-5',
+            reasoning_effort: 'xhigh',
+            source: 'team',
+        }
+
+        async function applyRunDefaults(defaults: Record<string, unknown>): Promise<void> {
+            resolvedRunDefaults = defaults
+            await taskRunDefaultsLogic.asyncActions.loadMyConfig()
+        }
 
         beforeEach(() => {
             localStorage.clear()
@@ -52,9 +72,14 @@ describe('inboxTaskKickoffLogic', () => {
             createResponse = { id: 'report-task' }
             createStatus = 201
             onRunRequest = null
+            resolvedRunDefaults = null
             useMocks({
                 get: {
                     '/api/projects/:team/signals/reports/:id/': report,
+                    '/api/projects/:team/tasks/@me/config/': () => [
+                        200,
+                        { ai_run_preferences: {}, resolved_ai_run_defaults: resolvedRunDefaults },
+                    ],
                 },
                 post: {
                     '/api/projects/:team/tasks/': async ({ request }) => {
@@ -182,6 +207,39 @@ describe('inboxTaskKickoffLogic', () => {
                 runId: 'warm-run',
             })
             expect(cancelledRuns).toHaveLength(0)
+        })
+
+        it.each(['implementation', 'discussion'] as const)(
+            'leaves the %s model to settings when the project set a default',
+            async (relationship) => {
+                await applyRunDefaults(OPUS_5_5_TEAM_DEFAULT)
+
+                await expectLogic(logic, () => {
+                    if (relationship === 'implementation') {
+                        logic.actions.createPrFromReport(report)
+                    } else {
+                        logic.actions.discussReport(report, 'https://example.com/report', 'Explain the recommendation')
+                    }
+                }).toFinishAllListeners()
+
+                expect(createdTasks[0]).not.toHaveProperty('model')
+                expect(startedRuns[0]).not.toHaveProperty('model')
+                expect(startedRuns[0]).not.toHaveProperty('runtime_adapter')
+                expect(startedRuns[0]).not.toHaveProperty('reasoning_effort')
+            }
+        )
+
+        it('warms on the default model when the project set one', async () => {
+            warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
+            await applyRunDefaults(OPUS_5_5_TEAM_DEFAULT)
+
+            await expectLogic(logic, () =>
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            ).toFinishAllListeners()
+
+            // The warm sandbox boots its agent on this model; activation cannot change it.
+            expect(warmRequests[0]).not.toHaveProperty('model')
+            expect(warmRequests[0]).not.toHaveProperty('runtime_adapter')
         })
 
         it('does not warm when Create PR opens the panel', async () => {
