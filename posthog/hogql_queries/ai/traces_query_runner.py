@@ -31,7 +31,12 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_trace_sentiment_evaluations,
 )
-from posthog.hogql_queries.ai.utils import filled_property_filters, parse_ai_properties, parse_ai_property_value
+from posthog.hogql_queries.ai.utils import (
+    filled_property_filters,
+    parse_ai_properties,
+    parse_ai_property_value,
+    timestamp_bound_as_hogql,
+)
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -72,20 +77,7 @@ class TracesQueryDateRange(QueryDateRange):
         )
 
     def date_to_for_filtering_as_hogql(self) -> ast.Expr:
-        # `format_date` rounds down to a whole second, which would drop the events inside the final
-        # second of the bound. Event timestamps carry microseconds, so the bound carries them too.
-        return ast.Call(
-            name="assumeNotNull",
-            args=[
-                ast.Call(
-                    name="toDateTime64",
-                    args=[
-                        ast.Constant(value=self.date_to_for_filtering().strftime("%Y-%m-%d %H:%M:%S.%f")),
-                        ast.Constant(value=6),
-                    ],
-                )
-            ],
-        )
+        return timestamp_bound_as_hogql(self.date_to_for_filtering())
 
     def date_from(self) -> datetime:
         return super().date_from() - timedelta(minutes=self.CAPTURE_RANGE_MINUTES)

@@ -15,8 +15,7 @@ from posthog.interval_specs import ORDERED_INTERVALS, PERIOD_MAP, IntervalLitera
 from posthog.models.team import Team, WeekStartDay
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
-# Matches a calendar day with no time of day: the extended form (`2021-04-25`, padding optional)
-# and the basic form (`20210425`), both of which `relative_date_parse_with_delta_mapping` parses.
+# The date-only forms `relative_date_parse_with_delta_mapping` accepts: extended, then basic ISO.
 CALENDAR_DAY_RE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{8}")
 
 
@@ -52,11 +51,10 @@ class QueryDateRange:
     _now_without_timezone: datetime
     _earliest_timestamp_fallback: Optional[datetime]
 
-    # A `date_to` that names a calendar day covers the whole day, so an interval coarser than an
-    # hour ends the range at the last moment of it. A shorter interval ends the range at midnight,
-    # which makes a range that asks for a single day return nothing. A subclass whose callers pass
-    # calendar days sets this to True. The default stays False because the app date picker writes a
-    # bare day for every custom range, so a wider rule would move existing hour-granularity charts.
+    # Below an hour interval a `date_to` naming a calendar day ends the range at midnight, so a
+    # range asking for a single day returns nothing. Subclasses whose callers name calendar days opt
+    # in. The default stays False because the app date picker writes a bare day for every custom
+    # range, so a wider rule would move every existing hour-granularity chart.
     CALENDAR_DAY_DATE_TO_IS_INCLUSIVE = False
 
     def __init__(
