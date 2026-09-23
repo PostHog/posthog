@@ -159,7 +159,7 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
     }
 
     const serverSideLib = nonRecordingLib(properties)
-    if (serverSideLib && !hasReplayDiagnosticSignals(properties)) {
+    if (serverSideLib && Object.keys(rawSignals).length === 0) {
         return {
             verdict: 'sdk_cannot_record',
             headline: `This event came from ${serverSideLib}, which cannot record sessions`,
