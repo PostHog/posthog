@@ -274,13 +274,21 @@ class LLMPromptViewSet(
 
         report_team_action(self.team, "llma prompt fetched", properties)
 
+    def _reference_resolution_error_response(self, err: PromptReferenceResolutionError) -> Response:
+        error_status: int = status.HTTP_409_CONFLICT
+        if err.unavailable:
+            error_status = status.HTTP_503_SERVICE_UNAVAILABLE
+        elif err.missing:
+            error_status = status.HTTP_404_NOT_FOUND
+        return Response({"detail": err.message, "reference_name": err.reference_name}, status=error_status)
+
     def _resolve_labeled_list_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Splice references into labeled list rows, mirroring get_by_name.
 
-        A row whose references cannot resolve is omitted rather than served
-        with raw tags: the SDKs cache these rows for single fetches too, and a
-        code-level fallback covers a missing prompt while a tag inside content
-        would reach the caller's LLM as literal text.
+        An unresolvable reference fails the whole request with the same
+        status get_by_name uses. Serving the raw tag would leak it into the
+        caller's LLM, and omitting the row would silently shorten a page,
+        which a paginating client reads as the end of the results.
         """
 
         def has_tags(item: dict[str, Any]) -> bool:
@@ -304,18 +312,20 @@ class LLMPromptViewSet(
                 continue
             try:
                 assembled = assemble_prompt_payload(self.team, item, memoized=shared_memo)
-                # The outline is derived from content, so it must describe what
-                # this response returns. prompt_size_bytes stays the stored size:
-                # it backs the list ordering.
-                assembled["outline"] = get_prompt_outline(assembled.get("prompt"))
-                resolved_items.append(assembled)
             except PromptReferenceResolutionError as err:
-                logger.warning(
-                    "llm_prompt_labeled_list_reference_unresolved",
-                    prompt_name=item.get("name"),
+                # The bulk response has no single subject, so the message names
+                # the prompt whose reference failed.
+                raise PromptReferenceResolutionError(
                     reference_name=err.reference_name,
-                    team_id=self.team.id,
-                )
+                    message=f"Prompt '{item.get('name')}': {err.message}",
+                    missing=err.missing,
+                    unavailable=err.unavailable,
+                ) from err
+            # The outline is derived from content, so it must describe what
+            # this response returns. prompt_size_bytes stays the stored size:
+            # it backs the list ordering.
+            assembled["outline"] = get_prompt_outline(assembled.get("prompt"))
+            resolved_items.append(assembled)
         return resolved_items
 
     def _track_list_fetch(self, served_count: int, label: str | None, resolved_reference_count: int) -> None:
@@ -451,12 +461,7 @@ class LLMPromptViewSet(
             try:
                 prompt = assemble_prompt_payload(self.team, prompt)
             except PromptReferenceResolutionError as err:
-                error_status: int = status.HTTP_409_CONFLICT
-                if err.unavailable:
-                    error_status = status.HTTP_503_SERVICE_UNAVAILABLE
-                elif err.missing:
-                    error_status = status.HTTP_404_NOT_FOUND
-                return Response({"detail": err.message, "reference_name": err.reference_name}, status=error_status)
+                return self._reference_resolution_error_response(err)
 
         self._track_prompt_fetch(prompt)
         return Response(self._apply_content_mode(prompt, content_mode))
@@ -824,7 +829,10 @@ class LLMPromptViewSet(
         label = params.get("label")
         data = list(serializer.data)
         if label is not None and params.get("content", "full") == "full" and cast(bool, params.get("resolve", True)):
-            data = self._resolve_labeled_list_items(data)
+            try:
+                data = self._resolve_labeled_list_items(data)
+            except PromptReferenceResolutionError as err:
+                return self._reference_resolution_error_response(err)
 
         if label or not self._is_browser_session(request):
             # The unlabeled list also backs the prompts UI page, where reading the

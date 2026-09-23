@@ -2323,18 +2323,17 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         assert rows["plain"]["resolved_references"] == []
 
     @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
-    def test_labeled_list_omits_rows_whose_references_cannot_resolve(self, _flag):
+    def test_labeled_list_fails_naming_the_prompt_whose_reference_cannot_resolve(self, _flag):
         self._make_prompt("healthy", prompt="Fine.", label="production")
         # Simulates a raced write: a labeled prompt referencing a prompt that no longer exists.
-        broken = self._make_prompt("broken", prompt="@@@prompt:name=missing|version=1@@@", label="production")
-        assert broken is not None
+        self._make_prompt("broken", prompt="@@@prompt:name=missing|version=1@@@", label="production")
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production&content=full")
 
-        assert response.status_code == status.HTTP_200_OK
-        names = [row["name"] for row in response.json()["results"]]
-        assert "healthy" in names
-        assert "broken" not in names
+        # Never a short page: a paginating client reads one as the end of the results.
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["reference_name"] == "missing"
+        assert "broken" in response.json()["detail"]
 
     @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=False)
     def test_labeled_list_passes_tags_through_when_flag_is_off(self, _flag):
