@@ -232,6 +232,18 @@ message DeletePersonsResponse {
   repeated TombstonedPerson tombstones = 3;
 }
 
+// Reads the versions tombstoned persons hold, from the primary, without writing.
+message GetPersonTombstonesRequest {
+  int64 team_id = 1;
+  // Person UUIDs. Max 1000 per request.
+  repeated string person_uuids = 2;
+}
+
+message GetPersonTombstonesResponse {
+  // Only tombstoned persons; a live or missing person has no entry.
+  repeated TombstonedPerson tombstones = 1;
+}
+
 // DeletePersonsBatchForTeamRequest deletes up to batch_size persons for a team.
 // Also deletes associated posthog_persondistinctid rows (FK is NO ACTION).
 // posthog_featureflaghashkeyoverride rows cascade automatically at the DB level.

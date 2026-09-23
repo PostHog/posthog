@@ -4,6 +4,7 @@ use uuid::Uuid;
 use crate::storage::error::StorageResult;
 use crate::storage::types::{
     DeletePersonsMode, DeletePersonsOutcome, Person, SplitResult, TombstonedDeleteOutcome,
+    TombstonedPerson,
 };
 
 /// Person lookup operations by ID, UUID, and distinct ID
@@ -72,6 +73,13 @@ pub trait PersonLookup: Send + Sync {
         uuids: &[Uuid],
         max_rows: i64,
     ) -> StorageResult<TombstonedDeleteOutcome>;
+
+    /// Versions tombstoned persons hold, from the primary; live and missing persons are omitted.
+    async fn get_person_tombstones(
+        &self,
+        team_id: i64,
+        uuids: &[Uuid],
+    ) -> StorageResult<Vec<TombstonedPerson>>;
 
     /// Delete up to `batch_size` persons for a team. Selects person IDs with
     /// FOR UPDATE SKIP LOCKED, then splits them into fixed-size chunks and

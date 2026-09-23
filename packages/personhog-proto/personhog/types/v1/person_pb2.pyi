@@ -445,6 +445,20 @@ class DeletePersonsResponse(_message.Message):
         tombstones: _Optional[_Iterable[_Union[TombstonedPerson, _Mapping]]] = ...,
     ) -> None: ...
 
+class GetPersonTombstonesRequest(_message.Message):
+    __slots__ = ("team_id", "person_uuids")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, team_id: _Optional[int] = ..., person_uuids: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class GetPersonTombstonesResponse(_message.Message):
+    __slots__ = ("tombstones",)
+    TOMBSTONES_FIELD_NUMBER: _ClassVar[int]
+    tombstones: _containers.RepeatedCompositeFieldContainer[TombstonedPerson]
+    def __init__(self, tombstones: _Optional[_Iterable[_Union[TombstonedPerson, _Mapping]]] = ...) -> None: ...
+
 class DeletePersonsBatchForTeamRequest(_message.Message):
     __slots__ = ("team_id", "batch_size")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]

@@ -30,15 +30,15 @@ use personhog_proto::personhog::types::v1::{
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
-    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingCount,
-    GroupTypeMappingsBatchResponse, GroupTypeMappingsByKey, GroupTypeMappingsResponse,
-    GroupWithKey, GroupsResponse, HashKeyOverride,
-    HashKeyOverrideContext as ProtoHashKeyOverrideContext, InsertCohortMembersRequest,
-    InsertCohortMembersResponse, ListCohortMemberIdsRequest, ListCohortMemberIdsResponse,
-    ListGroupsRequest, ListGroupsResponse, PersonDistinctIds, PersonWithDistinctIds,
-    PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
+    GetPersonTombstonesRequest, GetPersonTombstonesResponse, GetPersonsByDistinctIdsInTeamRequest,
+    GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, GroupKey,
+    GroupTypeMapping, GroupTypeMappingCount, GroupTypeMappingsBatchResponse,
+    GroupTypeMappingsByKey, GroupTypeMappingsResponse, GroupWithKey, GroupsResponse,
+    HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, PersonDistinctIds,
+    PersonWithDistinctIds, PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
     SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
     SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
     SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId, TombstonedPerson,
@@ -442,18 +442,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .tombstones
             .unwrap_or_default()
             .into_iter()
-            .map(|person| TombstonedPerson {
-                person_uuid: person.uuid.to_string(),
-                version: person.version,
-                distinct_ids: person
-                    .distinct_ids
-                    .into_iter()
-                    .map(|did| TombstonedDistinctId {
-                        distinct_id: did.distinct_id,
-                        version: did.version,
-                    })
-                    .collect(),
-            })
+            .map(tombstone_to_proto)
             .collect();
 
         Ok(Response::new(DeletePersonsResponse {
@@ -483,6 +472,36 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         Ok(Response::new(DeletePersonsBatchForTeamResponse {
             deleted_count,
+        }))
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        request: Request<GetPersonTombstonesRequest>,
+    ) -> Result<Response<GetPersonTombstonesResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.person_uuids.len() > 1000 {
+            return Err(Status::invalid_argument(
+                "Maximum 1000 person UUIDs per request",
+            ));
+        }
+
+        let uuids: Vec<Uuid> = req
+            .person_uuids
+            .iter()
+            .map(|s| Uuid::parse_str(s))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
+
+        let tombstones = self
+            .storage
+            .get_person_tombstones(req.team_id, &uuids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "get_person_tombstones"))?;
+
+        Ok(Response::new(GetPersonTombstonesResponse {
+            tombstones: tombstones.into_iter().map(tombstone_to_proto).collect(),
         }))
     }
 
@@ -1425,5 +1444,20 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "set_person_version_floor"))?;
 
         Ok(Response::new(SetPersonVersionFloorResponse { updated }))
+    }
+}
+
+fn tombstone_to_proto(person: storage::types::TombstonedPerson) -> TombstonedPerson {
+    TombstonedPerson {
+        person_uuid: person.uuid.to_string(),
+        version: person.version,
+        distinct_ids: person
+            .distinct_ids
+            .into_iter()
+            .map(|did| TombstonedDistinctId {
+                distinct_id: did.distinct_id,
+                version: did.version,
+            })
+            .collect(),
     }
 }

@@ -664,6 +664,22 @@ class FakePersonHogClient:
             tombstoned.distinct_ids.add(distinct_id=did.distinct_id, version=did.version)
         return version
 
+    def get_person_tombstones(
+        self, request: person_pb2.GetPersonTombstonesRequest, timeout: float | None = None
+    ) -> person_pb2.GetPersonTombstonesResponse:
+        self.calls.append(_Call("get_person_tombstones", request))
+        response = person_pb2.GetPersonTombstonesResponse()
+        for uuid in request.person_uuids:
+            person = self._persons_by_uuid.get((request.team_id, uuid))
+            if person is None or not person.is_deleted:
+                continue
+            tombstoned = response.tombstones.add(person_uuid=person.uuid, version=person.version)
+            for did in sorted(self._distinct_ids.get((request.team_id, person.id), []), key=lambda d: d.distinct_id):
+                if (request.team_id, did.distinct_id) in self._tombstoned_distinct_ids:
+                    tombstoned.distinct_ids.add(distinct_id=did.distinct_id, version=did.version)
+        response.tombstones.sort(key=lambda t: t.person_uuid)
+        return response
+
     def delete_tombstoned_persons(
         self, request: person_pb2.DeleteTombstonedPersonsRequest, timeout: float | None = None
     ) -> person_pb2.DeleteTombstonedPersonsResponse:

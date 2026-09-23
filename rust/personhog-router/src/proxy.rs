@@ -59,6 +59,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "GetPerson",
     "GetPersonByDistinctId",
     "GetPersonByUuid",
+    "GetPersonTombstones",
     "GetPersons",
     "GetPersonsByDistinctIds",
     "GetPersonsByDistinctIdsInTeam",

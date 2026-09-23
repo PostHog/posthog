@@ -599,6 +599,49 @@ async fn test_delete_persons_tombstone_mode_reports_versions_again_on_retry() {
     expected.sort_by(|a, b| a.uuid.cmp(&b.uuid));
     assert_eq!(retry.tombstones, Some(expected));
 
+    let mut queued: Vec<(uuid::Uuid, i64)> = sqlx::query_as(
+        "SELECT person_uuid, person_version FROM person_tombstone_publish_queue WHERE team_id = $1",
+    )
+    .bind(ctx.team_id as i32)
+    .fetch_all(&ctx.pool)
+    .await
+    .unwrap();
+    queued.sort();
+    let mut expected_queue = vec![(person.uuid, 1), (live.uuid, 1)];
+    expected_queue.sort();
+    assert_eq!(queued, expected_queue);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_person_tombstones_reports_only_tombstoned_persons() {
+    let ctx = TestContext::new().await;
+    let tombstoned = ctx.insert_person("get_tombstoned", None).await.unwrap();
+    let live = ctx.insert_person("get_live", None).await.unwrap();
+    let deleted = ctx
+        .storage
+        .delete_persons(
+            ctx.team_id,
+            &[tombstoned.uuid],
+            DeletePersonsMode::Tombstone,
+        )
+        .await
+        .unwrap();
+
+    let tombstones = ctx
+        .storage
+        .get_person_tombstones(
+            ctx.team_id,
+            &[tombstoned.uuid, live.uuid, uuid::Uuid::new_v4()],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(Some(tombstones), deleted.tombstones);
+    let (is_deleted, _, _, _) = tombstone_state(&ctx.pool, ctx.team_id, live.id).await;
+    assert!(!is_deleted);
+
     ctx.cleanup().await.ok();
 }
 

@@ -140,6 +140,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
         pendingPersonUuids: [],
         rowsDeleted: 0n,
     }),
+    getPersonTombstones: () => ({ tombstones: [] }),
     splitPerson: () => ({ splits: [] }),
     setPersonDistinctIdVersionFloor: () => ({}),
     setPersonVersionFloor: () => ({ updated: false }),

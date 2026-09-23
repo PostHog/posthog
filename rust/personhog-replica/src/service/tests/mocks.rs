@@ -109,6 +109,14 @@ impl storage::PersonLookup for FailingStorage {
         Err(self.error.clone())
     }
 
+    async fn get_person_tombstones(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::types::TombstonedPerson>> {
+        Err(self.error.clone())
+    }
+
     async fn delete_persons_batch_for_team(
         &self,
         _team_id: i64,
@@ -496,6 +504,14 @@ impl storage::PersonLookup for SuccessStorage {
         _max_rows: i64,
     ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
         Ok(storage::TombstonedDeleteOutcome::default())
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::types::TombstonedPerson>> {
+        Ok(Vec::new())
     }
 
     async fn delete_persons_batch_for_team(
@@ -946,6 +962,14 @@ impl storage::PersonLookup for PopulatedStorage {
         Ok(storage::TombstonedDeleteOutcome::default())
     }
 
+    async fn get_person_tombstones(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::types::TombstonedPerson>> {
+        Ok(Vec::new())
+    }
+
     async fn delete_persons_batch_for_team(
         &self,
         _team_id: i64,
@@ -1368,6 +1392,14 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         _max_rows: i64,
     ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
         Ok(storage::TombstonedDeleteOutcome::default())
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::types::TombstonedPerson>> {
+        Ok(Vec::new())
     }
 
     async fn delete_persons_batch_for_team(

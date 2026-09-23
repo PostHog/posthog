@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT person_id as \"person_id!\", distinct_id as \"distinct_id!\",\n                   COALESCE(version, 0)::bigint as \"version!\"\n            FROM posthog_persondistinctid\n            WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = true\n            ",
+  "query": "\n        SELECT person_id as \"person_id!\", distinct_id as \"distinct_id!\",\n               COALESCE(version, 0)::bigint as \"version!\"\n        FROM posthog_persondistinctid\n        WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = true\n        ",
   "describe": {
     "columns": [
       {
@@ -31,5 +31,5 @@
       null
     ]
   },
-  "hash": "05c7c839951d1e77dcd01fd82f17d4721445c04f5f17951fdfab52f49ff10521"
+  "hash": "d6654a4a69fa6a599dd1d5e63fe31d1a1d1275f923445e6f7eaface298092f12"
 }

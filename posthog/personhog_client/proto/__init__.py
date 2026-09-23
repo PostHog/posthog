@@ -82,6 +82,8 @@ from personhog.types.v1.person_pb2 import (
     GetPersonByDistinctIdRequest,
     GetPersonByUuidRequest,
     GetPersonRequest,
+    GetPersonTombstonesRequest,
+    GetPersonTombstonesResponse,
     GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
