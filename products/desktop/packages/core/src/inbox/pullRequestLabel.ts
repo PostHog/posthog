@@ -6,6 +6,12 @@ export const DEFAULT_PULL_REQUEST_LABEL = "self-driving";
 /** GitHub refuses a longer label, and the column stops at the same length. */
 export const PULL_REQUEST_LABEL_MAX_LENGTH = 50;
 
+/** The fields a label write may carry. Either one can travel on its own. */
+export interface PullRequestLabelUpdate {
+  pull_request_label_enabled?: boolean;
+  pull_request_label?: string | null;
+}
+
 export type PullRequestLabelParseResult =
   | { ok: true; value: string | null }
   | { ok: false; error: string };

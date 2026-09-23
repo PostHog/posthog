@@ -4,6 +4,7 @@ import {
   describePullRequestLabel,
   effectivePullRequestLabel,
   PULL_REQUEST_LABEL_MAX_LENGTH,
+  type PullRequestLabelUpdate,
   parsePullRequestLabel,
   pullRequestLabelEnabled,
   pullRequestLabelFieldValue,
@@ -21,10 +22,10 @@ import {
 } from "react-native";
 import { SheetContainer } from "@/components/SheetContainer";
 import {
-  type PullRequestLabelUpdate,
   useSignalTeamConfig,
   useUpdatePullRequestLabel,
 } from "@/features/inbox/hooks/useSignalTeamConfig";
+import { SettingsRow } from "@/features/settings/components/SettingsRow";
 import { useThemeColors } from "@/lib/theme";
 
 export function PullRequestLabelRow() {
@@ -75,30 +76,22 @@ export function PullRequestLabelRow() {
 
   return (
     <>
-      <Pressable
+      <SettingsRow
+        label="Label PRs on GitHub"
+        description={
+          showLoadError
+            ? "Couldn't load the label. Try again later."
+            : describePullRequestLabel(config)
+        }
         onPress={openSheet}
         disabled={isLoading || showLoadError}
-        className={`active:bg-gray-2 ${isLoading || showLoadError ? "opacity-50" : ""}`}
-      >
-        <View className="flex-row items-center gap-3 border-gray-5 border-b px-4 py-3">
-          <View className="min-w-0 flex-1">
-            <Text className="font-medium text-[15px] text-gray-12">
-              Label PRs on GitHub
-            </Text>
-            <Text
-              className={`mt-0.5 text-[12px] leading-snug ${showLoadError ? "text-status-error" : "text-gray-10"}`}
-            >
-              {showLoadError
-                ? "Couldn't load the label. Try again later."
-                : describePullRequestLabel(config)}
-            </Text>
-          </View>
-          <View className="shrink-0 flex-row items-center gap-2">
+        rightSlot={
+          <>
             <Text className="text-[14px] text-gray-11">{rightLabel}</Text>
             <CaretRight size={14} color={themeColors.gray[10]} />
-          </View>
-        </View>
-      </Pressable>
+          </>
+        }
+      />
 
       <PullRequestLabelSheet
         open={sheetOpen}

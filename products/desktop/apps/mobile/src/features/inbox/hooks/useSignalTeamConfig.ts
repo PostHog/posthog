@@ -1,3 +1,4 @@
+import type { PullRequestLabelUpdate } from "@posthog/core/inbox/pullRequestLabel";
 import type { SignalTeamConfig } from "@posthog/shared/domain-types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/features/auth";
@@ -38,11 +39,6 @@ export function useUpdateMaxReportsPerDay() {
       );
     },
   });
-}
-
-export interface PullRequestLabelUpdate {
-  pull_request_label_enabled?: boolean;
-  pull_request_label?: string | null;
 }
 
 /** Turn the GitHub pull request label on or off, or rename it. */

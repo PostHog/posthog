@@ -2,6 +2,7 @@ import {
   DEFAULT_PULL_REQUEST_LABEL,
   describePullRequestLabel,
   PULL_REQUEST_LABEL_MAX_LENGTH,
+  type PullRequestLabelUpdate,
   parsePullRequestLabel,
   pullRequestLabelEnabled,
   pullRequestLabelFieldValue,
@@ -13,10 +14,7 @@ import { useState } from "react";
 interface PullRequestLabelSettingsProps {
   config: SignalTeamConfig | null | undefined;
   /** Persist one or both label fields. Rejects when the server refuses the write. */
-  onSave: (updates: {
-    pull_request_label_enabled?: boolean;
-    pull_request_label?: string | null;
-  }) => Promise<void>;
+  onSave: (updates: PullRequestLabelUpdate) => Promise<void>;
   isLoading?: boolean;
   disabled?: boolean;
 }
@@ -50,10 +48,7 @@ export function PullRequestLabelSettings({
   const isDirty = draft.trim() !== savedValue;
   const controlsDisabled = disabled || isLoading || isSaving;
 
-  const save = async (updates: {
-    pull_request_label_enabled?: boolean;
-    pull_request_label?: string | null;
-  }) => {
+  const save = async (updates: PullRequestLabelUpdate) => {
     setIsSaving(true);
     try {
       await onSave(updates);

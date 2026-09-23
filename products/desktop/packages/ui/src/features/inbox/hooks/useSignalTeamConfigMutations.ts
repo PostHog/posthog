@@ -1,4 +1,5 @@
 import { signalsConfigKeys } from "@posthog/core/inbox/inboxQuery";
+import type { PullRequestLabelUpdate } from "@posthog/core/inbox/pullRequestLabel";
 import type { SignalTeamConfig } from "@posthog/shared/types";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -130,10 +131,7 @@ export function useSignalTeamConfigMutations() {
   );
 
   const handleUpdatePullRequestLabel = useCallback(
-    async (updates: {
-      pull_request_label_enabled?: boolean;
-      pull_request_label?: string | null;
-    }) => {
+    async (updates: PullRequestLabelUpdate) => {
       if (!client) return;
       try {
         const fresh = await client.updateSignalTeamConfig(updates);
