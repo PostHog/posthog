@@ -22,9 +22,9 @@
             "type": "string"
         },
         "operations": {
-            "description": "Edits applied in order to the canvas's current source project.",
+            "description": "Edits applied in order to the canvas's current source project, all or nothing.",
             "items": {
-                "description": "One per-file edit: set a file's content, or delete it.",
+                "description": "One file edit: replace text in a file, write a whole file, delete it, or rename it.",
                 "properties": {
                     "content": {
                         "anyOf": [
@@ -35,11 +35,33 @@
                                 "type": "null"
                             }
                         ],
-                        "description": "The file's complete new content. Null (or omitted) deletes the file."
+                        "description": "For 'write': the file's complete new content."
+                    },
+                    "new_path": {
+                        "description": "For 'rename': the file's new project-relative path.",
+                        "type": "string"
+                    },
+                    "new_string": {
+                        "description": "For 'str_replace': the text that replaces old_string. An empty string deletes old_string.",
+                        "type": "string"
+                    },
+                    "old_string": {
+                        "description": "For 'str_replace': the exact text to replace, copied from the file with a few surrounding lines so it matches one place only. If whitespace differs slightly, a unique line-by-line match is still accepted.",
+                        "type": "string"
+                    },
+                    "op": {
+                        "description": "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, a non-null content means 'write' and a null or missing content means 'delete'.\n\n* `write` - Write\n* `delete` - Delete\n* `rename` - Rename\n* `str_replace` - Str Replace",
+                        "enum": ["write", "delete", "rename", "str_replace"],
+                        "type": "string"
                     },
                     "path": {
-                        "description": "Project-relative path of the file to write or delete (e.g. \"src/canvas.tsx\").",
+                        "description": "Project-relative path of the file to edit (e.g. \"src/canvas.tsx\").",
                         "type": "string"
+                    },
+                    "replace_all": {
+                        "default": false,
+                        "description": "For 'str_replace': replace every exact match of old_string instead of requiring exactly one.",
+                        "type": "boolean"
                     }
                 },
                 "required": ["path"],
