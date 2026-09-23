@@ -4094,7 +4094,10 @@ class ExperimentService:
             if disallowed_fields:
                 raise ValidationError(
                     f"This experiment uses legacy metric formats and can only have its name, description, or end_date updated. "
-                    f"Cannot update: {', '.join(sorted(disallowed_fields))}"
+                    f"Cannot update: {', '.join(sorted(disallowed_fields))}. "
+                    f"To change these, migrate the experiment to the new experiments engine first: "
+                    f"POST /api/projects/{experiment.team_id}/experiments/{experiment.id}/migrate "
+                    f"(the experiment-migrate tool). It keeps this experiment and its results, and returns a new one."
                 )
 
             # Validate end_date if present

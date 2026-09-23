@@ -262,6 +262,10 @@ from products.review_hog.backend.temporal import (
     ACTIVITIES as REVIEW_HOG_ACTIVITIES,
     WORKFLOWS as REVIEW_HOG_WORKFLOWS,
 )
+from products.security.backend.facade.temporal import (
+    ACTIVITIES as SECURITY_ACTIVITIES,
+    WORKFLOWS as SECURITY_WORKFLOWS,
+)
 from products.signals.backend.emission.temporal_settings import (
     EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
     EMIT_SIGNALS_WORKFLOWS as DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
@@ -364,7 +368,8 @@ _task_queue_specs = [
         + NOTEBOOKS_WORKFLOWS
         + GROWTH_WORKFLOWS
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
-        + CONTEXT_LAYER_WORKFLOWS,
+        + CONTEXT_LAYER_WORKFLOWS
+        + SECURITY_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -389,7 +394,8 @@ _task_queue_specs = [
         + CI_SIGNALS_ACTIVITIES
         + NOTEBOOKS_ACTIVITIES
         + GROWTH_ACTIVITIES
-        + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
+        + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
+        + SECURITY_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a

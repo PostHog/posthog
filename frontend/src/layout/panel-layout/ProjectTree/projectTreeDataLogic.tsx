@@ -1526,6 +1526,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                     disableSelect: true,
                                     type: 'loading-indicator',
                                 })
+                            } else if (converted.length === 0) {
+                                converted.push({
+                                    id: `shortcuts://-folder-empty/${shortcutTreeItem.id}`,
+                                    name: 'Empty folder',
+                                    displayName: <>Empty folder</>,
+                                    disableSelect: true,
+                                    type: 'empty-folder',
+                                })
                             }
 
                             newShortcutData.push({ ...shortcutTreeItem, children: converted })
