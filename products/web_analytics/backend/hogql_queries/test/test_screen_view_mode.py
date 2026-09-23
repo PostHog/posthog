@@ -23,6 +23,7 @@ class TestScreenViewMode(SimpleTestCase):
         [
             ("nothing_set", None, None, None),
             ("team_setting", {"webAnalyticsScreenViewMode": "screens"}, None, WebAnalyticsScreenViewMode.SCREENS),
+            ("invalid_team_setting_is_unset", {"webAnalyticsScreenViewMode": "not_a_mode"}, None, None),
             (
                 "request_overrides_team",
                 {"webAnalyticsScreenViewMode": "screens"},

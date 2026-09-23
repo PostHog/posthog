@@ -21,7 +21,13 @@ def effective_screen_view_mode(
     value = modifiers.webAnalyticsScreenViewMode if modifiers else None
     if value is None and isinstance(team.modifiers, dict):
         value = team.modifiers.get("webAnalyticsScreenViewMode")
-    return WebAnalyticsScreenViewMode(value) if value else None
+    if not value:
+        return None
+    try:
+        return WebAnalyticsScreenViewMode(value)
+    except ValueError:
+        # Team modifiers are stored without validation, and a bad value must not fail every web analytics query.
+        return None
 
 
 def view_event_names(mode: Optional[WebAnalyticsScreenViewMode]) -> tuple[str, ...]:
