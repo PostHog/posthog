@@ -61,6 +61,11 @@ GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS = 60
 # GitHub's add-assignees endpoint caps a single call at 10 logins and silently drops the rest.
 MAX_PR_ASSIGNEES = 10
 
+# GitHub label names cap at 50 characters, and a self-driving pull request only ever carries the one
+# label its team configured, so a longer list is a caller mistake rather than a use we support.
+MAX_PR_LABELS = 10
+MAX_LABEL_NAME_LENGTH = 50
+
 # Reactions cost one extra round trip per reacted comment, and GitHub offers no way to fetch them in
 # bulk, so bound the fan-out. Set high enough that a real pull request never reaches it: past this
 # point a comment renders without its pills, which is worse than the extra requests.
@@ -1324,6 +1329,62 @@ class GitHubIntegrationBase:
             entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
         ]
         return {"success": True, "assignees": assigned}
+
+    def add_pull_request_labels(self, repository: str, pr_number: int, labels: Iterable[str]) -> dict[str, Any]:
+        """Add labels to a pull request. ``repository`` is ``owner/repo`` or a bare repo.
+
+        Additive only. GitHub's add-labels endpoint never removes a label, so a caller cannot clear
+        one by leaving it out of ``labels``, and adding a label the pull request already carries
+        changes nothing. A name the repository does not define yet is created first, because GitHub
+        refuses the whole call otherwise.
+
+        Labels use the issues endpoint (a PR is an issue for labelling purposes).
+        """
+        wanted = list(dict.fromkeys(name.strip() for name in labels if name and name.strip()))[:MAX_PR_LABELS]
+        if not wanted or any(len(name) > MAX_LABEL_NAME_LENGTH for name in wanted):
+            return {"success": True, "labels": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        url = f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/labels"
+        endpoint = "/repos/{owner}/{repo}/issues/{issue_number}/labels"
+
+        response = self._installation_authenticated_post(url, endpoint=endpoint, json_body={"labels": wanted})
+        if response is not None and response.status_code == 422:
+            # 422 is what an undefined label name reads as, so create the names and try once more.
+            # A name that already exists costs one refused create, never a lost label.
+            for name in wanted:
+                self._create_repository_label(repo_path, name)
+            response = self._installation_authenticated_post(url, endpoint=endpoint, json_body={"labels": wanted})
+        if response is None:
+            return {"success": False, "error": "Network error labelling pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to label pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            body = response.json()
+        except Exception:
+            body = []
+        applied = [entry["name"] for entry in body if isinstance(entry, dict) and entry.get("name")]
+        return {"success": True, "labels": applied}
+
+    def _create_repository_label(self, repo_path: str, name: str) -> bool:
+        """Define ``name`` as a label in the repository. Returns whether it exists afterwards.
+
+        No color is chosen, so GitHub picks one and the team can restyle the label without this
+        ever writing over their choice. A label somebody created in between answers 422, which
+        counts as existing.
+        """
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/labels",
+            endpoint="/repos/{owner}/{repo}/labels",
+            json_body={"name": name},
+        )
+        if response is None:
+            return False
+        return response.status_code in (201, 422)
 
     def is_assignable(self, repository: str, login: str) -> dict[str, Any]:
         """Whether ``login`` can be assigned to issues and pull requests in ``repository``.
