@@ -39,6 +39,36 @@ describe('projectTreeDataLogic', () => {
         jest.restoreAllMocks()
     })
 
+    it.each(['loaded', 'loading', 'has-more', 'populated'] as const)(
+        'renders a starred nested folder with %s contents',
+        (state) => {
+            const folder = 'Research/Ideas'
+            logic.actions.loadShortcutsSuccess([{ id: 'star-folder', path: 'Ideas', type: 'folder', ref: folder }])
+            logic.actions.loadFolderSuccess(
+                folder,
+                state === 'populated' ? [{ id: 'note', path: `${folder}/Notes`, type: 'notebook', ref: 'notes' }] : [],
+                state === 'has-more',
+                0
+            )
+            if (state === 'loading') {
+                logic.actions.loadFolderStart(folder)
+            }
+
+            const [starredFolder] = logic.values.getShortcutTreeItems('', false)
+            expect(starredFolder.id).toBe('shortcuts://Ideas')
+            expect(starredFolder.children).toHaveLength(1)
+            expect(starredFolder.children?.[0]).toMatchObject(
+                state === 'loaded'
+                    ? { name: 'Empty folder', type: 'empty-folder', disableSelect: true }
+                    : state === 'loading'
+                      ? { name: 'Loading...', type: 'loading-indicator' }
+                      : state === 'has-more'
+                        ? { name: 'Load more...' }
+                        : { name: 'Notes', record: { path: `${folder}/Notes` } }
+            )
+        }
+    )
+
     it('shows only the products the user added, with nothing injected alongside them', () => {
         customProductsLogic.actions.loadCustomProductsSuccess([
             {
