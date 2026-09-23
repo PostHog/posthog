@@ -550,8 +550,8 @@ class TestErrorTracking(APIBaseTest):
         assert event.properties["status"] == status_prop
         assert event.properties["previous_status"] == previous_prop
         # The issue-property set destination filters can reference, matching the
-        # ingestion-driven events. The taxonomy documents this same set as the payload of
-        # every `$error_tracking_issue_*` event, so a rename here must reach the docs too.
+        # ingestion-driven events. The taxonomy documents this same set, so a rename here
+        # must reach the event descriptions too.
         assert set(ERROR_TRACKING_ISSUE_NOTIFICATION_PROPERTIES) <= set(event.properties)
         assert event.properties["severity"] == "critical"
         assert event.properties["issue_description"] == issue.description
