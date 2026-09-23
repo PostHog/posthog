@@ -1344,13 +1344,19 @@ export interface CanvasRuntimeErrorProperties {
   csp_directive?: string;
 }
 
-export type ContextActionType = "save_version" | "generate_started" | "discard";
+export type ContextActionType =
+  | "save_version"
+  | "generate_started"
+  | "setup_started"
+  | "discard";
 
 export interface ContextActionProperties {
   action_type: ContextActionType;
   channel_id: string;
   /** generate_started only. */
   execution_type?: "local" | "cloud";
+  /** setup_started only: what the space was set up for. */
+  setup_kind?: "goal" | "feature";
   /** save_version: whether this created the first version vs. an update. */
   is_first_version?: boolean;
   success?: boolean;

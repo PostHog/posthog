@@ -21,6 +21,7 @@ import { DELIVERY_DATE_OPTIONS, RepoScopeChip, ScopeBar, ScopeDateFilter } from 
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
+import { withCurrentScope } from '../lib/scope'
 import { AuthorLogicProps, authorLogic } from './authorLogic'
 import { deliveryComparisonLogic } from './deliveryComparisonLogic'
 import { DeliverySections } from './DeliverySections'
@@ -57,7 +58,8 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     } = useValues(timelinesLogic)
     const { loadTimelines, setDayViewAlignment } = useActions(timelinesLogic)
 
-    const hubUrl = combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url
+    const hubUrl = withCurrentScope(urls.engineeringAnalytics(), sourceId)
+    const pullRequestsUrl = withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)
     const avatarUrl = timelines?.items[0]?.author.avatar_url
     const workflowCostsTotal = workflowCosts.reduce((sum, c) => sum + (c.estimated_cost_usd ?? 0), 0)
     // Ranked, biggest spend first; the bar length is each workflow's share of the window's total.
@@ -77,7 +79,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         to={hubUrl}
                     />
                 }
-                lensFilter={{ label: `author: ${handle}`, to: hubUrl }}
+                lensFilter={{ label: `author: ${handle}`, to: pullRequestsUrl }}
                 showDate={false}
             />
             <EntityHeader

@@ -38,12 +38,12 @@ class _NotADataSyncWorkflow:
     [
         (settings.WIZARD_TASK_QUEUE, WIZARD_WORKFLOWS, WIZARD_ACTIVITIES),
         (
-            "alerts-product-shared-orchestration-task-queue",
+            "alerts-platform-shared-orchestration-task-queue",
             SHARED_ORCHESTRATION_WORKFLOWS,
             SHARED_ORCHESTRATION_ACTIVITIES,
         ),
-        ("alerts-product-evaluation-task-queue", EVALUATION_WORKFLOWS, EVALUATION_ACTIVITIES),
-        ("alerts-product-delivery-task-queue", DELIVERY_WORKFLOWS, DELIVERY_ACTIVITIES),
+        ("alerts-platform-evaluation-task-queue", EVALUATION_WORKFLOWS, EVALUATION_ACTIVITIES),
+        ("alerts-platform-delivery-task-queue", DELIVERY_WORKFLOWS, DELIVERY_ACTIVITIES),
     ],
 )
 def test_queue_registers_workflows_and_activities(
@@ -53,7 +53,7 @@ def test_queue_registers_workflows_and_activities(
     assert set(expected_workflows) <= WORKFLOWS_DICT[task_queue]
     assert expected_activities
     assert set(expected_activities) <= ACTIVITIES_DICT[task_queue]
-    if task_queue == settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE:
+    if task_queue == settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE:
         assert WORKFLOWS_DICT[task_queue] == set(expected_workflows)
         assert ACTIVITIES_DICT[task_queue] == set(expected_activities)
 

@@ -476,7 +476,7 @@ export function PullRequestDetailScene(): JSX.Element {
                 }
                 lensFilter={{
                     label: `pr: #${pullRequest?.number ?? ''}`,
-                    to: withCurrentScope(urls.engineeringAnalytics(), sourceId),
+                    to: withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId),
                 }}
                 showDate={false}
             />

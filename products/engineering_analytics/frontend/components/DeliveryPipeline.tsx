@@ -31,13 +31,13 @@ const MERGE_TO_DEPLOY_COPY: LegCopy = {
     label: 'Merge to production',
     sub: 'Waiting for the deploy that ships it',
     tooltip:
-        'From the merge to the first successful production deploy that contains it, resolved through the deploy head commit. The same measure as the Health tab.',
+        'From the merge to the first successful production deploy that contains it, resolved through the deploy head commit. The same measure as the Deploys tab.',
 }
 
 export interface MergeToDeployLeg {
     medianSeconds: number | null
     prCount: number
-    /** The Health tab's environment and team scope, shown beside the count because the legs above are repo-wide. */
+    /** The Deploys tab's environment and team scope, shown beside the count because the legs above are repo-wide. */
     scopeLabel: string
 }
 

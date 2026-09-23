@@ -6,6 +6,7 @@ import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -22,9 +23,11 @@ import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath } from '../../ProjectTree/utils'
 import { appsItemName } from './appsCatalog'
 import { NavAppMenu } from './NavAppMenu'
+import { NavAppTooltip } from './NavAppTooltip'
 
 export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
+    const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { shortcutData, shortcutDataLoading } = useValues(projectTreeDataLogic)
     const { addShortcutItem, deleteShortcut } = useActions(projectTreeDataLogic)
     const { reportNavItemClicked } = useActions(eventUsageLogic)
@@ -82,37 +85,40 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
 
     return (
         <div className="group/app-row relative flex items-center gap-px min-w-0">
-            <Link
-                to={disabledReason ? undefined : href}
-                disabledReason={disabledReason}
-                buttonProps={{
-                    menuItem: true,
-                    active,
-                    disabled: !!disabledReason,
-                    className:
-                        'flex-1 min-w-0 -outline-offset-2 group-hover/app-row:pr-7 group-focus-within/app-row:pr-7',
-                }}
-                data-attr="nav-apps-item"
-                tooltip={label}
-                tooltipPlacement="right"
-                onClick={() => reportNavItemClicked(item.path, 'tools')}
-            >
-                <span className="size-4 shrink-0">
-                    {CustomIcon ? (
-                        <ProductIconWrapper type={iconType} colorOverride={item.iconColor}>
-                            <CustomIcon />
-                        </ProductIconWrapper>
-                    ) : (
-                        iconForType(iconType, item.iconColor)
+            <Tooltip title={disabledReason || <NavAppTooltip item={item} />} placement="right">
+                <Link
+                    to={disabledReason ? undefined : href}
+                    disabledReason={disabledReason}
+                    buttonProps={{
+                        menuItem: true,
+                        active,
+                        disabled: !!disabledReason,
+                        className:
+                            'flex-1 min-w-0 -outline-offset-2 group-hover/app-row:pr-7 group-focus-within/app-row:pr-7',
+                    }}
+                    data-attr="nav-apps-item"
+                    onClick={() => {
+                        reportNavItemClicked(item.path, 'tools')
+                        resetPanelLayout(false)
+                    }}
+                >
+                    <span className="size-4 shrink-0">
+                        {CustomIcon ? (
+                            <ProductIconWrapper type={iconType} colorOverride={item.iconColor}>
+                                <CustomIcon />
+                            </ProductIconWrapper>
+                        ) : (
+                            iconForType(iconType, item.iconColor)
+                        )}
+                    </span>
+                    <span className="flex-1 truncate">{label}</span>
+                    {item.tags?.[0] && (
+                        <LemonTag type={item.tags[0] === 'alpha' ? 'completion' : 'warning'} size="small">
+                            {item.tags[0]}
+                        </LemonTag>
                     )}
-                </span>
-                <span className="flex-1 truncate">{label}</span>
-                {item.tags?.[0] && (
-                    <LemonTag type={item.tags[0] === 'alpha' ? 'completion' : 'warning'} size="small">
-                        {item.tags[0]}
-                    </LemonTag>
-                )}
-            </Link>
+                </Link>
+            </Tooltip>
             <LemonMenu placement="right-start" items={menuItems}>
                 <LemonButton
                     size="xsmall"
