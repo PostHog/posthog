@@ -676,7 +676,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         assert request.user.is_authenticated
 
-        limit, offset = paging_params(request)
+        paging = paging_params(request)
+        limit = paging.limit
+        offset = paging.offset
         is_csv_request = self.request.accepted_renderer.format == "csv"
         if is_csv_request:
             limit, offset = CSV_EXPORT_LIMIT, 0
@@ -730,9 +732,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
             properties=slo_properties,
         ) as slo:
-            if request.GET.get("distinct_id"):
+            exact_distinct_id = request.GET.get("distinct_id")
+            if exact_distinct_id:
                 # Exact match on any of the person's distinct IDs; no matching person => no results.
-                matched = get_person_by_distinct_id(team.pk, request.GET.get("distinct_id"), distinct_id_limit=0)
+                matched = get_person_by_distinct_id(team.pk, exact_distinct_id, distinct_id_limit=0)
                 if matched is None:
                     # Return early: a constant-false predicate can't be pushed into the persons
                     # lazy table, so ClickHouse would still aggregate every person row for the

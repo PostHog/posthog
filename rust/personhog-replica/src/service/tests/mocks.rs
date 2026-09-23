@@ -91,7 +91,12 @@ impl storage::PersonLookup for FailingStorage {
         Err(self.error.clone())
     }
 
-    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
+    async fn delete_persons(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+        _mode: storage::DeletePersonsMode,
+    ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
         Err(self.error.clone())
     }
 
@@ -475,8 +480,13 @@ impl storage::PersonLookup for SuccessStorage {
             .collect())
     }
 
-    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
-        Ok(0)
+    async fn delete_persons(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+        _mode: storage::DeletePersonsMode,
+    ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
+        Ok(storage::DeletePersonsOutcome::default())
     }
 
     async fn delete_tombstoned_persons(
@@ -918,8 +928,13 @@ impl storage::PersonLookup for PopulatedStorage {
             .collect())
     }
 
-    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
-        Ok(0)
+    async fn delete_persons(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+        _mode: storage::DeletePersonsMode,
+    ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
+        Ok(storage::DeletePersonsOutcome::default())
     }
 
     async fn delete_tombstoned_persons(
@@ -1337,8 +1352,13 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
             .collect())
     }
 
-    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
-        Ok(0)
+    async fn delete_persons(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+        _mode: storage::DeletePersonsMode,
+    ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
+        Ok(storage::DeletePersonsOutcome::default())
     }
 
     async fn delete_tombstoned_persons(

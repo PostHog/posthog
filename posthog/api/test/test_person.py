@@ -1958,6 +1958,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand(
+        [
+            ("junk_limit", "limit=not-a-number"),
+            ("junk_offset", "offset=not-a-number"),
+        ]
+    )
+    def test_list_rejects_non_integer_pagination_params(self, _name: str, query: str):
+        response = self.client.get(f"/api/person/?{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_csv_export(self):
         _create_person(
             team=self.team,

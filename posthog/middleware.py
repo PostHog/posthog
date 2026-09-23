@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
@@ -42,7 +42,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
-from posthog.constants import AUTH_BACKEND_KEYS
+from posthog.constants import AUTH_BACKEND_KEYS, POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
@@ -50,7 +50,12 @@ from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.models import Organization, Team, User
-from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER, activity_storage, client_from_header
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CLIENT_HEADER,
+    activity_storage,
+    client_from_header,
+    record_agent_intent,
+)
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
@@ -1254,6 +1259,7 @@ class ActivityLoggingMiddleware:
         if request.user.is_authenticated:
             activity_storage.set_user(request.user)
             activity_storage.set_was_impersonated(is_impersonated_session(request))
+            record_agent_intent(request)
 
         client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
         if client_header:
@@ -1284,10 +1290,12 @@ def csp_report_endpoint(**params: str) -> str:
         endpoint = _POSTHOG_CSP_REPORT_ENDPOINT if is_cloud() else ""
     if not endpoint or not params:
         return endpoint
-    # The endpoint carries the destination's project token, so it normally already has a query
-    # string; one an operator sets may not.
-    separator = "&" if "?" in endpoint else "?"
-    return f"{endpoint}{separator}{urlencode(params)}"
+    # The endpoint carries the destination's project token and report version, so a param the caller
+    # passes replaces the one already there rather than repeating it.
+    parts = urlsplit(endpoint)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query.update(params)
+    return parts._replace(query=urlencode(query)).geturl()
 
 
 # The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
@@ -1353,6 +1361,30 @@ def app_csp_header_name(request: HttpRequest) -> str:
     if csp_enforcement_enabled(request):
         return "Content-Security-Policy"
     return "Content-Security-Policy-Report-Only"
+
+
+# The app policy reports as v=2 through the endpoint above, and the shadow policy below as v=3.
+NARROWED_APP_POLICY_REPORT_VERSION = "3"
+_WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com"})
+
+
+def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]) -> list[str]:
+    """The app policy's directives named in `replacements`, with their wildcard hosts swapped for
+    the sources given there.
+
+    Sent report-only beside the app policy, it reports each load the wildcards admit and the named
+    sources do not, which is the evidence for dropping the wildcards. worker-src comes along because
+    workers fall back to script-src without it. The shadow names no other directive, so nothing else
+    is restricted in it.
+    """
+    narrowed = []
+    for part in csp_parts:
+        name, *sources = part.split()
+        if name in replacements:
+            narrowed.append(" ".join([name, *(s for s in sources if s not in _WILDCARD_SOURCES), *replacements[name]]))
+        elif name == "worker-src":
+            narrowed.append(part)
+    return narrowed
 
 
 class CSPMiddleware:
@@ -1584,6 +1616,26 @@ class CSPMiddleware:
             sample_rate = "1" if is_staff else "0.1"
 
             report_uri = csp_report_endpoint(sample_rate=sample_rate)
+            shadow_parts: list[str] = []
+            if report_uri and is_cloud() and resource_url == "https://*.posthog.com" and not settings.E2E_TESTING:
+                bundle = [bundle_origin] if bundle_origin else []
+                replacements = {
+                    # posthog-js loads its extensions from /static/ and our project's remote config. The
+                    # config path names our token because the same path serves every project's config.
+                    "script-src": [
+                        *bundle,
+                        f"{POSTHOG_JS_CLOUD_HOST}/static/",
+                        f"{POSTHOG_JS_CLOUD_HOST}/array/{POSTHOG_JS_CLOUD_TOKEN}/config.js",
+                    ],
+                    # liveEventsHostOrigin() in the frontend streams from live.<region host>.
+                    "connect-src": [
+                        *bundle,
+                        POSTHOG_JS_CLOUD_HOST,
+                        f"https://live.{urlsplit(settings.SITE_URL).hostname}",
+                    ],
+                }
+                shadow_uri = csp_report_endpoint(sample_rate=sample_rate, v=NARROWED_APP_POLICY_REPORT_VERSION)
+                shadow_parts = [*narrowed_app_policy(csp_parts, replacements), f"report-uri {shadow_uri}"]
             if report_uri:
                 csp_parts += [f"report-uri {report_uri}", "report-to posthog"]
                 report_endpoint = report_uri
@@ -1597,6 +1649,14 @@ class CSPMiddleware:
                 response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
             header_name = app_csp_header_name(request)
             response.headers[header_name] = "; ".join(csp_parts)
+            if shadow_parts:
+                # One header can carry several policies separated by commas, and the browser checks
+                # each on its own.
+                shadow = "; ".join(shadow_parts)
+                reported = response.headers.get("Content-Security-Policy-Report-Only")
+                response.headers["Content-Security-Policy-Report-Only"] = (
+                    f"{reported}, {shadow}" if reported else shadow
+                )
             if header_name == "Content-Security-Policy-Report-Only" and not is_embeddable_document(request.path):
                 # Django owns this header. A responseHeadersPolicy on the Contour ingress replaces
                 # it, and with it the enforced app policy above, so the ingress must not set one.
@@ -1790,6 +1850,10 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
         "POST",
         re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/warehouse_saved_queries/check_incremental/?$"),
     ),
+    # POST but read-only: reads the project facts that decide how to configure a new experiment, for
+    # support on identity and bucketing tickets. The action is named exactly, because the same prefix
+    # hosts the mutating experiment actions.
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/experiments/setup_context/?$")),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
     # POST but read-only: the Logs product sends its queries as POST because the filter payload

@@ -14,7 +14,7 @@ use rand::SeedableRng;
 use tokio::sync::Notify;
 
 use capture_load_gen::client::CaptureClient;
-use capture_load_gen::event::{BatchPayload, EventFactory};
+use capture_load_gen::event::{BatchPayload, EventFactory, TrafficMix};
 use capture_load_gen::stats::{self, Counters};
 use capture_load_gen::{reset, verify};
 
@@ -81,14 +81,31 @@ struct Cli {
     prop_bytes: usize,
 
     /// Percentage of events that are person updates (carry a `$set` payload).
-    /// Together with `--percent-merges` must not exceed 100.
+    /// The `--percent-*` flags together must not exceed 100.
     #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=100))]
     percent_person_updates: u8,
 
-    /// Percentage of events that are merges (`$identify` folding a fresh
-    /// anonymous distinct id into a pool user).
+    /// Percentage of events that are attaches: an `$identify` claiming a fresh
+    /// anonymous distinct id, which has no person, so it joins the pool user's.
     #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=100))]
-    percent_merges: u8,
+    percent_attaches: u8,
+
+    /// Percentage of events spent on person merges. Each takes two events: a
+    /// fresh anonymous id sends one of its own, then an `$identify` claims it,
+    /// so the merge folds one person into another. Ids still unclaimed when the
+    /// load ends are claimed then, on top of `--count` and after `--duration`.
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=100))]
+    percent_person_merges: u8,
+
+    /// How long a seeded anonymous id waits for its `$identify`, so ingestion
+    /// has usually created its person first, e.g. "10s".
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "10s")]
+    person_merge_delay: Duration,
+
+    /// Percentage of events that are `$merge_dangerously` between a pool user
+    /// and its fixed partner; a pair already merged is a no-op.
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=100))]
+    percent_dangerous_merges: u8,
 
     /// Per-request HTTP timeout in seconds.
     #[arg(long, default_value_t = 30)]
@@ -224,6 +241,34 @@ fn claim(remaining: &AtomicU64, batch: usize) -> u64 {
     }
 }
 
+/// Claims the anonymous ids still seeded when the load ends, so no person merge is left half done.
+async fn drain_person_merges(shared: &Shared, batch_size: usize, hist: &mut Histogram<u64>) {
+    let mut rng = StdRng::from_entropy();
+    let (claims, wait) = shared.factory.drain_person_merges(&mut rng);
+    if claims.is_empty() {
+        return;
+    }
+    println!(
+        "[load] claiming {} seeded anonymous ids in {:.1}s",
+        claims.len(),
+        wait.as_secs_f64()
+    );
+    tokio::time::sleep(wait).await;
+    for batch in claims.chunks(batch_size) {
+        let body = match shared.client.encode(batch) {
+            Ok(body) => body,
+            Err(e) => {
+                tracing::warn!("encode error: {e:#}");
+                shared.counters.record(false, 0);
+                continue;
+            }
+        };
+        let result = shared.client.send(body).await;
+        hist.saturating_record(result.latency.as_micros() as u64);
+        shared.counters.record(result.ok, batch.len() as u64);
+    }
+}
+
 async fn run_worker(shared: Shared, mode: Mode) -> Histogram<u64> {
     let mut hist = stats::new_histogram();
     let mut rng = StdRng::from_entropy();
@@ -297,15 +342,16 @@ async fn main() -> Result<()> {
     if cli.concurrency == 0 {
         bail!("--concurrency must be > 0");
     }
-    if cli
-        .percent_person_updates
-        .saturating_add(cli.percent_merges)
-        > 100
-    {
+    let mix = TrafficMix {
+        person_updates: cli.percent_person_updates,
+        attaches: cli.percent_attaches,
+        person_merges: cli.percent_person_merges,
+        dangerous_merges: cli.percent_dangerous_merges,
+    };
+    if mix.total() > 100 {
         bail!(
-            "--percent-person-updates ({}) + --percent-merges ({}) must not exceed 100",
-            cli.percent_person_updates,
-            cli.percent_merges
+            "the --percent-* flags sum to {} and must not exceed 100",
+            mix.total()
         );
     }
 
@@ -313,8 +359,8 @@ async fn main() -> Result<()> {
         cli.distinct_ids,
         cli.event_names.clone(),
         cli.prop_bytes,
-        cli.percent_person_updates,
-        cli.percent_merges,
+        mix,
+        cli.person_merge_delay,
     ));
 
     if cli.dry_run {
@@ -407,6 +453,7 @@ async fn main() -> Result<()> {
                 merged.add(&hist).ok();
             }
         }
+        drain_person_merges(&shared, cli.batch_size, &mut merged).await;
 
         stop.notify_one();
         reporter.await.ok();
