@@ -383,6 +383,13 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         """Return the query with referenced placeholders replaced by the run's bounds."""
         return replace_interval_placeholders(self.parsed_hogql_query, data_interval_start, data_interval_end)
 
+    def get_log_comment(self) -> str:
+        """Also tag the queries with the user's HogQL query, to trace a query in `system.query_log` back to it."""
+        tags = query_tagging.get_query_tags()
+        tags.query = {"kind": "HogQLQuery", "query": self.hogql_query}
+        tags.contains_user_hogql = True
+        return super().get_log_comment()
+
     def get_count_hogql_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> ast.SelectQuery:
