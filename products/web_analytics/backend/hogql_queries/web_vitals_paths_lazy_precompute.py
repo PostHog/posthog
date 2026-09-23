@@ -46,6 +46,10 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     handle_stale_served,
     web_ensure_precomputed,
 )
+from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown_common import (
+    band_sort_expr,
+    minimum_occurrences,
+)
 
 _FAMILY = "web_vitals_paths"
 
@@ -111,6 +115,13 @@ _METRIC_STATE_COLUMN: dict[WebVitalsMetric, str] = {
     WebVitalsMetric.FCP: "fcp_quantiles_state",
 }
 
+_METRIC_COUNT_COLUMN: dict[WebVitalsMetric, str] = {
+    WebVitalsMetric.INP: "inp_count",
+    WebVitalsMetric.LCP: "lcp_count",
+    WebVitalsMetric.CLS: "cls_count",
+    WebVitalsMetric.FCP: "fcp_count",
+}
+
 
 def can_use_lazy_precompute(runner: "WebVitalsPathBreakdownQueryRunner") -> bool:
     """Return True iff the lazy precompute path is eligible for this web vitals
@@ -160,7 +171,11 @@ SELECT
     quantilesStateIf(0.75, 0.90, 0.99)(assumeNotNull(inp_value), isNotNull(inp_value)) AS inp_quantiles_state,
     quantilesStateIf(0.75, 0.90, 0.99)(assumeNotNull(lcp_value), isNotNull(lcp_value)) AS lcp_quantiles_state,
     quantilesStateIf(0.75, 0.90, 0.99)(assumeNotNull(cls_value), isNotNull(cls_value)) AS cls_quantiles_state,
-    quantilesStateIf(0.75, 0.90, 0.99)(assumeNotNull(fcp_value), isNotNull(fcp_value)) AS fcp_quantiles_state
+    quantilesStateIf(0.75, 0.90, 0.99)(assumeNotNull(fcp_value), isNotNull(fcp_value)) AS fcp_quantiles_state,
+    countIf(isNotNull(inp_value)) AS inp_count,
+    countIf(isNotNull(lcp_value)) AS lcp_count,
+    countIf(isNotNull(cls_value)) AS cls_count,
+    countIf(isNotNull(fcp_value)) AS fcp_count
 FROM (
     SELECT
         events.timestamp AS event_timestamp,
@@ -228,9 +243,11 @@ def ensure_web_vitals_paths_precomputed(
 # query: an all-NULL or empty reservoir comes back as NULL/<0 here, and the
 # raw path drops those rows the same way.
 #
-# `LIMIT 20 BY band` matches the raw query: at most 20 rows per band sorted by
-# ascending value. The runner-side response builder then re-partitions the rows
-# into the `good`/`needs_improvements`/`poor` arrays.
+# `LIMIT 20 BY band` and the `minimumOccurrences` floor match the raw query, so a
+# precomputed team sees the same 20 rows per band. The runner-side response builder
+# then re-partitions the rows into the `good`/`needs_improvements`/`poor` arrays.
+# Occurrences are summed across the day buckets the read merges, which is why the
+# floor is applied here rather than in the INSERT.
 #
 # The metric-specific state column is substituted as a `Field` placeholder, so
 # only one of `inp_quantiles_state` / `lcp_quantiles_state` / ... is read.
@@ -242,7 +259,8 @@ SELECT
         'poor'
     ) AS band,
     path,
-    value
+    value,
+    occurrences
 FROM (
     SELECT
         path,
@@ -252,13 +270,17 @@ FROM (
                 and(time_window_start >= {cur_start}, time_window_start < {cur_end})
             ),
             {pct_index}
-        ) AS value
+        ) AS value,
+        sumIf(
+            {count_column},
+            and(time_window_start >= {cur_start}, time_window_start < {cur_end})
+        ) AS occurrences
     FROM posthog.web_vitals_paths_preaggregated
     WHERE and(team_id = {team_id}, job_id IN {job_ids})
     GROUP BY path
-    HAVING value >= 0
+    HAVING and(value >= 0, occurrences >= {minimum_occurrences})
 )
-ORDER BY value ASC, path ASC
+ORDER BY {band_sort_expr} ASC, path ASC
 LIMIT 20 BY band
 """
 
@@ -269,9 +291,10 @@ def execute_read_query(
     job_ids: list[str],
     current_start_utc: datetime,
     current_end_utc: datetime,
-) -> list[tuple[str, str, float]]:
-    """Read the precomputed rows via HogQL. Returns the raw `(band, path, value)`
-    triples in the same shape the raw runner's `_calculate` consumes.
+) -> list[tuple[str, str, float, int]]:
+    """Read the precomputed rows via HogQL. Returns the raw
+    `(band, path, value, occurrences)` rows in the same shape the raw runner's
+    `_calculate` consumes.
 
     `convertToProjectTimezone=False` is forced so the printer does not wrap
     `time_window_start` (stored UTC) in `toTimeZone(..., team_tz)` and break the
@@ -281,16 +304,20 @@ def execute_read_query(
     good_threshold = float(runner.query.thresholds[0])
     needs_improvements_threshold = float(runner.query.thresholds[1])
     state_column = _METRIC_STATE_COLUMN[runner.query.metric]
+    count_column = _METRIC_COUNT_COLUMN[runner.query.metric]
 
     placeholders: dict[str, ast.Expr] = {
         "team_id": ast.Constant(value=runner.team.pk),
         "job_ids": ast.Constant(value=[str(jid) for jid in job_ids]),
         "state_column": ast.Field(chain=[state_column]),
+        "count_column": ast.Field(chain=[count_column]),
         "cur_start": ast.Constant(value=current_start_utc),
         "cur_end": ast.Constant(value=current_end_utc),
         "pct_index": ast.Constant(value=pct_index),
         "good_threshold": ast.Constant(value=good_threshold),
         "needs_improvements_threshold": ast.Constant(value=needs_improvements_threshold),
+        "minimum_occurrences": ast.Constant(value=minimum_occurrences(runner.query)),
+        "band_sort_expr": band_sort_expr(),
     }
 
     parsed = parse_select(_READ_SQL_TEMPLATE, placeholders=placeholders)
@@ -308,15 +335,19 @@ def execute_read_query(
         limit_context=runner.limit_context,
     )
     assert response.results is not None
-    return [(row[0], row[1], row[2]) for row in response.results]
+    return [(row[0], row[1], row[2], row[3]) for row in response.results]
 
 
 def _build_response(
     runner: "WebVitalsPathBreakdownQueryRunner",
-    rows: list[tuple[str, str, float]],
+    rows: list[tuple[str, str, float, int]],
 ) -> WebVitalsPathBreakdownQueryResponse:
     def _band_rows(band: WebVitalsMetricBand) -> list[WebVitalsPathBreakdownResultItem]:
-        return [WebVitalsPathBreakdownResultItem(path=row[1], value=row[2]) for row in rows if row[0] == band.value]
+        return [
+            WebVitalsPathBreakdownResultItem(path=row[1], value=row[2], count=row[3])
+            for row in rows
+            if row[0] == band.value
+        ]
 
     return WebVitalsPathBreakdownQueryResponse(
         results=[

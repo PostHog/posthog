@@ -17,6 +17,10 @@ from posthog.hogql_queries.math_functions import PROPERTY_MATH_FUNCTIONS
 
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
+from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown_common import (
+    band_sort_expr,
+    minimum_occurrences,
+)
 from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import (
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
@@ -37,10 +41,11 @@ SELECT * FROM (
         'poor'
     ) AS band,
     path,
-    value
+    value,
+    occurrences
     FROM {inner_query}
 )
-ORDER BY value ASC, path ASC
+ORDER BY {band_sort_expr} ASC, path ASC
 LIMIT 20 BY band
 """,
             timings=self.timings,
@@ -48,6 +53,7 @@ LIMIT 20 BY band
                 "inner_query": self._inner_query(),
                 "good_threshold": ast.Constant(value=self.query.thresholds[0]),
                 "needs_improvements_threshold": ast.Constant(value=self.query.thresholds[1]),
+                "band_sort_expr": band_sort_expr(),
             },
         )
 
@@ -57,18 +63,21 @@ LIMIT 20 BY band
             """
 SELECT
     {breakdown_by} AS path,
-    {percentile} AS value
+    {percentile} AS value,
+    countIf(isNotNull({metric_value})) AS occurrences
 FROM events
 WHERE and(event == '$web_vitals', path IS NOT NULL, {inside_periods_expr}, {event_properties_expr})
 GROUP BY path
-HAVING value >= 0
+HAVING and(value >= 0, occurrences >= {minimum_occurrences})
             """,
             timings=self.timings,
             placeholders={
                 "breakdown_by": self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"])),
                 "percentile": self._percentile_expr(),
+                "metric_value": self._metric_value_expr(),
                 "inside_periods_expr": self._periods_expression(),
                 "event_properties_expr": self._event_properties(),
+                "minimum_occurrences": ast.Constant(value=minimum_occurrences(self.query)),
             },
         )
 
@@ -77,6 +86,10 @@ HAVING value >= 0
             p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
         ]
         return property_to_expr(properties, team=self.team, scope="event")
+
+    def _metric_value_expr(self) -> ast.Expr:
+        # nosemgrep: hogql-injection-taint - metric from enum
+        return parse_expr(f"toFloat(properties.$web_vitals_{self.query.metric.value}_value)")
 
     def _percentile_expr(self) -> ast.Expr:
         percentile_function = PROPERTY_MATH_FUNCTIONS[self.query.percentile]
@@ -126,6 +139,10 @@ HAVING value >= 0
         )
 
     def _get_results_for_band(
-        self, results: list[tuple[str, str, float]], band: WebVitalsMetricBand
+        self, results: list[tuple[str, str, float, int]], band: WebVitalsMetricBand
     ) -> list[WebVitalsPathBreakdownResultItem]:
-        return [WebVitalsPathBreakdownResultItem(path=row[1], value=row[2]) for row in results if row[0] == band.value]
+        return [
+            WebVitalsPathBreakdownResultItem(path=row[1], value=row[2], count=row[3])
+            for row in results
+            if row[0] == band.value
+        ]

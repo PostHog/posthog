@@ -56,6 +56,19 @@ class WebVitalsPathsPreaggregatedTable(Table):
             name="fcp_quantiles_state",
             description="AggregateFunction(quantiles) state for FCP (First Contentful Paint), in ms; merge to read.",
         ),
+        # Measurement counts behind the reservoirs, summed across buckets on read.
+        "inp_count": IntegerDatabaseField(
+            name="inp_count", description="Number of INP measurements aggregated into this row."
+        ),
+        "lcp_count": IntegerDatabaseField(
+            name="lcp_count", description="Number of LCP measurements aggregated into this row."
+        ),
+        "cls_count": IntegerDatabaseField(
+            name="cls_count", description="Number of CLS measurements aggregated into this row."
+        ),
+        "fcp_count": IntegerDatabaseField(
+            name="fcp_count", description="Number of FCP measurements aggregated into this row."
+        ),
     }
 
     def to_printed_clickhouse(self, context):

@@ -5,7 +5,9 @@ import { useMemo, useState } from 'react'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import {
@@ -22,6 +24,7 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import {
     ICON_PER_BAND,
     WEB_VITALS_COLORS,
+    WEB_VITALS_MINIMUM_OCCURRENCES,
     WEB_VITALS_THRESHOLDS,
     computePositionInBand,
     getValueWithUnit,
@@ -161,7 +164,7 @@ const Content = ({
                 {responseLoading ? (
                     <LemonSkeleton fade className={clsx('w-full', SKELETON_HEIGHT[band])} />
                 ) : values?.length ? (
-                    values?.map(({ path, value }) => {
+                    values?.map(({ path, value, count }) => {
                         const width = computePositionInBand(value, webVitalsTab) * 100
 
                         const { value: parsedValue, unit } = getValueWithUnit(value, webVitalsTab)
@@ -185,9 +188,20 @@ const Content = ({
                                 >
                                     {isPathCleaningEnabled ? parseAliasToReadable(path) : path}
                                 </span>
-                                <span className="relative z-10 flex-shrink-0">
-                                    {parsedValue}
-                                    {unit}
+                                <span className="relative z-10 flex-shrink-0 flex flex-row gap-2 items-baseline">
+                                    {count != null && (
+                                        <Tooltip
+                                            title={`${humanFriendlyNumber(count)} ${
+                                                count === 1 ? 'measurement' : 'measurements'
+                                            } on this page`}
+                                        >
+                                            <span className="text-xs text-secondary">{humanFriendlyNumber(count)}</span>
+                                        </Tooltip>
+                                    )}
+                                    <span>
+                                        {parsedValue}
+                                        {unit}
+                                    </span>
                                 </span>
                             </div>
                         )
@@ -195,7 +209,9 @@ const Content = ({
                 ) : (
                     <div className="text-center">
                         <span>{band === 'good' ? '😿' : '🚀'}</span>
-                        <span className="text-secondary">No scores in this band</span>
+                        <span className="text-secondary">
+                            No pages with at least {WEB_VITALS_MINIMUM_OCCURRENCES} measurements in this band
+                        </span>
                     </div>
                 )}
             </div>
