@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -43,6 +44,10 @@ class TestTaskRunStateShape(SimpleTestCase):
 
 @override_settings(AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
 class TestTaskRunGatewayUsageAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.schedule_usage = self.enterContext(patch("products.tasks.backend.facade.gateway.schedule_gateway_usage"))
+
     def _task_and_run(
         self, *, team: Team | None = None, status_value: str = TaskRun.Status.IN_PROGRESS
     ) -> tuple[Task, TaskRun]:
@@ -105,11 +110,17 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         _task, run = self._task_and_run()
         assert self._post(run).status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_callback_does_not_acknowledge_a_failed_state_write(self) -> None:
+    @parameterized.expand([("state_write",), ("scheduling",)])
+    def test_callback_does_not_acknowledge_a_failed_write_or_schedule(self, failure: str) -> None:
         _task, run = self._task_and_run()
         client = APIClient()
         client.raise_request_exception = False
-        with patch.object(TaskRun, "save", side_effect=OperationalError("database unavailable")):
+        target = (
+            "products.tasks.backend.logic.services.gateway_usage._save_accounting_state"
+            if failure == "state_write"
+            else "products.tasks.backend.facade.gateway.schedule_gateway_usage"
+        )
+        with patch(target, side_effect=OperationalError("unavailable")):
             response = client.post(
                 self._url(run),
                 {},
@@ -119,7 +130,12 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         run.refresh_from_db()
-        assert run.state == {}
+        assert run.state == (
+            {} if failure == "state_write" else {"unprocessed_request_ids": ["request_1"], "token_spend": {}}
+        )
+        assert self._post(run).status_code == status.HTTP_204_NO_CONTENT
+        run.refresh_from_db()
+        assert run.state["unprocessed_request_ids"] == ["request_1"]
 
     def test_callback_requires_a_valid_wallet_and_request_identifiers(self) -> None:
         _task, run = self._task_and_run()
@@ -228,3 +244,21 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
             "token_spend": {"model": {"provider": {"spend_microusd": 4, "request_ids": ["existing"]}}},
             "compute_spend": 2,
         }
+
+    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
+    @patch("products.tasks.backend.logic.services.gateway_usage._compute_spend_source", return_value=Decimal("0.12"))
+    def test_terminal_patch_returns_the_refreshed_spend(self, _compute_spend, _signal) -> None:
+        task, run = self._task_and_run()
+        run.state = {"unprocessed_request_ids": [], "token_spend": {}}
+        run.save(update_fields=["state"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/",
+            {"status": TaskRun.Status.COMPLETED},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        run.refresh_from_db()
+        assert response.json()["state"]["compute_spend"] == run.state["compute_spend"] == 12
+        assert response.json()["updated_at"] == run.updated_at.isoformat().replace("+00:00", "Z")

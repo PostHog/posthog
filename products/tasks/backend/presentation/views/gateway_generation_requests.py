@@ -8,8 +8,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 
 from posthog.models.project_secret_api_key import find_project_secret_api_key
 
-from products.tasks.backend.logic.services.gateway_usage import record_generation_request
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.facade.gateway import accept_generation_request
 
 _REQUEST_ID = re.compile(r"[A-Za-z0-9_-]{1,255}\Z")
 
@@ -54,8 +53,6 @@ def gateway_generation_request(request: HttpRequest, team_id: int, run_id: str, 
         if body != {}:
             return JsonResponse({"error": "Invalid request body"}, status=400)
 
-    try:
-        record_generation_request(team_id=team_id, run_id=parsed_run_id, request_id=request_id)
-    except TaskRun.DoesNotExist:
+    if not accept_generation_request(team_id=team_id, run_id=parsed_run_id, request_id=request_id):
         return JsonResponse({"error": "Task run not found"}, status=404)
     return HttpResponse(status=204)

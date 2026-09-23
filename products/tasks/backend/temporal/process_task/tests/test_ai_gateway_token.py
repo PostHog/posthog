@@ -360,12 +360,12 @@ class TestAiGatewayEnvVars:
         ):
             env = ai_gateway_env_vars(
                 run_id=str(run_id),
-                task_runtime=task_runtime,
+                runtime=task_runtime,
                 team_id=123,
                 origin_product="signals_scout",
                 ai_stage="scout:logs",
             )
-        assert env.get("AI_GATEWAY_TOKEN") == token
+        assert env.get("AI_GATEWAY_TOKEN") == (token if task_runtime != "pi" else None)
         if initializes_spend:
             initialize_spend.assert_called_once_with(run_id=run_id, team_id=123)
         else:
@@ -477,7 +477,6 @@ class TestProvisioningBoundaries:
         ctx.sandbox_environment_id = None
         ctx.model = "claude-sonnet-5"
         ctx.task_runtime = "acp"
-        ctx.run_id = "run-1"
         return ctx
 
     def _task(self):
@@ -493,7 +492,6 @@ class TestProvisioningBoundaries:
         assert out == {"AI_GATEWAY_TOKEN": "phe"}
         env.assert_called_once_with(
             run_id="00000000-0000-4000-8000-000000000007",
-            task_runtime="acp",
             team_id=7,
             origin_product="signals_scout",
             ai_stage="scout:logs",
@@ -571,7 +569,9 @@ class TestProvisioningBoundaries:
             patch("products.tasks.backend.models.TaskRun.update_state_atomic") as update,
         ):
             utils.run_gateway_env_vars(self._ctx(), self._task())
-        update.assert_called_once_with("run-1", updates={"ai_gateway_product": "slack_app"})
+        update.assert_called_once_with(
+            "00000000-0000-4000-8000-000000000007", updates={"ai_gateway_product": "slack_app"}
+        )
 
     def test_unpinned_mint_is_not_stamped(self, mint_settings):
         env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "signals_scout"}
@@ -590,7 +590,7 @@ class TestProvisioningBoundaries:
             patch("products.tasks.backend.models.TaskRun.update_state_atomic") as update,
         ):
             utils.run_gateway_env_vars(ctx, self._task())
-        update.assert_called_once_with("run-1", remove_keys=["ai_gateway_product"])
+        update.assert_called_once_with("00000000-0000-4000-8000-000000000007", remove_keys=["ai_gateway_product"])
 
     def test_routing_failure_leaves_the_run_on_the_python_gateway(self, mint_settings):
         with patch.object(utils, "ai_gateway_env_vars", side_effect=RuntimeError("billing is down")):

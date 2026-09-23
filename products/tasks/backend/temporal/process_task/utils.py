@@ -1358,7 +1358,6 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     try:
         env_vars = ai_gateway_env_vars(
             run_id=ctx.run_id,
-            task_runtime=ctx.task_runtime,
             team_id=ctx.team_id,
             origin_product=ctx.origin_product,
             ai_stage=(ctx.state or {}).get("ai_stage"),
@@ -1419,7 +1418,6 @@ def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_produ
 def ai_gateway_env_vars(
     *,
     run_id: str | None = None,
-    task_runtime: str | None = None,
     team_id: int | None = None,
     origin_product: str | None = None,
     ai_stage: str | None = None,
@@ -1483,7 +1481,7 @@ def ai_gateway_env_vars(
                 env_vars["AI_GATEWAY_PRODUCT"] = ai_product
                 if ai_stage:
                     env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
-                if run_id is not None and task_runtime != "pi":
+                if run_id is not None and runtime != "pi":
                     enable_gateway_usage(run_id=UUID(run_id), team_id=team_id)
     return env_vars
 

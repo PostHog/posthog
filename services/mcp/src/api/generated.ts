@@ -76329,11 +76329,6 @@ export namespace Schemas {
     }
 
     /**
-     * State of the run
-     */
-    export type PatchedTaskRunUpdateState = { [key: string]: unknown };
-
-    /**
      * Object of run state values to merge.
      */
     export type PatchedTaskRunUpdateState = {[key: string]: unknown};

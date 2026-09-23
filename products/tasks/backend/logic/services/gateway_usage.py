@@ -1,6 +1,7 @@
 import re
 import time
 from collections.abc import Iterable
+from datetime import timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 from uuid import UUID
@@ -11,8 +12,11 @@ from django.utils import timezone
 
 import requests
 import structlog
+from asgiref.sync import async_to_sync
+from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.dataclasses import frozen
+from posthog.temporal.common.client import async_connect
 
 from products.tasks.backend.facade.contracts import TaskRunSpend
 from products.tasks.backend.logic.services.sandbox_pricing import (
@@ -61,6 +65,12 @@ def gateway_usage_enabled(*, run_id: UUID, team_id: int) -> bool:
     ).exists()
 
 
+def _save_accounting_state(run: TaskRun) -> None:
+    # Accounting can finish after completion; it must not emit completion signals again.
+    run.updated_at = timezone.now()
+    TaskRun.objects.filter(id=run.id, team_id=run.team_id).update(state=run.state, updated_at=run.updated_at)
+
+
 def enable_gateway_usage(*, run_id: UUID, team_id: int) -> None:
     with transaction.atomic():
         run = _locked_run(run_id, team_id)
@@ -70,7 +80,7 @@ def enable_gateway_usage(*, run_id: UUID, team_id: int) -> None:
         state.setdefault("unprocessed_request_ids", [])
         state.setdefault("token_spend", {})
         run.state = state
-        run.save(update_fields=["state", "updated_at"])
+        _save_accounting_state(run)
 
 
 def _spend_buckets(state: dict[str, Any]) -> Iterable[dict[str, Any]]:
@@ -105,7 +115,7 @@ def record_generation_request(*, team_id: int, run_id: UUID, request_id: str) ->
         state["unprocessed_request_ids"] = pending
         state.setdefault("token_spend", {})
         run.state = state
-        run.save(update_fields=["state", "updated_at"])
+        _save_accounting_state(run)
 
 
 def _pending_ids(state: dict[str, Any]) -> list[str]:
@@ -245,7 +255,7 @@ def _persist_spend(run: TaskRun) -> SpendSources:
     )
     state["compute_spend"] = sources.as_contract().compute_spend
     run.state = state
-    run.save(update_fields=["state", "updated_at"])
+    _save_accounting_state(run)
     return sources
 
 
@@ -272,3 +282,24 @@ def _compute_spend_source(run: TaskRun) -> Decimal | None:
 
 def _cents(value: Decimal) -> int:
     return int((value * 100).to_integral_value(rounding=ROUND_HALF_EVEN))
+
+
+async def _schedule_gateway_usage(*, run_id: UUID, team_id: int) -> None:
+    from products.tasks.backend.temporal.gateway_usage import (  # noqa: PLC0415 — avoids loading workflows during Django startup
+        GatewayUsageInput,
+    )
+
+    client = await async_connect()
+    await client.start_workflow(
+        "task-run-gateway-usage",
+        GatewayUsageInput(run_id=str(run_id), team_id=team_id),
+        id=f"task-run-gateway-usage-{team_id}-{run_id}",
+        task_queue=settings.TASKS_TASK_QUEUE,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        start_signal="requests_available",
+        rpc_timeout=timedelta(seconds=5),
+    )
+
+
+def schedule_gateway_usage(*, run_id: UUID, team_id: int) -> None:
+    async_to_sync(_schedule_gateway_usage)(run_id=run_id, team_id=team_id)

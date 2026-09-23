@@ -13,6 +13,7 @@ from products.tasks.backend.logic.services.gateway_usage import (
     enable_gateway_usage,
     get_task_spend,
     process_pending_gateway_usage,
+    record_generation_request,
 )
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS
 from products.tasks.backend.models import SandboxSession, Task, TaskRun
@@ -210,3 +211,17 @@ class TestGatewayUsage(BaseTest):
         run.refresh_from_db()
         assert run.state["compute_spend"] == expected
         assert set(run.state) == {"unprocessed_request_ids", "token_spend", "compute_spend"}
+
+    @patch("products.tasks.backend.logic.services.gateway_usage.requests.get")
+    def test_accounting_after_completion_does_not_reemit_structured_results(self, get: Mock) -> None:
+        run = self._run(status=TaskRun.Status.COMPLETED)
+        Task.objects.filter(id=run.task_id).update(json_schema={"type": "object"})
+        TaskRun.objects.filter(id=run.id).update(output={"result": "done"})
+        get.return_value = self._response("late-request", "0.02")
+
+        with patch.object(TaskRun, "track_structured_result") as track_result:
+            enable_gateway_usage(run_id=run.id, team_id=run.team_id)
+            record_generation_request(run_id=run.id, team_id=run.team_id, request_id="late-request")
+            assert self._process(run).token_spend == 2
+            assert run.get_current_spend().token_spend == 2
+            track_result.assert_not_called()
