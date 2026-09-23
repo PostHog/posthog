@@ -4,7 +4,6 @@ export const welcomeSeries = workflow({
     key: 'welcome-series',
     name: 'Welcome series',
     description: 'Greets a new signup a day later.',
-    status: 'active',
     on: onEvent({ event: 'user signed up' }),
     steps: path(
         delay('1d', { name: 'Wait a day' }),

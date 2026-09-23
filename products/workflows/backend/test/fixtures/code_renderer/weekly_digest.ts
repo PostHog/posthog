@@ -4,7 +4,6 @@ export const weeklyDigest = workflow({
     key: 'weekly-digest',
     name: 'Weekly digest',
     description: 'Posts the weekly numbers to Slack.',
-    status: 'active',
     exitCondition: 'exit_on_trigger_not_matched',
     variables: [
         { key: 'team_name', type: 'string', default: 'Example' },

@@ -1,0 +1,78 @@
+{
+    "key": "weekly-digest",
+    "name": "Weekly digest",
+    "description": "Posts the weekly numbers to Slack.",
+    "status": "draft",
+    "exit_condition": "exit_on_trigger_not_matched",
+    "variables": [
+        {
+            "key": "team_name",
+            "type": "string",
+            "default": "Example"
+        },
+        {
+            "key": "retries",
+            "type": "number",
+            "default": "3"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Trigger",
+            "type": "trigger",
+            "config": {
+                "type": "schedule"
+            }
+        },
+        {
+            "id": "post_digest",
+            "name": "Post the digest",
+            "type": "function",
+            "config": {
+                "template_id": "template-slack",
+                "inputs": {
+                    "channel": {
+                        "value": "#digest"
+                    },
+                    "text": {
+                        "value": "Weekly digest for {variables.team_name}"
+                    }
+                }
+            }
+        },
+        {
+            "id": "wait_a_day",
+            "name": "Wait a day",
+            "type": "delay",
+            "config": {
+                "delay_duration": "1d"
+            }
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "type": "exit",
+            "config": {
+                "reason": "Posted"
+            }
+        }
+    ],
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "post_digest",
+            "type": "continue"
+        },
+        {
+            "from": "post_digest",
+            "to": "wait_a_day",
+            "type": "continue"
+        },
+        {
+            "from": "wait_a_day",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ]
+}

@@ -38,12 +38,18 @@ EXPECTED_WARNINGS: dict[str, list[dict[str, str | None]]] = {
     ],
     "trial_nudge": [
         {
+            "action_id": None,
+            "message": "This workflow has no key, so the copied file invents one from its name. The first push creates a new draft workflow. Turn the original workflow off or delete it after that push.",
+        },
+        {
             "action_id": "trigger_node",
             "message": "The trigger filters out test accounts. @posthog/workflows cannot set that, so a push turns it off.",
         },
+    ],
+    "ui_built": [
         {
-            "action_id": "exit_node",
-            "message": 'The exit condition "exit_on_conversion" needs a conversion goal, which @posthog/workflows cannot declare. The workflow exits only at the end.',
+            "action_id": None,
+            "message": "This workflow has no key, so the copied file invents one from its name. The first push creates a new draft workflow. Turn the original workflow off or delete it after that push.",
         },
     ],
 }
@@ -64,8 +70,25 @@ def _cohort_condition(name: str) -> dict:
     return {"name": name, "filters": {"properties": [{"key": "id", "type": "cohort", "value": 5, "operator": "in"}]}}
 
 
+def _basic_workflow(**overrides: object) -> dict:
+    workflow: dict[str, object] = {
+        "key": "basic-workflow",
+        "name": "Basic workflow",
+        "status": "draft",
+        "exit_condition": "exit_only_at_end",
+        "actions": [
+            {"id": "trigger_node", "name": "Trigger", "type": "trigger", "config": {"type": "schedule"}},
+            {"id": "exit_node", "name": "Exit", "type": "exit", "config": {"reason": "Done"}},
+        ],
+        "edges": [{"from": "trigger_node", "to": "exit_node", "type": "continue"}],
+    }
+    workflow.update(overrides)
+    return workflow
+
+
 def _branch_workflow(conditions: list[dict], arm_targets: dict[int, str], branch_name: str = "Which") -> dict:
     return {
+        "key": "branchy",
         "name": "Branchy",
         "status": "draft",
         "exit_condition": "exit_only_at_end",
@@ -171,3 +194,129 @@ class TestCodeRenderer(SimpleTestCase):
             assert text not in rendered.code, rendered.code
         if warnings is not None:
             assert [asdict(warning) for warning in rendered.warnings] == warnings
+
+    @parameterized.expand(
+        [
+            (
+                "missing_key",
+                _basic_workflow(key=""),
+                [
+                    {
+                        "action_id": None,
+                        "message": "This workflow has no key, so the copied file invents one from its name. The first push creates a new draft workflow. Turn the original workflow off or delete it after that push.",
+                    }
+                ],
+                ["key: 'basic-workflow'"],
+                [],
+            ),
+            (
+                "liquid_input",
+                _basic_workflow(
+                    actions=[
+                        {"id": "trigger_node", "name": "Trigger", "type": "trigger", "config": {"type": "schedule"}},
+                        {
+                            "id": "liquid_webhook",
+                            "name": "Liquid webhook",
+                            "type": "function",
+                            "config": {
+                                "template_id": "template-webhook",
+                                "inputs": {
+                                    "url": {"value": "https://example.com/hook"},
+                                    "body": {"value": "{{ person.name }}", "templating": "liquid"},
+                                },
+                            },
+                        },
+                        {"id": "exit_node", "name": "Exit", "type": "exit", "config": {"reason": "Done"}},
+                    ],
+                    edges=[
+                        {"from": "trigger_node", "to": "liquid_webhook", "type": "continue"},
+                        {"from": "liquid_webhook", "to": "exit_node", "type": "continue"},
+                    ],
+                ),
+                [
+                    {
+                        "action_id": "liquid_webhook",
+                        "message": 'The input "body" of "Liquid webhook" uses liquid templating. @posthog/workflows uses Hog templating, so rewrite the input before you push.',
+                    }
+                ],
+                ["body: {", "templating: 'liquid'"],
+                ["body: '{{ person.name }}'"],
+            ),
+            (
+                "workflow_level_settings",
+                _basic_workflow(
+                    email_sending_rate_limit={"count": 100, "period": "minute"},
+                    schedules=[{"rrule": "FREQ=DAILY"}],
+                    abort_action={"type": "function"},
+                ),
+                [
+                    {
+                        "action_id": None,
+                        "message": 'The workflow setting "email_sending_rate_limit" is dropped. @posthog/workflows cannot declare it.',
+                    },
+                    {
+                        "action_id": None,
+                        "message": 'The workflow setting "schedules" is dropped. @posthog/workflows cannot declare it.',
+                    },
+                    {
+                        "action_id": None,
+                        "message": 'The workflow setting "abort_action" is dropped. @posthog/workflows cannot declare it.',
+                    },
+                ],
+                [],
+                [],
+            ),
+            (
+                "non_text_webhook_method",
+                _basic_workflow(
+                    actions=[
+                        {"id": "trigger_node", "name": "Trigger", "type": "trigger", "config": {"type": "schedule"}},
+                        {
+                            "id": "bad_webhook",
+                            "name": "Bad webhook",
+                            "type": "function",
+                            "config": {
+                                "template_id": "template-webhook",
+                                "inputs": {
+                                    "url": {"value": "https://example.com/hook"},
+                                    "method": {"value": ["POST"]},
+                                },
+                            },
+                        },
+                        {"id": "exit_node", "name": "Exit", "type": "exit", "config": {"reason": "Done"}},
+                    ],
+                    edges=[
+                        {"from": "trigger_node", "to": "bad_webhook", "type": "continue"},
+                        {"from": "bad_webhook", "to": "exit_node", "type": "continue"},
+                    ],
+                ),
+                [
+                    {
+                        "action_id": "bad_webhook",
+                        "message": 'The webhook method of "Bad webhook" is not text. @posthog/workflows cannot declare it as webhook(...), so the function template is kept instead.',
+                    }
+                ],
+                ["fn({", "method: ['POST']"],
+                ["webhook({"],
+            ),
+            (
+                "exit_on_conversion_without_goal",
+                _basic_workflow(
+                    exit_condition="exit_on_conversion", conversion={"window_minutes": None, "filters": []}
+                ),
+                [],
+                ["key: 'basic-workflow'"],
+                ["exitCondition", "conversion goal"],
+            ),
+        ]
+    )
+    def test_warns_for_workflow_conversion_gaps(
+        self, _name: str, definition: dict, warnings: list[dict], present: list[str], absent: list[str]
+    ) -> None:
+        rendered = render_workflow_code(definition)
+
+        assert [asdict(warning) for warning in rendered.warnings] == warnings
+        for text in present:
+            assert text in rendered.code, rendered.code
+        for text in absent:
+            assert text not in rendered.code, rendered.code
