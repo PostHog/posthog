@@ -46,6 +46,8 @@ import { PendingInviteDot } from './ProjectMenu'
 import { ProjectModal } from './ProjectModal'
 import { ProjectSwitcher } from './ProjectSwitcher'
 
+const CREATE_BUTTON_CLASSES = 'normal-case tracking-normal text-xs whitespace-nowrap'
+
 interface AccountMenuProps {
     isLayoutNavCollapsed: boolean
 }
@@ -144,9 +146,12 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     {preflight?.can_create_org && (
                                         <ButtonPrimitive
                                             size="xs"
-                                            className="normal-case tracking-normal text-xs whitespace-nowrap"
-                                            disabled={!!projectCreationForbiddenReason}
-                                            tooltip={projectCreationForbiddenReason || undefined}
+                                            className={CREATE_BUTTON_CLASSES}
+                                            disabledReasons={
+                                                projectCreationForbiddenReason
+                                                    ? { [projectCreationForbiddenReason]: true }
+                                                    : undefined
+                                            }
                                             tooltipPlacement="right"
                                             // Stable autocapture contract: name stays icon-button even though the control now carries a label
                                             data-attr="new-account-menu-create-project-icon-button"
@@ -247,15 +252,12 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     />
                                 )}
 
-                                <Label
-                                    intent="menu"
-                                    className="flex items-center justify-between gap-2 pl-2 pr-1 mt-2"
-                                >
+                                <Label intent="menu" className="flex items-center justify-between gap-2 pl-2 pr-1 mt-2">
                                     Organization
                                     {preflight?.can_create_org && (
                                         <ButtonPrimitive
                                             size="xs"
-                                            className="normal-case tracking-normal text-xs whitespace-nowrap"
+                                            className={CREATE_BUTTON_CLASSES}
                                             // Stable autocapture contract: name stays icon-button even though the control now carries a label
                                             data-attr="new-account-menu-create-organization-icon-button"
                                             onClick={() => {

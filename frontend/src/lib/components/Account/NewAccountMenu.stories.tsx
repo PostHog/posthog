@@ -26,7 +26,6 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
             membership_level: canCreateProjects
                 ? OrganizationMembershipLevel.Admin
                 : OrganizationMembershipLevel.Member,
-            members_can_create_projects: false,
         }
 
         useStorybookMocks({
