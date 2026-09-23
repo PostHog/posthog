@@ -50,15 +50,6 @@ pytestmark = [
 requires_aws_credentials = pytest.mark.requires_vendor_credentials(check=has_valid_credentials)
 
 
-@sync_to_async
-def _set_planner_scan_methods(enabled: bool) -> None:
-    """Turn index scans on or off for the connection that serves the test requests."""
-    value = "on" if enabled else "off"
-    with connection.cursor() as cursor:
-        cursor.execute(f"SET enable_indexscan = {value}")
-        cursor.execute(f"SET enable_bitmapscan = {value}")
-
-
 @requires_aws_credentials
 async def test_can_generate_s3_pre_signed_url(s3_client, s3_bucket, aws_role_arn):
     """Test we can generate a S3 pre signed URL for some test data."""
@@ -510,6 +501,15 @@ async def test_file_download_list_returns_run_ids_and_statuses(
         {"id": str(completed_run.id), "status": BatchExportRun.Status.COMPLETED},
         {"id": str(running_run.id), "status": BatchExportRun.Status.RUNNING},
     ]
+
+
+@sync_to_async
+def _set_planner_scan_methods(enabled: bool) -> None:
+    """Turn index scans on or off for the connection that serves the test requests."""
+    value = "on" if enabled else "off"
+    with connection.cursor() as cursor:
+        cursor.execute(f"SET enable_indexscan = {value}")
+        cursor.execute(f"SET enable_bitmapscan = {value}")
 
 
 @pytest.mark.django_db(transaction=True)
