@@ -56,6 +56,28 @@ def _append_unconfirmed_attachment_notice(
 
 _FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
 
+# A fence carries its language on every chunk it is spread over, so an unbounded label would
+# take the whole per-chunk budget and leave one character of code per message.
+_MAX_CODE_LANGUAGE_LEN = 32
+
+# The ceiling on how many messages one relay can put in a thread. An agent answer that needs
+# more than this is not an answer a reader can follow in Slack.
+_MAX_SLACK_CHUNKS = 20
+
+_TRUNCATION_NOTICE = "_The rest of this reply was too long for Slack. Open the run to read all of it._"
+
+
+def _code_language(info_string: str) -> str:
+    """The language hint of a fence, or an empty string when the label is not one.
+
+    Markdown puts the language first on the fence line and lets anything follow it. Only the
+    first word is the hint, and a word longer than a short identifier is not a language.
+    """
+    first_word = info_string.strip().split(maxsplit=1)[:1]
+    if not first_word or len(first_word[0]) > _MAX_CODE_LANGUAGE_LEN:
+        return ""
+    return first_word[0]
+
 
 class _SlackChunkPacker:
     """Packs markdown into chunks of at most ``limit`` characters."""
@@ -148,7 +170,7 @@ class _SlackChunkPacker:
         for match in _FENCED_CODE_RE.finditer(text):
             if match.start() > pos:
                 self._add_text(text[pos : match.start()])
-            self._add_code_block(match.group(1), match.group(2))
+            self._add_code_block(_code_language(match.group(1)), match.group(2))
             pos = match.end()
         if pos < len(text):
             self._add_text(text[pos:])
@@ -166,13 +188,19 @@ def _split_markdown_for_slack(text: str, limit: int) -> list[str]:
     boundary are closed at the end of one chunk and reopened (with the same
     language hint) at the start of the next so each chunk is a self-contained
     markdown document.
+
+    The result holds at most ``_MAX_SLACK_CHUNKS`` chunks, with a notice in place of the
+    remainder, so no single answer can flood a thread.
     """
     if len(text) <= limit:
         return [text]
 
     packer = _SlackChunkPacker(limit)
     packer.add_markdown(text)
-    return packer.finish()
+    chunks = packer.finish()
+    if len(chunks) > _MAX_SLACK_CHUNKS:
+        chunks = [*chunks[: _MAX_SLACK_CHUNKS - 1], _TRUNCATION_NOTICE]
+    return chunks
 
 
 @frozen
