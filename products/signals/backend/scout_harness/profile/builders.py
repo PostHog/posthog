@@ -917,14 +917,14 @@ _SUMMARY_READERS = {
 SUMMARY_SECTIONS = tuple(_SUMMARY_READERS)
 
 
-def build_summary_sections(team: Team) -> dict[str, Any]:
+def build_summary_sections(team: Team) -> dict[str, dict[str, Any] | None]:
     """Build the `SUMMARY_SECTIONS` alone, for a caller that could not get a full inventory.
 
     Each section is read on its own and degrades to None when that read fails, so one unavailable
     source cannot take the other down with it. None reads as "unknown" to the scout, which the
     summary envelope already documents, and the write path still fails closed on its own.
     """
-    sections: dict[str, Any] = {}
+    sections: dict[str, dict[str, Any] | None] = {}
     for name, reader in _SUMMARY_READERS.items():
         try:
             sections[name] = reader(team)

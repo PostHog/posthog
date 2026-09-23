@@ -55,6 +55,8 @@ from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.db_errors import is_transient_db_error
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -2119,7 +2121,7 @@ def _overlay_effective_emit_eligibility(body: dict[str, Any], *, team_id: int, r
     body["summary"]["emit_eligibility"] = effective
 
 
-def _degraded_profile_body(*, team_id: int, run_id: str | None) -> dict[str, Any]:
+def _degraded_profile_body(*, team_id: int, run_id: str | None, scout_resolved: bool) -> dict[str, Any]:
     """The response for a team whose profile could not be read, with the emit gate still in it.
 
     The row metadata is null because no row was read or written, and `payload` is absent, which is
@@ -2128,6 +2130,10 @@ def _degraded_profile_body(*, team_id: int, run_id: str | None) -> dict[str, Any
 
     Every read here runs against the database that just failed, so a further failure leaves the
     summary unknown rather than turning the degraded response back into the 500 it exists to avoid.
+
+    `scout_resolved` is False when the lookup of which scout is asking failed. The gate then reads
+    as unknown rather than as the team-wide floor, because the floor ignores a scout's own dry-run
+    toggle and a scout that reads it as permission would investigate for an emit that gets dropped.
     """
     body: dict[str, Any] = {
         "summary": dict.fromkeys(SUMMARY_SECTIONS),
@@ -2148,8 +2154,14 @@ def _degraded_profile_body(*, team_id: int, run_id: str | None) -> dict[str, Any
         team = Team.objects.filter(id=team_id).first()
         if team is not None:
             body["summary"] = build_summary_sections(team)
-        _overlay_effective_emit_eligibility(body, team_id=team_id, run_id=run_id)
+        if scout_resolved:
+            _overlay_effective_emit_eligibility(body, team_id=team_id, run_id=run_id)
+        else:
+            body["summary"]["emit_eligibility"] = None
     except Exception:
+        # `build_summary_sections` may have left the team-wide floor in place before the overlay
+        # failed, so clear it rather than pass a floor off as this scout's own answer.
+        body["summary"]["emit_eligibility"] = None
         logger.warning("signals.profile.degraded_summary_failed", team_id=team_id, exc_info=True)
     return ProjectProfileSerializer(body).data
 
@@ -2246,7 +2258,19 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # workflow builds out-of-band, so the build path stays covered.
         force_refresh = bool(validated.get("force_refresh", False)) and caller_is_internal_scout
         team_id = _canonical_team_id(self)
-        run_id = _eligibility_run_id(request, team_id=team_id, supplied=validated.get("run_id"))
+        # Working out which scout is asking is itself a database read, and it runs ahead of the
+        # profile read that carries its own retry. A dropped connection here used to escape as a
+        # 5xx, costing the scout exactly the discovery round trip this endpoint exists to save, so
+        # it retries the same way and degrades when the retry does not clear it.
+        try:
+            run_id = retry_on_db_connection_drop(
+                lambda: _eligibility_run_id(request, team_id=team_id, supplied=validated.get("run_id"))
+            )
+        except Exception as error:
+            if not is_transient_db_error(error):
+                raise
+            logger.warning("signals.profile.run_lookup_unavailable", team_id=team_id, exc_info=True)
+            return Response(_degraded_profile_body(team_id=team_id, run_id=None, scout_resolved=False))
         try:
             profile = get_project_profile(
                 team_id=team_id,
@@ -2254,7 +2278,7 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 lazy_build=caller_is_internal_scout,
             )
         except ProfileUnavailable:
-            return Response(_degraded_profile_body(team_id=team_id, run_id=run_id))
+            return Response(_degraded_profile_body(team_id=team_id, run_id=run_id, scout_resolved=True))
         if profile is None:
             raise exceptions.NotFound("No project profile has been built for this team yet.")
         body = profile.as_dict()
