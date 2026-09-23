@@ -29,6 +29,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.github.merge_queue import MergeQueueState
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -177,6 +178,7 @@ class _PreparedRun:
     skill_name: str
     skill_version: int
     integration_row_id: int
+    queue_state_at_start: MergeQueueState | None
 
 
 def _fetch_pr_metadata(input: ResolveThreadsInput, token: str, installation_id: str | None) -> PRMetadata:
@@ -195,21 +197,39 @@ def _run_github(team_id: int, integration_row_id: int) -> GitHubIntegration:
     return GitHubIntegration(Integration.objects.get(id=integration_row_id, team_id=team_id))
 
 
-def _merge_queue_holds(input: ResolveThreadsInput, github: GitHubIntegration) -> bool:
-    state = github.get_pull_request_merge_queue_state(f"{input.owner}/{input.repo}", input.pr_number)
-    return state is not None and state.holds_pull_request
+def _merge_queue_state(input: ResolveThreadsInput, github: GitHubIntegration) -> MergeQueueState | None:
+    return github.get_pull_request_merge_queue_state(f"{input.owner}/{input.repo}", input.pr_number)
 
 
-def _commit_hold(input: ResolveThreadsInput, github: GitHubIntegration, head_branch: str) -> CommitHold | None:
-    if _merge_queue_holds(input, github):
+def _commit_hold(
+    input: ResolveThreadsInput,
+    github: GitHubIntegration,
+    head_branch: str,
+    *,
+    queue_state: MergeQueueState | None,
+    queue_state_at_start: MergeQueueState | None,
+) -> CommitHold | None:
+    if queue_state is not None and queue_state.holds_pull_request:
+        return CommitHold.MERGE_QUEUE
+    # A turn's push ejects a PR that someone enqueued while the turn ran. The author meant to ship
+    # it, so later turns must not push again. An ejection from before the session does not count,
+    # or one old push would block the stage on this PR for good.
+    if queue_state == MergeQueueState.EJECTED and queue_state_at_start != MergeQueueState.EJECTED:
         return CommitHold.MERGE_QUEUE
     if github.has_open_pull_request_with_base(f"{input.owner}/{input.repo}", head_branch):
         return CommitHold.STACKED
     return None
 
 
-def _merge_queue_holds_for_run(input: ResolveThreadsInput, integration_row_id: int) -> bool:
-    return _merge_queue_holds(input, _run_github(input.team_id, integration_row_id))
+def _commit_hold_for_run(input: ResolveThreadsInput, prepared: "_PreparedRun") -> CommitHold | None:
+    github = _run_github(input.team_id, prepared.integration_row_id)
+    return _commit_hold(
+        input,
+        github,
+        prepared.pr_metadata.head_branch,
+        queue_state=_merge_queue_state(input, github),
+        queue_state_at_start=prepared.queue_state_at_start,
+    )
 
 
 def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResult:
@@ -259,7 +279,12 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
     overflow = max(0, len(triage) - MAX_THREADS_PER_RUN)
     triage = triage[:MAX_THREADS_PER_RUN]
     # Only triage turns commit. Redeliveries are replies and resolves, which are safe in the queue.
-    hold = _commit_hold(input, github, pr_metadata.head_branch) if triage else None
+    queue_state = _merge_queue_state(input, github) if triage else None
+    hold = (
+        _commit_hold(input, github, pr_metadata.head_branch, queue_state=queue_state, queue_state_at_start=queue_state)
+        if triage
+        else None
+    )
     if hold is not None:
         update_resolution_status_comment(
             input.team_id,
@@ -304,6 +329,7 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         skill_name=skill.skill_name,
         skill_version=skill.version,
         integration_row_id=github.integration.id,
+        queue_state_at_start=queue_state,
     )
 
 
@@ -684,12 +710,11 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                     logger.exception("Redelivery failed for thread %s; the next run will retry", verdict.thread_id)
 
             for thread in prepared.triage:
-                # A person can enqueue the PR while earlier turns run. The check sits outside the
-                # turn's try, so a failed read fails the run instead of committing blind.
-                if await database_sync_to_async(_merge_queue_holds_for_run, thread_sensitive=False)(
-                    input, prepared.integration_row_id
-                ):
-                    result.stopped_reason = CommitHold.MERGE_QUEUE
+                # A person can enqueue the PR, or stack a PR on it, while earlier turns run. The check
+                # sits outside the turn's try, so a failed read fails the run instead of committing blind.
+                hold = await database_sync_to_async(_commit_hold_for_run, thread_sensitive=False)(input, prepared)
+                if hold is not None:
+                    result.stopped_reason = hold
                     break
                 try:
                     if session is None:

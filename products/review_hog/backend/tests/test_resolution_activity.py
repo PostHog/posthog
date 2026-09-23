@@ -640,7 +640,7 @@ class TestFailedRunActivity(NonAtomicBaseTest):
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=threads),
             patch(f"{_RESOLUTION}.add_eyes_reaction"),
-            patch(f"{_RESOLUTION}._merge_queue_holds_for_run", return_value=False),
+            patch(f"{_RESOLUTION}._run_github", return_value=_mock_installation()),
             patch(
                 f"{_RESOLUTION}.load_resolution_skill_for_run",
                 return_value=Mock(skill_name="review-hog-resolution-criteria", version=1),
@@ -727,7 +727,25 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         assert "couldn't handle 1" in final_section
         assert "declined" not in final_section
 
-    def test_pr_entering_the_merge_queue_stops_the_session_before_the_next_turn(self) -> None:
+    @parameterized.expand(
+        [
+            ("enqueued", MergeQueueState.TESTING, False, "pr_in_merge_queue", "entered the merge queue"),
+            (
+                "ejected_by_the_turn_push",
+                MergeQueueState.EJECTED,
+                False,
+                "pr_in_merge_queue",
+                "entered the merge queue",
+            ),
+            ("stacked", None, True, "pr_has_stacked_pull_requests", "now stacked on this branch"),
+        ]
+    )
+    def test_hold_appearing_mid_run_stops_the_session_before_the_next_turn(
+        self, _name: str, queue_state: MergeQueueState | None, stacked: bool, reason: str, section_text: str
+    ) -> None:
+        run_github = _mock_installation()
+        run_github.get_pull_request_merge_queue_state.side_effect = [None, queue_state]
+        run_github.has_open_pull_request_with_base.side_effect = [False, stacked]
         mock_activity = Mock()
         mock_activity.info.return_value.attempt = 1
         session = Mock()
@@ -738,7 +756,7 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         with ExitStack() as stack:
             for p in self._base_patches(mock_activity, [self._thread("PRRT_A"), self._thread("PRRT_B")]):
                 stack.enter_context(p)
-            stack.enter_context(patch(f"{_RESOLUTION}._merge_queue_holds_for_run", side_effect=[False, True]))
+            stack.enter_context(patch(f"{_RESOLUTION}._run_github", return_value=run_github))
             stack.enter_context(patch(f"{_RESOLUTION}.start_sandbox_session", AsyncMock(return_value=(session, res))))
             stack.enter_context(patch(f"{_RESOLUTION}.continue_sandbox_session", continue_turn))
             stack.enter_context(patch(f"{_RESOLUTION}.end_sandbox_session", AsyncMock()))
@@ -750,6 +768,7 @@ class TestFailedRunActivity(NonAtomicBaseTest):
 
         continue_turn.assert_not_called()
         assert result.triaged == 1
-        assert result.stopped_reason == "pr_in_merge_queue"
+        assert result.stopped_reason == reason
         assert "Stopped resolving comments at 1/2" in status_comment.call_args.args[2]
+        assert section_text in status_comment.call_args.args[2]
         assert self._report_status() == ReviewReport.Status.IDLE

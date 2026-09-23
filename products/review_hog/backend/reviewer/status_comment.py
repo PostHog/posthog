@@ -281,7 +281,11 @@ def render_resolution_held_section(hold: CommitHold, *, done: int = 0, total: in
     `total` is set only when the run stopped part way.
     """
     if hold == CommitHold.STACKED:
-        line = "Not resolving comments: other pull requests are stacked on this branch"
+        line = (
+            f"Stopped resolving comments at {done}/{total}: another pull request is now stacked on this branch"
+            if total
+            else "Not resolving comments: other pull requests are stacked on this branch"
+        )
         why = "A fix commit here would leave the stacked pull requests out of date"
     else:
         line = (
