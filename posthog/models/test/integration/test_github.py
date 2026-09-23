@@ -29,6 +29,7 @@ from posthog.models.github_integration_base import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     GitHubIntegrationBase,
+    GitHubTokenRefreshUnavailable,
     PullRequestRef,
 )
 from posthog.models.integration import (
@@ -210,6 +211,31 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert GitHubIntegration(integration).installation_unavailable() is True
         assert "expires_in" not in integration.config
+
+    @parameterized.expand(
+        [
+            ("proxy", requests.exceptions.ProxyError("Tunnel connection failed: 504 Gateway Timeout")),
+            ("connection", requests.exceptions.ConnectionError("connection reset")),
+            ("timeout", requests.exceptions.ReadTimeout("read timed out")),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_refresh_access_token_reports_an_unreachable_github_apart_from_a_refusal(
+        self, _name, error, mock_client_request
+    ):
+        # A caller cannot retry what it cannot tell apart. Raised raw, a shed proxy call reads as an
+        # integration failure and ends a task run; named, the caller resolves the token again.
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "expires_in": 3600, "refreshed_at": 1704110400},
+            {"access_token": "FULL_TOKEN"},
+        )
+        mock_client_request.side_effect = error
+
+        with pytest.raises(GitHubTokenRefreshUnavailable):
+            GitHubIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.sensitive_config["access_token"] == "FULL_TOKEN"
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_mint_scoped_installation_token_downscopes_without_persisting(self, mock_client_request):

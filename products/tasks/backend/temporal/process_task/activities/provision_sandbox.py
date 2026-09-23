@@ -14,6 +14,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.models.github_integration_base import GitHubTokenRefreshUnavailable
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
@@ -29,6 +30,7 @@ from products.tasks.backend.exceptions import (
     ComputeBillingLimitError,
     CredentialUnavailableError,
     GitHubAuthenticationError,
+    GitHubTokenRefreshUnavailableError,
     OAuthTokenError,
     RepositoryCloneError,
     SandboxNetworkPolicyError,
@@ -62,6 +64,7 @@ from products.tasks.backend.logic.services.sandbox import (
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
+    increment_credential_resolution_failure,
     increment_resume_mode,
     increment_snapshot_restore,
     increment_snapshot_usage,
@@ -414,12 +417,24 @@ def _resolve_sandbox_github_token(
         # Expected user-actionable state — the acting user must re-link GitHub. Non-retryable and
         # kept out of the raw error stream (CredentialUnavailableError does not capture) so it does
         # not surface as error-tracking noise. Mirrors the refresh path in sandbox_credentials.py.
+        increment_credential_resolution_failure("github", "reauthorization_required")
         raise CredentialUnavailableError(
             "GitHub user integration for this run requires reauthorization",
             {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
             cause=e,
         )
+    except GitHubTokenRefreshUnavailable as e:
+        # The mint never reached GitHub, so nothing about the credential is wrong. Without this
+        # branch it falls to the catch-all below and a shed proxy call ends the run for good,
+        # telling the user to re-link an account that still works.
+        increment_credential_resolution_failure("github", "unavailable")
+        raise GitHubTokenRefreshUnavailableError(
+            "Could not reach GitHub to mint a token for this run",
+            {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
+            cause=e,
+        )
     except Exception as e:
+        increment_credential_resolution_failure("github", "failed")
         raise GitHubAuthenticationError(
             f"Failed to get GitHub token for integration {ctx.github_integration_id}",
             {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id, "error": str(e)},
@@ -1287,12 +1302,21 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                     or ""
                 )
             except ReauthorizationRequired as e:
+                increment_credential_resolution_failure("github", "reauthorization_required")
                 raise CredentialUnavailableError(
                     "GitHub user integration for this run requires reauthorization",
                     {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
                     cause=e,
                 )
+            except GitHubTokenRefreshUnavailable as e:
+                increment_credential_resolution_failure("github", "unavailable")
+                raise GitHubTokenRefreshUnavailableError(
+                    "Could not reach GitHub to mint a token for this resumed run",
+                    {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
+                    cause=e,
+                )
             except Exception as e:
+                increment_credential_resolution_failure("github", "failed")
                 raise GitHubAuthenticationError(
                     f"Failed to refresh GitHub token for integration {ctx.github_integration_id}",
                     {
