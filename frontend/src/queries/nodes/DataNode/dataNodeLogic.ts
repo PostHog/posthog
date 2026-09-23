@@ -1510,12 +1510,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                 return (
                     !!cachedResults ||
-                    !!(
-                        cache.localResults &&
-                        query &&
+                    (!!query &&
                         'query' in query &&
-                        JSON.stringify(query.query) in cache.localResults
-                    )
+                        !!cache.localResults &&
+                        JSON.stringify(query.query) in cache.localResults)
                 )
             },
         ],
