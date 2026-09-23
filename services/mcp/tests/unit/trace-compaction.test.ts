@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { formatResponse } from '@/lib/response'
 import {
-    MAX_SUMMARY_BYTES,
-    MAX_TRACE_BYTES,
+    MAX_SUMMARY_CHARS,
+    MAX_TRACE_CHARS,
     PER_VALUE_CHAR_LIMIT,
     compactTrace,
     compactTraceResponse,
@@ -50,7 +50,7 @@ describe('compactTrace', () => {
         expect(result._truncated.omittedEvents).toBeGreaterThan(0)
         expect(result.events.length).toBe(200 - result._truncated.omittedEvents)
         expect(result.events.length).toBeGreaterThanOrEqual(1)
-        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_BYTES)
+        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_CHARS)
     })
 
     it('caps a single event whose value is a large collection of individually-small strings', () => {
@@ -59,7 +59,7 @@ describe('compactTrace', () => {
         const bigArray = Array.from({ length: 300 }, () => 'z'.repeat(PER_VALUE_CHAR_LIMIT - 1_000))
         const result = compactTrace({ id: 'trace-1', events: [{ id: 'e1', properties: { $ai_input: bigArray } }] })
 
-        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_BYTES)
+        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_CHARS)
     })
 
     it('caps an event carrying an oversized property name, not just an oversized value', () => {
@@ -68,14 +68,14 @@ describe('compactTrace', () => {
         const bigKey = 'k'.repeat(900_000)
         const result = compactTrace({ id: 'trace-1', events: [{ id: 'e1', properties: { [bigKey]: 'v' } }] })
 
-        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_BYTES)
+        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_CHARS)
     })
 
     it('caps oversized trace-level state even when there are no events', () => {
         const bigState = Array.from({ length: 300 }, () => 'w'.repeat(PER_VALUE_CHAR_LIMIT - 1_000))
         const result = compactTrace({ id: 'trace-1', inputState: bigState, events: [] })
 
-        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_BYTES)
+        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_CHARS)
     })
 
     it.each([
@@ -93,7 +93,7 @@ describe('compactTrace', () => {
 
         const result = compactTrace({ id: 'trace-1', events })
 
-        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_BYTES)
+        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_CHARS)
     })
 
     it('holds the cap for a trace that encodes to more than 64MB', () => {
@@ -111,7 +111,7 @@ describe('compactTrace', () => {
 
         const result = compactTrace(trace)
 
-        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_BYTES)
+        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_CHARS)
         expect((result as any)._truncated.totalEvents).toBe(7_000)
     })
 
@@ -150,7 +150,7 @@ describe('compactTrace summary detail', () => {
     }
 
     it('keeps navigation metadata verbatim and previews everything else', () => {
-        const result = compactTrace(trace, MAX_SUMMARY_BYTES, 'summary') as any
+        const result = compactTrace(trace, MAX_SUMMARY_CHARS, 'summary') as any
 
         const properties = result.events[0].properties
         expect(properties.$ai_model).toBe('gpt-4')
@@ -175,7 +175,7 @@ describe('compactTrace summary detail', () => {
 
         const result = compactTrace(
             { id: 'trace-1', events: [{ id: 'e1', properties: { $ai_input: messages } }] },
-            MAX_SUMMARY_BYTES,
+            MAX_SUMMARY_CHARS,
             'summary'
         ) as any
 
@@ -185,9 +185,20 @@ describe('compactTrace summary detail', () => {
         expect(preview[0].content).toContain('truncated')
     })
 
+    it.each(['a', '界'])('preserves a 400-character %s preview', (character) => {
+        const content = character.repeat(400)
+        const result = compactTrace(
+            { id: 'trace-1', events: [{ id: 'e1', properties: { $ai_input: content } }] },
+            MAX_SUMMARY_CHARS,
+            'summary'
+        ) as any
+
+        expect(result.events[0].properties.$ai_input).toBe(content)
+    })
+
     it('returns far less than the same trace at full detail', () => {
-        const summary = JSON.stringify(compactTrace(trace, MAX_SUMMARY_BYTES, 'summary')).length
-        const full = JSON.stringify(compactTrace(trace, MAX_TRACE_BYTES, 'full')).length
+        const summary = JSON.stringify(compactTrace(trace, MAX_SUMMARY_CHARS, 'summary')).length
+        const full = JSON.stringify(compactTrace(trace, MAX_TRACE_CHARS, 'full')).length
 
         expect(summary).toBeLessThan(full / 5)
     })
@@ -198,9 +209,9 @@ describe('compactTrace summary detail', () => {
             properties: { $ai_input: 'y'.repeat(PER_VALUE_CHAR_LIMIT) },
         }))
 
-        const result = compactTrace({ id: 'trace-1', events }, MAX_SUMMARY_BYTES, 'summary') as any
+        const result = compactTrace({ id: 'trace-1', events }, MAX_SUMMARY_CHARS, 'summary') as any
 
-        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_SUMMARY_BYTES)
+        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_SUMMARY_CHARS)
         expect(result._truncated.omittedEvents).toBeGreaterThan(0)
     })
 })
@@ -227,7 +238,7 @@ describe('compactTraceResponse', () => {
         }))
         const results = compactTraceResponse({ results: traces }).results as any[]
 
-        expect(JSON.stringify(results).length).toBeLessThanOrEqual(MAX_TRACE_BYTES + 5_000)
+        expect(JSON.stringify(results).length).toBeLessThanOrEqual(MAX_TRACE_CHARS + 5_000)
         const sentinel = results[results.length - 1]
         expect(sentinel._truncated.omittedTraces).toBeGreaterThan(0)
         expect(sentinel._truncated.totalTraces).toBe(40)
@@ -241,7 +252,7 @@ describe('compactTraceResponse', () => {
 
         const results = compactTraceResponse({ results: traces }, 'summary').results
 
-        expect(JSON.stringify(results).length).toBeLessThanOrEqual(MAX_SUMMARY_BYTES)
+        expect(JSON.stringify(results).length).toBeLessThanOrEqual(MAX_SUMMARY_CHARS)
     })
 
     it('passes a non-array result through untouched', () => {
@@ -272,6 +283,27 @@ describe('compactTraceResponse', () => {
             })),
         }
 
+        it.each(['a', '界'])('retains a 40-event summary with %s content', (character) => {
+            const trace = {
+                ...largeTrace,
+                events: largeTrace.events.map((event) => ({
+                    ...event,
+                    properties: {
+                        ...event.properties,
+                        $ai_input: [{ role: 'user', content: character.repeat(2_000) }],
+                        $ai_output_choices: [{ role: 'assistant', content: character.repeat(2_000) }],
+                    },
+                })),
+            }
+            const response = compactTraceResponse({ results: [trace] }, 'summary')
+            const [result] = response.results as any[]
+
+            expect(result.events.map((event: { id: string }) => event.id)).toEqual(
+                trace.events.map((event) => event.id)
+            )
+            expect(result._truncated).toBeUndefined()
+        })
+
         it.each(
             (['full', 'summary'] as const).flatMap((detail) =>
                 ['Some conversation text. ', '分析結果を説明してください。', '"quoted"\n\\'].map((content) => ({
@@ -279,7 +311,7 @@ describe('compactTraceResponse', () => {
                     content,
                 }))
             )
-        )('bounds the UTF-8 response for $detail detail with $content', ({ detail, content }) => {
+        )('bounds the complete response for $detail detail with $content', ({ detail, content }) => {
             const trace = {
                 ...largeTrace,
                 events: largeTrace.events.map((event) => ({
@@ -290,7 +322,7 @@ describe('compactTraceResponse', () => {
             const response = compactTraceResponse({ results: [trace] }, detail)
             const contentBlocks = [{ type: 'text', text: formatResponse(response) }]
 
-            expect(new TextEncoder().encode(JSON.stringify(contentBlocks)).length).toBeLessThanOrEqual(25_000)
+            expect(JSON.stringify(contentBlocks).length).toBeLessThanOrEqual(detail === 'summary' ? 60_000 : 80_000)
         })
 
         it('points a truncated full-detail read at summary detail', () => {

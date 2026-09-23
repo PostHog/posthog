@@ -1,4 +1,4 @@
-import { MCP_TOOL_OUTPUT_BYTE_BUDGET } from '@/lib/constants'
+import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
 import { formatResponse } from '@/lib/response'
 
 /**
@@ -11,7 +11,7 @@ import { formatResponse } from '@/lib/response'
  * Two layers keep that in check. `summary` detail replaces event content with
  * short previews so the summary response is trace metadata plus enough of each
  * prompt and output to decide what to read next. On top of that, compaction
- * walks the result within a byte budget, truncating long string values and
+ * walks the result within a character budget, truncating long string values and
  * dropping content that doesn't fit, and stops traversing once the budget is
  * spent so it never materializes a full clone of a pathological trace. A final
  * pass measures the text the client actually receives and shrinks again if the
@@ -29,19 +29,17 @@ import { formatResponse } from '@/lib/response'
 /** Longest single string value kept verbatim; longer values are truncated. */
 export const PER_VALUE_CHAR_LIMIT = 10_000
 
-export const MAX_TRACE_BYTES = MCP_TOOL_OUTPUT_BYTE_BUDGET
+export const MAX_TRACE_CHARS = MCP_TOOL_OUTPUT_CHAR_BUDGET
 
 /**
  * Cap for `summary` detail. Tighter than the full-detail cap,
  * because the point of a summary is to survey a trace without spending the
  * agent's context on prompt and completion bodies.
  */
-export const MAX_SUMMARY_BYTES = 16_000
+export const MAX_SUMMARY_CHARS = 60_000
 
 /** How much of each previewed value a summary keeps. */
-export const SUMMARY_PREVIEW_BYTES = 600
-
-const encoder = new TextEncoder()
+export const SUMMARY_PREVIEW_CHARS = 600
 
 /**
  * How much of an event's content reaches the client. `summary` keeps identity,
@@ -127,7 +125,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function serializedLength(value: unknown): number {
     try {
-        return encoder.encode(JSON.stringify(value)).length
+        return JSON.stringify(value).length
     } catch {
         return 0
     }
@@ -139,12 +137,12 @@ function serializedLength(value: unknown): number {
  */
 function deliveredLength(value: unknown, outputFormat?: 'optimized' | 'json'): number {
     const text = outputFormat === 'json' ? JSON.stringify(value) : formatResponse(value)
-    // boffin: Count UTF-8 bytes so non-ASCII text cannot pass as a smaller response.
+    // boffin: Measure the complete response so echoed filters cannot bypass the cap.
     return serializedLength([{ type: 'text', text }])
 }
 
 /**
- * UTF-8 size of a string encoded as a JSON value, including its quotes. JSON
+ * Character count of a string encoded as a JSON value, including its quotes. JSON
  * escaping can multiply a value's size several times over: a quote or a newline
  * costs two characters, and a control character costs six. Budgeting on the raw
  * character count let a trace of escape-heavy text serialize to several times
@@ -199,7 +197,7 @@ interface Compacted {
 }
 
 /**
- * Compact a value so its serialized size stays within `budget` bytes,
+ * Compact a value so its serialized size stays within `budget` characters,
  * stopping as soon as the budget is spent. Long strings are truncated; array and
  * object members are kept until the budget runs out, then the remainder is
  * replaced with a short omission marker.
@@ -293,7 +291,7 @@ function fitToEncodedBudget<T>(
 
 /** Shorten one value to a preview an agent can scan without reading it in full. */
 function previewValue(value: unknown): unknown {
-    return compactValue(value, SUMMARY_PREVIEW_BYTES).value
+    return compactValue(value, SUMMARY_PREVIEW_CHARS).value
 }
 
 function summarizeEvent(event: unknown): unknown {
@@ -330,7 +328,7 @@ function summarizeTraceFields(fields: Record<string, unknown>): void {
 }
 
 /**
- * Compact a single trace to fit `budget` bytes, previewing event content
+ * Compact a single trace to fit `budget` characters, previewing event content
  * first when `detail` is `summary`. Non-event fields are
  * budgeted first (so a huge `inputState` can't starve the events), then events
  * are filled in until the budget runs out; the first event is compacted to fit
@@ -341,7 +339,7 @@ function summarizeTraceFields(fields: Record<string, unknown>): void {
  * which is not guaranteed to be parent-before-child order, so a truncated trace
  * may not be fully tree-reconstructable — hence the pointer back to PostHog.
  */
-export function compactTrace(trace: unknown, budget: number = MAX_TRACE_BYTES, detail: TraceDetail = 'full'): unknown {
+export function compactTrace(trace: unknown, budget: number = MAX_TRACE_CHARS, detail: TraceDetail = 'full'): unknown {
     if (!isRecord(trace)) {
         return trace
     }
@@ -421,7 +419,7 @@ function minimalTracePlaceholder(trace: Record<string, unknown>): Record<string,
 /**
  * Bound the complete trace response in its selected output format. Echoed
  * filters and warnings share a fifth of the walk budget so they cannot crowd
- * out the trace data. The final check includes serialization and UTF-8 overhead.
+ * out the trace data. The final check includes serialization overhead.
  */
 export function compactTraceResponse(
     response: { results: unknown; [key: string]: unknown },
@@ -429,7 +427,7 @@ export function compactTraceResponse(
     outputFormat?: 'optimized' | 'json'
 ): Record<string, unknown> {
     const { results, ...envelope } = response
-    const budget = detail === 'summary' ? MAX_SUMMARY_BYTES : MAX_TRACE_BYTES
+    const budget = detail === 'summary' ? MAX_SUMMARY_CHARS : MAX_TRACE_CHARS
     const traces = Array.isArray(results) ? results : []
     const single = traces.length === 1 && isRecord(traces[0]) ? traces[0] : null
     return fitToEncodedBudget(

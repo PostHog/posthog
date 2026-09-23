@@ -28,9 +28,8 @@ export const MCP_ANALYTICS_SOURCE = 'posthog_mcp_analytics'
 // fit, and the tool-domain index absorbs whatever budget the fixed sections leave.
 export const MCP_INSTRUCTIONS_CHAR_BUDGET = 2048
 
-// A conservative UTF-8 limit stays below a 25K-token budget even for multilingual
-// text, and leaves room below clients' separate result-persistence thresholds.
-export const MCP_TOOL_OUTPUT_BYTE_BUDGET = 24_000
+// Response policy, not a token limit: client limits and tokenization vary.
+export const MCP_TOOL_OUTPUT_CHAR_BUDGET = 80_000
 
 // Ceiling for the tool-domain index inside the claude.ai exec command reference. That reference
 // lives in the `command` description, whose serialized schema claude.ai silently drops past

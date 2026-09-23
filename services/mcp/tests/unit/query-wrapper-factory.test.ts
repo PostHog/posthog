@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { buildToolResultPayload } from '@/lib/build-tool-result'
-import { MCP_TOOL_OUTPUT_BYTE_BUDGET } from '@/lib/constants'
+import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import type { Context } from '@/tools/types'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
@@ -478,9 +478,7 @@ describe('createQueryWrapper trace compaction', () => {
                 params,
             })
 
-            expect(new TextEncoder().encode(JSON.stringify(payload.content)).length).toBeLessThanOrEqual(
-                MCP_TOOL_OUTPUT_BYTE_BUDGET
-            )
+            expect(JSON.stringify(payload.content).length).toBeLessThanOrEqual(MCP_TOOL_OUTPUT_CHAR_BUDGET)
             expect(result).toMatchObject({ _posthogUrl: 'http://localhost:8010/project/1/ai-observability/traces' })
             expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({ query: params })
         }
