@@ -32,9 +32,17 @@ export const scene: SceneExport = {
 
 export function BusinessKnowledgeScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
-    const { sources, sourcesLoading, readyCount, totalChunks, refreshingIds, searchTerm, sourceTypeFilter } =
-        useValues(businessKnowledgeLogic)
-    const { openCreateModal, deleteSource, refreshSource, setSearchTerm, setSourceTypeFilter } =
+    const {
+        sources,
+        sourcesLoading,
+        readyCount,
+        totalChunks,
+        refreshingIds,
+        searchTerm,
+        sourceTypeFilter,
+        addedByFilter,
+    } = useValues(businessKnowledgeLogic)
+    const { openCreateModal, deleteSource, refreshSource, setSearchTerm, setSourceTypeFilter, setAddedByFilter } =
         useActions(businessKnowledgeLogic)
     const { push } = useActions(router)
 
@@ -79,6 +87,16 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         { value: 'url', label: 'URL' },
                         { value: 'file', label: 'File' },
                     ]}
+                />
+                <LemonSelect
+                    value={addedByFilter}
+                    onChange={setAddedByFilter}
+                    options={[
+                        { value: 'all', label: 'All sources' },
+                        { value: 'human', label: 'Human' },
+                        { value: 'learned', label: 'Learned' },
+                    ]}
+                    data-attr="business-knowledge-added-by-filter"
                 />
             </div>
 
@@ -187,7 +205,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                     },
                 ]}
                 emptyState={
-                    searchTerm || sourceTypeFilter !== 'all'
+                    searchTerm || sourceTypeFilter !== 'all' || addedByFilter !== 'all'
                         ? 'No sources match your search or filter.'
                         : "No knowledge sources yet. Click 'Add source' to index your first."
                 }
