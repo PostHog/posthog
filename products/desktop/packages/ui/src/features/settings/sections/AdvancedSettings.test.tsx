@@ -77,17 +77,22 @@ describe("AdvancedSettings", () => {
       </Theme>,
     );
 
-    await user.click(screen.getByRole("button", { name: "Open Chrome setup" }));
+    await user.click(screen.getByText("Connection help"));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Open Chrome remote debugging settings",
+      }),
+    );
 
     expect(openChromeRemoteDebugging).toHaveBeenCalledOnce();
     expect(
-      screen.getByRole("switch", {
+      screen.queryByRole("switch", {
         name: "Enable Google Chrome browser access",
       }),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
     expect(
       screen.getByText(
-        "Open Chrome setup, then enable remote debugging and confirm in Chrome",
+        "First, enable remote debugging in Chrome. Then select Connect Chrome and approve the request in Chrome.",
       ),
     ).toBeInTheDocument();
   });
@@ -102,7 +107,7 @@ describe("AdvancedSettings", () => {
 
     expect(
       screen.getByText(
-        "Couldn't open Chrome setup. Check that Google Chrome is installed.",
+        "Couldn't open Chrome settings. Check that Google Chrome is installed.",
       ),
     ).toBeInTheDocument();
 

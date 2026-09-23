@@ -3,14 +3,15 @@
 ## Chrome asks for permission in each agent session
 
 Desktop shares one Chrome connection across local agent sessions.
-Enable browser access in **Settings > Advanced** before you start a local session.
-Approve the Chrome prompt when the first browser action connects.
+Select **Connect Chrome** in **Settings > Advanced** before you start a local session.
+If Chrome needs setup, expand **Connection help** to open its remote debugging settings.
+Approve the connection request in Chrome.
 Ending a session does not close the shared connection.
 
 Use **Disconnect Chrome** to stop browser access for all local sessions.
-Use **Reconnect Chrome** to restore access.
+Use **Connect Chrome** to restore access.
+While Chrome waits for approval, use **Cancel connection** to stop the request.
 Chrome can ask for approval again after a reconnect or a Desktop restart.
-Turning browser access off also disconnects Chrome.
 The connection ends when Desktop quits.
 
 Agents share the same open tabs.

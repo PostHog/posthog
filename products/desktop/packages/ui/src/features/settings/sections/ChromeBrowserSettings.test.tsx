@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChromeBrowserSettings } from "./ChromeBrowserSettings";
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   reconnect: vi.fn(),
   disconnect: vi.fn(),
   setEnabled: vi.fn(),
+  status: "connected",
 }));
 
 vi.mock("@posthog/host-router/react", () => ({
@@ -16,7 +17,7 @@ vi.mock("@posthog/host-router/react", () => ({
       browserStatus: {
         queryOptions: () => ({
           queryKey: ["browser-status"],
-          queryFn: async () => ({ status: "connected" }),
+          queryFn: async () => ({ status: mocks.status }),
         }),
       },
       reconnectBrowser: {
@@ -50,8 +51,9 @@ vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
 describe("ChromeBrowserSettings", () => {
   let queryClient: QueryClient;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetAllMocks();
+    mocks.status = "connected";
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -60,6 +62,7 @@ describe("ChromeBrowserSettings", () => {
         <ChromeBrowserSettings />
       </QueryClientProvider>,
     );
+    await screen.findByRole("button", { name: "Disconnect Chrome" });
   });
 
   afterEach(() => {
@@ -68,22 +71,88 @@ describe("ChromeBrowserSettings", () => {
   });
 
   it.each([
-    ["Reconnect Chrome", "reconnect"],
-    ["Disconnect Chrome", "disconnect"],
-  ] as const)("prevents duplicate %s requests", async (label, action) => {
+    ["idle", "Connect Chrome"],
+    ["disconnected", "Connect Chrome"],
+    ["error", "Connect Chrome"],
+    ["connected", "Disconnect Chrome"],
+    ["connecting", "Cancel connection"],
+  ])("shows only the available action for %s", async (status, label) => {
+    mocks.status = status;
+    act(() => queryClient.setQueryData(["browser-status"], { status }));
+    await screen.findByRole("button", { name: label });
+    const actions = screen.getAllByRole("button", {
+      name: /^(Connect Chrome|Disconnect Chrome|Cancel connection)$/,
+    });
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toHaveTextContent(label);
+    expect(screen.queryByText("Disconnected")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Connected", { exact: true }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Ready to connect")).not.toBeInTheDocument();
+  });
+
+  it("offers cancel while a connection is pending", async () => {
+    mocks.status = "disconnected";
+    act(() =>
+      queryClient.setQueryData(["browser-status"], { status: "disconnected" }),
+    );
     let finish!: () => void;
-    mocks[action].mockImplementation(
+    mocks.reconnect.mockImplementation(
       () =>
         new Promise<void>((resolve) => {
           finish = resolve;
         }),
     );
     const user = userEvent.setup();
-    const button = screen.getByRole("button", { name: label });
+    await user.click(
+      await screen.findByRole("button", { name: "Connect Chrome" }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Connect Chrome" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel connection" }));
+    expect(mocks.reconnect).toHaveBeenCalledOnce();
+    expect(mocks.disconnect).toHaveBeenCalledOnce();
+    finish();
+    await screen.findByRole("button", { name: "Connect Chrome" });
+    expect(mocks.setEnabled).toHaveBeenLastCalledWith(false);
+  });
+
+  it("enables access after Chrome connects", async () => {
+    mocks.status = "disconnected";
+    act(() =>
+      queryClient.setQueryData(["browser-status"], { status: mocks.status }),
+    );
+    mocks.reconnect.mockImplementation(async () => {
+      mocks.status = "connected";
+    });
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: "Connect Chrome" }),
+    );
+    await waitFor(() =>
+      expect(mocks.setEnabled).toHaveBeenLastCalledWith(true),
+    );
+    expect(
+      screen.getByRole("button", { name: "Disconnect Chrome" }),
+    ).toBeInTheDocument();
+  });
+
+  it("prevents duplicate disconnect requests", async () => {
+    let finish!: () => void;
+    mocks.disconnect.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    const button = screen.getByRole("button", { name: "Disconnect Chrome" });
     await user.click(button);
     expect(button).toHaveAttribute("aria-disabled", "true");
     await user.click(button);
-    expect(mocks[action]).toHaveBeenCalledOnce();
+    expect(mocks.disconnect).toHaveBeenCalledOnce();
     finish();
     await waitFor(() =>
       expect(button).not.toHaveAttribute("aria-disabled", "true"),
@@ -93,13 +162,9 @@ describe("ChromeBrowserSettings", () => {
   it("keeps access enabled if disconnect fails", async () => {
     mocks.disconnect.mockRejectedValue(new Error("Disconnect failed"));
     const user = userEvent.setup();
-    await user.click(
-      screen.getByRole("switch", {
-        name: "Enable Google Chrome browser access",
-      }),
-    );
+    await user.click(screen.getByRole("button", { name: "Disconnect Chrome" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Couldn't change the Chrome connection",
+      "Couldn't disconnect from Chrome",
     );
     expect(mocks.setEnabled).not.toHaveBeenCalled();
   });

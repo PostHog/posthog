@@ -1,5 +1,5 @@
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Button, Switch } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import {
   SettingsCard,
   SettingsCardRow,
@@ -9,17 +9,8 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
-const connectionLabels = {
-  idle: "Ready to connect",
-  connecting: "Waiting for Chrome",
-  connected: "Connected",
-  disconnected: "Disconnected",
-  error: "Connection failed. Check Chrome, then reconnect.",
-};
-
 export function ChromeBrowserSettings() {
   const hostTRPC = useHostTRPC();
-  const enabled = useSettingsStore((s) => s.browserIntegrationEnabled);
   const setEnabled = useSettingsStore((s) => s.setBrowserIntegrationEnabled);
   const status = useQuery({
     ...hostTRPC.agent.browserStatus.queryOptions(),
@@ -27,12 +18,17 @@ export function ChromeBrowserSettings() {
   });
   const reconnect = useMutation({
     ...hostTRPC.agent.reconnectBrowser.mutationOptions(),
+    onSuccess: async () => {
+      const result = await status.refetch();
+      setEnabled(result.data?.status === "connected");
+    },
     onSettled: () => {
       void status.refetch();
     },
   });
   const disconnect = useMutation({
     ...hostTRPC.agent.disconnectBrowser.mutationOptions(),
+    onSuccess: () => setEnabled(false),
     onSettled: () => {
       void status.refetch();
     },
@@ -41,98 +37,85 @@ export function ChromeBrowserSettings() {
     hostTRPC.os.openChromeRemoteDebugging.mutationOptions(),
   );
   const busy = reconnect.isPending || disconnect.isPending;
+  const connecting =
+    reconnect.isPending || status.data?.status === "connecting";
+  const canDisconnect = connecting || status.data?.status === "connected";
+  const disconnectLabel = connecting
+    ? "Cancel connection"
+    : "Disconnect Chrome";
 
   return (
-    <SettingsSection
-      label="Browser access"
-      description="Manage Chrome access for local agent sessions"
-    >
+    <SettingsSection label="Browser access">
       <SettingsCard>
         <SettingsCardRow
           label="Google Chrome"
-          description={
-            <ul className="list-disc space-y-0.5 pl-4">
-              <li>Can access open tabs signed in to your accounts</li>
-              <li>Enable only for agents you trust</li>
-              <li>
-                Open Chrome setup, then enable remote debugging and confirm in
-                Chrome
-              </li>
-              <li>
-                New local sessions share one connection until you disconnect or
-                quit Desktop
-              </li>
-            </ul>
-          }
+          description="Let local agents use your open tabs, including signed-in accounts."
         >
           <div className="flex min-w-0 flex-col items-end gap-2">
-            <div className="flex flex-wrap justify-end gap-2">
+            {connecting && (
+              <output className="text-muted-foreground text-xs">
+                Approve the connection in Chrome.
+              </output>
+            )}
+            {canDisconnect ? (
               <Button
                 size="sm"
                 variant="outline"
-                disabled={setup.isPending}
-                onClick={() => setup.mutate()}
+                disabled={disconnect.isPending}
+                onClick={() => disconnect.mutate()}
               >
-                {setup.isPending && <Spinner aria-hidden="true" />}
-                Open Chrome setup
+                {disconnect.isPending && <Spinner aria-hidden="true" />}
+                {disconnectLabel}
               </Button>
-              <Switch
-                aria-label="Enable Google Chrome browser access"
-                checked={enabled}
-                disabled={busy}
-                onCheckedChange={(checked) => {
-                  if (checked) setEnabled(true);
-                  else
-                    disconnect.mutate(undefined, {
-                      onSuccess: () => setEnabled(false),
-                    });
-                }}
-              />
-            </div>
-            {enabled && (
-              <>
-                <output className="text-muted-foreground text-xs">
-                  {status.data && connectionLabels[status.data.status]}
-                </output>
-                <div className="flex flex-wrap justify-end gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => reconnect.mutate()}
-                  >
-                    {reconnect.isPending && <Spinner aria-hidden="true" />}
-                    Reconnect Chrome
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={
-                      disconnect.isPending ||
-                      status.data?.status === "disconnected"
-                    }
-                    onClick={() => disconnect.mutate()}
-                  >
-                    {disconnect.isPending && <Spinner aria-hidden="true" />}
-                    Disconnect Chrome
-                  </Button>
-                </div>
-              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy || !status.data}
+                onClick={() => reconnect.mutate()}
+              >
+                Connect Chrome
+              </Button>
             )}
-            {setup.isError && (
+            {(reconnect.isError ||
+              disconnect.isError ||
+              status.data?.status === "error") && (
               <span className="text-destructive text-xs" role="alert">
-                Couldn&apos;t open Chrome setup. Check that Google Chrome is
-                installed.
-              </span>
-            )}
-            {(reconnect.isError || disconnect.isError) && (
-              <span className="text-destructive text-xs" role="alert">
-                Couldn&apos;t change the Chrome connection. Check Chrome and try
-                again.
+                {disconnect.isError
+                  ? "Couldn't disconnect from Chrome. Try again."
+                  : "Couldn't connect to Chrome. Check Connection help and try again."}
               </span>
             )}
           </div>
         </SettingsCardRow>
+        <details className="px-3.5 py-2 text-muted-foreground text-xs">
+          <summary className="cursor-pointer">Connection help</summary>
+          <div className="mt-2 flex flex-col items-start gap-2">
+            <p>
+              First, enable remote debugging in Chrome. Then select Connect
+              Chrome and approve the request in Chrome.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={setup.isPending}
+              onClick={() => setup.mutate()}
+            >
+              {setup.isPending && <Spinner aria-hidden="true" />}
+              Open Chrome remote debugging settings
+            </Button>
+            <p>
+              New local sessions share this connection. Disconnect to stop
+              access for all sessions.
+            </p>
+            {setup.isError && (
+              <span className="text-destructive" role="alert">
+                Couldn&apos;t open Chrome settings. Check that Google Chrome is
+                installed.
+              </span>
+            )}
+          </div>
+        </details>
       </SettingsCard>
     </SettingsSection>
   );
