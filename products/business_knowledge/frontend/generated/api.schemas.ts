@@ -339,6 +339,10 @@ export type BusinessKnowledgeGapSuggestionsListParams = {
 
 export type BusinessKnowledgeSourcesListParams = {
     /**
+     * Filter by who added the source: human (you added it) or learned (from a resolved support ticket).
+     */
+    added_by?: BusinessKnowledgeSourcesListAddedBy
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -354,10 +358,6 @@ export type BusinessKnowledgeSourcesListParams = {
      * Filter to a single source type (text, url, or file).
      */
     source_type?: BusinessKnowledgeSourcesListSourceType
-    /**
-     * Filter by who added the source: human (you added it) or learned (from a resolved support ticket).
-     */
-    added_by?: BusinessKnowledgeSourcesListAddedBy
 }
 
 export type BusinessKnowledgeSourcesListAddedBy =
