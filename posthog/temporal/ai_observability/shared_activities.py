@@ -6,6 +6,8 @@ from typing import Any, Literal, cast
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
+
 AnalysisLevel = Literal["trace", "generation", "evaluation"]
 
 
@@ -48,7 +50,7 @@ def consented_team_ids(team_ids: list[int]) -> set[int]:
     )
 
 
-@dataclass
+@frozen
 class TeamAIConsentInput:
     team_id: int
 

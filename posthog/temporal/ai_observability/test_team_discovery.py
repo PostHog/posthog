@@ -348,19 +348,12 @@ class TestGetTeamIdsForAIObservability:
         assert 2.99 < delta_days < 3.01
 
 
-def _create_teams() -> tuple[int, int]:
+def _create_team(name: str, approved: bool) -> int:
     from posthog.models.organization import Organization
     from posthog.models.team import Team
 
-    approved = Team.objects.create(
-        organization=Organization.objects.create(name="Approved", is_ai_data_processing_approved=True),
-        name="Approved team",
-    )
-    unapproved = Team.objects.create(
-        organization=Organization.objects.create(name="Unapproved", is_ai_data_processing_approved=False),
-        name="Unapproved team",
-    )
-    return approved.id, unapproved.id
+    organization = Organization.objects.create(name=name, is_ai_data_processing_approved=approved)
+    return Team.objects.create(organization=organization, name=name).id
 
 
 @patch("posthog.temporal.ai_observability.team_discovery.Heartbeater", _noop_heartbeater)
@@ -370,7 +363,8 @@ class TestAIDataProcessingConsentGate:
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     @patch(FF_PAYLOAD_PATH)
     async def test_allowlisted_team_without_consent_is_not_discovered(self, mock_ff, mock_get_teams):
-        approved_id, unapproved_id = await database_sync_to_async(_create_teams)()
+        approved_id = await database_sync_to_async(_create_team)("Approved", True)
+        unapproved_id = await database_sync_to_async(_create_team)("Unapproved", False)
         mock_ff.return_value = {
             "guaranteed_team_ids": [approved_id, unapproved_id],
             "sample_percentage": 1.0,
