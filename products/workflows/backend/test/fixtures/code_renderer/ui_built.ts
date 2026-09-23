@@ -6,6 +6,7 @@ import { delay, email, onEvent, path, workflow } from '@posthog/workflows'
 export const welcomeEmail = workflow({
     key: 'welcome-email',
     name: 'Welcome email',
+    status: 'draft',
     on: onEvent({ event: 'user signed up' }),
     steps: path(
         delay('1d', {

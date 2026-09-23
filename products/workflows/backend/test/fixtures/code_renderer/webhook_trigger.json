@@ -1,0 +1,59 @@
+{
+    "key": "webhook-trigger",
+    "name": "Webhook trigger",
+    "description": "",
+    "status": "draft",
+    "exit_condition": "exit_only_at_end",
+    "variables": [],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Webhook trigger",
+            "description": "A webhook starts this workflow.",
+            "type": "trigger",
+            "config": {
+                "type": "webhook",
+                "template_id": "template-source-webhook",
+                "inputs": {
+                    "event": {
+                        "value": "{request.body.event}",
+                        "order": 0
+                    },
+                    "distinct_id": {
+                        "value": "{request.body.distinct_id}",
+                        "order": 1
+                    }
+                }
+            }
+        },
+        {
+            "id": "wait_a_day",
+            "name": "Wait a day",
+            "type": "delay",
+            "config": {
+                "delay_duration": "1d"
+            }
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "The webhook workflow finished.",
+            "type": "exit",
+            "config": {
+                "reason": "Done"
+            }
+        }
+    ],
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "wait_a_day",
+            "type": "continue"
+        },
+        {
+            "from": "wait_a_day",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ]
+}

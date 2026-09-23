@@ -2,6 +2,7 @@
     "key": "welcome-email",
     "name": "Welcome email",
     "description": "",
+    "status": "draft",
     "exit_condition": "exit_only_at_end",
     "variables": [],
     "actions": [
@@ -139,6 +140,5 @@
             "to": "exit_node",
             "type": "continue"
         }
-    ],
-    "status": "draft"
+    ]
 }

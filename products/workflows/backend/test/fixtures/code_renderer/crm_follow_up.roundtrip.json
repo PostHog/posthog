@@ -2,6 +2,7 @@
     "key": "crm-follow-up",
     "name": "CRM follow up",
     "description": "",
+    "status": "draft",
     "exit_condition": "exit_only_at_end",
     "variables": [],
     "actions": [
@@ -80,6 +81,21 @@
                                     ],
                                     "type": "person"
                                 }
+                            ],
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "pro",
+                                32,
+                                "plan",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                11
                             ]
                         }
                     },
@@ -95,6 +111,19 @@
                                     ],
                                     "type": "event"
                                 }
+                            ],
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%/pricing%",
+                                32,
+                                "$current_url",
+                                32,
+                                "properties",
+                                1,
+                                2,
+                                17
                             ]
                         }
                     }
@@ -195,6 +224,5 @@
             "type": "branch",
             "index": 1
         }
-    ],
-    "status": "draft"
+    ]
 }

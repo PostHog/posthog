@@ -6,8 +6,8 @@ returns and writes the source back, so the two stay inverses. The golden fixture
 as its `.ts` byte for byte, and a `.roundtrip.json` holds what that `.ts` emits where it differs
 from the stored `.json`.
 
-Everything the SDK cannot express stays visible. A step with no constructor keeps its place in the
-path as a commented JSON block, a lost setting becomes a `CodeWarning`, and the file opens with the
+Everything the SDK cannot express stays visible. A step or trigger that needs a loose type uses the
+SDK pass-through helpers, a lost setting becomes a `CodeWarning`, and the file opens with the
 warnings as a comment so an agent reading the source alone sees the gaps.
 """
 
@@ -34,7 +34,7 @@ _DERIVED_INPUT_KEYS = frozenset({"bytecode", "bytecode_error", "transpiled", "or
 # Keys PostHog compiles onto a branch condition's filters.
 _DERIVED_FILTER_KEYS = frozenset({"bytecode", "bytecode_error", "source"})
 _CONDITION_CONSTRUCTORS = {"person": "person", "event": "eventProperty", "group": "group"}
-_OPERATORS = frozenset({"exact", "is_not", "icontains", "not_icontains", "is_set", "is_not_set", "gt", "lt"})
+_SET_OPERATORS = frozenset({"is_set", "is_not_set"})
 _WEBHOOK_INPUTS = frozenset({"url", "method", "body", "headers", "signing_secret"})
 _WEBHOOK_METHODS = frozenset({"POST", "PUT", "PATCH", "GET", "DELETE"})
 _VARIABLE_TYPES = frozenset({"string", "number", "boolean"})
@@ -97,7 +97,11 @@ def _quote(value: str) -> str:
     escaped = (
         value.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
     )
-    escaped = re.sub(r"[\x00-\x1f]", lambda match: f"\\x{ord(match.group(0)):02x}", escaped)
+    escaped = re.sub(
+        r"[\x00-\x1f\u2028\u2029]",
+        lambda match: f"\\x{ord(match.group(0)):02x}" if ord(match.group(0)) < 128 else f"\\u{ord(match.group(0)):04x}",
+        escaped,
+    )
     return f"'{escaped}'"
 
 
@@ -258,11 +262,11 @@ class _Renderer:
         self.warnings: list[CodeWarning] = []
         self.imports: set[str] = set()
         self.visited: set[str] = set()
-        # The steps inside the arms of a branch that is kept as a comment. They are placed
-        # nowhere, so they render nothing and warn once each.
+        # The steps inside an arm that cannot be kept are placed nowhere, so they render nothing.
         self.dropped: set[str] = set()
         # Which arm of the stored branch each rendered arm came from, after empty arms are dropped.
         self.kept_arms: dict[str, list[int]] = {}
+        self.pass_through: list[str] = []
         # The secret variable each step names, so two distinct steps naming one variable warn.
         self.secret_owner: dict[str, str] = {}
         # The step calls by action id, without their `id` option, and the comment blocks of the
@@ -338,21 +342,19 @@ class _Renderer:
                 placements.append(_Placement(action=action, arms=arms))
                 break
             arms = None
-            if action.get("type") == "conditional_branch":
+            if self.branch_to.get(node):
                 arms = self.walk_arms(action, following)
-            elif self.branch_to.get(node):
-                self.warn(
-                    node, f'The branch edges out of "{self._name(action)}" are dropped. Only its next step is kept.'
-                )
             placements.append(_Placement(action=action, arms=arms))
             node = following
         return tuple(placements)
 
     def walk_arms(self, action: dict[str, Any], rejoin: str) -> tuple[tuple[_Placement, ...], ...]:
-        conditions = (action.get("config") or {}).get("conditions") or []
         targets = self.branch_to.get(action["id"], {})
+        conditions = (action.get("config") or {}).get("conditions") or []
+        arm_count = len(conditions) if action.get("type") == "conditional_branch" else max(targets, default=-1) + 1
         arms: list[tuple[_Placement, ...]] = []
-        for index, condition in enumerate(conditions):
+        for index in range(arm_count):
+            condition = conditions[index] if index < len(conditions) else None
             target = targets.get(index)
             arm_name = condition.get("name") if isinstance(condition, dict) else None
             if target is None:
@@ -393,9 +395,10 @@ class _Renderer:
             return
         kind = action.get("type")
         config = _dict(action.get("config"))
-        self.warn_step_settings(action)
         call: _Call | None = None
-        if kind == "delay":
+        if self.needs_pass_through(action, config, placement.arms):
+            call = self.render_pass_through_step(action, config, placement.arms or ())
+        elif kind == "delay":
             call = self.render_delay(action, config)
         elif kind == "function":
             call = self.render_function(action, config)
@@ -404,46 +407,34 @@ class _Renderer:
         elif kind == "conditional_branch":
             call = self.render_branch(action, config, placement.arms or ())
         if call is None:
-            self.warn(
-                action["id"],
-                f'The {kind} step "{self._name(action)}" has no constructor in {PACKAGE}. It is kept in place as a comment.',
-            )
-            for arm in placement.arms or ():
-                for inner in self._flatten(arm):
-                    self.dropped.add(inner.id)
-                    self.warn(
-                        inner.id,
-                        f'"{inner.name}" sits inside "{self._name(action)}", which is kept as a comment, so it is dropped.',
-                    )
-            self.comments[action["id"]] = _Comment(
-                (
-                    f'The {kind} step "{self._name(action)}" is kept as JSON. Replace it or remove it before you push.',
-                    *_json_lines(action),
-                )
-            )
-        else:
-            self.calls[action["id"]] = call
+            call = self.render_pass_through_step(action, config, placement.arms or ())
+        self.calls[action["id"]] = call
 
-    def warn_step_settings(self, action: dict[str, Any]) -> None:
-        name = self._name(action)
+    def needs_pass_through(
+        self, action: dict[str, Any], config: dict[str, Any], arms: tuple[tuple[_Placement, ...], ...] | None
+    ) -> bool:
+        kind = action.get("type")
+        if kind not in {"delay", "function", "function_email", "conditional_branch"}:
+            return True
+        if arms is not None and kind != "conditional_branch":
+            return True
         filters = action.get("filters")
-        if isinstance(filters, dict) and any(
-            filters.get(key) for key in ("events", "actions", "properties", "filter_test_accounts")
-        ):
-            self.warn(
-                action["id"],
-                f'The conditions that gate "{name}" are dropped. A step cannot carry its own filters in {PACKAGE}.',
+        if isinstance(filters, dict) and _is_set(filters):
+            return True
+        if _is_set(action.get("on_error")) or _is_set(action.get("output_variable")):
+            return True
+        if kind == "delay":
+            duration = config.get("delay_duration")
+            match = _DURATION.match(duration) if isinstance(duration, str) else None
+            return (
+                set(config) != {"delay_duration"}
+                or match is None
+                or float(match["amount"]) == 0
+                or float(match["amount"]) > _DURATION_CAPS[match["unit"]]
             )
-        if action.get("on_error") == "abort":
-            self.warn(
-                action["id"],
-                f'"{name}" aborts the run on failure. A step cannot set that in {PACKAGE}, so a push resets it to continue.',
-            )
-        if action.get("output_variable"):
-            self.warn(
-                action["id"],
-                f'The output variable of "{name}" is dropped. {PACKAGE} cannot declare one, so later steps that read it get nothing.',
-            )
+        if kind == "function_email":
+            return self.email_needs_pass_through(action, config)
+        return False
 
     def warn_extra_config(self, action: dict[str, Any], config: dict[str, Any], known: frozenset[str]) -> None:
         for key, value in config.items():
@@ -452,6 +443,43 @@ class _Renderer:
                     action["id"],
                     f'The setting "{key}" of "{self._name(action)}" is dropped. {PACKAGE} has no field for it.',
                 )
+
+    def pass_through_options(
+        self, action: dict[str, Any], config: dict[str, Any], arms: tuple[tuple[_Placement, ...], ...]
+    ) -> dict[str, Any]:
+        options: dict[str, Any] = {
+            **self._base_options(action),
+            "type": action.get("type"),
+            "config": self.render_config(action, config),
+        }
+        for key in ("filters", "on_error", "output_variable"):
+            if _is_set(action.get(key)):
+                options[key] = action[key]
+        if arms:
+            options["branches"] = None
+        return options
+
+    def render_pass_through_step(
+        self, action: dict[str, Any], config: dict[str, Any], arms: tuple[tuple[_Placement, ...], ...]
+    ) -> _Call:
+        if arms:
+            kept: list[int] = []
+            for index, arm in enumerate(arms):
+                if arm:
+                    kept.append(index)
+                else:
+                    self.warn(
+                        action["id"],
+                        f'The branch arm {index} of "{self._name(action)}" has no steps, so it is dropped. A person who matches it continues after the branch either way.',
+                    )
+            self.kept_arms[action["id"]] = kept
+        self.pass_through.append(f"{action['id']} ({self._name(action)})")
+        return _Call(self.use("step"), (self.pass_through_options(action, config, arms),))
+
+    def render_config(self, action: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+        if isinstance(config.get("inputs"), dict):
+            return {**config, "inputs": self.render_inputs(action, config["inputs"], keep_wrappers=True)}
+        return config
 
     def render_delay(self, action: dict[str, Any], config: dict[str, Any]) -> _Call | None:
         duration = config.get("delay_duration")
@@ -484,7 +512,9 @@ class _Renderer:
                 return match["base"]
         return action["id"]
 
-    def render_inputs(self, action: dict[str, Any], inputs: dict[str, Any]) -> dict[str, Any]:
+    def render_inputs(
+        self, action: dict[str, Any], inputs: dict[str, Any], *, keep_wrappers: bool = False
+    ) -> dict[str, Any]:
         values: dict[str, Any] = {}
         for key, raw in inputs.items():
             if isinstance(raw, dict) and raw.get("templating") not in (None, "hog"):
@@ -507,6 +537,8 @@ class _Renderer:
                         f'The input "{key}" of "{self._name(action)}" is a secret. PostHog does not return its value, so set {env} before you push.',
                     )
                 values[key] = _Call(self.use("secret"), (env,))
+            elif keep_wrappers:
+                values[key] = raw
             elif isinstance(raw, dict) and (
                 set(raw) <= _DERIVED_INPUT_KEYS | {"value"}
                 or (raw.get("templating") == "hog" and set(raw) <= _DERIVED_INPUT_KEYS | {"value", "templating"})
@@ -557,6 +589,31 @@ class _Renderer:
         if signing_secret is not None:
             options["signingSecret"] = signing_secret
         return _Call(self.use("webhook"), (options,))
+
+    def email_needs_pass_through(self, action: dict[str, Any], config: dict[str, Any]) -> bool:
+        inputs = _dict(config.get("inputs"))
+        message = _dict(inputs.get("email")).get("value")
+        if not isinstance(message, dict):
+            return False
+        if any(key != "email" and _is_set(value) for key, value in inputs.items()):
+            return True
+        sender = _dict(message.get("from"))
+        ids = sender.get("integrationIds")
+        if not isinstance(ids, list):
+            ids = [sender["integrationId"]] if sender.get("integrationId") is not None else []
+        if not ids:
+            return True
+        recipient = message.get("to")
+        design = message.get("design")
+        html = message.get("html")
+        if design is not None and design != build_html_wrap_design(html if isinstance(html, str) else ""):
+            return True
+        if isinstance(recipient, dict) and _is_set({k: v for k, v in recipient.items() if k != "email"}):
+            return True
+        for key, value in message.items():
+            if key not in ("from", "to", "subject", "text", "html", "design", "preheader") and _is_set(value):
+                return True
+        return False
 
     def render_email(self, action: dict[str, Any], config: dict[str, Any]) -> _Call | None:
         inputs = _dict(config.get("inputs"))
@@ -629,26 +686,36 @@ class _Renderer:
         operator = condition.get("operator")
         if constructor is None or not isinstance(key, str) or not isinstance(operator, str):
             return None
-        if operator not in _OPERATORS:
-            self.warn(
-                action_id,
-                f'The operator "{operator}" on "{key}" is not one {PACKAGE} declares. The file will not type-check until you change it.',
-            )
+        allowed = {"key", "operator", "type", "value"}
+        if kind == "group":
+            allowed.add("group_type_index")
         for extra in condition:
-            if extra not in ("key", "operator", "type", "value"):
+            if extra not in allowed:
                 self.warn(
                     action_id,
                     f'The field "{extra}" of the condition on "{key}" is dropped. {PACKAGE} has no field for it.',
                 )
-        args: tuple[Any, ...] = (key, operator)
-        if condition.get("value") is not None:
-            if not isinstance(condition["value"], list):
+        if operator in _SET_OPERATORS:
+            value = condition.get("value")
+            if value not in (None, operator):
                 self.warn(
                     action_id,
-                    f'The condition on "{key}" compares against a single value. {PACKAGE} takes a list, so the file will not type-check until you wrap it in [].',
+                    f'The condition on "{key}" uses "{operator}" but also has a value. {PACKAGE} ignores that value for this operator.',
                 )
-            args = (*args, condition["value"])
-        return _Call(self.use(constructor), args)
+            if kind == "group":
+                group_type_index = condition.get("group_type_index")
+                if not isinstance(group_type_index, int):
+                    return None
+                return _Call(self.use("group"), (group_type_index, key, operator))
+            return _Call(self.use(constructor), (key, operator))
+        if condition.get("value") is None:
+            return None
+        if kind == "group":
+            group_type_index = condition.get("group_type_index")
+            if not isinstance(group_type_index, int):
+                return None
+            return _Call(self.use("group"), (group_type_index, key, operator, condition["value"]))
+        return _Call(self.use(constructor), (key, operator, condition["value"]))
 
     def render_branch(
         self, action: dict[str, Any], config: dict[str, Any], placed_arms: tuple[tuple[_Placement, ...], ...]
@@ -677,9 +744,11 @@ class _Renderer:
                 return None
             if any(filters.get(key) for key in filters if key not in _DERIVED_FILTER_KEYS and key != "properties"):
                 return None
+            if any(isinstance(entry, dict) and entry.get("type") == "event" for entry in properties):
+                return self.render_pass_through_step(action, config, placed_arms)
             when = [self.render_condition(action["id"], entry) for entry in properties]
             if any(entry is None for entry in when):
-                return None
+                return self.render_pass_through_step(action, config, placed_arms)
             # `then` is filled once every arm's steps are rendered, because a step inside an arm
             # may be a re-placement of a step that comes earlier in the path.
             arms.append({"name": condition.get("name", ""), "when": when, "then": None})
@@ -750,9 +819,31 @@ class _Renderer:
             return _Identifier(const)
         call = self.calls[action_id]
         if placement.arms is not None:
-            for index, spec in zip(self.kept_arms[action_id], call.args[-1]["branches"]):
-                spec["then"] = _Call(self.use("path"), tuple(self.node_for(entry) for entry in placement.arms[index]))
+            options = call.args[-1]
+            if "branches" in options:
+                if call.name == "step":
+                    options["branches"] = [
+                        _Call(self.use("path"), tuple(self.node_for(entry) for entry in placement.arms[index]))
+                        for index in self.kept_arms[action_id]
+                    ]
+                else:
+                    for index, spec in zip(self.kept_arms[action_id], options["branches"]):
+                        spec["then"] = _Call(
+                            self.use("path"), tuple(self.node_for(entry) for entry in placement.arms[index])
+                        )
         return self.with_id(call, placement.action)
+
+    def action_options(self, action: dict[str, Any]) -> dict[str, Any]:
+        options: dict[str, Any] = {}
+        name = self._name(action)
+        if name != "Trigger" and action.get("type") == "trigger":
+            options["name"] = name
+        if name != "Exit" and action.get("type") == "exit":
+            options["name"] = name
+        description = action.get("description")
+        if _is_set(description):
+            options["description"] = description
+        return options
 
     def render_trigger(self, trigger: dict[str, Any] | None) -> Any:
         if trigger is None:
@@ -760,30 +851,21 @@ class _Renderer:
             return _Comment(("Add the trigger here: on: onEvent({ event: '...' }) or on: onSchedule().",))
         config = _dict(trigger.get("config"))
         kind = config.get("type")
+        trigger_options = self.action_options(trigger)
         if kind == "schedule":
-            return _Call(self.use("onSchedule"), ())
+            return _Call(self.use("onSchedule"), (trigger_options,) if trigger_options else ())
         filters = _dict(config.get("filters"))
         events = [event for event in filters.get("events") or [] if isinstance(event, dict)]
         if kind == "event" and events and events[0].get("type") == "events" and isinstance(events[0].get("id"), str):
             first = events[0]
-            if len(events) > 1:
-                self.warn(
-                    self.trigger_id,
-                    f"Only the first of the {len(events)} trigger events is kept. onEvent takes one event.",
-                )
-            if filters.get("actions"):
-                self.warn(self.trigger_id, "The actions in the trigger are dropped. onEvent takes an event name.")
-            if filters.get("properties"):
-                self.warn(
-                    self.trigger_id,
-                    "The trigger conditions that apply to every event are dropped. onEvent takes conditions on the event only.",
-                )
-            if filters.get("filter_test_accounts"):
-                self.warn(
-                    self.trigger_id,
-                    f"The trigger filters out test accounts. {PACKAGE} cannot set that, so a push turns it off.",
-                )
-            options: dict[str, Any] = {"event": first["id"]}
+            if (
+                len(events) > 1
+                or filters.get("actions")
+                or filters.get("properties")
+                or filters.get("filter_test_accounts")
+            ):
+                return _Call(self.use("trigger"), (config, trigger_options) if trigger_options else (config,))
+            options: dict[str, Any] = {"event": first["id"], **trigger_options}
             properties = []
             for entry in first.get("properties") or []:
                 condition = self.render_condition(self.trigger_id, entry)
@@ -797,13 +879,7 @@ class _Renderer:
             if properties:
                 options["properties"] = properties
             return _Call(self.use("onEvent"), (options,))
-        self.warn(
-            self.trigger_id,
-            f'The trigger type "{kind}" has no constructor in {PACKAGE}. Add `on` by hand before you push.',
-        )
-        return _Comment(
-            ("The trigger is kept as JSON. Replace it with onEvent(...) or onSchedule():", *_json_lines(config))
-        )
+        return _Call(self.use("trigger"), (config, trigger_options) if trigger_options else (config,))
 
     def render_variables(self) -> list[dict[str, Any]]:
         variables = self.definition.get("variables")
@@ -818,7 +894,10 @@ class _Renderer:
                     f'The variable "{key}" has the type "{variable.get("type")}", which {PACKAGE} cannot declare. It is dropped.',
                 )
                 continue
-            rendered.append({"key": key, "type": variable["type"], "default": variable.get("default", "")})
+            rendered_variable = {"key": key, "type": variable["type"], "default": variable.get("default", "")}
+            if isinstance(variable.get("label"), str):
+                rendered_variable["label"] = variable["label"]
+            rendered.append(rendered_variable)
         return rendered
 
     def render(self) -> RenderedWorkflowCode:
@@ -828,6 +907,8 @@ class _Renderer:
         stored_key = definition.get("key")
         has_stored_key = isinstance(stored_key, str) and bool(stored_key)
         key = stored_key if has_stored_key else _kebab(name)
+        if not has_stored_key and key.startswith("replace-me-"):
+            key = f"copied-{key.removeprefix('replace-me-')}"
         if not has_stored_key:
             self.warn(
                 None,
@@ -835,7 +916,7 @@ class _Renderer:
             )
 
         start = self.continue_to.get(self.trigger_id)
-        if start is None:
+        if start is None or start == self.exit_id:
             self.warn(self.trigger_id, "The trigger leads to no step. The workflow has no steps.")
             placements: tuple[_Placement, ...] = ()
         else:
@@ -853,6 +934,9 @@ class _Renderer:
         options: dict[str, Any] = {"key": key, "name": name}
         if definition.get("description"):
             options["description"] = definition["description"]
+        status = definition.get("status")
+        if status in {"draft", "active", "archived"}:
+            options["status"] = status
         conversion = _dict(definition.get("conversion"))
         has_conversion_goal = _is_set(conversion.get("filters")) or _is_set(conversion.get("events"))
         exit_condition = definition.get("exit_condition") or _DEFAULT_EXIT_CONDITION
@@ -886,12 +970,40 @@ class _Renderer:
         if export_name in self.imports:
             export_name += "Workflow"
         self.name_consts({*self.imports, export_name})
-        options["steps"] = _Call("path", tuple(self.node_for(placement) for placement in placements))
-        options["exit"] = {"reason": reason if isinstance(reason, str) else ""}
+        if placements:
+            options["steps"] = _Call("path", tuple(self.node_for(placement) for placement in placements))
+        else:
+            options["steps"] = _Call(
+                "path",
+                (
+                    _Call(
+                        self.use("step"),
+                        (
+                            {
+                                "type": "noop",
+                                "name": "No operation",
+                                "config": {},
+                                "id": "no_operation",
+                            },
+                        ),
+                    ),
+                ),
+            )
+            self.pass_through.append("no_operation (No operation)")
+            self.warn(
+                None,
+                "The workflow has no steps. A no-operation step is added so the file loads, but remove it before you push.",
+            )
+        exit_options = {"reason": reason if isinstance(reason, str) else ""}
+        if exit_action is not None:
+            exit_options.update(self.action_options(exit_action))
+        options["exit"] = exit_options
 
         header = []
-        if self.warnings:
+        if self.warnings or self.pass_through:
             header.append(f"// {PACKAGE} cannot express everything in this workflow. Review these before you push:")
+            if self.pass_through:
+                header.append(_comment_line("", f"- Pass-through steps: {', '.join(self.pass_through)}."))
             for warning in self.warnings:
                 prefix = f"{warning.action_id}: " if warning.action_id else ""
                 header.append(_comment_line("", f"- {prefix}{warning.message}"))
