@@ -25,8 +25,8 @@ export function NavTabApps(): JSX.Element {
                     type="search"
                     size="small"
                     className="min-h-[30px]"
-                    placeholder="Search apps"
-                    aria-label="Search apps"
+                    placeholder="Filter apps"
+                    aria-label="Filter apps"
                     value={search}
                     onChange={setSearch}
                     fullWidth
