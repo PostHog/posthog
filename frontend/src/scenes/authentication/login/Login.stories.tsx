@@ -6,6 +6,7 @@ import {
 } from 'scenes/authentication/shared/pendingOAuthConnection.mock'
 
 import type { Meta, StoryFn } from '@storybook/react'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -27,6 +28,7 @@ type StoryArgs = {
     pendingOAuthConnection: boolean
     arrivedFromWebsite: boolean
     hasLoggedInBefore: boolean
+    arrivedFromInvite: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -56,6 +58,7 @@ const meta: Meta<StoryArgs> = {
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
         arrivedFromWebsite: { control: 'boolean', name: 'Arrived from posthog.com' },
         hasLoggedInBefore: { control: 'boolean', name: 'Has logged in before' },
+        arrivedFromInvite: { control: 'boolean', name: 'Bounced here from an invite link' },
     },
     args: {
         cloud: true,
@@ -69,6 +72,7 @@ const meta: Meta<StoryArgs> = {
         pendingOAuthConnection: false,
         arrivedFromWebsite: false,
         hasLoggedInBefore: true,
+        arrivedFromInvite: false,
     },
 }
 export default meta
@@ -85,6 +89,7 @@ const Template: StoryFn<StoryArgs> = ({
     pendingOAuthConnection,
     arrivedFromWebsite,
     hasLoggedInBefore,
+    arrivedFromInvite,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     // Set synchronously: the scene reads the cookie while it mounts during this same render.
@@ -117,6 +122,20 @@ const Template: StoryFn<StoryArgs> = ({
     useEffect(() => {
         arrivedFromWebsiteLogic.findMounted()?.actions.setArrivedFromWebsite(arrivedFromWebsite)
     }, [arrivedFromWebsite])
+
+    useEffect(() => {
+        router.actions.replace(
+            '/login',
+            arrivedFromInvite
+                ? {
+                      email: 'test@posthog.com',
+                      reason: 'invite_account_exists',
+                      organization_name: 'Hedgebox',
+                      next: '/signup/0197f4a0-0000-0000-0000-000000000000',
+                  }
+                : {}
+        )
+    }, [arrivedFromInvite])
 
     useEffect(() => {
         if (enforcement) {
@@ -171,3 +190,7 @@ ArrivedFromWebsite.args = { arrivedFromWebsite: true }
 export const FirstLoginOnThisBrowser: StoryFn<StoryArgs> = Template.bind({})
 FirstLoginOnThisBrowser.storyName = 'First login on this browser'
 FirstLoginOnThisBrowser.args = { hasLoggedInBefore: false }
+
+export const BouncedFromInviteLink: StoryFn<StoryArgs> = Template.bind({})
+BouncedFromInviteLink.storyName = 'Bounced here from an invite link'
+BouncedFromInviteLink.args = { arrivedFromInvite: true }
