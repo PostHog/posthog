@@ -122,14 +122,15 @@ def reconcile_organization_events_retention(organization: "Organization") -> int
         .annotate(grant_months=F("events_retention_grant__retention_months"))
         .values_list("id", "event_retention_months", "grant_months")
     )
-    team_ids_by_target: dict[int, list[int]] = {}
+    team_ids_by_change: dict[tuple[int, int], list[int]] = {}
     for team_id, current_months, grant_months in rows:
         target_months = events_retention_target_months(organization_months, grant_months)
         if current_months != target_months:
-            team_ids_by_target.setdefault(target_months, []).append(team_id)
+            team_ids_by_change.setdefault((current_months, target_months), []).append(team_id)
     updated = 0
-    for target_months, team_ids in team_ids_by_target.items():
-        updated += Team.objects.filter(pk__in=team_ids).update(
+    for (current_months, target_months), team_ids in team_ids_by_change.items():
+        # Only rows still at the value read above, so a grant saved in between keeps its window.
+        updated += Team.objects.filter(pk__in=team_ids, event_retention_months=current_months).update(
             event_retention_months=target_months, updated_at=timezone.now()
         )
     return updated

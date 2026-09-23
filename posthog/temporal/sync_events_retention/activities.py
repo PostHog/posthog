@@ -64,7 +64,7 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> SyncEventsRe
                 async for grant in TeamEventsRetentionGrant.objects.filter(team_id__in=[team.pk for team in teams])
             }
 
-            teams_to_update: list[Team] = []
+            team_ids_by_change: dict[tuple[int, int], list[int]] = {}
             changes: list[dict] = []
             for team in teams:
                 retention_feature = team.organization.get_available_feature(
@@ -82,19 +82,23 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> SyncEventsRe
                             "retention_months_after": target_months,
                         }
                     )
-                    team.event_retention_months = target_months
-                    teams_to_update.append(team)
+                    team_ids_by_change.setdefault((team.event_retention_months, target_months), []).append(team.pk)
 
-            if teams_to_update and not input.dry_run:
+            batch_updated = 0
+            if input.dry_run:
+                batch_updated = len(changes)
+            elif team_ids_by_change:
                 updated_at = timezone.now()
-                for team in teams_to_update:
-                    team.updated_at = updated_at
-                await Team.objects.abulk_update(teams_to_update, ["event_retention_months", "updated_at"])
+                for (current_months, target_months), team_ids in team_ids_by_change.items():
+                    # Only rows still at the value read above, so a grant saved in between keeps its window.
+                    batch_updated += await Team.objects.filter(
+                        pk__in=team_ids, event_retention_months=current_months
+                    ).aupdate(event_retention_months=target_months, updated_at=updated_at)
                 # Per batch and off-thread so a mass change can't stall heartbeats or overflow the client queue.
                 await asyncio.to_thread(_capture_retention_changes, changes)
 
             total_processed += len(teams)
-            total_updated += len(teams_to_update)
+            total_updated += batch_updated
             logger.info(f"Processed {total_processed} teams, {total_updated} updated so far...")
 
         if input.dry_run:
