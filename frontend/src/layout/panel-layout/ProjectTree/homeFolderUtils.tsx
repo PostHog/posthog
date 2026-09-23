@@ -36,7 +36,7 @@ export function withHomeFolderEmptyState(
                                 ...child,
                                 displayName: (
                                     <span className="flex items-center gap-1 py-1 text-xs">
-                                        <span>Your home folder is empty</span>
+                                        <span>Empty home folder</span>
                                         <Tooltip
                                             title={
                                                 <>

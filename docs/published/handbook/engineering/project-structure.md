@@ -53,7 +53,7 @@ Starred folders in the sidebar use the same "New..." menu and "Empty folder" sta
 With `simple-sidepanel` enabled, each user gets a public `Users/<name>` home folder in each project, starred on creation.
 Names receive a numeric suffix when another folder already uses the path.
 The home-folder record survives deletion, and later visits do not recreate or restar it.
-The user's own folder keeps its home icon after a rename or move and shows "Your home folder is empty" when expanded and empty.
+The user's own folder keeps its home icon after a rename or move and shows "Empty home folder" when expanded and empty.
 An info tooltip explains that everyone in the project can see its contents and shows the folder's current path.
 Creating an item from a starred folder uses the original folder's full path, including its parent folders.
 

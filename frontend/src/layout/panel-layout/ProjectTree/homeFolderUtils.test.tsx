@@ -24,7 +24,7 @@ describe('home folder tree presentation', () => {
         expect(isHomeFolder(item, home)).toBe(own)
         const [result] = withHomeFolderEmptyState([item], home)
         render(<>{result.children?.[0].displayName}</>)
-        expect(!!screen.queryByText('Your home folder is empty')).toBe(own)
+        expect(!!screen.queryByText('Empty home folder')).toBe(own)
         expect(item.children?.[0].name).toBe('Empty folder')
     })
 })
