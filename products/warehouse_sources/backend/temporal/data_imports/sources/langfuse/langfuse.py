@@ -142,6 +142,47 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
+def _parse_row_timestamp(value: Any) -> datetime | None:
+    """Read the incremental field off a row as an aware UTC datetime, or None if it is unusable."""
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def _advance_from_value(
+    config: LangfuseEndpointConfig, items: list[dict[str, Any]], from_value: str | None
+) -> str | None:
+    """The from-filter value that lets the next request restart at page 1, or None to keep paging.
+
+    Only a strictly later value is returned. A page whose rows all sit on the current lower bound
+    would otherwise reset to page 1 on the same query and never reach the rows behind it.
+    """
+    if not config.keyset_pagination or not config.default_incremental_field:
+        return None
+
+    latest: datetime | None = None
+    for item in items:
+        parsed = _parse_row_timestamp(item.get(config.default_incremental_field))
+        if parsed is not None and (latest is None or parsed > latest):
+            latest = parsed
+    if latest is None:
+        return None
+
+    if from_value is not None:
+        current = _parse_row_timestamp(from_value)
+        # The bound is formatted to whole seconds, so it always rounds down and never skips a row.
+        if current is None or latest.replace(microsecond=0) <= current:
+            return None
+
+    return _format_incremental_value(latest)
+
+
 def _from_filter_value(
     config: LangfuseEndpointConfig,
     should_use_incremental_field: bool,
@@ -366,11 +407,18 @@ def get_rows(
         items = data.get("data") or []
         meta = data.get("meta") or {}
 
+        next_from_value = from_value
         if config.pagination == "page":
             # totalPages is documented as always present; stop rather than loop if it ever isn't.
             total_pages = meta.get("totalPages")
             has_next = bool(items) and total_pages is not None and page < total_pages
-            next_state = LangfuseResumeConfig(page=page + 1, from_value=from_value)
+            advanced = _advance_from_value(config, items, from_value) if has_next else None
+            if advanced is not None:
+                next_from_value = advanced
+                next_page = 1
+            else:
+                next_page = page + 1
+            next_state = LangfuseResumeConfig(page=next_page, from_value=next_from_value)
         else:
             next_cursor = meta.get("cursor")
             # A compliant server never hands back the cursor it was just given; looping on it would
@@ -399,7 +447,10 @@ def get_rows(
             raise LangfusePaginationError(f"{PAGE_LIMIT_ERROR}: {pages_fetched} pages fetched from {endpoint}")
 
         if config.pagination == "page":
-            page += 1
+            page = next_state.page or 1
+            if next_from_value != from_value:
+                from_value = next_from_value
+                base_params = _build_params(config, from_value)
         else:
             cursor = meta.get("cursor")
 
