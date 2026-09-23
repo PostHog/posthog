@@ -69,6 +69,13 @@ SHELL_C_RE = re.compile(
     rf"(?P<operand>(?:{DQUOTED}|{SQUOTED}|{UNQUOTED})+)",
 )
 VAR_REF_RE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_]\w*)[^}]*\}|(?P<plain>[A-Za-z_]\w*))")
+EVAL_RE = re.compile(r"\beval\b")
+# What `eval` is the head of ends here, so the next command's arguments are not
+# read as eval's.
+COMMAND_END_RE = re.compile(r"[;&|\n()]")
+# `eval` counts only as a command word. After anything else it is an argument or
+# a literal, and re-parses nothing.
+COMMAND_HEAD_RE = re.compile(r"(?:[;&|\n(){]|\b(?:then|else|do))[ \t]*$")
 # Any `${{ ... }}` block, then the input names inside it. Matching only a bare
 # `${{ inputs.x }}` missed every transformed form -- `${{ inputs.x || '' }}`,
 # `${{ format('{0}', inputs.x) }}` -- which interpolate exactly the same text.
@@ -237,6 +244,34 @@ def _operand_segments(operand: str) -> Iterator[tuple[str, bool]]:
             yield segment.group("bare"), True
 
 
+def _in_any(spans: list[_Span], index: int) -> bool:
+    return any(span.start <= index < span.end for span in spans)
+
+
+def _eval_argument_spans(script: str, quoted: list[_Span]) -> list[_Span]:
+    """Index ranges `eval` parses a SECOND time, after the shell expands them.
+
+    A quoted reference is one argument, which is why `_spliced_inputs` skips it.
+    `eval` is the exception the skip cannot survive: it joins its arguments and
+    parses the result as a command, so a `#`, `;` or newline in the value still
+    truncates or splits what runs. Anything else that re-parses an argument --
+    a nested `sh -c`, `ssh host "$X"` -- has the same shape; `eval` is the form
+    this repo actually writes.
+    """
+    spans: list[_Span] = []
+    for match in EVAL_RE.finditer(script):
+        before = script[: match.start()]
+        if _in_any(quoted, match.start()) or (before.strip() and not COMMAND_HEAD_RE.search(before)):
+            continue
+        end = len(script)
+        for terminator in COMMAND_END_RE.finditer(script, match.end()):
+            if not _in_any(quoted, terminator.start()):
+                end = terminator.start()
+                break
+        spans.append(_Span(match.end(), end))
+    return spans
+
+
 def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
     """Input names this composite step splices into an inner shell command string."""
     run = step.get("run")
@@ -258,9 +293,12 @@ def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
             # double-quoted or bare segment the OUTER shell expands the variable into
             # the script text first, so a quote in the value closes the quote around
             # it -- the same pre-substitution problem GitHub expressions have.
+            # `eval` is where "one argument" stops being enough; see
+            # `_eval_argument_spans`.
             quoted = [] if outer_expanded else _quoted_spans(script)
+            reparsed = _eval_argument_spans(script, quoted)
             for ref in VAR_REF_RE.finditer(script):
-                if any(span.start <= ref.start() < span.end for span in quoted):
+                if _in_any(quoted, ref.start()) and not _in_any(reparsed, ref.start()):
                     continue
                 name = by_var.get(ref.group("braced") or ref.group("plain") or "")
                 if name is not None:

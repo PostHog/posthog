@@ -2449,6 +2449,26 @@ class TestShellSplitActionArgsCheck:
     @pytest.mark.parametrize(
         ("run", "spliced"),
         [
+            # quoting makes the reference one argument, but `eval` parses that
+            # argument a second time, so the value is read as script anyway
+            ("""sh -c 'eval "$ARGS"'""", True),
+            ("""sh -c 'tool "$OTHER" && eval "$ARGS"'""", True),
+            # eval's command ends at the terminator: $ARGS is tool's argument
+            ("""sh -c 'eval "$OTHER"; tool "$ARGS"'""", False),
+            # `eval` as a literal or an argument re-parses nothing
+            ("""sh -c 'echo "eval $ARGS"'""", False),
+            ("""sh -c 'tool --eval "$ARGS"'""", False),
+        ],
+    )
+    def test_derivation_reads_a_quoted_reference_handed_to_eval(self, tmp_path: Path, run: str, spliced: bool) -> None:
+        # The quoted-reference skip cleared these as safe, which is worse than
+        # missing them: the check affirmatively said a hazardous script had none.
+        self._write_action(tmp_path, "evaluator", run)
+        assert (".github/actions/evaluator" in derive_shell_split_inputs(tmp_path)) is spliced, run
+
+    @pytest.mark.parametrize(
+        ("run", "spliced"),
+        [
             # a shell joins adjacent segments into ONE word, and the outer shell
             # expands the double-quoted and bare ones while doing so
             ("sh -c 'tool '\"$ARGS\"", True),
