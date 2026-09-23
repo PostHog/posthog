@@ -615,6 +615,54 @@ async fn test_delete_persons_tombstone_mode_reports_versions_again_on_retry() {
 }
 
 #[tokio::test]
+async fn test_delete_persons_tombstone_mode_requeues_a_revived_person() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("requeue", None).await.unwrap();
+    ctx.storage
+        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE person_tombstone_publish_queue SET attempts = 12, last_error = 'x', given_up_at = now() WHERE team_id = $1",
+    )
+    .bind(ctx.team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+    for table in ["posthog_person", "posthog_persondistinctid"] {
+        let key = if table == "posthog_person" {
+            "id"
+        } else {
+            "person_id"
+        };
+        sqlx::query(&format!(
+            "UPDATE {table} SET is_deleted = false, version = version + 1 WHERE team_id = $1 AND {key} = $2"
+        ))
+        .bind(ctx.team_id as i32)
+        .bind(person.id)
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+    }
+
+    ctx.storage
+        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .await
+        .unwrap();
+
+    let row: (i64, i32, Option<String>, bool) = sqlx::query_as(
+        "SELECT person_version, attempts, last_error, given_up_at IS NULL FROM person_tombstone_publish_queue WHERE team_id = $1",
+    )
+    .bind(ctx.team_id as i32)
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(row, (3, 0, None, true));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_get_person_tombstones_reports_only_tombstoned_persons() {
     let ctx = TestContext::new().await;
     let tombstoned = ctx.insert_person("get_tombstoned", None).await.unwrap();

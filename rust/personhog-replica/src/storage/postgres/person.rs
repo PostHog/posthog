@@ -1323,9 +1323,13 @@ async fn tombstone_persons_by_uuids(
             SELECT $1, t.person_uuid, t.person_version
             FROM UNNEST($2::uuid[], $3::bigint[]) AS t(person_uuid, person_version)
             ON CONFLICT (team_id, person_uuid) DO UPDATE
-            SET person_version = GREATEST(
-                person_tombstone_publish_queue.person_version, EXCLUDED.person_version
-            )
+            SET person_version = EXCLUDED.person_version,
+                tombstoned_at = now(),
+                attempts = 0,
+                last_attempt_at = NULL,
+                last_error = NULL,
+                given_up_at = NULL
+            WHERE EXCLUDED.person_version > person_tombstone_publish_queue.person_version
             "#,
             team_id as i32,
             &queued_uuids,
