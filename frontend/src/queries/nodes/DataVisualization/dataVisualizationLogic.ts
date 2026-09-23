@@ -63,6 +63,7 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
 import { humanizeEventColumnValue } from './eventColumnLabels'
+import { parseSeriesValue } from './seriesValues'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
@@ -305,6 +306,29 @@ export const columnsFromResponse = (response: AnyResponseType | null): Column[] 
         'columns' in response && Array.isArray(response.columns) ? response.columns : [],
         'types' in response && Array.isArray(response.types) ? response.types : []
     )
+}
+
+type DataVisualizationResponse = dataVisualizationLogicValues['response']
+
+interface XAxisBucket {
+    xValue: any
+    rows: any[]
+}
+
+const resultRowsFromResponse = (response: DataVisualizationResponse): any[] => {
+    if (!response) {
+        return []
+    }
+
+    if ('results' in response && Array.isArray(response.results)) {
+        return response.results
+    }
+
+    if ('result' in response && Array.isArray(response.result)) {
+        return response.result
+    }
+
+    return []
 }
 
 const deriveDefaultAxes = (columns: Column[]): { xAxis: string | null; yAxis: string[] } => {
@@ -683,6 +707,7 @@ export interface dataVisualizationLogicValues {
     tabularColumns: AxisSeries<any>[]
     tabularData: TableDataCell<any>[][]
     visualizationType: ChartDisplayType
+    xAxisBuckets: XAxisBucket[] | null
     xData: AxisSeries<string> | null
     yData: AxisSeries<number | null>[]
 }
@@ -1475,40 +1500,67 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (s) => [s.query],
             (query: DataVisualizationNode): boolean => query.tableSettings?.transpose ?? false,
         ],
+        /**
+         * The rows behind each distinct x-axis value, in the order the values first appear. A chart
+         * draws one point per bucket, so a y-series with no row in a bucket leaves a gap that
+         * `showNullsAsZero` can fill. Null keeps one point per row instead: a scatter plot needs that
+         * to keep its point cloud, and a chart with no x-axis column has nothing to bucket by.
+         */
+        xAxisBuckets: [
+            (s) => [s.selectedXAxis, s.response, s.columns, s.effectiveVisualizationType],
+            (
+                xSeries: string | null,
+                response: DataVisualizationResponse,
+                columns: Column[],
+                visualizationType: ChartDisplayType
+            ): XAxisBucket[] | null => {
+                if (!response || xSeries === null || visualizationType === ChartDisplayType.ScatterPlot) {
+                    return null
+                }
+
+                const column = columns.find((n) => n.name === xSeries)
+                if (!column) {
+                    return null
+                }
+
+                const buckets = new Map<any, any[]>()
+                for (const row of resultRowsFromResponse(response)) {
+                    const xValue = row[column.dataIndex]
+                    const rows = buckets.get(xValue)
+                    if (rows) {
+                        rows.push(row)
+                    } else {
+                        buckets.set(xValue, [row])
+                    }
+                }
+
+                return Array.from(buckets, ([xValue, rows]) => ({ xValue, rows }))
+            },
+        ],
         yData: [
-            (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings, s.effectiveVisualizationType],
+            (s) => [
+                s.selectedYAxis,
+                s.response,
+                s.columns,
+                s.chartSettings,
+                s.effectiveVisualizationType,
+                s.xAxisBuckets,
+            ],
             (
                 ySeries: (SelectedYAxis | null)[] | null,
-                response:
-                    | Record<string, any>
-                    | null
-                    | import('~/queries/schema/schema-general').ErrorTrackingQueryResponse
-                    | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
-                    | import('~/queries/schema/schema-general').HogQLMetadataResponse
-                    | import('~/queries/schema/schema-general').HogQLQueryResponse<any[]>
-                    | import('~/queries/schema/schema-general').HogQueryResponse
-                    | import('~/queries/schema/schema-general').LogAttributesQueryResponse
-                    | import('~/queries/schema/schema-general').LogValuesQueryResponse
-                    | import('~/queries/schema/schema-general').MetricsQueryResponse
-                    | import('~/queries/schema/schema-general').SessionsQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
+                response: DataVisualizationResponse,
                 columns: Column[],
                 chartSettings: ChartSettings,
-                visualizationType: ChartDisplayType
+                visualizationType: ChartDisplayType,
+                xAxisBuckets: XAxisBucket[] | null
             ): AxisSeries<number | null>[] => {
                 if (!response || ySeries === null || ySeries.length === 0) {
                     return [EmptyYAxisSeries]
                 }
 
                 const showNullsAsZero = chartSettings.showNullsAsZero ?? false
-                const data =
-                    'results' in response && Array.isArray(response.results)
-                        ? response.results
-                        : 'result' in response && Array.isArray(response.result)
-                          ? response.result
-                          : []
+                const data = resultRowsFromResponse(response)
+                const rowsPerPoint = xAxisBuckets ? xAxisBuckets.map((bucket) => bucket.rows) : data.map((n) => [n])
 
                 const mappedSeries = visualizationType === ChartDisplayType.Metric ? ySeries.slice(0, 1) : ySeries
                 const seriesData = mappedSeries
@@ -1524,33 +1576,16 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                         return {
                             column,
-                            data: data.map((n) => {
-                                try {
-                                    const multiplier = series.settings.formatting?.style === 'percent' ? 100 : 1
+                            data: rowsPerPoint.map((rows) => {
+                                const values = rows
+                                    .map((n) => parseSeriesValue(n[column.dataIndex], series.settings.formatting))
+                                    .filter((value): value is number => value !== null)
 
-                                    if (series.settings.formatting?.decimalPlaces) {
-                                        return parseFloat(
-                                            (parseFloat(n[column.dataIndex]) * multiplier).toFixed(
-                                                series.settings.formatting.decimalPlaces
-                                            )
-                                        )
-                                    }
-
-                                    const isNotANumber =
-                                        Number.isNaN(n[column.dataIndex]) ||
-                                        n[column.dataIndex] === undefined ||
-                                        n[column.dataIndex] === null
-                                    if (isNotANumber) {
-                                        return showNullsAsZero ? 0 : null
-                                    }
-
-                                    const isInt = Number.isInteger(n[column.dataIndex])
-                                    return isInt
-                                        ? parseInt(n[column.dataIndex], 10) * multiplier
-                                        : parseFloat(n[column.dataIndex]) * multiplier
-                                } catch {
+                                if (values.length === 0) {
                                     return showNullsAsZero ? 0 : null
                                 }
+
+                                return values.reduce((a, b) => a + b, 0)
                             }),
                             settings: series.settings,
                         }
@@ -1561,25 +1596,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         xData: [
-            (s) => [s.selectedXAxis, s.response, s.columns],
+            (s) => [s.selectedXAxis, s.response, s.columns, s.xAxisBuckets],
             (
                 xSeries: string | null,
-                response:
-                    | Record<string, any>
-                    | null
-                    | import('~/queries/schema/schema-general').ErrorTrackingQueryResponse
-                    | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
-                    | import('~/queries/schema/schema-general').HogQLMetadataResponse
-                    | import('~/queries/schema/schema-general').HogQLQueryResponse<any[]>
-                    | import('~/queries/schema/schema-general').HogQueryResponse
-                    | import('~/queries/schema/schema-general').LogAttributesQueryResponse
-                    | import('~/queries/schema/schema-general').LogValuesQueryResponse
-                    | import('~/queries/schema/schema-general').MetricsQueryResponse
-                    | import('~/queries/schema/schema-general').SessionsQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
-                columns: Column[]
+                response: DataVisualizationResponse,
+                columns: Column[],
+                xAxisBuckets: XAxisBucket[] | null
             ): AxisSeries<string> | null => {
                 if (!response) {
                     return {
@@ -1596,8 +1618,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     }
                 }
 
-                const data =
-                    ('results' in response ? response.results : 'result' in response ? response.result : null) ?? []
+                const data = resultRowsFromResponse(response)
 
                 if (xSeries === null) {
                     return {
@@ -1619,9 +1640,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return null
                 }
 
+                const xValues = xAxisBuckets
+                    ? xAxisBuckets.map((bucket) => bucket.xValue)
+                    : data.map((n: any) => n[column.dataIndex])
+
                 return {
                     column,
-                    data: data.map((n: any) => humanizeEventColumnValue(column.name, n[column.dataIndex])),
+                    data: xValues.map((value) => humanizeEventColumnValue(column.name, value)),
                 }
             },
         ],

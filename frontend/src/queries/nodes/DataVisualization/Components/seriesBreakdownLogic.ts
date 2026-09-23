@@ -23,6 +23,7 @@ import type { TraceSpansTreeQueryResponse } from '../../../schema/schema-general
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { Column } from '../dataVisualizationLogic'
 import { humanizeEventColumnValue } from '../eventColumnLabels'
+import { parseSeriesValue } from '../seriesValues'
 
 /**
  * Sentinel used to key result customizations for null / undefined breakdown values.
@@ -73,30 +74,6 @@ export const EmptyBreakdownSeries: BreakdownSeriesData<number | null> = {
         data: [],
     },
     seriesData: [],
-}
-
-const parseBreakdownSeriesValue = (value: unknown, selectedYAxis: SelectedYAxis): number | null => {
-    if (value === undefined || value === null || Number.isNaN(value)) {
-        return null
-    }
-
-    try {
-        const multiplier = selectedYAxis.settings.formatting?.style === 'percent' ? 100 : 1
-
-        if (selectedYAxis.settings.formatting?.decimalPlaces) {
-            const parsed = parseFloat(
-                (parseFloat(String(value)) * multiplier).toFixed(selectedYAxis.settings.formatting.decimalPlaces)
-            )
-            return Number.isNaN(parsed) ? null : parsed
-        }
-
-        const parsed = Number.isInteger(value)
-            ? parseInt(String(value), 10) * multiplier
-            : parseFloat(String(value)) * multiplier
-        return Number.isNaN(parsed) ? null : parsed
-    } catch {
-        return null
-    }
 }
 
 export interface SeriesBreakdownLogicProps {
@@ -434,7 +411,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                         const dataset = xData.map((xValue) => {
                             const numericValues = filteredData
                                 .filter((n) => n[xColumn.dataIndex] === xValue)
-                                .map((n) => parseBreakdownSeriesValue(n[yColumn.dataIndex], selectedYAxis))
+                                .map((n) => parseSeriesValue(n[yColumn.dataIndex], selectedYAxis.settings.formatting))
                                 .filter((value): value is number => value !== null)
 
                             if (numericValues.length === 0) {
