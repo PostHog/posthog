@@ -11,13 +11,16 @@ from products.engineering_analytics.backend.facade.contracts import GitHubSource
 from products.engineering_analytics.backend.logic.sources import (
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
+    TEAM_MEMBERS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
     JobSourceTables,
+    TeamMembershipTable,
     list_github_sources,
     resolve_github_tables,
     resolve_job_source_tables,
+    resolve_team_membership_table,
 )
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
@@ -86,6 +89,36 @@ class TestResolveGitHubTables(BaseTest):
         tables = resolve_github_tables(team=self.team)
 
         assert (tables.issue_events, tables.issue_events_team_requests) == ("flaggithub_issue_events", expected)
+
+    @parameterized.expand(
+        [
+            # GitHub's documented member object omits role, so probing keeps the roster read off a
+            # column a snapshot may not have.
+            ("with_roles", ["login", "team_slug", "role"], True),
+            ("without_roles", ["login", "team_slug"], False),
+        ]
+    )
+    def test_resolves_membership_snapshot_without_the_pull_request_endpoints(
+        self, _name: str, columns: list[str], expected_roles: bool
+    ) -> None:
+        # Membership syncs on its own, so routing must not depend on pull_requests + workflow_runs.
+        source = self._connect(prefix="roster", schemas=[])
+        table = create_warehouse_table_row(self.team, name="rostergithub_team_members", source=source)
+        table.columns = {
+            column: {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"} for column in columns
+        }
+        table.save()
+        link_schema(self.team, source, name=TEAM_MEMBERS_SCHEMA, table=table, should_sync=True)
+
+        assert resolve_team_membership_table(team=self.team) == TeamMembershipTable(
+            table="rostergithub_team_members", has_role=expected_roles
+        )
+
+    def test_resolves_no_membership_snapshot_when_the_endpoint_is_unsynced(self) -> None:
+        # The endpoint is off by default, so a connected source without it reports "not synced"
+        # rather than resolving some other table.
+        self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        assert resolve_team_membership_table(team=self.team) is None
 
     def test_repo_scoped_resolution_survives_non_dict_job_inputs(self) -> None:
         # job_inputs is an EncryptedJSONField that can hold any JSON value; the repo-first ordering
