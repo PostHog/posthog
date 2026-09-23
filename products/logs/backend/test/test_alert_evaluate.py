@@ -280,9 +280,9 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # resolve replies into its own thread under a different name.
         with team_scope(self.team.id):
             PlatformAlertConfiguration.objects.filter(id=configuration.id).update(name="Renamed")
-        assert announcement(self.team.id, delivery.configuration_id, delivery.evaluation_key).alert_name == (
-            configuration.name
-        )
+        reread = announcement(self.team.id, delivery.configuration_id, delivery.evaluation_key)
+        assert reread is not None
+        assert reread.alert_name == configuration.name
         # One message carrying every transition, so fan-in changes the partition and not this.
         assert len(announced.notifications) == 1
         transitions = announced.notifications[0].transitions
