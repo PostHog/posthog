@@ -11,6 +11,7 @@ mod reason;
 pub use reason::{SessionRecordingDisabledReason, SESSION_RECORDING_DISABLED_REASON_KEY};
 
 use http::HeaderMap;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
@@ -21,6 +22,54 @@ const AUTHORIZED_MOBILE_AND_DESKTOP_CLIENTS: &[&str] = &[
     "posthog-flutter",
     "posthog-unity",
 ];
+
+/// Apply the authorized domain check to a cached config, and report why session
+/// recording is off when it is off.
+///
+/// Removes the internal `domains` field, and sets `sessionRecording` to `false` for a
+/// request that is not on the team's list.
+pub fn sanitize_session_recording(
+    config: &mut Value,
+    headers: &HeaderMap,
+) -> Option<SessionRecordingDisabledReason> {
+    let session_recording = config.get_mut("sessionRecording")?;
+
+    let obj = match session_recording.as_object_mut() {
+        Some(o) => o,
+        // Python already turned recording off for this team
+        None => {
+            return match session_recording.as_bool() {
+                Some(false) => Some(SessionRecordingDisabledReason::NotEnabled),
+                _ => None,
+            }
+        }
+    };
+
+    let domains: Vec<String> = match obj.remove("domains") {
+        Some(Value::Array(domains)) => domains
+            .iter()
+            .filter_map(|d| d.as_str().map(String::from))
+            .collect(),
+        _ => Vec::new(),
+    };
+
+    // Empty domains list means always permitted
+    if domains.is_empty() || on_permitted_domain(&domains, headers) {
+        return None;
+    }
+
+    *session_recording = json!(false);
+    Some(SessionRecordingDisabledReason::DomainNotAllowed)
+}
+
+/// Name on the response which of the causes turned `sessionRecording` off, so that
+/// whoever asks why a recording is missing can read it there.
+pub fn set_session_recording_disabled_reason(
+    config: &mut Value,
+    reason: SessionRecordingDisabledReason,
+) {
+    config[SESSION_RECORDING_DISABLED_REASON_KEY] = json!(reason.as_str());
+}
 
 /// Checks if the request originates from a permitted recording domain.
 ///
@@ -59,12 +108,15 @@ fn parse_domain(url: Option<&str>) -> Option<String> {
         // urlparse accepts it. Replace `*` with a placeholder before parsing,
         // then restore it — this lets wildcard domains like `https://*.example.com`
         // parse correctly.
-        let sanitized = u.replace('*', "_wildcard_");
-        if let Ok(parsed) = url::Url::parse(&sanitized) {
-            parsed.host_str().map(|h| h.replace("_wildcard_", "*"))
-        } else {
-            None
+        if !u.contains('*') {
+            return url::Url::parse(u)
+                .ok()
+                .and_then(|parsed| parsed.host_str().map(String::from));
         }
+        let sanitized = u.replace('*', "_wildcard_");
+        url::Url::parse(&sanitized)
+            .ok()
+            .and_then(|parsed| parsed.host_str().map(|h| h.replace("_wildcard_", "*")))
     })
 }
 
@@ -90,10 +142,9 @@ fn hostname_matches(permitted_domains: &[String], hostname: Option<&str>) -> boo
 
     for permitted_domain in permitted_domains {
         if let Some(suffix) = permitted_domain.strip_prefix("*.") {
-            // Fast path: `*.example.com` → check if hostname ends with `.example.com`
-            // and has at least one character before the dot (bare `example.com` shouldn't match)
-            let dot_suffix = format!(".{suffix}");
-            if hostname.ends_with(&dot_suffix) || hostname_stripped.ends_with(&dot_suffix) {
+            // A bare `example.com` must not match `*.example.com`, so the dot is part of
+            // what the hostname has to end with
+            if hostname.ends_with(&format!(".{suffix}")) {
                 return true;
             }
         } else if permitted_domain.contains('*') {

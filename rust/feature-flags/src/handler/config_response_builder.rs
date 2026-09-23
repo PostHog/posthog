@@ -9,7 +9,8 @@ use crate::{
 };
 use axum::http::HeaderMap;
 use common_replay_domains::{
-    on_permitted_domain, SessionRecordingDisabledReason, SESSION_RECORDING_DISABLED_REASON_KEY,
+    sanitize_session_recording, set_session_recording_disabled_reason,
+    SessionRecordingDisabledReason,
 };
 use limiters::redis::QuotaResource;
 use metrics::counter;
@@ -76,14 +77,19 @@ pub async fn build_response_from_cache(
         };
 
     // Sanitize config for client consumption (removes internal fields, applies domain filtering)
-    sanitize_config_for_client(&mut cached_config, &context.headers);
+    let disabled_reason = sanitize_config_for_client(&mut cached_config, &context.headers);
 
-    if is_recordings_limited {
+    // The quota check runs in real time here, so it outranks whatever the cached config said
+    let disabled_reason = if is_recordings_limited {
         cached_config["sessionRecording"] = json!(false);
-        set_session_recording_disabled_reason(
-            &mut cached_config,
-            SessionRecordingDisabledReason::QuotaLimited,
-        );
+        Some(SessionRecordingDisabledReason::QuotaLimited)
+    } else {
+        disabled_reason
+    };
+
+    if let Some(reason) = disabled_reason {
+        set_session_recording_disabled_reason(&mut cached_config, reason);
+        counter!(SESSION_RECORDING_DISABLED_COUNTER, "reason" => reason.as_str()).increment(1);
     }
 
     response.config = ConfigResponse::from_value(cached_config);
@@ -167,67 +173,20 @@ fn set_cached_quota_limits_without_recordings(response: &mut FlagsResponse) {
 /// - Removes unused public config and survey fields
 /// - Removes `siteAppsJS` (raw JS only needed for array.js bundle, not JSON API)
 /// - Removes `sessionRecording.domains` (internal field, not needed by SDK)
-/// - Sets `sessionRecording` to `false` if request origin not in permitted domains,
-///   and names the reason on the response
-fn sanitize_config_for_client(cached_config: &mut Value, headers: &HeaderMap) {
+/// - Sets `sessionRecording` to `false` if request origin not in permitted domains
+///
+/// Returns why session recording is off, when it is off.
+fn sanitize_config_for_client(
+    cached_config: &mut Value,
+    headers: &HeaderMap,
+) -> Option<SessionRecordingDisabledReason> {
     if let Some(obj) = cached_config.as_object_mut() {
         obj.remove("siteAppsJS");
         obj.remove("token");
     }
     sanitize_surveys_for_client(cached_config);
 
-    if let Some(reason) = sanitize_session_recording(cached_config, headers) {
-        set_session_recording_disabled_reason(cached_config, reason);
-    }
-}
-
-/// Apply the authorized domain check, and report why recording is off when it is off.
-fn sanitize_session_recording(
-    cached_config: &mut Value,
-    headers: &HeaderMap,
-) -> Option<SessionRecordingDisabledReason> {
-    let session_recording = cached_config.get_mut("sessionRecording")?;
-
-    let obj = match session_recording.as_object_mut() {
-        Some(o) => o,
-        // Python already turned recording off for this team
-        None => {
-            return match session_recording.as_bool() {
-                Some(false) => Some(SessionRecordingDisabledReason::NotEnabled),
-                _ => None,
-            }
-        }
-    };
-
-    let domains = obj.remove("domains");
-    let domain_strings: Vec<String> = domains
-        .as_ref()
-        .and_then(Value::as_array)
-        .map(|domains| {
-            domains
-                .iter()
-                .filter_map(|d| d.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Empty domains list means always permitted
-    if domain_strings.is_empty() || on_permitted_domain(&domain_strings, headers) {
-        return None;
-    }
-
-    *session_recording = json!(false);
-    Some(SessionRecordingDisabledReason::DomainNotAllowed)
-}
-
-/// Tell the SDK, and whoever reads the response while diagnosing a missing recording,
-/// which of the three causes turned `sessionRecording` off.
-fn set_session_recording_disabled_reason(
-    cached_config: &mut Value,
-    reason: SessionRecordingDisabledReason,
-) {
-    cached_config[SESSION_RECORDING_DISABLED_REASON_KEY] = json!(reason.as_str());
-    counter!(SESSION_RECORDING_DISABLED_COUNTER, "reason" => reason.as_str()).increment(1);
+    sanitize_session_recording(cached_config, headers)
 }
 
 fn sanitize_surveys_for_client(payload: &mut Value) {
@@ -474,12 +433,12 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://any.site.com".parse().unwrap());
 
-        sanitize_config_for_client(&mut cached, &headers);
+        let reason = sanitize_config_for_client(&mut cached, &headers);
 
         let sr = cached.get("sessionRecording").unwrap();
         assert!(sr.is_object(), "sessionRecording should remain as config");
         assert!(sr.get("domains").is_none(), "domains must be stripped");
-        assert!(cached.get(SESSION_RECORDING_DISABLED_REASON_KEY).is_none());
+        assert!(reason.is_none());
     }
 
     #[test]
@@ -514,7 +473,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://evil.site.com".parse().unwrap());
 
-        sanitize_config_for_client(&mut cached, &headers);
+        let reason = sanitize_config_for_client(&mut cached, &headers);
 
         assert_eq!(
             cached.get("sessionRecording"),
@@ -522,8 +481,8 @@ mod tests {
             "sessionRecording must be false when domain not permitted"
         );
         assert_eq!(
-            cached.get(SESSION_RECORDING_DISABLED_REASON_KEY),
-            Some(&json!("domain_not_allowed")),
+            reason,
+            Some(SessionRecordingDisabledReason::DomainNotAllowed),
             "the response must say the domain is why recording is off"
         );
     }
@@ -542,14 +501,14 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://allowed.example.com".parse().unwrap());
 
-        sanitize_config_for_client(&mut cached, &headers);
+        let reason = sanitize_config_for_client(&mut cached, &headers);
 
         let sr = cached.get("sessionRecording").unwrap();
         assert!(sr.is_object());
         assert_eq!(sr.get("endpoint"), Some(&json!("/s/")));
         assert_eq!(sr.get("consoleLogRecordingEnabled"), Some(&json!(true)));
         assert!(sr.get("domains").is_none(), "domains must be stripped");
-        assert!(cached.get(SESSION_RECORDING_DISABLED_REASON_KEY).is_none());
+        assert!(reason.is_none());
     }
 
     #[test]
@@ -559,12 +518,9 @@ mod tests {
             "sessionRecording": false
         });
 
-        sanitize_config_for_client(&mut cached, &HeaderMap::new());
+        let reason = sanitize_config_for_client(&mut cached, &HeaderMap::new());
 
         assert_eq!(cached.get("sessionRecording"), Some(&json!(false)));
-        assert_eq!(
-            cached.get(SESSION_RECORDING_DISABLED_REASON_KEY),
-            Some(&json!("not_enabled"))
-        );
+        assert_eq!(reason, Some(SessionRecordingDisabledReason::NotEnabled));
     }
 }

@@ -3062,6 +3062,7 @@ version = "0.1.0"
 dependencies = [
  "http 1.4.0",
  "regex",
+ "serde_json",
  "url",
 ]
 

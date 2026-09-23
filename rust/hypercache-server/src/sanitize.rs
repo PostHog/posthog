@@ -9,10 +9,8 @@
 
 use axum::http::HeaderMap;
 use common_metrics::inc;
-use common_replay_domains::{
-    on_permitted_domain, SessionRecordingDisabledReason, SESSION_RECORDING_DISABLED_REASON_KEY,
-};
-use serde_json::{json, Value};
+use common_replay_domains::{sanitize_session_recording, set_session_recording_disabled_reason};
+use serde_json::Value;
 
 const SESSION_RECORDING_DISABLED_COUNTER: &str = "remote_config_session_recording_disabled_total";
 
@@ -25,52 +23,13 @@ pub fn sanitize_config_for_client(cached_config: &mut Value, headers: &HeaderMap
     sanitize_surveys_for_client(cached_config);
 
     if let Some(reason) = sanitize_session_recording(cached_config, headers) {
-        cached_config[SESSION_RECORDING_DISABLED_REASON_KEY] = json!(reason.as_str());
+        set_session_recording_disabled_reason(cached_config, reason);
         inc(
             SESSION_RECORDING_DISABLED_COUNTER,
             &[("reason".to_string(), reason.as_str().to_string())],
             1,
         );
     }
-}
-
-/// Apply the authorized domain check, and report why recording is off when it is off.
-fn sanitize_session_recording(
-    cached_config: &mut Value,
-    headers: &HeaderMap,
-) -> Option<SessionRecordingDisabledReason> {
-    let session_recording = cached_config.get_mut("sessionRecording")?;
-
-    let obj = match session_recording.as_object_mut() {
-        Some(o) => o,
-        // Python already turned recording off for this team
-        None => {
-            return match session_recording.as_bool() {
-                Some(false) => Some(SessionRecordingDisabledReason::NotEnabled),
-                _ => None,
-            }
-        }
-    };
-
-    let domains = obj.remove("domains");
-    let domain_strings: Vec<String> = domains
-        .as_ref()
-        .and_then(Value::as_array)
-        .map(|domains| {
-            domains
-                .iter()
-                .filter_map(|d| d.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Empty domains list means always permitted
-    if domain_strings.is_empty() || on_permitted_domain(&domain_strings, headers) {
-        return None;
-    }
-
-    *session_recording = json!(false);
-    Some(SessionRecordingDisabledReason::DomainNotAllowed)
 }
 
 pub fn sanitize_surveys_for_client(payload: &mut Value) {
@@ -119,6 +78,7 @@ pub fn sanitize_surveys_for_client(payload: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_replay_domains::SESSION_RECORDING_DISABLED_REASON_KEY;
     use serde_json::json;
 
     #[test]

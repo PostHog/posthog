@@ -10,4 +10,5 @@ doctest = false
 [dependencies]
 http = { workspace = true }
 regex = { workspace = true }
+serde_json = { workspace = true }
 url = { workspace = true }
