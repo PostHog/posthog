@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
@@ -116,7 +115,7 @@ describe('BusinessKnowledgeScene', () => {
         cleanup()
     })
 
-    it('picks the added-by filter from the dropdown', async () => {
+    it('picks the added-by filter from the dropdown', () => {
         const setAddedByFilter = jest.fn()
         ;(useActions as jest.Mock).mockReturnValue({
             openCreateModal: jest.fn(),
@@ -139,8 +138,8 @@ describe('BusinessKnowledgeScene', () => {
         })
         render(<BusinessKnowledgeScene />)
 
-        await userEvent.click(screen.getByText('All sources'))
-        await userEvent.click(screen.getByText('Learned'))
+        fireEvent.click(screen.getByText('All sources'))
+        fireEvent.click(screen.getByText('Learned'))
 
         expect(setAddedByFilter).toHaveBeenCalledWith('learned')
     })
