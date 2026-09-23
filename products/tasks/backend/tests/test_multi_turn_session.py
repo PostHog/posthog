@@ -1504,6 +1504,14 @@ class TestCreateTaskAndTriggerForwardsContext:
         ) == (model, runtime_adapter, reasoning_effort, initial_permission_mode)
 
 
+def test_parse_and_validate_reads_past_an_earlier_object():
+    # A turn that ran a tool holds the tool's envelope before the answer. The first object used to
+    # win, so validation failed on the envelope instead of reading the answer at the end.
+    text = '{"type": "error", "message": "query failed"}\nHere is the answer:\n{"value": "ok"}'
+
+    assert MultiTurnSession._parse_and_validate(text, _Resp, label="initial turn") == _Resp(value="ok")
+
+
 class TestMultiTurnSessionStartFallback:
     """start() salvages an end-turn the agent produced but that didn't validate against the
     model (empty, prose, or malformed JSON) via fallback_from_text, instead of failing the
