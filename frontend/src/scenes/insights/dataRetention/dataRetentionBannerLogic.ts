@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiError } from 'lib/api'
@@ -97,6 +97,9 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
             null as number | null,
             {
                 loadRetentionMonths: async () => {
+                    if (values.currentTeamId === null) {
+                        return null
+                    }
                     try {
                         const retention = await eventsRetentionRetrieve(String(values.currentTeamId))
                         return retention.retention_months ?? null
@@ -158,6 +161,11 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
             (retentionApplies: boolean, isSnoozed: boolean): boolean => retentionApplies && !isSnoozed,
         ],
     }),
+    listeners(({ actions }) => ({
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
+            actions.loadRetentionMonths()
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadRetentionMonths()
     }),
