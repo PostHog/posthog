@@ -463,8 +463,10 @@ async def run_s3_batch_export_workflow(
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
+            # Dispatch by workflow name, the way DESTINATION_WORKFLOWS does, so the worker
+            # widens the per-destination inputs to the superset the workflow declares.
             await activity_environment.client.execute_workflow(
-                S3BatchExportWorkflow.run,
+                "s3-export",
                 per_destination_inputs,
                 id=workflow_id,
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
