@@ -60,7 +60,7 @@ cases:
               slack: null
               additions: [team-arch]
 
-    - name: the additions of every matching rule add to the file-level additions
+    - name: the additions of every matching rule append to the file-level additions
       files:
           owners.yaml: |
               version: 1
@@ -131,7 +131,7 @@ cases:
               slack: '#team-new'
               additions: []
 
-    - name: a trailing-slash rule gates what enters the directory and not the directory itself
+    - name: a trailing-slash rule applies below the directory and not to the directory itself
       files:
           owners.yaml: |
               version: 1

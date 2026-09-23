@@ -71,7 +71,7 @@
             ]
         },
         "additions": {
-            "description": "Team slugs or @handles who decide what may enter this directory, besides its owners. Adds to what ancestor files declare.",
+            "description": "Team slugs or @handles who own additions, separate from the owners. Appends to the file-level value and to what ancestor files declare. A consumer decides what counts as an addition.",
             "oneOf": [
                 { "type": "string", "minLength": 1 },
                 { "type": "array", "items": { "type": "string", "minLength": 1 } }

@@ -102,9 +102,9 @@ class Resolution:
     slack: str | None
     source: str | None  # repo-relative path of the file that decided owners
     unowned_by_design: bool  # explicit `owners: null` exemption
-    # Who decides what may enter the path, besides its owners. Every other field is nearest-file-
-    # wins; this one collects every declaration on the walk, so a nested file cannot drop what an
-    # ancestor set. `inherit: false` still cuts it like everything else.
+    # The owners of additions at the path, separate from its owners. Every other field is nearest-
+    # file-wins; this one collects every declaration on the walk, so a nested file cannot drop what
+    # an ancestor set. `inherit: false` still cuts it like everything else.
     additions: list[str] = field(default_factory=list)
 
     @property

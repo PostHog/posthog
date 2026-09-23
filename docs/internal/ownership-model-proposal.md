@@ -90,10 +90,11 @@ status: active
 # ancestor owners.yaml. false = Gerrit's `set noparent`.
 inherit: true
 
-# Who decides what may ENTER this directory, as opposed to who owns the
-# files already in it. Names people only; whether a consumer asks them
-# for review or blocks on them is that consumer's policy. Unlike every
-# other field this one adds up across the walk (see below).
+# The owners of ADDITIONS below this directory, as opposed to the owners
+# of the files already in it. Names people only; what counts as an
+# addition, and whether a consumer asks them for review or blocks on
+# them, is that consumer's policy. Unlike every other field this one
+# adds up across the walk (see below).
 additions: [team-devex]
 
 # Per-path overrides inside this directory, *within this file only*.
@@ -121,16 +122,16 @@ owners: team-ingestion
 ### `additions:` — ownership of the namespace, not the file
 
 `owners:` answers "whose is this file".
-`additions:` answers a different question about the same path: "who decides what is allowed to appear here".
-The two are independent: each product under `products/` is owned by its team, while the decision to add a product at all can sit with one team.
+`additions:` answers a different question about the same path: "who owns what gets added here".
+The two are independent: each product under `products/` is owned by its team, while the owners of additions to `products/` can be one team.
 Much of the architecture guidance already has this shape as prose that nothing checks, such as reserving top-level `tools/`, `services/` and `packages/` for cross-product things.
 
-- **It adds up across the walk.** Every declaration on the walk applies, so a nested directory cannot shed an ancestor's gate.
+- **It adds up across the walk.** Every declaration on the walk applies, so a nested directory cannot drop the owners of additions that an ancestor names.
   `owners:` stays nearest-wins, and `inherit: false` still cuts everything, additions included.
 - **Ask about the directory, not a file inside it.** The walk stops at the parent of the path it resolves, so resolving `products/newthing` matches a `match: '/*'` rule on `products/`, while resolving `products/newthing/product.yaml` does not.
   `/*` therefore means "a direct child", and `/**` reaches any descendant.
-  A directory query also skips that directory's own ownership file, so a new product cannot name itself out of its parent's gate.
-- **Newness and enforcement belong to the consumer.** The file says who decides and where. A consumer works out from the diff that a directory is new, treats a rename into the directory as an entry (git reports it as `R`, not `A`), and decides whether the answer is a review request or a blocking check.
+  A directory query also skips that directory's own ownership file, so a new product cannot remove itself from what its parent names.
+- **Newness and enforcement belong to the consumer.** The file only names the owners and where they apply. A consumer works out from the diff that a directory is new, treats a rename into the directory as an addition (git reports it as `R`, not `A`), and decides whether the answer is a review request or a blocking check.
 
 **Why not `owners:` on the parent directory.**
 An owner on `products/` would also claim every file below it that has no nearer owner.
@@ -138,9 +139,10 @@ That misattributes those files, and it satisfies the coverage check for them, wh
 Over a hundred files under `products/` are unowned today and would flip.
 `additions:` contributes nothing to `owners`, so the coverage signal survives.
 
-**A consumer asks `owners` ∪ `additions`.**
-The owners are already responsible for anything in their tree, so an empty `additions` means "the owners decide", not "nobody decides".
-That is also why the key does not default to `owners`: a reader could no longer tell a deliberately gated directory from one that merely has an owner.
+**A consumer can combine `owners` and `additions`.**
+The owners are already responsible for everything in their tree.
+An empty `additions` means that the file names no separate owners of additions, not that nobody owns them.
+That is also why the key does not default to `owners`: a reader could no longer tell a directory with its own owners of additions from one that merely has an owner.
 
 The normative definition is section 3.6 of [`packages/owners-yaml/SPEC.md`](../../packages/owners-yaml/SPEC.md).
 

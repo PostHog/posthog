@@ -140,8 +140,9 @@ class OwnersFile:
     inherit: bool = True
     rules: list[OwnersRule] = field(default_factory=list)
     is_alias: bool = False
-    # Who decides what may enter this directory, as opposed to who owns the files already in
-    # it. Names people only; what a consumer does with them is the consumer's policy.
+    # The owners of additions below this directory, separate from the owners of its files.
+    # Names people only; what counts as an addition, and what a consumer does with them, is the
+    # consumer's policy.
     additions: list[str] = field(default_factory=list)
     # Root-only Slack registry: team slug -> TeamEntry. Empty everywhere but the repo-root
     # file; lets a team declare its channels once instead of per file.
@@ -180,8 +181,8 @@ def _validate_owners_value(value: object, where: str, errors: list[str]) -> list
 
 
 def _validate_additions(value: object, where: str, errors: list[str]) -> list[str]:
-    """``additions`` takes one slug or a list of them. It has no null form: leaving the key out
-    already means that nobody besides the owners decides what may enter."""
+    """``additions`` takes one slug or a list of them. It has no null form: leaving the key out,
+    or an empty list, already means that the file names no owners of additions."""
     additions = _as_owner_list(value)
     if additions is None:
         errors.append(f"{where}: 'additions' must be a non-empty string or a list of non-empty strings")

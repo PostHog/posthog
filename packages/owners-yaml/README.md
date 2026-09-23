@@ -94,8 +94,8 @@ rules:
     owners: null
 ```
 
-`additions` names who decides what may enter a directory, as opposed to who owns the files already in it.
-It never changes `owners`, so a directory can gate new entries while the unowned files below it still show up as unowned:
+`additions` names the owners of additions below a directory, separate from the owners of the files already in it.
+It never changes `owners`, so a directory can name owners of additions while the unowned files below it still show up as unowned:
 
 ```yaml
 # products/owners.yaml
@@ -107,8 +107,8 @@ rules:
 ```
 
 Resolve the new directory itself, not a file inside it: `owners resolve --json products/new-thing` returns `"additions": ["team-architecture"]`, and a deeper path does not.
-Additions from every file on the walk add up, so a nested file cannot drop what an ancestor declared.
-The format does not say when a directory counts as new or what happens next; a review bot or CI check decides that from the change set.
+The owners of additions from every file on the walk add up, so a nested file cannot drop what an ancestor declared.
+The format only names these owners. A review bot or CI check decides from the change set what counts as an addition and what to do with the list.
 
 The root file can also hold repository settings:
 

@@ -41,7 +41,7 @@ Each resolution is a mapping with these keys:
 | `status`            | string           | The resolved status.                                                       |
 | `source`            | string or `null` | The path of the file that set the owners, or `null` when no file did.      |
 | `slack`             | string or `null` | The channel for the purpose and the producer of the case, or `null`.       |
-| `additions`         | list of strings  | Optional, default empty. Who decides what may enter the path (SPEC 3.6).   |
+| `additions`         | list of strings  | Optional, default empty. The owners of additions at the path (SPEC 3.6).   |
 
 A case never leaves out one of the first five keys, so no value is implied.
 A case that leaves out `additions` expects an empty list, so the cases that predate the field stay as they are.
