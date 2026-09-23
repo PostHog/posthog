@@ -1115,7 +1115,9 @@ describe('PersonState.processEvent()', () => {
             }
 
             expect(personRepository.fetchPerson).toHaveBeenCalledTimes(1)
-            expect(personRepository.updatePerson).toHaveBeenCalledTimes(2)
+            // The batch and the single-person fallback both miss the merged-away row; the refreshed update lands.
+            expect(personRepository.updatePersonsBatch).toHaveBeenCalledTimes(3)
+            expect(personRepository.updatePerson).not.toHaveBeenCalled()
 
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
