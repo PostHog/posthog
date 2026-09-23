@@ -46,6 +46,11 @@ Query = str
 QueryParameters = dict[str, typing.Any]
 BatchExportDateRange = tuple[dt.datetime | None, dt.datetime | None]
 
+# The client sends `log_comment` in the request URL, and ClickHouse rejects a URL longer than
+# `http_max_uri_size`. URL encoding can make the query several times longer, so without a cap a
+# large but valid query could fail the export.
+MAX_LOGGED_HOGQL_QUERY_LENGTH = 10_000
+
 
 def _as_clickhouse_request_settings(query_settings: HogQLQuerySettings) -> dict[str, str]:
     """Render HogQL query settings as ClickHouse HTTP-interface settings."""
@@ -386,7 +391,7 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
     def get_log_comment(self) -> str:
         """Also tag the queries with the user's HogQL query, to trace a query in `system.query_log` back to it."""
         tags = query_tagging.get_query_tags()
-        tags.query = {"kind": "HogQLQuery", "query": self.hogql_query}
+        tags.query = {"kind": "HogQLQuery", "query": self.hogql_query[:MAX_LOGGED_HOGQL_QUERY_LENGTH]}
         tags.contains_user_hogql = True
         return super().get_log_comment()
 

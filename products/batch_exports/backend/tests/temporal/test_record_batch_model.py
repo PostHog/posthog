@@ -23,6 +23,7 @@ from products.batch_exports.backend.service import BatchExportModel, BatchExport
 from products.batch_exports.backend.temporal.batch_exports import iter_records
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.record_batch_model import (
+    MAX_LOGGED_HOGQL_QUERY_LENGTH,
     HogQLQueryRecordBatchModel,
     SessionsRecordBatchModel,
     resolve_batch_exports_model,
@@ -337,8 +338,17 @@ class TestSessionsRecordBatchModelSelection:
 
 
 class TestHogQLQueryRecordBatchModel:
-    async def test_as_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
-        hogql_query = "SELECT event AS event, distinct_id AS distinct_id FROM events"
+    @pytest.mark.parametrize(
+        "hogql_query",
+        [
+            "SELECT event AS event, distinct_id AS distinct_id FROM events",
+            "SELECT event AS event, distinct_id AS distinct_id FROM events WHERE event != '"
+            + "a" * MAX_LOGGED_HOGQL_QUERY_LENGTH
+            + "'",
+        ],
+        ids=["short", "longer_than_log_cap"],
+    )
+    async def test_as_query_with_parameters(self, ateam, data_interval_start, data_interval_end, hogql_query):
         model = HogQLQueryRecordBatchModel(team_id=ateam.id, hogql_query=hogql_query)
         printed_query, query_parameters = await model.as_query_with_parameters(data_interval_start, data_interval_end)
 
@@ -346,7 +356,7 @@ class TestHogQLQueryRecordBatchModel:
         assert f"equals(events.team_id, {ateam.id})" in printed_query
         assert "FORMAT ArrowStream" in printed_query
         log_comment = json.loads(query_parameters["log_comment"])
-        assert log_comment["query"] == {"kind": "HogQLQuery", "query": hogql_query}
+        assert log_comment["query"] == {"kind": "HogQLQuery", "query": hogql_query[:MAX_LOGGED_HOGQL_QUERY_LENGTH]}
         assert log_comment["contains_user_hogql"] is True
         # without interval placeholders the query runs as-is, as of now
         assert f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" not in printed_query
