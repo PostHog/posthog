@@ -8,6 +8,7 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog import datadog as ddog
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.datadog import (
     DEFAULT_SITE,
@@ -418,7 +419,7 @@ class TestDatadogSourceResponse:
             assert response.partition_keys is None
 
     def test_unknown_endpoint_is_named_in_the_error(self) -> None:
-        with pytest.raises(ValueError, match="Unknown Datadog endpoint: not_a_table"):
+        with pytest.raises(UnknownResourceError, match="not_a_table"):
             datadog_source(
                 site="datadoghq.com",
                 api_key="api",

@@ -10,6 +10,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import (
     DATADOG_ENDPOINTS,
@@ -364,10 +365,7 @@ def _fan_out_rows(
 def _endpoint_config(endpoint: str) -> DatadogEndpointConfig:
     # A schema row can outlive the catalog entry that created it — an endpoint dropped from the
     # catalog, or a schema created by a newer deploy than the worker running the sync.
-    config = DATADOG_ENDPOINTS.get(endpoint)
-    if config is None:
-        raise ValueError(f"Unknown Datadog endpoint: {endpoint}")
-    return config
+    return schema_for_resource(DATADOG_ENDPOINTS, endpoint)
 
 
 def get_rows(
