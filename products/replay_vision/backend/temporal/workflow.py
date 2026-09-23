@@ -601,7 +601,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 ),
                 id=build_media_workflow_id(observation_id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
-                # A retried observation reuses its id, and the run it supersedes has long closed.
+                # A retried observation reuses its id, so the render it supersedes must not block this one once
+                # it has closed, whatever it closed as. A run still open keeps the id and this start fails, which
+                # is what we want: that run is already rendering this observation.
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 retry_policy=common.RetryPolicy(maximum_attempts=2),

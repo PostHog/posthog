@@ -145,7 +145,6 @@ class MissionStep:
     response_model: type[BaseModel]
     required: bool = True
     validate: Callable[[BaseModel], str | None] | None = field(default=None)
-    max_output_tokens: int = STEP_MAX_OUTPUT_TOKENS
 
 
 _CONFIDENCE_DESCRIPTION = (

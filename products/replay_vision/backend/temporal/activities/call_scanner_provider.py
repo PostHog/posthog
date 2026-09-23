@@ -75,6 +75,7 @@ from products.replay_vision.backend.temporal.network_tool import (
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
+    STEP_MAX_OUTPUT_TOKENS,
     STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
@@ -645,12 +646,11 @@ async def _run_mission(
             await _delete_video_cache(cache_client, cache.name)
 
     finalized, signals = scanner.assemble(step_outputs)
-    core_output = step_outputs.get(STEP_CORE)
     return _MissionOutcome(
         finalized=finalized,
         signals=signals,
         verification=verification,
-        thumbnail_video_s=getattr(core_output, "thumbnail_t", None),
+        thumbnail_video_s=getattr(step_outputs[STEP_CORE], "thumbnail_t", None),
     )
 
 
@@ -1047,7 +1047,7 @@ def _step_config(
         # Return thought summaries so the model's reasoning is visible in LLM analytics. Answer parsing is
         # unaffected (`response.text` skips thought parts); models with thinking off just return none.
         "thinking_config": types.ThinkingConfig(include_thoughts=True),
-        "max_output_tokens": step.max_output_tokens,
+        "max_output_tokens": STEP_MAX_OUTPUT_TOKENS,
     }
     if not allow_tools:
         return types.GenerateContentConfig(**kwargs)  # inline, no tool to call — the model must answer now
