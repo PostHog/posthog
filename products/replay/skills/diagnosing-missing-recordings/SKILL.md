@@ -123,8 +123,8 @@ LIMIT 10
 
 Look for patterns:
 
-- All `disabled` → replay is turned off in project settings
-- `disabled` on some hosts only → the authorized domains list is missing those hosts
+- All `disabled` → replay is turned off in project settings, or the authorized domains list matches no host at all
+- `disabled` on some hosts only → look at the authorized domains list, then confirm with the disabled reason on the `/flags` response, because a runtime SDK call disables hosts the same way
 - All `sampled_out` with low sample rate → sample rate too aggressive
 - All `script_not_loaded` → likely a CSP or deployment issue, not just one user's ad blocker
 - Mix of statuses → per-session issue, dig into specifics
@@ -133,15 +133,15 @@ Look for patterns:
 
 Based on the verdict, recommend specific actions:
 
-| Verdict         | Recommendation                                                                                                                        |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Ad blocked      | User's browser extension is blocking rrweb. Suggest trying without ad blocker, or using a proxy/custom domain for the recorder script |
-| Disabled        | Check project replay settings — recording may be turned off. Link to Settings > Session replay                                        |
-| Domain not authorized | The host is missing from Settings > Session replay > Authorized domains. Add it, or empty the list to authorize every domain     |
-| Trigger pending | The configured trigger (URL pattern, event, or feature flag) never matched. Review trigger configuration                              |
-| Sampled out     | Increase the sample rate in project settings, or use a trigger to guarantee capture for important sessions                            |
-| Buffering empty | Page closed before first snapshot. Common with very short sessions or single-page navigations. Consider lowering minimum duration     |
-| Unknown         | Direct user to troubleshooting docs: https://posthog.com/docs/session-replay/troubleshooting                                          |
+| Verdict               | Recommendation                                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Ad blocked            | User's browser extension is blocking rrweb. Suggest trying without ad blocker, or using a proxy/custom domain for the recorder script |
+| Disabled              | Check project replay settings — recording may be turned off. Link to Settings > Session replay                                        |
+| Domain not authorized | The host is missing from Settings > Session replay > Authorized domains. Add it, or empty the list to authorize every domain          |
+| Trigger pending       | The configured trigger (URL pattern, event, or feature flag) never matched. Review trigger configuration                              |
+| Sampled out           | Increase the sample rate in project settings, or use a trigger to guarantee capture for important sessions                            |
+| Buffering empty       | Page closed before first snapshot. Common with very short sessions or single-page navigations. Consider lowering minimum duration     |
+| Unknown               | Direct user to troubleshooting docs: https://posthog.com/docs/session-replay/troubleshooting                                          |
 
 ## Examples
 

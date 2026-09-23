@@ -116,6 +116,7 @@ mod tests {
         assert!(sr.is_object());
         assert!(sr.get("domains").is_none());
         assert_eq!(sr.get("endpoint"), Some(&json!("/s/")));
+        assert!(config.get(SESSION_RECORDING_DISABLED_REASON_KEY).is_none());
     }
 
     #[test]
@@ -133,6 +134,10 @@ mod tests {
         sanitize_config_for_client(&mut config, &headers);
 
         assert_eq!(config.get("sessionRecording"), Some(&json!(false)));
+        assert_eq!(
+            config.get(SESSION_RECORDING_DISABLED_REASON_KEY),
+            Some(&json!("domain_not_allowed"))
+        );
     }
 
     #[test]
@@ -169,34 +174,6 @@ mod tests {
         sanitize_config_for_client(&mut config, &HeaderMap::new());
 
         assert_eq!(config.get("sessionRecording"), Some(&json!(false)));
-    }
-
-    #[test]
-    fn test_names_the_reason_when_domain_is_not_allowed() {
-        let mut config = json!({
-            "sessionRecording": {
-                "endpoint": "/s/",
-                "domains": ["https://allowed.com"]
-            }
-        });
-
-        let mut headers = HeaderMap::new();
-        headers.insert("Origin", "https://other.com".parse().unwrap());
-
-        sanitize_config_for_client(&mut config, &headers);
-
-        assert_eq!(
-            config.get(SESSION_RECORDING_DISABLED_REASON_KEY),
-            Some(&json!("domain_not_allowed"))
-        );
-    }
-
-    #[test]
-    fn test_names_the_reason_when_recording_is_off_for_the_team() {
-        let mut config = json!({"sessionRecording": false});
-
-        sanitize_config_for_client(&mut config, &HeaderMap::new());
-
         assert_eq!(
             config.get(SESSION_RECORDING_DISABLED_REASON_KEY),
             Some(&json!("not_enabled"))
@@ -204,19 +181,17 @@ mod tests {
     }
 
     #[test]
-    fn test_no_reason_when_recording_is_configured() {
+    fn test_session_recording_false_over_quota_reports_the_quota() {
         let mut config = json!({
-            "sessionRecording": {
-                "endpoint": "/s/",
-                "domains": ["https://allowed.com"]
-            }
+            "sessionRecording": false,
+            "quotaLimited": ["recordings"]
         });
 
-        let mut headers = HeaderMap::new();
-        headers.insert("Origin", "https://allowed.com".parse().unwrap());
+        sanitize_config_for_client(&mut config, &HeaderMap::new());
 
-        sanitize_config_for_client(&mut config, &headers);
-
-        assert!(config.get(SESSION_RECORDING_DISABLED_REASON_KEY).is_none());
+        assert_eq!(
+            config.get(SESSION_RECORDING_DISABLED_REASON_KEY),
+            Some(&json!("quota_limited"))
+        );
     }
 }

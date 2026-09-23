@@ -15,6 +15,9 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
+/// How Python names the recordings resource in the cached config's `quotaLimited` list.
+const RECORDINGS_QUOTA_RESOURCE: &str = "recordings";
+
 const AUTHORIZED_MOBILE_AND_DESKTOP_CLIENTS: &[&str] = &[
     "posthog-android",
     "posthog-ios",
@@ -32,14 +35,24 @@ pub fn sanitize_session_recording(
     config: &mut Value,
     headers: &HeaderMap,
 ) -> Option<SessionRecordingDisabledReason> {
+    let over_recordings_quota = config
+        .get("quotaLimited")
+        .and_then(Value::as_array)
+        .is_some_and(|resources| {
+            resources
+                .iter()
+                .any(|r| r.as_str() == Some(RECORDINGS_QUOTA_RESOURCE))
+        });
+
     let session_recording = config.get_mut("sessionRecording")?;
 
     let obj = match session_recording.as_object_mut() {
         Some(o) => o,
         // Python already turned recording off for this team
         None => {
-            return match session_recording.as_bool() {
-                Some(false) => Some(SessionRecordingDisabledReason::NotEnabled),
+            return match (session_recording.as_bool(), over_recordings_quota) {
+                (Some(false), true) => Some(SessionRecordingDisabledReason::QuotaLimited),
+                (Some(false), false) => Some(SessionRecordingDisabledReason::NotEnabled),
                 _ => None,
             }
         }

@@ -18,7 +18,8 @@ $sdk_debug_recording_script_not_loaded == true?
   → AD_BLOCKED: recorder script failed to load (ad blocker, CSP, network error)
 
 $recording_status == 'disabled' AND recording works on some hosts but not others?
-  → DOMAIN_NOT_AUTHORIZED: the host is missing from the authorized domains list
+  → DOMAIN_NOT_AUTHORIZED: possibly the host is missing from the authorized domains list.
+    Confirm against the list and the disabled reason before you give this verdict
 
 $recording_status == 'disabled'?
   → DISABLED: replay turned off in project settings or SDK config
@@ -70,13 +71,18 @@ Typical causes:
 ### DOMAIN_NOT_AUTHORIZED
 
 A project can list authorized domains for session replay.
-When that list is not empty, PostHog only sends a replay config to requests whose
+When that list is not empty, PostHog only sends a replay config to a web request whose
 `Origin` or `Referer` is on the list. On every other host the SDK reports
 `$recording_status = 'disabled'`, events keep flowing as usual, and no recording is made.
+The list does not apply to the mobile and desktop SDKs, which the server recognizes by
+their user agent and always authorizes.
 
-This looks the same as replay being turned off, so tell them apart by host:
+This looks the same as replay being turned off, so start from the hosts:
 a project-wide "off" switch disables every host, an authorized domains list disables
 only the hosts that are missing from it.
+Host differences are evidence, not proof. A runtime `disable_session_recording` call
+in one part of the app produces mixed hosts too, and a list that matches no host at all
+disables every host in the sample.
 
 ```sql
 posthog:execute-sql
@@ -90,10 +96,12 @@ GROUP BY host, recording_status
 ORDER BY host, events DESC
 ```
 
-Mixed statuses across hosts point at the allowlist. Read the list in
-Settings > Session replay > Authorized domains, and compare it against the hosts that
-report `disabled`. The `/flags` and `/config` responses also carry
-`sessionRecordingDisabledReason: "domain_not_allowed"` when this is the cause.
+Read the list in Settings > Session replay > Authorized domains, and compare it against
+the hosts that report `disabled`. Confirm the cause before you give the verdict: the
+`/flags` and `/config` responses carry
+`sessionRecordingDisabledReason: "domain_not_allowed"` when the list is the reason, and
+`"not_enabled"` when replay is off for the project. If the reason says `not_enabled`,
+look at the SDK configuration instead.
 
 Note the list holds domains, not URLs, and it accepts wildcards such as
 `https://*.example.com`. A bare `https://example.com` entry does not cover its subdomains.

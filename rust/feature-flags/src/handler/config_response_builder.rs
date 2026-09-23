@@ -10,7 +10,7 @@ use crate::{
 use axum::http::HeaderMap;
 use common_replay_domains::{
     sanitize_session_recording, set_session_recording_disabled_reason,
-    SessionRecordingDisabledReason,
+    SessionRecordingDisabledReason, SESSION_RECORDING_DISABLED_REASON_KEY,
 };
 use limiters::redis::QuotaResource;
 use metrics::counter;
@@ -117,6 +117,12 @@ fn apply_fallback_config(
     response.config = ConfigResponse::fallback(has_flags);
 
     if is_recordings_limited {
+        let reason = SessionRecordingDisabledReason::QuotaLimited;
+        response.config.set(
+            SESSION_RECORDING_DISABLED_REASON_KEY,
+            json!(reason.as_str()),
+        );
+        counter!(SESSION_RECORDING_DISABLED_COUNTER, "reason" => reason.as_str()).increment(1);
         response.quota_limited = Some(vec![QuotaResource::Recordings.as_str().to_string()]);
     }
 
