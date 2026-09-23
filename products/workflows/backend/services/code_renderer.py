@@ -405,7 +405,14 @@ class _Renderer:
         elif kind == "function_email":
             call = self.render_email(action, config)
         elif kind == "conditional_branch":
+            # A branch renders its conditions before it knows it can keep `branch()`. When it falls
+            # back to `step()`, drop the condition helpers it imported, because the file never calls them.
+            imports = set(self.imports)
             call = self.render_branch(action, config, placement.arms or ())
+            if call is None or call.name != "branch":
+                self.imports = imports
+                if call is not None:
+                    self.use(call.name)
         if call is None:
             call = self.render_pass_through_step(action, config, placement.arms or ())
         self.calls[action["id"]] = call
