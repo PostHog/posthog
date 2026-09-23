@@ -66,7 +66,6 @@ export function ToolCallFeed({
             setQuery={setQuery}
             context={{
                 dataTableMaxPaginationRows: maxRows,
-                dataTableAllowContentScroll: true,
                 dataTableNouns: ['tool call', 'tool calls'],
                 compactDataTableToolbar: true,
                 hideRecordingButton: true,
