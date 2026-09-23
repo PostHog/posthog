@@ -1518,13 +1518,13 @@ SQL
       type = "String"
     }
     column "resource_attributes" {
-      type = "Map(String, String)"
+      type = "Map(LowCardinality(String), String)"
     }
     column "instrumentation_scope" {
       type = "String"
     }
     column "attributes_map_str" {
-      type = "Map(String, String)"
+      type = "Map(LowCardinality(String), String)"
     }
     column "dropped_attributes_count" {
       type = "UInt32"
