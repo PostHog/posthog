@@ -52,6 +52,7 @@ Open `/project/<project_id>/files` to browse the project, or add `?folder=Resear
 Starred folders in the sidebar use the same "New..." menu and "Empty folder" state as project folders.
 Creating an item from a starred folder uses the original folder's full path, including its parent folders.
 With `simple-sidepanel` enabled, the Apps and Files tabs use "Filter apps" and "Filter files" to filter their contents.
+The file filter and options buttons stay beside the filter field; alphabetical and recently added sorting are in the options menu.
 App tooltips reuse the product descriptions from the scene configuration.
 Opening Apps or Files from the collapsed sidebar temporarily expands the navigation over the page without changing the saved collapsed setting.
 Selecting a destination, clicking outside, or pressing Escape closes the temporary navigation.
