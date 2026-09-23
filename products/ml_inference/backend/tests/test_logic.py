@@ -7,7 +7,10 @@ from unittest.mock import patch
 from django.test import override_settings
 
 import httpx
+import requests
 
+from posthog.egress.limiter.policies import Priority, resolve_policy
+from posthog.egress.typesafe.observability import typesafe_egress
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 
 from products.ml_inference.backend.facade.contracts import (
@@ -58,6 +61,58 @@ def test_a_request_refuses_more_questions_than_the_cap() -> None:
 
 
 class TestDecide:
+    def test_jev_uses_typesafe_egress_and_preserves_the_decision_contract(self) -> None:
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps({**ANSWERS, "model": "jev-1.13.0"}).encode()
+        request = DecisionRequest(team_id=42, state="ticket text", questions=QUESTIONS, model="jev-1.13.0")
+        with (
+            override_settings(TYPESAFE_API_KEY="fake-typesafe-key", AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
+            patch("posthog.egress.transport.transport.requests.request", return_value=response) as send,
+            patch("posthog.egress.typesafe.transport.consume_typesafe_sync", return_value=True) as consume,
+            patch.object(typesafe_egress, "record_requests_response") as record,
+        ):
+            result = decisions.decide(request)
+
+        assert result.model == "jev-1.13.0"
+        assert result.answers["urgent"] == NoulAnswer(probability=0.91)
+        assert send.call_args.args == ("POST", "https://api.typesafe.ai/v1/systemone")
+        assert send.call_args.kwargs["headers"]["Authorization"] == "Bearer fake-typesafe-key"
+        assert send.call_args.kwargs["allow_redirects"] is False
+        assert send.call_args.kwargs["timeout"] == 5.0
+        assert send.call_args.kwargs["json"]["model"] == "jev-1.13.0"
+        consume.assert_called_once_with(priority=Priority.NORMAL, source="ml_inference")
+        assert record.call_args.kwargs["scope"] == "default"
+
+    @pytest.mark.parametrize("failure", ["missing_key", "budget", "timeout", "refused", "invalid_json"])
+    def test_jev_failures_use_the_existing_api_error_contract(self, failure: str) -> None:
+        response = requests.Response()
+        response.status_code = 429 if failure == "refused" else 200
+        response._content = b"not json"
+        expected = (
+            GatewayNotConfiguredError
+            if failure == "missing_key"
+            else (DecisionGatewayUnreachableError if failure in {"budget", "timeout"} else DecisionGatewayError)
+        )
+        request = DecisionRequest(team_id=42, state="text", questions=QUESTIONS, model="jev-1.13.0")
+        with (
+            override_settings(TYPESAFE_API_KEY="" if failure == "missing_key" else "fake-typesafe-key"),
+            patch("posthog.egress.typesafe.transport.consume_typesafe_sync", return_value=failure != "budget"),
+            patch(
+                "posthog.egress.transport.transport.requests.request",
+                return_value=response,
+                side_effect=requests.Timeout() if failure == "timeout" else None,
+            ) as send,
+            pytest.raises(expected),
+        ):
+            decisions.decide(request)
+        if failure in {"missing_key", "budget"}:
+            send.assert_not_called()
+
+    def test_jev_operator_budgets_follow_settings(self) -> None:
+        with override_settings(TYPESAFE_EGRESS_PER_MINUTE_BUDGET=12, TYPESAFE_EGRESS_HOURLY_BUDGET=123):
+            assert resolve_policy("typesafe:account:default").limits == ((12, 60), (123, 3600))
+
     @pytest.mark.parametrize(
         "gateway_url",
         ["https://gateway.example.com/v1", "https://gateway.example.com/v1/"],

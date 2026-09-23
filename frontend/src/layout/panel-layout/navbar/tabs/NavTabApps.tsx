@@ -13,7 +13,8 @@ import { APPS_STARRED_TREE_KEY, navAppsTabLogic } from './navAppsTabLogic'
 import { NavTabSection } from './NavTabSection'
 
 export function NavTabApps(): JSX.Element {
-    const { search, groupedItems } = useValues(navAppsTabLogic)
+    const { search, groupedItems, jevEnabled, isJevSearch, appRankings, appRankingsLoading } =
+        useValues(navAppsTabLogic)
     const { setSearch } = useActions(navAppsTabLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
     const { fullFileSystemFiltered: starredApps } = useValues(
@@ -32,8 +33,8 @@ export function NavTabApps(): JSX.Element {
                     }
                     size="small"
                     className="min-h-[30px]"
-                    placeholder="Filter apps"
-                    aria-label="Filter apps"
+                    placeholder={jevEnabled ? 'Jev apps' : 'Filter apps'}
+                    aria-label={jevEnabled ? 'Jev apps' : 'Filter apps'}
                     value={search}
                     onChange={setSearch}
                     fullWidth
@@ -46,7 +47,7 @@ export function NavTabApps(): JSX.Element {
                 innerClassName="px-1 pb-2"
                 styledScrollbars
             >
-                {(!search.trim() || !shortcutDataHasLoaded || starredApps.length > 0) && (
+                {!isJevSearch && (!search.trim() || !shortcutDataHasLoaded || starredApps.length > 0) && (
                     <NavTabSection
                         label="Starred"
                         dataAttr="nav-apps-starred-toggle"
@@ -68,11 +69,22 @@ export function NavTabApps(): JSX.Element {
                     </NavTabSection>
                 )}
                 <NavTabSection
-                    label="Project"
+                    label={isJevSearch ? 'Results' : 'Project'}
                     collapsedLabel="All apps"
                     dataAttr="nav-apps-project-toggle"
                     key={`project-${!!search.trim()}`}
                 >
+                    {isJevSearch && appRankingsLoading && (
+                        <div className="flex items-center gap-2 px-2 py-2 text-xs text-secondary" role="status">
+                            <Spinner />
+                            <span>Finding apps…</span>
+                        </div>
+                    )}
+                    {isJevSearch && !appRankingsLoading && appRankings?.failed && (
+                        <p className="text-xs text-secondary px-2 py-2" role="status">
+                            Jev is unavailable. Showing name matches. Try your search again in a moment.
+                        </p>
+                    )}
                     {groupedItems.map((group) => (
                         <section key={group.label} aria-label={group.label}>
                             {group.label !== 'Project' && (
@@ -87,7 +99,7 @@ export function NavTabApps(): JSX.Element {
                             </div>
                         </section>
                     ))}
-                    {groupedItems.length === 0 && (
+                    {groupedItems.length === 0 && !(isJevSearch && appRankingsLoading) && (
                         <p className="text-xs text-tertiary px-2 py-2">No apps found. Try a different search.</p>
                     )}
                 </NavTabSection>

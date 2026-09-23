@@ -553,6 +553,19 @@ Ask your AI assistant questions like:
 
 The AI assistant uses the MCP tools to query phrocs directly and provide you with the relevant information.
 
+## Extra: Trying Jev app search
+
+Set `TYPESAFE_API_KEY` in `.env.local` and restart the backend to try Jev in the Apps tab.
+Local development enables the demo through `DEBUG`; cloud access uses the existing `ml-inference-decisions` flag and US-only decisions API.
+The search field says "Jev apps" and evaluates each visible app using the same descriptions and examples as its tooltip.
+Results appear in relevance order, with scores below 0.5 hidden.
+An empty search restores the grouped catalog; a failed Jev request shows name matches and an availability message.
+
+The demo calls TypeSafe's `jev-1.13.0` model through the server's egress transport.
+`TYPESAFE_EGRESS_PER_MINUTE_BUDGET` and `TYPESAFE_EGRESS_HOURLY_BUDGET` cap outbound requests, with defaults of 60 and 1,000.
+The key stays on the server.
+Other decision-model callers keep their existing default model.
+
 ## Extra: Developing paid features (PostHog employees only)
 
 If you're a PostHog employee, you can get access to paid features on your local instance to make development easier. [Learn how to do so in our internal billing guide](https://github.com/PostHog/billing?tab=readme-ov-file#licensing-your-local-instance).

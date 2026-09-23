@@ -4,9 +4,11 @@ from urllib.parse import urlparse, urlunparse
 from django.conf import settings
 
 import httpx
+import requests
 import structlog
 import posthoganalytics
 
+from posthog.egress.typesafe.transport import TypeSafeEgressBudgetExhausted, typesafe_request
 from posthog.llm.gateway_client import (
     GatewayNotConfiguredError,
     ai_gateway_headers,
@@ -33,6 +35,28 @@ logger = structlog.get_logger(__name__)
 DECISIONS_FEATURE_FLAG = "ml-inference-decisions"
 DECISION_PATH = "/v1/systemone"
 DEFAULT_TIMEOUT_SECONDS = 30.0
+JEV_MODELS = {"jev-1.13.0", "jev-latest", "jev-preview"}
+
+
+def _decide_with_jev(request: DecisionRequest, timeout_seconds: float) -> DecisionResult:
+    if not settings.TYPESAFE_API_KEY:
+        raise GatewayNotConfiguredError("TYPESAFE_API_KEY must be configured for Jev")
+    try:
+        response = typesafe_request(
+            api_key=settings.TYPESAFE_API_KEY,
+            body=_wire_body(request),
+            source="ml_inference",
+            timeout=min(timeout_seconds, 5.0),
+        )
+    except (requests.RequestException, TypeSafeEgressBudgetExhausted) as error:
+        raise DecisionGatewayUnreachableError(f"Jev unavailable: {error.__class__.__name__}") from error
+    if response.status_code != 200:
+        raise DecisionGatewayError(response.status_code, "Jev refused the request")
+    try:
+        payload = response.json()
+    except ValueError as error:
+        raise DecisionGatewayError(200, "Jev response is not JSON") from error
+    return parse_result(payload, request.questions)
 
 
 def decisions_available_here() -> bool:
@@ -84,6 +108,8 @@ def decide(
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     transport: httpx.BaseTransport | None = None,
 ) -> DecisionResult:
+    if request.model in JEV_MODELS:
+        return _decide_with_jev(request, timeout_seconds)
     config = resolve_ai_gateway_config()
     if config is None:
         raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
