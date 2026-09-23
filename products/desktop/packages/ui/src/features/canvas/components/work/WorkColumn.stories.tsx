@@ -77,15 +77,27 @@ const CHANNELS: TaskChannel[] = [
  * The column reads its rows through authenticated queries that never resolve in
  * Storybook, so seed their caches — a disabled query still serves cached data.
  */
-function seededClient(): QueryClient {
+function seededClient({
+  pinnedTaskIds = [],
+  tasks = TASKS,
+}: {
+  pinnedTaskIds?: string[];
+  tasks?: Task[];
+} = {}): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   client.setQueryData(["me"], { id: ME_ID, uuid: "me-uuid" });
   client.setQueryData(TASK_CHANNELS_QUERY_KEY, CHANNELS);
-  client.setQueryData(taskKeys.list({ createdBy: ME_ID }), TASKS);
+  client.setQueryData(taskKeys.list({ createdBy: ME_ID }), tasks);
+  client.setQueryData(["task-pins"], pinnedTaskIds);
   return client;
 }
+
+/** The same sessions, with the facts a row draws a badge for. */
+const MARKED_TASKS: Task[] = TASKS.map((entry, index) =>
+  index === 1 ? { ...entry, origin_product: "slack" } : entry,
+);
 
 const meta = {
   title: "Canvas/WorkColumn",
@@ -107,3 +119,25 @@ type Story = StoryObj<typeof meta>;
 
 /** Recent capped at five rows, spaces below it. */
 export const Default: Story = {};
+
+/**
+ * The marks a row carries: a pin, and where a session came from. Recent has no
+ * pinned run, so a pinned session keeps its place in the list and says so with
+ * its badge alone.
+ */
+export const WithBadges: Story = {
+  decorators: [
+    (Story) => (
+      <QueryClientProvider
+        client={seededClient({
+          pinnedTaskIds: ["task-3"],
+          tasks: MARKED_TASKS,
+        })}
+      >
+        <div className="h-screen w-[280px] border-border border-r">
+          <Story />
+        </div>
+      </QueryClientProvider>
+    ),
+  ],
+};
