@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { compactTraceResults } from '@/lib/trace-compaction'
+import { SUMMARY_METADATA_PROPERTIES, compactTraceResults } from '@/lib/trace-compaction'
 import { redactTrace, redactTraceResults } from '@/lib/trace-redaction'
 
 // Invented values, one per property class the redactor must withhold. Each one
@@ -167,6 +167,22 @@ describe('trace redaction through the response pipeline', () => {
 
         expect(secretsIn(single)).toEqual([])
         expect(secretsIn(list)).toEqual([])
+    })
+
+    it('keeps every property the summary metadata set names', () => {
+        // The two modules hold separate lists, and redaction runs first. A name
+        // the summary set has but redaction withholds is a dead entry: the field
+        // vanishes from summary and nothing says so. A typo reads the same way.
+        const properties = Object.fromEntries([...SUMMARY_METADATA_PROPERTIES].map((key, i) => [key, i]))
+
+        const [trace] = compactTraceResults(
+            redactTraceResults([{ id: 't1', events: [{ id: 'e1', properties }] }]),
+            'summary'
+        ) as any[]
+
+        expect(trace.events[0].properties).toEqual(properties)
+        expect(trace.events[0]._summaryOmittedKeys).toBeUndefined()
+        expect(trace.events[0]._redactedKeys).toBeUndefined()
     })
 
     it.each(['full', 'summary'] as const)('keeps the generation identifier at %s detail', (detail) => {

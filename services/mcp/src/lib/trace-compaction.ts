@@ -92,7 +92,7 @@ const FIT_HEADROOM = 1.2
  * `$ai_http_status`, `$ai_error_type` and `$ai_status` stay, so a survey can
  * still find the failures and then read them at `full` detail.
  */
-const SUMMARY_METADATA_PROPERTIES = new Set([
+export const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_trace_id',
     '$ai_span_id',
     '$ai_generation_id',
