@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import textwrap
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
+from products.signals.backend.scout_harness.deprecation import ScoutDeprecation
 from products.signals.backend.scout_harness.lazy_seed import (
     _MAX_SKILL_FILE_COUNT,
     CanonicalSkill,
@@ -19,11 +23,24 @@ from products.signals.backend.scout_harness.lazy_seed import (
     _compute_canonical_hash,
     _compute_row_hash,
     discover_canonical_skills,
+    reset_canonical_caches,
     seed_canonical_skills,
     sync_canonical_skills,
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+
+
+@pytest.fixture(autouse=True)
+def _forget_the_canonical_fleet():
+    """Keep each test's idea of the shipped fleet out of the next one's.
+
+    Several tests here read the real fleet on disk and several patch it, and the lookups over it
+    are cached for the process, so without this the file passes or fails on test order alone.
+    """
+    reset_canonical_caches()
+    yield
+    reset_canonical_caches()
 
 
 def _write_canonical_skill(
@@ -54,6 +71,7 @@ def _make_canonical(
     files: tuple[CanonicalSkillFile, ...] = (),
     config_tags: tuple[str, ...] = (),
     role: ScoutRole = "specialist",
+    deprecation: ScoutDeprecation | None = None,
 ) -> CanonicalSkill:
     """Build a CanonicalSkill for a unit test without going through disk + frontmatter."""
     return CanonicalSkill(
@@ -65,7 +83,12 @@ def _make_canonical(
         source_path=Path("/tmp/fake"),
         config_tags=config_tags,
         role=role,
+        deprecation=deprecation,
     )
+
+
+def _config(team_id: int, skill_name: str) -> SignalScoutConfig:
+    return SignalScoutConfig.all_teams.get(team_id=team_id, skill_name=skill_name)
 
 
 class TestDiscoverCanonicalSkills:
@@ -588,6 +611,94 @@ class TestDiscoverCanonicalSkills:
             discover_canonical_skills(tmp_path)
 
 
+class TestDeprecationFrontmatter:
+    """`scout-status` / `scout-deprecation`: the marker a retirement PR adds to a SKILL.md."""
+
+    def test_parses_the_retirement_marker(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-alpha",
+            frontmatter="""
+            ---
+            name: signals-scout-alpha
+            description: alpha
+            scout-status: deprecated
+            scout-deprecation:
+              reason: Health checks now report to your inbox directly.
+              superseded_by: signals-scout-general
+              sunset_at: 2026-10-01
+            ---
+            """,
+        )
+        (skill,) = discover_canonical_skills(tmp_path)
+        assert skill.deprecation is not None
+        assert skill.deprecation.reason == "Health checks now report to your inbox directly."
+        assert skill.deprecation.superseded_by == "signals-scout-general"
+        # A bare date is read as midnight UTC, so the sunset is a fleet-wide instant.
+        assert skill.deprecation.sunset_at == datetime(2026, 10, 1, tzinfo=UTC)
+
+    def test_absent_keys_mean_the_scout_is_active(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-alpha",
+            frontmatter="""
+            ---
+            name: signals-scout-alpha
+            description: alpha
+            ---
+            """,
+        )
+        (skill,) = discover_canonical_skills(tmp_path)
+        assert skill.deprecation is None
+
+    @pytest.mark.parametrize(
+        "extra_frontmatter",
+        [
+            # A block with no status is a marker nobody meant to apply yet.
+            "scout-deprecation:\n              reason: gone",
+            # A status with no block is a retirement with no reason to show anyone.
+            "scout-status: deprecated",
+            # A reason is the one thing every surface renders, so it cannot be blank.
+            "scout-status: deprecated\n            scout-deprecation:\n              reason: '  '",
+            "scout-status: retired",
+            "scout-status: deprecated\n            scout-deprecation:\n              reason: gone\n              sunset_at: soon",
+            "scout-status: deprecated\n            scout-deprecation:\n              reason: gone\n              retired_by: me",
+        ],
+    )
+    def test_rejects_a_marker_the_fleet_could_not_act_on(self, tmp_path: Path, extra_frontmatter: str) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-alpha",
+            frontmatter=f"""
+            ---
+            name: signals-scout-alpha
+            description: alpha
+            {extra_frontmatter}
+            ---
+            """,
+        )
+        with pytest.raises(CanonicalSkillParseError):
+            discover_canonical_skills(tmp_path)
+
+    def test_rejects_the_marker_on_a_companion_skill(self, tmp_path: Path) -> None:
+        # A companion has no config to retire, so the keys would do nothing but mislead.
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="authoring-scouts",
+            frontmatter="""
+            ---
+            name: authoring-scouts
+            description: guide
+            scout-status: deprecated
+            scout-deprecation:
+              reason: gone
+            ---
+            """,
+        )
+        with pytest.raises(CanonicalSkillParseError):
+            discover_canonical_skills(tmp_path)
+
+
 class TestComputeCanonicalHash:
     def test_same_input_yields_same_hash(self) -> None:
         a = _make_canonical("signals-scout-foo", body="hello", allowed_tools=("a", "b"))
@@ -939,6 +1050,171 @@ class TestSyncCanonicalSkills(BaseTest):
         assert LLMSkill.objects.filter(
             team=self.team, name="signals-scout-beta", is_latest=True, deleted=False
         ).exists()
+
+    def test_marker_reaches_a_row_whose_content_did_not_change(self) -> None:
+        # Deprecating a scout edits only frontmatter, so the content hashes still match and the
+        # update path never fires. Without the marker reconcile the retirement would reach a
+        # project only on the scout's next real content edit — that is, possibly never.
+        alpha = _make_canonical("signals-scout-alpha", body="alpha body")
+        with self._patch_canonicals((alpha,)):
+            sync_canonical_skills(self.team)
+
+        sunset = timezone.now() + timedelta(days=30)
+        deprecated = _make_canonical(
+            "signals-scout-alpha",
+            body="alpha body",
+            deprecation=ScoutDeprecation(reason="Nothing to watch here now.", sunset_at=sunset),
+        )
+        with self._patch_canonicals((deprecated,)):
+            result = sync_canonical_skills(self.team, prune=True)
+
+        row = LLMSkill.objects.get(team=self.team, name="signals-scout-alpha", is_latest=True)
+        assert row.metadata["deprecation"] == {
+            "reason": "Nothing to watch here now.",
+            "superseded_by": "",
+            "sunset_at": sunset.isoformat(),
+        }
+        # A marker is not a content edit, so no new version and nobody's copy was rewritten.
+        assert row.version == 1
+        assert result.updated_skill_names == ()
+
+    def test_announced_scout_keeps_running_until_its_sunset(self) -> None:
+        deprecated = _make_canonical(
+            "signals-scout-alpha",
+            deprecation=ScoutDeprecation(reason="gone soon", sunset_at=timezone.now() + timedelta(days=7)),
+        )
+        with self._patch_canonicals((deprecated,)):
+            sync_canonical_skills(self.team, prune=True)
+            register_missing_configs(self.team.id)
+            SignalScoutConfig.objects.for_team(self.team.id).create(
+                team_id=self.team.id, skill_name="signals-scout-alpha"
+            )
+            result = sync_canonical_skills(self.team, prune=True)
+
+        assert result.retired_config_skill_names == ()
+        config = _config(self.team.id, "signals-scout-alpha")
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.enabled is True
+
+    def test_retires_the_config_once_the_sunset_has_passed(self) -> None:
+        alpha = _make_canonical("signals-scout-alpha")
+        with self._patch_canonicals((alpha,)):
+            sync_canonical_skills(self.team)
+            register_missing_configs(self.team.id)
+
+        deprecated = _make_canonical(
+            "signals-scout-alpha",
+            deprecation=ScoutDeprecation(reason="gone", sunset_at=timezone.now() - timedelta(minutes=1)),
+        )
+        with self._patch_canonicals((deprecated,)):
+            result = sync_canonical_skills(self.team, prune=True)
+            # A second pass has nothing left to move, so a daily tick does not re-log forever.
+            repeat = sync_canonical_skills(self.team, prune=True)
+
+        assert result.retired_config_skill_names == ("signals-scout-alpha",)
+        assert repeat.retired_config_skill_names == ()
+        config = _config(self.team.id, "signals-scout-alpha")
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        assert config.pause_reason == SignalScoutConfig.PauseReason.RETIRED
+        # `enabled` is what dispatch filters on, so the pair has to agree or the scout keeps running.
+        assert config.enabled is False
+
+    def test_retires_the_config_of_a_scout_pruned_from_disk(self) -> None:
+        # The ghost row: the prune tombstones the skill, dispatch is gated on a live skill, so
+        # without this the scout silently stops while its roster row still reads as enabled.
+        alpha = _make_canonical("signals-scout-alpha")
+        beta = _make_canonical("signals-scout-beta")
+        with self._patch_canonicals((alpha, beta)):
+            sync_canonical_skills(self.team)
+            register_missing_configs(self.team.id)
+
+        with self._patch_canonicals((alpha,)):
+            result = sync_canonical_skills(self.team, prune=True)
+
+        assert result.pruned_skill_names == ("signals-scout-beta",)
+        assert result.retired_config_skill_names == ("signals-scout-beta",)
+        beta_config = _config(self.team.id, "signals-scout-beta")
+        assert beta_config.enabled is False
+        assert beta_config.pause_reason == SignalScoutConfig.PauseReason.RETIRED
+        assert _config(self.team.id, "signals-scout-alpha").enabled is True
+
+    def test_leaves_an_edited_fork_running_through_a_retirement(self) -> None:
+        alpha = _make_canonical("signals-scout-alpha", body="alpha body")
+        with self._patch_canonicals((alpha,)):
+            sync_canonical_skills(self.team)
+            register_missing_configs(self.team.id)
+
+        row = LLMSkill.objects.get(team=self.team, name="signals-scout-alpha", is_latest=True)
+        row.body = "the project's own version"
+        row.save(update_fields=["body"])
+
+        deprecated = _make_canonical(
+            "signals-scout-alpha",
+            body="alpha body",
+            deprecation=ScoutDeprecation(reason="gone", sunset_at=timezone.now() - timedelta(days=1)),
+        )
+        with self._patch_canonicals((deprecated,)):
+            result = sync_canonical_skills(self.team, prune=True)
+
+        assert result.retired_config_skill_names == ()
+        row.refresh_from_db()
+        assert (row.metadata or {})["deprecation"] is None
+        assert _config(self.team.id, "signals-scout-alpha").enabled is True
+
+    def test_does_not_overrule_a_pause_a_person_made(self) -> None:
+        alpha = _make_canonical("signals-scout-alpha")
+        with self._patch_canonicals((alpha,)):
+            sync_canonical_skills(self.team)
+            register_missing_configs(self.team.id)
+
+        config = _config(self.team.id, "signals-scout-alpha")
+        config.enabled = False
+        config.save(update_fields=["enabled"])
+
+        deprecated = _make_canonical(
+            "signals-scout-alpha",
+            deprecation=ScoutDeprecation(reason="gone", sunset_at=timezone.now() - timedelta(days=1)),
+        )
+        with self._patch_canonicals((deprecated,)):
+            result = sync_canonical_skills(self.team, prune=True)
+
+        assert result.retired_config_skill_names == ()
+        config.refresh_from_db()
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_USER
+
+    def test_retirement_needs_the_deliberate_prune_path(self) -> None:
+        # The runner's cold-start sync passes no `prune`, so one ad-hoc run must not reconcile
+        # the rest of the project's fleet — the same rule the reap already follows.
+        alpha = _make_canonical("signals-scout-alpha")
+        with self._patch_canonicals((alpha,)):
+            sync_canonical_skills(self.team)
+            register_missing_configs(self.team.id)
+
+        deprecated = _make_canonical(
+            "signals-scout-alpha",
+            deprecation=ScoutDeprecation(reason="gone", sunset_at=timezone.now() - timedelta(days=1)),
+        )
+        with self._patch_canonicals((deprecated,)):
+            result = sync_canonical_skills(self.team)
+
+        assert result.retired_config_skill_names == ()
+        assert _config(self.team.id, "signals-scout-alpha").enabled is True
+
+    def test_no_config_is_seeded_for_a_scout_being_retired(self) -> None:
+        # Phase one stops intake: a project that never ran the scout does not acquire a row it
+        # would only have to retire. A project that already has one keeps it (above).
+        deprecated = _make_canonical(
+            "signals-scout-alpha",
+            deprecation=ScoutDeprecation(reason="gone", sunset_at=timezone.now() + timedelta(days=7)),
+        )
+        beta = _make_canonical("signals-scout-beta")
+        with self._patch_canonicals((deprecated, beta)):
+            sync_canonical_skills(self.team, prune=True)
+            register_missing_configs(self.team.id)
+
+        assert set(SignalScoutConfig.all_teams.filter(team=self.team).values_list("skill_name", flat=True)) == {
+            "signals-scout-beta"
+        }
 
     def test_leaves_pre_hash_harness_row_alone(self) -> None:
         # A harness-seeded row missing `canonical_hash` (only reachable for rows seeded before

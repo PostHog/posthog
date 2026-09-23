@@ -197,6 +197,7 @@ export {
   buildDiscussReportPrompt,
   buildLocalCodeSnapshotPrompt,
   CODE_CONTEXT_DISCLOSURE,
+  NO_CHECKOUT_DISCLOSURE,
 } from "./inbox-prompts";
 export type {
   AvailableSuggestedReviewer,
@@ -301,6 +302,7 @@ export {
 } from "./pr-urls";
 export { isPrivateIpv4Octets, isPrivateIpv6Literal } from "./private-network";
 export {
+  type CapabilityNotch,
   DEFAULT_REASONING_EFFORT,
   getCapabilityLadder,
   getReasoningEffortOptions,

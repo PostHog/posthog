@@ -773,6 +773,9 @@ FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     # group_type_mapping (personhog lag), same as the signal-driven write path.
     should_skip_write=_skip_write_if_group_mapping_emptied,
     refresh_only_fields=_FLAG_DEFINITIONS_REFRESH_ONLY_FIELDS,
+    # This cache is built in bulk, so its entries come due in bulk. The cost of dispersing
+    # them is that each entry is refreshed more often than a flat TTL would refresh it.
+    refresh_ttl_min_fraction=0.7,
 )
 
 

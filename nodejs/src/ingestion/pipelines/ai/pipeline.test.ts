@@ -217,7 +217,30 @@ describe('AiIngestionPipeline', () => {
         expect(parseJSON(emitted.properties).$ai_input_tokens).toBeNull()
     })
 
-    it.each(['$pageview', '$autocapture', '$identify', '$exception', 'custom_event'])(
+    it('admits an unlisted $ai_* event and splits, strips and bills it like a listed one', async () => {
+        await runPipeline([
+            createMessage('$ai_custom_step', {
+                $ai_input: 'large input',
+                $ai_model: 'gpt-4',
+                $set: { plan: 'pro' },
+            }),
+        ])
+
+        expect(producedForTopic(DLQ_TOPIC)).toHaveLength(0)
+        const [eventsCopy] = producedForTopic(EVENTS_TOPIC)
+        const [aiCopy] = producedForTopic(AI_EVENTS_TOPIC)
+        expect(eventsCopy.event).toBe('$ai_custom_step')
+        expect(aiCopy.event).toBe('$ai_custom_step')
+        // Large AI properties live only on ai_events; person updates never leave this pipeline.
+        expect(parseJSON(eventsCopy.properties).$ai_input).toBeUndefined()
+        expect(parseJSON(aiCopy.properties).$ai_input).toBe('large input')
+        expect(parseJSON(eventsCopy.properties).$set).toBeUndefined()
+        expect(parseJSON(aiCopy.properties).$set).toBeUndefined()
+        expect(ingestedUsage).toHaveLength(1)
+        expect(ingestedUsage[0].usageKey).toBe('ai_events')
+    })
+
+    it.each(['$pageview', '$autocapture', '$identify', '$exception', 'custom_event', 'ai_generation'])(
         'DLQs non-AI %s events instead of processing them',
         async (eventName) => {
             await runPipeline([createMessage(eventName)])

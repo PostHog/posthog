@@ -1,13 +1,13 @@
 import json
-from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, OperationalError
 from django.db.models import Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
+import structlog
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
@@ -60,6 +60,7 @@ from posthog.api.services.llm_prompt import (
     set_prompt_label,
 )
 from posthog.auth import (
+    DelegatedOAuthAccessTokenAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -77,10 +78,13 @@ from products.ai_observability.backend.activity_logging import log_llm_prompt_ac
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
 from products.ai_observability.backend.prompt_references import (
+    PROMPT_REFERENCE_REGEX,
     PromptReferenceResolutionError,
     assemble_prompt_payload,
     get_active_references_to,
 )
+
+logger = structlog.get_logger(__name__)
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
@@ -141,6 +145,18 @@ class LLMPromptViewSet(
         if view.action in ["get_by_name", "update_by_name"]:
             return ["llm_prompt:write"] if request.method == "PATCH" else ["llm_prompt:read"]
         return None
+
+    def _is_browser_session(self, request: Request) -> bool:
+        # A delegated OAuth token is a service acting for a user, not the user's
+        # browser, and its authenticator subclasses the OAuth one, so exclude it first.
+        if isinstance(request.successful_authenticator, DelegatedOAuthAccessTokenAuthentication):
+            return False
+        # A session cookie means a browser, and so does an OAuth token, which the app
+        # frontend uses when Django does not serve it. OAuth also carries third-party
+        # API clients; missing their unlabeled list reads costs less than counting
+        # every prompts page view as a fetch. A JWT is a background job impersonating
+        # a user, which reads prompts like any other API caller.
+        return isinstance(request.successful_authenticator, SessionAuthentication | OAuthAccessTokenAuthentication)
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(
@@ -258,13 +274,68 @@ class LLMPromptViewSet(
 
         report_team_action(self.team, "llma prompt fetched", properties)
 
-    def _track_labeled_list_fetch(self, prompts: Sequence[LLMPrompt], label: str) -> None:
+    def _reference_resolution_error_response(self, err: PromptReferenceResolutionError) -> Response:
+        error_status: int = status.HTTP_409_CONFLICT
+        if err.unavailable:
+            error_status = status.HTTP_503_SERVICE_UNAVAILABLE
+        elif err.missing:
+            error_status = status.HTTP_404_NOT_FOUND
+        return Response({"detail": err.message, "reference_name": err.reference_name}, status=error_status)
+
+    def _resolve_labeled_list_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Splice references into labeled list rows, mirroring get_by_name.
+
+        An unresolvable reference fails the whole request with the same
+        status get_by_name uses. Serving the raw tag would leak it into the
+        caller's LLM, and omitting the row would silently shorten a page,
+        which a paginating client reads as the end of the results.
+        """
+
+        def has_tags(item: dict[str, Any]) -> bool:
+            return isinstance(item.get("prompt"), str) and bool(PROMPT_REFERENCE_REGEX.search(item["prompt"]))
+
+        # A tag-free row is trivially resolved: its raw and assembled content are
+        # identical, so it gets [] without consulting the flag. Null stays the
+        # marker for tags that were left in place.
+        for item in items:
+            if not has_tags(item):
+                item["resolved_references"] = []
+        if not any(has_tags(item) for item in items):
+            return items
+        if not prompt_partials_enabled(self.team):
+            return items
+        resolved_items: list[dict[str, Any]] = []
+        shared_memo: dict[tuple[str, str | None, str | None], tuple[str, int]] = {}
+        for item in items:
+            if not has_tags(item):
+                resolved_items.append(item)
+                continue
+            try:
+                assembled = assemble_prompt_payload(self.team, item, memoized=shared_memo)
+            except PromptReferenceResolutionError as err:
+                # The bulk response has no single subject, so the message names
+                # the prompt whose reference failed.
+                raise PromptReferenceResolutionError(
+                    reference_name=err.reference_name,
+                    message=f"Prompt '{item.get('name')}': {err.message}",
+                    missing=err.missing,
+                    unavailable=err.unavailable,
+                ) from err
+            # The outline is derived from content, so it must describe what
+            # this response returns. prompt_size_bytes stays the stored size:
+            # it backs the list ordering.
+            assembled["outline"] = get_prompt_outline(assembled.get("prompt"))
+            resolved_items.append(assembled)
+        return resolved_items
+
+    def _track_list_fetch(self, served_count: int, label: str | None, resolved_reference_count: int) -> None:
         # One event per request, not per prompt: the event is billed into the calling
         # team's own project, so a page of N prompts would bill N events per call.
         properties = {
             "prompt_fetch_path": "list",
             "prompt_label": label,
-            "prompt_count": len(prompts),
+            "prompt_count": served_count,
+            "prompt_resolved_reference_count": resolved_reference_count,
         }
         if not settings.TEST:
             try:
@@ -390,12 +461,7 @@ class LLMPromptViewSet(
             try:
                 prompt = assemble_prompt_payload(self.team, prompt)
             except PromptReferenceResolutionError as err:
-                error_status: int = status.HTTP_409_CONFLICT
-                if err.unavailable:
-                    error_status = status.HTTP_503_SERVICE_UNAVAILABLE
-                elif err.missing:
-                    error_status = status.HTTP_404_NOT_FOUND
-                return Response({"detail": err.message, "reference_name": err.reference_name}, status=error_status)
+                return self._reference_resolution_error_response(err)
 
         self._track_prompt_fetch(prompt)
         return Response(self._apply_content_mode(prompt, content_mode))
@@ -662,6 +728,16 @@ class LLMPromptViewSet(
                 {"detail": "This label was changed by someone else at the same time. Try again."},
                 status=status.HTTP_409_CONFLICT,
             )
+        except OperationalError as err:
+            # Reference validation locks the referenced prompts' rows, so two
+            # moves over mutually referencing labels can deadlock; Postgres
+            # aborts one. A retry serializes behind the survivor.
+            if "deadlock detected" not in str(err):
+                raise
+            return Response(
+                {"detail": "Another label or reference change touched the same prompts at the same time. Try again."},
+                status=status.HTTP_409_CONFLICT,
+            )
         except LLMPromptLabelLimitError as err:
             return Response(
                 {
@@ -759,14 +835,25 @@ class LLMPromptViewSet(
         context["prompt_labels_by_name"] = self._get_prompt_labels_map([prompt.name for prompt in prompts])
         serializer = LLMPromptListSerializer(prompts, many=True, context=context)
 
-        label = self._get_list_params(request).get("label")
-        if label:
-            # The unlabeled list backs the prompts UI page and stays untracked.
-            self._track_labeled_list_fetch(prompts, label)
+        params = self._get_list_params(request)
+        label = params.get("label")
+        data = list(serializer.data)
+        if label is not None and params.get("content", "full") == "full" and cast(bool, params.get("resolve", True)):
+            try:
+                data = self._resolve_labeled_list_items(data)
+            except PromptReferenceResolutionError as err:
+                return self._reference_resolution_error_response(err)
+
+        if label or not self._is_browser_session(request):
+            # The unlabeled list also backs the prompts UI page, where reading the
+            # page is not a prompt fetch. The browser session separates a prompt
+            # served to an application from someone looking at the list.
+            resolved_reference_count = sum(len(item.get("resolved_references") or []) for item in data)
+            self._track_list_fetch(len(data), label, resolved_reference_count)
 
         if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return Response({"count": len(serializer.data), "results": serializer.data})
+            return self.get_paginated_response(data)
+        return Response({"count": len(data), "results": data})
 
     @llma_track_latency("llma_prompts_create")
     @monitor(feature=None, endpoint="llma_prompts_create", method="POST")

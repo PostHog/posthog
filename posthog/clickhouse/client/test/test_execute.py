@@ -7,7 +7,13 @@ from unittest.mock import MagicMock, patch
 
 from posthog.hogql.query_stats import query_stats_scope
 
-from posthog.clickhouse.client.connection import ClickHouseClient, ClickHouseUser, ProxyClient, Workload
+from posthog.clickhouse.client.connection import (
+    ClickHouseClient,
+    ClickHouseUser,
+    ProxyClient,
+    Workload,
+    get_default_clickhouse_workload_type,
+)
 from posthog.clickhouse.client.execute import query_with_columns, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
 from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
@@ -142,22 +148,39 @@ def _proxy_client() -> ProxyClient:
 
 
 @pytest.mark.parametrize(
-    "make_client,raises,expected",
+    "make_client,raises,tags,expected,expected_workload",
     [
-        (_FakeNativeClient, False, (7, 3.0)),
-        (lambda: _FakeNativeClient(fails="kill"), True, (7, 3.0)),
+        (_FakeNativeClient, False, {}, (7, 3.0), "default"),
+        (_FakeNativeClient, False, {"kind": "celery"}, (7, 3.0), "OFFLINE"),
+        (
+            _FakeNativeClient,
+            False,
+            {"kind": "celery", "id": "posthog.tasks.tasks.process_query_task"},
+            (7, 3.0),
+            "ONLINE",
+        ),
+        (lambda: _FakeNativeClient(fails="kill"), True, {}, (7, 3.0), "default"),
         # Counting the previous query's progress would charge this query with another query's rows.
         (
             lambda: _FakeNativeClient(fails="connect", last_query=_fake_query_info(rows=99, elapsed_ns=1)),
             True,
+            {},
             (0, 0.0),
+            None,
         ),
-        (_proxy_client, False, (7, 3.0)),
+        (_proxy_client, False, {}, (7, 3.0), "default"),
     ],
-    ids=["ok", "killed_by_the_server", "connect_failed", "http_client"],
+    ids=[
+        "ok",
+        "celery_resolves_to_offline",
+        "app_query_task_resolves_to_online",
+        "killed_by_the_server",
+        "connect_failed",
+        "http_client",
+    ],
 )
-def test_sync_execute_records_what_clickhouse_read(make_client, raises, expected):
-    with patch("posthog.clickhouse.client.execute.get_client_from_pool") as pool:
+def test_sync_execute_records_what_clickhouse_read(make_client, raises, tags, expected, expected_workload):
+    with patch("posthog.clickhouse.client.execute.get_client_from_pool") as pool, tags_context(**tags):
         pool.return_value.__enter__.return_value = make_client()
         with query_stats_scope() as stats:
             if raises:
@@ -167,6 +190,9 @@ def test_sync_execute_records_what_clickhouse_read(make_client, raises, expected
                 sync_execute("SELECT 1", flush=False)
 
     assert (stats.rows_read, stats.duration_ms) == expected
+    if expected_workload == "default":
+        expected_workload = get_default_clickhouse_workload_type().value
+    assert stats.workload() == expected_workload
 
 
 @pytest.mark.parametrize(
