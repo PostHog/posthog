@@ -10,6 +10,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.data_deletion import (
@@ -22,14 +23,31 @@ from posthog.data_deletion import (
 from posthog.models import Team, User
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.permissions import posthog_feature_flag_enabled
-from posthog.rate_limit import HogQLQueryThrottle, PersonalApiKeyRateThrottle
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 SELF_SERVICE_DATA_DELETION_FLAG = "self-service-data-deletion"
 
 
-class DataDeletionCreateThrottle(PersonalApiKeyRateThrottle):
+class DataDeletionTeamRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    def get_cache_key(self, request: Request, view: APIView) -> str:
+        team_id = self.safely_get_team_id_from_view(view)
+        ident = team_id if team_id is not None else request.user.pk
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class DataDeletionCreateThrottle(DataDeletionTeamRateThrottle):
     scope = "data_deletion_create"
     rate = "10/hour"
+
+
+class DataDeletionPreviewBurstThrottle(DataDeletionTeamRateThrottle):
+    scope = "data_deletion_preview_burst"
+    rate = "5/minute"
+
+
+class DataDeletionPreviewSustainedThrottle(DataDeletionTeamRateThrottle):
+    scope = "data_deletion_preview_sustained"
+    rate = "30/hour"
 
 
 class DataDeletionRequestInputSerializer(serializers.Serializer):
@@ -118,6 +136,7 @@ class DataDeletionRequestSerializer(serializers.ModelSerializer):
         responses={201: DataDeletionRequestSerializer, 200: DataDeletionRequestSerializer},
     ),
 )
+@extend_schema(extensions={"x-product": "core"})
 class DataDeletionRequestViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "data_deletion"
     requires_resource_level_access = True
@@ -181,7 +200,11 @@ class DataDeletionRequestViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         request=DataDeletionRequestInputSerializer,
         responses={200: DataDeletionPreviewSerializer},
     )
-    @action(methods=["POST"], detail=False, throttle_classes=[HogQLQueryThrottle])
+    @action(
+        methods=["POST"],
+        detail=False,
+        throttle_classes=[DataDeletionPreviewBurstThrottle, DataDeletionPreviewSustainedThrottle],
+    )
     def preview(self, request: Request, **kwargs: object) -> Response:
         input_serializer = DataDeletionRequestInputSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)

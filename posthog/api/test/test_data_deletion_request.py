@@ -5,8 +5,11 @@ from unittest.mock import patch
 
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
+
+from products.access_control.backend.models import AccessControl
 
 FEATURE_FLAG = "posthog.api.data_deletion_request.self_service_data_deletion_enabled"
 COMPILE_QUERY = "posthog.data_deletion.compile_event_uuid_query"
@@ -48,7 +51,7 @@ class TestDataDeletionRequestAPI(APIBaseTest):
         assert request.status == RequestStatus.PENDING
         assert request.requires_approval is True
         assert DataDeletionRequest.objects.filter(team_id=self.team.id).count() == 1
-        assert compile_query.call_count == 2
+        compile_query.assert_called_once()
 
     def test_list_and_detail_do_not_expose_other_projects(self, _feature_flag) -> None:
         other_team = Team.objects.create(organization=self.organization)
@@ -95,6 +98,27 @@ class TestDataDeletionRequestAPI(APIBaseTest):
         assert response.json() == {"count": 123}
         preview.assert_called_once()
 
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("posthog.api.data_deletion_request.preview_event_deletion", return_value=1)
+    def test_preview_throttles_session_requests(self, _preview, _rate_limit, _feature_flag) -> None:
+        responses = [
+            self.client.post(
+                f"{self.url}/preview/",
+                {"query": "SELECT uuid FROM events", "variables": {}},
+                format="json",
+            )
+            for _ in range(6)
+        ]
+
+        assert [response.status_code for response in responses] == [
+            status.HTTP_200_OK,
+            status.HTTP_200_OK,
+            status.HTTP_200_OK,
+            status.HTTP_200_OK,
+            status.HTTP_200_OK,
+            status.HTTP_429_TOO_MANY_REQUESTS,
+        ]
+
 
 class TestDataDeletionRequestAPIAccess(APIBaseTest):
     def test_feature_flag_gates_the_whole_surface(self) -> None:
@@ -113,3 +137,24 @@ class TestDataDeletionRequestAPIAccess(APIBaseTest):
             response = self.client.get(url)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_organization_member_with_explicit_access_can_preview(self) -> None:
+        url = f"/api/projects/{self.team.id}/data_deletion_requests/preview/"
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="data_deletion",
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        with (
+            patch(FEATURE_FLAG, return_value=True),
+            patch("posthog.api.data_deletion_request.preview_event_deletion", return_value=1),
+        ):
+            response = self.client.post(url, {"query": "SELECT uuid FROM events"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK

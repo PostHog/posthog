@@ -115,8 +115,6 @@ def create_event_deletion_request(
     user: User,
 ) -> tuple[DataDeletionRequest, bool]:
     validate_payload_size(query, variables)
-    compile_event_uuid_query(query=query, variables=variables, team=team, user=user)
-
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"data-deletion:{team.id}"])
@@ -139,6 +137,8 @@ def create_event_deletion_request(
         ).count()
         if active_count >= MAX_ACTIVE_REQUESTS_PER_TEAM:
             raise DataDeletionActiveRequestLimit
+
+        compile_event_uuid_query(query=query, variables=variables, team=team, user=user)
 
         deletion_request = DataDeletionRequest(
             team_id=team.id,
