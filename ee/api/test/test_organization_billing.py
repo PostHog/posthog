@@ -300,7 +300,7 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         response = self.client.get(self._url("products/summary/"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(response.json(), {"results": [product]})
-        self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/products/summary/"))
+        self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/products/catalog/"))
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_billings_refusals_come_back_as_the_matching_errors(self, mock_get):

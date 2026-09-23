@@ -839,7 +839,8 @@ class BillingManager:
     def get_organization_products_summary(
         self, organization: Organization, grants: EffectiveBillingGrants
     ) -> dict[str, Any]:
-        return self._organization_get(organization, grants, "products/summary/")
+        # Billing serves this as products/catalog/, the name it shipped with.
+        return self._organization_get(organization, grants, "products/catalog/")
 
     def get_organization_usage(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._organization_get(organization, grants, "usage/")
