@@ -807,9 +807,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // Process batch results
         for (const update of updates) {
             const result = batchResults.get(update.uuid)
-            if (result?.success && result.kafkaMessage) {
+            if (result?.success) {
                 allKafkaMessages.push({
-                    messages: [result.kafkaMessage],
+                    messages: result.kafkaMessage ? [result.kafkaMessage] : [],
                     teamId: update.team_id,
                     uuid: update.uuid,
                     distinctId: update.distinct_id,
@@ -2064,31 +2064,24 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return [toInternalPerson(personUpdate), []]
     }
 
+    /**
+     * A single-person write through the batch statement, so the individual fallback
+     * merges with the row exactly as the batch does instead of replacing it with this
+     * pod's snapshot. A missing row throws, which withMergeRetry treats as a merge.
+     */
     private async updatePersonNoAssert(personUpdate: PersonUpdate): Promise<PersonUpdateResult> {
-        const operation = 'updatePersonNoAssert'
-        this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
-        // Convert PersonUpdate back to InternalPerson for database call
-        const person = toInternalPerson(personUpdate)
-        // Always pass all mutable fields for consistent query plans
-        const updateFields = {
-            properties: person.properties,
-            properties_last_updated_at: person.properties_last_updated_at,
-            properties_last_operation: person.properties_last_operation,
-            is_identified: person.is_identified,
-            created_at: person.created_at,
-            last_seen_at: person.last_seen_at,
-        }
-
         this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
         this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
         const start = performance.now()
 
-        const [_, messages] = await this.personRepository.updatePerson(person, updateFields, 'updatePersonNoAssert')
+        const result = (await this.personRepository.updatePersonsBatch([personUpdate])).get(personUpdate.uuid)
         this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
-        observeLatencyByVersion(person, start, 'updatePersonNoAssert')
+        observeLatencyByVersion(toInternalPerson(personUpdate), start, 'updatePersonNoAssert')
 
-        // updatePersonNoAssert always succeeds (no version conflicts)
-        return { success: true, messages }
+        if (!result?.success) {
+            throw result?.error ?? new NoRowsUpdatedError(`Person with uuid="${personUpdate.uuid}" was not updated`)
+        }
+        return { success: true, messages: result.kafkaMessage ? [result.kafkaMessage] : [] }
     }
 
     /**

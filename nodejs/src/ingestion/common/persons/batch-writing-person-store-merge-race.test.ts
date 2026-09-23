@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '~/common/outputs'
+import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson } from '~/types'
 
@@ -65,7 +66,7 @@ describe('a buffered update whose person was merged away by another writer', () 
             fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             personPropertiesSize: jest.fn().mockResolvedValue(0),
             inTransaction: jest.fn().mockImplementation((_d: string, fn: (tx: any) => Promise<unknown>) => fn({})),
-            // NO_ASSERT batch path: the anon uuid is not in the result, which the store treats as a failure to retry.
+            // NO_ASSERT statement, batch and individual alike: the anon row does not exist any more.
             updatePersonsBatch: jest.fn().mockImplementation((updates: any[]) => {
                 const results = new Map()
                 for (const update of updates) {
@@ -75,18 +76,11 @@ describe('a buffered update whose person was merged away by another writer', () 
                             properties: { ...update.properties, ...update.properties_to_set },
                         })
                         results.set(update.uuid, { success: true, version: update.version + 1 })
+                    } else {
+                        results.set(update.uuid, { success: false, error: new NoRowsUpdatedError('gone') })
                     }
                 }
                 return Promise.resolve(results)
-            }),
-            // Individual NO_ASSERT write: the anon row does not exist any more.
-            updatePerson: jest.fn().mockImplementation((p: InternalPerson, fields: any) => {
-                if (p.uuid !== survivor.uuid) {
-                    const { NoRowsUpdatedError } = require('~/common/utils/utils')
-                    return Promise.reject(new NoRowsUpdatedError('gone'))
-                }
-                writes.push({ uuid: p.uuid, properties: fields.properties })
-                return Promise.resolve([{ ...p, ...fields }, [], true])
             }),
             // ASSERT_VERSION write: no row matches the anon uuid.
             // The real statement writes properties with properties_to_set applied and

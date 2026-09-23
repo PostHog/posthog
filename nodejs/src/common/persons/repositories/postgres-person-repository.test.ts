@@ -317,15 +317,20 @@ describe('PostgresPersonRepository', () => {
             expect(messages).toEqual([])
         })
 
-        it('updatePersonsBatch keeps a property another writer set after the snapshot was read', async () => {
+        it('updatePersonsBatch keeps what another writer set after the snapshot was read', async () => {
             const person = await createTestPerson(team.id, 'batch-lost-update-did', { own: 'v1' })
+            const olderCreatedAt = person.created_at.minus({ minutes: 5 })
+            const laterLastSeenAt = person.created_at.plus({ hours: 1 })
 
-            // Another writer (a merge fold on another pod) lands a property on the row.
+            // Another writer (a merge fold on another pod) lands a property, the older
+            // constituent's created_at, the identified flag and a later last_seen_at.
             await postgres.query(
                 PostgresUse.PERSONS_WRITE,
-                `UPDATE posthog_person SET properties = properties || '{"from_merge": "kept?"}'::jsonb, version = version + 1
+                `UPDATE posthog_person
+                 SET properties = properties || '{"from_merge": "kept?"}'::jsonb,
+                     created_at = $3, is_identified = true, last_seen_at = $4, version = version + 1
                  WHERE team_id = $1 AND id = $2`,
-                [team.id, person.id],
+                [team.id, person.id, olderCreatedAt.toISO(), laterLastSeenAt.toISO()],
                 'otherWriter'
             )
 
@@ -340,11 +345,17 @@ describe('PostgresPersonRepository', () => {
 
             const rows = await postgres.query(
                 PostgresUse.PERSONS_WRITE,
-                'SELECT properties FROM posthog_person WHERE team_id = $1 AND id = $2',
+                `SELECT properties, is_identified,
+                        extract(epoch FROM created_at)::bigint AS created_at_epoch,
+                        extract(epoch FROM last_seen_at)::bigint AS last_seen_at_epoch
+                 FROM posthog_person WHERE team_id = $1 AND id = $2`,
                 [team.id, person.id],
                 'fetchAfterBatch'
             )
             expect(rows.rows[0].properties).toEqual({ own: 'v2', from_merge: 'kept?' })
+            expect(Number(rows.rows[0].created_at_epoch)).toBe(Math.floor(olderCreatedAt.toSeconds()))
+            expect(rows.rows[0].is_identified).toBe(true)
+            expect(Number(rows.rows[0].last_seen_at_epoch)).toBe(Math.floor(laterLastSeenAt.toSeconds()))
         })
 
         it('updatePersonsBatch skips tombstoned persons and leaves the death version intact', async () => {

@@ -2100,8 +2100,9 @@ export class PostgresPersonRepository
      * Batch update multiple persons in a single query using UNNEST.
      * This uses a fixed query structure regardless of batch size, enabling prepared statement reuse.
      *
-     * The method updates all mutable fields (properties, is_identified, created_at) and increments version.
-     * It does NOT assert version - it always overwrites with the provided values.
+     * No version assertion. Every field merges with the row rather than replacing it, so a
+     * snapshot read before another writer's flush cannot undo that write: properties apply
+     * as a diff, created_at only moves earlier, is_identified only turns on, last_seen_at only advances.
      */
     async updatePersonsBatch(
         personUpdates: PersonUpdate[]
@@ -2151,9 +2152,9 @@ export class PostgresPersonRepository
                     properties = (p.properties || batch.new_properties::jsonb) - unset.keys,
                     properties_last_updated_at = (p.properties_last_updated_at || batch.new_properties_last_updated_at::jsonb) - unset.keys,
                     properties_last_operation = (p.properties_last_operation || batch.new_properties_last_operation::jsonb) - unset.keys,
-                    is_identified = batch.new_is_identified,
-                    created_at = batch.new_created_at::timestamp with time zone,
-                    last_seen_at = batch.new_last_seen_at::timestamp with time zone,
+                    is_identified = p.is_identified OR batch.new_is_identified,
+                    created_at = LEAST(p.created_at, batch.new_created_at::timestamp with time zone),
+                    last_seen_at = GREATEST(p.last_seen_at, batch.new_last_seen_at::timestamp with time zone),
                     version = COALESCE(p.version, 0)::numeric + 1
                 FROM UNNEST(
                     $1::uuid[],

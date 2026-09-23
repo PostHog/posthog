@@ -137,7 +137,6 @@ describe('BatchWritingPersonStore', () => {
             isPersonLive: jest.fn().mockResolvedValue(true),
             updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
             createPerson: jest.fn().mockResolvedValue([person, []]),
-            updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             updatePersonAssertVersion: jest.fn().mockResolvedValue([person.version + 1, []]),
             updatePersonsBatch: jest.fn().mockImplementation((updates) => {
                 // Return a map with success for each update
@@ -167,7 +166,6 @@ describe('BatchWritingPersonStore', () => {
         const mockTransaction = {
             fetchPersonDistinctIds: jest.fn().mockResolvedValue([]),
             createPerson: jest.fn().mockResolvedValue([person, []]),
-            updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             deletePerson: jest.fn().mockResolvedValue([]),
             deletePersons: jest.fn().mockResolvedValue([]),
             claimLifecycleMarks: jest.fn().mockResolvedValue(undefined),
@@ -395,7 +393,7 @@ describe('BatchWritingPersonStore', () => {
 
         expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalled()
         expect(mockRepo.fetchPerson).toHaveBeenCalled() // Called during conflict resolution
-        expect(mockRepo.updatePerson).toHaveBeenCalled() // Fallback
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith([expect.objectContaining({ uuid: person.uuid })]) // Fallback
     })
 
     it('should merge multiple updates for same person', async () => {
@@ -518,7 +516,7 @@ describe('BatchWritingPersonStore', () => {
 
         expect(testMockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(3)
         expect(testMockRepo.fetchPerson).toHaveBeenCalledTimes(2) // Called for each conflict
-        expect(testMockRepo.updatePerson).not.toHaveBeenCalled() // Shouldn't fallback if retries succeed
+        expect(testMockRepo.updatePersonsBatch).not.toHaveBeenCalled() // Shouldn't fallback if retries succeed
     })
 
     it('should fallback to direct update after max retries', async () => {
@@ -536,7 +534,7 @@ describe('BatchWritingPersonStore', () => {
 
         // Should try optimistic update multiple times based on config (1 initial + 5 retries = 6 total)
         expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(6) // default max retries
-        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1) // fallback
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1) // fallback
     })
 
     it('should merge properties during conflict resolution', async () => {
@@ -565,20 +563,13 @@ describe('BatchWritingPersonStore', () => {
 
         await personStore.flush()
 
-        // Verify the direct update was called with merged properties
-        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+        // The fallback writes only this pod's own sets, on the version it re-read.
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith([
             expect.objectContaining({
-                version: 3, // Should use latest version
+                version: 3,
+                properties_to_set: { new_prop: 'new_value', shared_prop: 'new_value' },
             }),
-            expect.objectContaining({
-                properties: {
-                    existing_prop: 'existing_value',
-                    new_prop: 'new_value',
-                    shared_prop: 'new_value',
-                },
-            }),
-            'updatePersonNoAssert'
-        )
+        ])
     })
 
     it('should handle database errors gracefully during flush', async () => {
@@ -630,15 +621,10 @@ describe('BatchWritingPersonStore', () => {
             return Promise.resolve(results)
         })
 
-        // Mock fallback to also fail
-        const originalUpdatePerson = mockRepo.updatePerson
-        mockRepo.updatePerson = jest.fn().mockRejectedValue(new Error('Database error'))
-
         try {
             await expect(personStore.flush()).rejects.toThrow('Database error')
         } finally {
             mockRepo.updatePersonsBatch = originalUpdatePersonsBatch
-            mockRepo.updatePerson = originalUpdatePerson
         }
     })
 
@@ -719,18 +705,20 @@ describe('BatchWritingPersonStore', () => {
     })
 
     it('should handle MessageSizeTooLarge errors and capture warning', async () => {
-        // Mock batch update to fail for this person, then fallback to fail with MessageSizeTooLarge
-        mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates) => {
-            const results = new Map()
-            for (const update of updates) {
-                results.set(update.uuid, {
-                    success: false,
-                    error: new Error('batch failed'),
-                })
-            }
-            return Promise.resolve(results)
-        })
-        mockRepo.updatePerson = jest.fn().mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
+        // Mock batch update to fail for this person, then the fallback write to fail with MessageSizeTooLarge
+        mockRepo.updatePersonsBatch = jest
+            .fn()
+            .mockImplementationOnce((updates) => {
+                const results = new Map()
+                for (const update of updates) {
+                    results.set(update.uuid, {
+                        success: false,
+                        error: new Error('batch failed'),
+                    })
+                }
+                return Promise.resolve(results)
+            })
+            .mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
 
         // Add a person update to cache
         await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'new_value' }, [], {}, 'test')
@@ -777,19 +765,20 @@ describe('BatchWritingPersonStore', () => {
                     maxOptimisticUpdateRetries: 5,
                 })
 
-                // Mock batch update to fail
-                mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates) => {
-                    const results = new Map()
-                    for (const update of updates) {
-                        results.set(update.uuid, {
-                            success: false,
-                            error: new Error('Batch failed'),
-                        })
-                    }
-                    return Promise.resolve(results)
-                })
-                // Mock fallback to also fail
-                mockRepo.updatePerson = jest.fn().mockRejectedValue(new Error('Database error'))
+                // Mock the batch update to fail, then every fallback write to fail too
+                mockRepo.updatePersonsBatch = jest
+                    .fn()
+                    .mockImplementationOnce((updates) => {
+                        const results = new Map()
+                        for (const update of updates) {
+                            results.set(update.uuid, {
+                                success: false,
+                                error: new Error('Batch failed'),
+                            })
+                        }
+                        return Promise.resolve(results)
+                    })
+                    .mockRejectedValue(new Error('Database error'))
 
                 await personStore.updatePersonWithPropertiesDiffForUpdate(
                     person,
@@ -800,8 +789,9 @@ describe('BatchWritingPersonStore', () => {
                 )
 
                 await expect(personStore.flush()).rejects.toThrow('Database error')
-                expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
-                expect(mockRepo.updatePerson).toHaveBeenCalled() // Fallback was attempted
+                expect(mockRepo.updatePersonsBatch).toHaveBeenLastCalledWith([
+                    expect.objectContaining({ uuid: person.uuid }),
+                ])
                 expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
             })
 
@@ -810,6 +800,7 @@ describe('BatchWritingPersonStore', () => {
                     dbWriteMode: 'NO_ASSERT',
                     useBatchUpdates: false,
                 })
+                const person2 = { ...person, id: '2', uuid: '2' }
 
                 await personStore.updatePersonWithPropertiesDiffForUpdate(
                     person,
@@ -818,11 +809,22 @@ describe('BatchWritingPersonStore', () => {
                     {},
                     'test'
                 )
+                await personStore.updatePersonWithPropertiesDiffForUpdate(
+                    person2,
+                    { new_value: 'new_value' },
+                    [],
+                    {},
+                    'test2'
+                )
                 await personStore.flush()
 
-                // Individual mode should call updatePerson, not updatePersonsBatch
-                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
-                expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
+                expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
+                expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith([
+                    expect.objectContaining({ uuid: person.uuid }),
+                ])
+                expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith([
+                    expect.objectContaining({ uuid: person2.uuid }),
+                ])
                 expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
             })
 
@@ -834,14 +836,18 @@ describe('BatchWritingPersonStore', () => {
                     optimisticUpdateRetryInterval: 1,
                 })
 
-                // Mock updatePerson to fail twice then succeed
+                // Mock the write to fail twice then succeed
                 let callCount = 0
-                mockRepo.updatePerson = jest.fn().mockImplementation(() => {
+                mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates) => {
                     callCount++
                     if (callCount <= 2) {
                         return Promise.reject(new Error('Temporary error'))
                     }
-                    return Promise.resolve([person, []])
+                    return Promise.resolve(
+                        new Map(
+                            updates.map((update: any) => [update.uuid, { success: true, version: update.version + 1 }])
+                        )
+                    )
                 })
 
                 await personStore.updatePersonWithPropertiesDiffForUpdate(
@@ -854,8 +860,7 @@ describe('BatchWritingPersonStore', () => {
                 await personStore.flush()
 
                 // Should have retried
-                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(3)
-                expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
+                expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(3)
             })
         })
 
@@ -877,7 +882,7 @@ describe('BatchWritingPersonStore', () => {
                 await personStore.flush()
 
                 expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(1)
-                expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+                expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
                 expect(mockPostgres.transaction).not.toHaveBeenCalled()
             })
 
@@ -900,7 +905,7 @@ describe('BatchWritingPersonStore', () => {
                 await personStore.flush()
 
                 expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(3) // 1 initial + 2 retries
-                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1) // fallback
+                expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1) // fallback
             })
 
             it('should handle MessageSizeTooLarge in ASSERT_VERSION mode', async () => {
@@ -930,7 +935,7 @@ describe('BatchWritingPersonStore', () => {
                     },
                     pipelineStep: 'person-store',
                 })
-                expect(mockRepo.updatePerson).not.toHaveBeenCalled() // No fallback for MessageSizeTooLarge
+                expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled() // No fallback for MessageSizeTooLarge
             })
         })
 
@@ -1041,8 +1046,8 @@ describe('BatchWritingPersonStore', () => {
         // Verify fetchPerson was called once during conflict resolution
         expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
 
-        // Since the second retry succeeds, there should be no fallback to updatePerson
-        expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+        // Since the second retry succeeds, there should be no fallback write
+        expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
 
         // Verify the second call to updatePersonAssertVersion had the merged properties
         expect(mockRepo.updatePersonAssertVersion).toHaveBeenLastCalledWith(
@@ -1699,7 +1704,7 @@ describe('BatchWritingPersonStore', () => {
             // Flush should skip the database write since only filtered properties changed
             await personStore.flush()
 
-            expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+            expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
             expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
 
             // Verify metrics
@@ -1736,7 +1741,7 @@ describe('BatchWritingPersonStore', () => {
             // Flush should skip the database write
             await personStore.flush()
 
-            expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+            expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
             expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
 
             // Verify metrics
@@ -1934,7 +1939,7 @@ describe('BatchWritingPersonStore', () => {
             // Flush should NOT write to database - all properties are filtered
             await personStore.flush()
 
-            expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+            expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
             expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
 
             // Verify metrics - should be 'ignored' since all properties are filtered
@@ -2242,7 +2247,7 @@ describe('BatchWritingPersonStore', () => {
             // Flush should NOT write to database - all events are normal with only filtered properties
             await personStore.flush()
 
-            expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+            expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
             expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
 
             // Verify metrics - should be 'ignored' since all properties are filtered and no force_update
@@ -2311,7 +2316,6 @@ describe('BatchWritingPersonStore', () => {
 
             // Should NOT write because nothing changed
             expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
-            expect(mockRepo.updatePerson).not.toHaveBeenCalled()
         })
 
         it('should take the newer last_seen_at when multiple updates occur', async () => {
