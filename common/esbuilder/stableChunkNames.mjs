@@ -44,12 +44,18 @@ export function chunkIdentity(output) {
     )}`
 }
 
-/** Replaces every `"/static/<chunk>.js"` string that names a known chunk with its identity specifier. */
+// A chunk path in import position: `from"…"`, `import"…"` and `import("…")`. Only these resolve through
+// the import map. The same path passed to new URL(), fetch() or a Worker must stay a real URL.
+const IMPORT_OF_PATH = /(\bfrom\s*|\bimport\s*\(?\s*)(["'])\/static\/([^"'\s]+?\.js)\2/g
+
+/** Replaces every import of a known chunk by path with an import of its identity specifier. */
 export function rewriteChunkSource(source, identityByFile) {
     return source
         .replace(SOURCE_MAP_COMMENT, '')
-        .replace(/(["'])\/static\/([^"'\s]+?\.js)\1/g, (match, quote, file) =>
-            identityByFile.has(file) ? `${quote}${SPECIFIER_PREFIX}${identityByFile.get(file)}${quote}` : match
+        .replace(IMPORT_OF_PATH, (match, keyword, quote, file) =>
+            identityByFile.has(file)
+                ? `${keyword}${quote}${SPECIFIER_PREFIX}${identityByFile.get(file)}${quote}`
+                : match
         )
 }
 
@@ -88,9 +94,9 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/') {
     for (const [outputPath] of jsOutputs) {
         const file = fileOf(outputPath)
         const source = rewriteChunkSource(readSource(outputPath), identityByFile)
-        for (const match of source.matchAll(/["']\/static\/([^"'\s]+?\.js)["']/g)) {
-            if (identityByFile.has(match[1])) {
-                throw new Error(`stable chunks: ${file} still imports ${match[1]} by path`)
+        for (const match of source.matchAll(IMPORT_OF_PATH)) {
+            if (identityByFile.has(match[3])) {
+                throw new Error(`stable chunks: ${file} still imports ${match[3]} by path`)
             }
         }
         const identity = identityByFile.get(file)

@@ -12,7 +12,7 @@ function plan(sources: Record<string, string>): Map<string, { stableFile: string
 
 describe('planStableChunks', () => {
     const entry = (shared: string, own = 'render()'): Record<string, string> => ({
-        'dist/Scene-AAAA1111.js': `import{a}from"/static/chunk-BBBB2222.js";${own};new URL("/static/Inter-CCCC3333.woff2")`,
+        'dist/Scene-AAAA1111.js': `import{a}from"/static/chunk-BBBB2222.js";${own};new URL("/static/Inter-CCCC3333.woff2");new Worker(new URL("/static/chunk-BBBB2222.js"))`,
         'dist/chunk-BBBB2222.js': shared,
     })
 
@@ -38,11 +38,12 @@ describe('planStableChunks', () => {
         ).toBe(importerKeepsName)
     })
 
-    it('rewrites chunk imports to identity specifiers and leaves asset URLs alone', () => {
+    it('rewrites chunk imports to identity specifiers and leaves URLs alone', () => {
         const { source } = plan(entry('export const a=1')).get('dist/Scene-AAAA1111.js')!
 
         expect(source).toMatch(/from"@c\/c[0-9A-F]{10}"/)
-        expect(source).not.toContain('/static/chunk-BBBB2222.js')
+        expect(source).not.toContain('from"/static/chunk-BBBB2222.js"')
+        expect(source).toContain('new URL("/static/chunk-BBBB2222.js")')
         expect(source).toContain('"/static/Inter-CCCC3333.woff2"')
     })
 })
