@@ -54,6 +54,8 @@ const toolbar = (): string[] =>
         (el) => `${el.getAttribute('data-attr')}:${el.textContent ?? ''}`
     )
 
+const copyCodeButtons = (): Element[] => Array.from(document.querySelectorAll('[data-attr="workflow-copy-code"]'))
+
 describe('WorkflowSceneHeader', () => {
     let logic: ReturnType<typeof workflowLogic.build>
 
@@ -97,9 +99,11 @@ describe('WorkflowSceneHeader', () => {
 
         // The pointer has not moved, so neither has the button under it.
         expect(toolbar()).toEqual(clean)
+        expect(copyCodeButtons()).toHaveLength(1)
+        expect(copyCodeButtons()[0]).toHaveClass('LemonButton--secondary')
     })
 
-    it('renders neither save nor publish for a code-managed workflow, even with edits in the form', async () => {
+    it('puts copy code where save sits for a code-managed workflow, even with edits in the form', async () => {
         logic.unmount()
         useMocks({
             get: {
@@ -129,6 +133,9 @@ describe('WorkflowSceneHeader', () => {
         })
 
         expect(toolbar()).toEqual([])
+        expect(copyCodeButtons()).toHaveLength(1)
+        expect(copyCodeButtons()[0]).toHaveClass('LemonButton--primary')
+        expect(document.querySelector('[data-attr="workflow-code-managed-help"]')).not.toBeNull()
         expect(document.querySelector('[data-attr="workflow-managed-by-code"]')).not.toBeNull()
     })
 })
