@@ -222,6 +222,9 @@ export function LemonInputSelect<T = string>({
     const [inputValue, _setInputValue] = useState('')
     const [itemBeingEditedIndex, setItemBeingEditedIndex] = useState<number | null>(null)
     const popoverFocusRef = useRef<boolean>(false)
+    // Picking an option blurs the input synchronously, and the blur would otherwise commit the typed
+    // search text as a custom value before (or instead of) the option the user picked.
+    const blurringForSelectionRef = useRef<boolean>(false)
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [frozenOptions, setFrozenOptions] = useState<LemonInputSelectOption<T>[] | null>(null)
@@ -514,7 +517,9 @@ export function LemonInputSelect<T = string>({
             // Prevent propagating to Popover's onClickInside, which would set popoverFocusRef.current back to true
             popoverOptionClickEvent?.stopPropagation()
             // Remove focus from input after selecting an option, since in single mode that feels better UX-wise
+            blurringForSelectionRef.current = true
             inputRef.current?.blur()
+            blurringForSelectionRef.current = false
         }
 
         if (stringKeys.includes(item)) {
@@ -544,7 +549,7 @@ export function LemonInputSelect<T = string>({
             // and then the click handler sees it already exists and removes it.
             return
         }
-        if (hasCustomValue) {
+        if (hasCustomValue && !blurringForSelectionRef.current) {
             _onActionItem(inputValue.trim(), null)
         } else {
             setInputValue('')
