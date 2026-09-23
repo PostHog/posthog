@@ -79,8 +79,12 @@ class Command(BaseCommand):
         for flow in flows.iterator():
             conversion = flow.conversion or {}
             minutes = conversion.get("window_minutes")
-            # A row that already carries a window was written by a client that knows the new field.
-            if conversion.get("window") or not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
+            # A row that already carries a usable window was written by a client that knows the new
+            # field. A non-string one is unparseable, so the legacy value is still what it measures.
+            window = conversion.get("window")
+            if isinstance(window, str) and window:
+                continue
+            if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
                 continue
 
             if minutes > MAX_LEGACY_WINDOW_MINUTES:
@@ -321,7 +325,12 @@ def converted_conversion(conversion: object) -> RewrittenWindow | None:
     if not isinstance(conversion, dict):
         return None
     minutes = conversion.get("window_minutes")
-    if conversion.get("window") or not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
+    # A window that is not a string is not a window: the matcher cannot parse it and already falls
+    # through to the legacy value. Treat it as absent so that value is carried across rather than lost.
+    window = conversion.get("window")
+    if isinstance(window, str) and window:
+        return None
+    if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
         return None
     if minutes > MAX_LEGACY_WINDOW_MINUTES:
         return None

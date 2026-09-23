@@ -51,6 +51,17 @@ class TestMigrateConversionWindowToDuration(BaseTest):
         flow.refresh_from_db()
         assert flow.conversion == {"filters": [], "window_minutes": minutes}
 
+    @parameterized.expand([("a number", 7), ("null", None), ("an empty string", "")])
+    def test_converts_over_a_window_that_is_not_a_usable_duration(self, _name, window):
+        # The matcher cannot parse a non-string window, so it already falls through to the legacy
+        # value. Skipping the row here would let the strip pass delete the only readable window.
+        flow = _flow(self.team, "junk window", {"filters": [], "window": window, "window_minutes": 60})
+
+        call_command("migrate_conversion_window_to_duration", team_id=self.team.pk, live_run=True)
+
+        flow.refresh_from_db()
+        assert flow.conversion == {"filters": [], "window": "1h"}
+
     def test_dry_run_writes_nothing(self):
         flow = _flow(self.team, "untouched", {"filters": [], "window_minutes": 60})
 
