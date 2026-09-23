@@ -75,7 +75,6 @@ from products.replay_vision.backend.temporal.network_tool import (
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
-    STEP_MEDIA,
     STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
@@ -646,9 +645,12 @@ async def _run_mission(
             await _delete_video_cache(cache_client, cache.name)
 
     finalized, signals = scanner.assemble(step_outputs)
-    thumbnail_video_s = getattr(step_outputs.get(STEP_MEDIA), "thumbnail_t", None)
+    core_output = step_outputs.get(STEP_CORE)
     return _MissionOutcome(
-        finalized=finalized, signals=signals, verification=verification, thumbnail_video_s=thumbnail_video_s
+        finalized=finalized,
+        signals=signals,
+        verification=verification,
+        thumbnail_video_s=getattr(core_output, "thumbnail_t", None),
     )
 
 
