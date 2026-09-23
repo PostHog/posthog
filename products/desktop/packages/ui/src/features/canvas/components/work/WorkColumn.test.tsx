@@ -44,7 +44,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
   useSpacePresence: () => new Map(),
-  usePrefetchSpaceTasks: () => () => {},
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useUnreadSessionCount", () => ({
   useUnreadSessionCount: () => () => 0,

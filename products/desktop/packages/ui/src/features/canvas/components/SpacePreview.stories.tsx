@@ -20,7 +20,7 @@ function CardFrame({
   people: UserBasic[];
   liveUuids?: string[];
   total: number | null;
-  lastActivityAt?: number | null;
+  lastActivityAt: string | null;
 }) {
   return (
     <div className="p-4">
@@ -89,9 +89,7 @@ const meta = {
     blockedSessions: 0,
     actions,
     total: 14,
-    // Two hours before the frozen test-runner clock (2026-07-01T10:30Z), so
-    // the card reads "Active 2h ago" in the visual snapshots.
-    lastActivityAt: Date.parse("2026-07-01T08:30:00Z"),
+    lastActivityAt: "2026-07-01T08:30:00Z",
     people: [
       user(1, "Ada", "Lovelace"),
       user(2, "Grace", "Hopper"),
@@ -137,7 +135,6 @@ export const ManyRepos: Story = {
   },
 };
 
-/** A members-only space names its kind, the way the row's lock marks it. */
 export const Private: Story = {
   args: {
     channel: {

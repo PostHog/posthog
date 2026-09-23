@@ -27,11 +27,9 @@ const MINUTE = 60_000;
 
 interface SpaceFixture {
   channel: Channel;
-  /** Faces on the row, and which of them are working right now. */
   faces?: { people: UserBasic[]; live?: UserBasic[] };
   unreadSessions?: number;
   blockedSessions?: number;
-  /** Who ran each session on the card's page, newest first, and how long ago. */
   sessions: { by: UserBasic; minutesAgo: number }[];
 }
 
@@ -47,8 +45,6 @@ function channel(name: string, overrides: Partial<Channel> = {}): Channel {
   };
 }
 
-// Every combination of trailing marks the row draws: nothing, one live face,
-// a stack with a dot, a dot alone, and the personal and private kinds.
 const SPACES: SpaceFixture[] = [
   {
     channel: channel("personal", {
@@ -121,12 +117,6 @@ function presenceOf(space: SpaceFixture): ChannelPresence | undefined {
   };
 }
 
-/**
- * Seeds each space's session page into the query cache the card reads from.
- * Queries never resolve in Storybook, so without this the card would show the
- * space's kind and nothing else. Runs at render, not at import, so the times
- * are relative to the clock the test runner freezes.
- */
 function SeededSpaces({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   useState(() => {
@@ -164,7 +154,6 @@ function SpaceRows() {
           unreadSessions={space.unreadSessions ?? 0}
           blockedSessions={space.blockedSessions ?? 0}
           presence={presenceOf(space)}
-          prefetchSessions={() => {}}
         />
       ))}
     </>
@@ -178,14 +167,10 @@ const meta: Meta<typeof SpaceRows> = {
     (Story) => (
       <SeededSpaces>
         <ChannelItemPreviewCardProvider>
-          {/* The work column's own width and surface, so names truncate and
-              marks sit where they do in the app. */}
           <div className="w-[300px] bg-chrome p-2">
             <MenuLabel className="py-1 font-semibold text-foreground/70">
               Spaces
             </MenuLabel>
-            {/* Every row is an Autocomplete option in the column, so the story
-                gives it the same root. */}
             <Autocomplete<string>
               inline
               open
@@ -206,5 +191,4 @@ const meta: Meta<typeof SpaceRows> = {
 export default meta;
 type Story = StoryObj<typeof SpaceRows>;
 
-/** Hover a row to open its card, or right-click it for the same actions. */
 export const Rows: Story = {};

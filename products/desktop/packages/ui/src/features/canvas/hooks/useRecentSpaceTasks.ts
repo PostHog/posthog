@@ -299,12 +299,7 @@ export interface SpaceOverview {
    * nothing has been fetched yet.
    */
   total: number | null;
-  /**
-   * When something last happened in any of the page's sessions, in epoch
-   * milliseconds, or `null` until the page arrives or when no session on it
-   * carries an activity time.
-   */
-  lastActivityAt: number | null;
+  lastActivityAt: string | null;
 }
 
 const NO_OVERVIEW: SpaceOverview = {
@@ -315,23 +310,7 @@ const NO_OVERVIEW: SpaceOverview = {
 };
 
 /**
- * The newest activity time among the tasks. Takes the maximum rather than the
- * first task, so the answer does not depend on the page's server-side order.
- */
-function latestActivityAt(
-  tasks: Pick<Task, "last_activity_at">[],
-): number | null {
-  let latest: number | null = null;
-  for (const task of tasks) {
-    if (!task.last_activity_at) continue;
-    const at = Date.parse(task.last_activity_at);
-    if (!Number.isNaN(at) && (latest === null || at > latest)) latest = at;
-  }
-  return latest;
-}
-
-/**
- * A space's people, its session count and when it was last active, off the same page the tree draws its
+ * A space's people and its session count, off the same page the tree draws its
  * rows from — which the row's own hover has already warmed by the time a card
  * opens over it, so this costs no request of its own.
  *
@@ -371,7 +350,8 @@ export function useSpaceOverview(
       // server's total, which excludes archived tasks — bar any this device has
       // archived and not yet mirrored.
       total: data.tasks.length < TREE_FETCH_LIMIT ? live.length : data.count,
-      lastActivityAt: latestActivityAt(live),
+      lastActivityAt:
+        live.find((task) => task.last_activity_at)?.last_activity_at ?? null,
     };
   }, [data, archivedTaskIds, createdBy, peopleLimit, now]);
 }

@@ -44,7 +44,6 @@ import {
   useChannelActions,
 } from "@posthog/ui/features/canvas/components/ChannelsList";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
-import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import { SidebarSearchInput } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
@@ -102,7 +101,6 @@ const log = logger.scope("work-column");
 
 const RECENT_COLLAPSED_COUNT = 5;
 
-/** How long the pointer has to rest on a space before its sessions are warmed. */
 const SESSION_PREFETCH_DELAY_MS = 250;
 
 // Recent leads with the newest work, so a pin neither floats a row to the top
@@ -166,12 +164,6 @@ function IconAction({
   );
 }
 
-/**
- * A space in the column. The row itself never changes on hover: its faces and
- * unread dot stay where they are, and what you can do to the space lives in its
- * hover card and its right-click menu. Buttons that appeared on the row pushed
- * those marks aside every time the pointer crossed it.
- */
 export function SpaceRow({
   channel,
   isActive,
@@ -179,7 +171,6 @@ export function SpaceRow({
   unreadSessions,
   blockedSessions,
   presence,
-  prefetchSessions,
 }: {
   channel: Channel;
   isActive: boolean;
@@ -187,44 +178,37 @@ export function SpaceRow({
   unreadSessions: number;
   blockedSessions: number;
   presence: ChannelPresence | undefined;
-  prefetchSessions: (spaceId: string) => void;
 }) {
   const people = presence?.people ?? [];
   const noun = useChannelsLayout() ? "space" : "channel";
   const channelActions = useChannelActions(channel);
   const { actions } = channelActions;
-  // New session leads because it is the action the row's own button used to
-  // offer. It is not in the shared list, because the spaces list keeps that
-  // button and would show the action twice.
-  const cardActions = useMemo<ChannelActionItem[]>(
-    () => [
-      {
-        key: "new-session",
-        label: "New session",
-        icon: <PlusIcon size={14} />,
-        onSelect: () => {
-          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-            action_type: "new_task_open",
-            surface: "sidebar",
-            channel_id: channel.id,
-          });
-          openTaskInput({ channelId: channel.id });
-        },
-      },
-      ...actions,
-    ],
-    [actions, channel.id],
-  );
-  // Memoized because the card writes the payload to its store whenever its
-  // identity changes.
   const preview = useMemo<SpacePreviewPayload>(
-    () => ({ channel, unreadSessions, blockedSessions, actions: cardActions }),
-    [channel, unreadSessions, blockedSessions, cardActions],
+    () => ({
+      channel,
+      unreadSessions,
+      blockedSessions,
+      actions: [
+        {
+          key: "new-session",
+          label: "New session",
+          icon: <PlusIcon size={14} />,
+          onSelect: () => {
+            track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+              action_type: "new_task_open",
+              surface: "sidebar",
+              channel_id: channel.id,
+            });
+            openTaskInput({ channelId: channel.id });
+          },
+        },
+        ...actions,
+      ],
+    }),
+    [channel, unreadSessions, blockedSessions, actions],
   );
 
-  // Warms the page the card reads from, so the card opens with its facts
-  // rather than filling them in. Only once the pointer rests: scrolling the
-  // column passes rows under a still cursor, and each would fire a request.
+  const prefetchSessions = usePrefetchSpaceTasks();
   const prefetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -292,7 +276,7 @@ export function SpaceRow({
             }
           />
           <ContextMenuContent>
-            <ChannelActionItems actions={cardActions} kind="context" />
+            <ChannelActionItems actions={preview.actions} kind="context" />
           </ContextMenuContent>
         </ContextMenu>
       </SpaceHoverCard>
@@ -394,7 +378,6 @@ export function WorkColumn() {
   const presenceBySpace = useSpacePresence();
   const unreadSessionCount = useUnreadSessionCount();
   const blockedSessionCount = useBlockedSessionCount();
-  const prefetchSessions = usePrefetchSpaceTasks();
   const open = useCallback(
     (item: ChannelItemModel) => {
       const channelId = channelIdOf(item);
@@ -697,7 +680,6 @@ export function WorkColumn() {
                     unreadSessions={unreadSessionCount(channel.id)}
                     blockedSessions={blockedSessionCount(channel.id)}
                     presence={presenceBySpace.get(channel.id)}
-                    prefetchSessions={prefetchSessions}
                   />
                 ))}
                 {starredSpaces.length <= 1 && needle === "" && (
