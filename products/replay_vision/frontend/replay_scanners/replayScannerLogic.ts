@@ -106,6 +106,12 @@ import {
     scannerToPatchedApiBody,
 } from './types'
 
+/** Narrows a cohort to one monitor verdict or one classifier category; empty means the type's default. */
+export interface AffectedCohortQualifier {
+    verdict?: ObservationVerdictValue
+    tag?: string
+}
+
 export interface ReplayScannerLogicProps {
     id: string
 }
@@ -402,7 +408,7 @@ export interface replayScannerLogicValues {
     originalScanner: ScannerFormValues | null
     pollUntil: number
     retryingObservationIds: string[]
-    savingCohortTag: string | null
+    savingCohortKey: string | null
     scanner: ScannerFormValues
     scannerAllErrors: Record<string, any>
     scannerChanged: boolean
@@ -423,6 +429,7 @@ export interface replayScannerLogicValues {
     tagSuggestions: TagSuggestionApi[]
     tagSuggestionsLoading: boolean
     togglingEnabled: boolean
+    turningOnSelfDriving: boolean
     triggeringOnDemandObservation: boolean
 }
 
@@ -588,8 +595,12 @@ export interface replayScannerLogicActions {
     retryObservationSuccess: (observationId: string) => {
         observationId: string
     }
-    saveAffectedCohort: (tag?: string) => {
-        tag: string | undefined
+    saveAffectedCohort: (
+        windowDays: number,
+        qualifier?: AffectedCohortQualifier
+    ) => {
+        qualifier: AffectedCohortQualifier
+        windowDays: number
     }
     saveAffectedCohortFailure: (
         error: string,
@@ -603,14 +614,16 @@ export interface replayScannerLogicActions {
             cohort_id: number
         } | null,
         payload?: {
-            tag: string | undefined
+            qualifier: AffectedCohortQualifier
+            windowDays: number
         }
     ) => {
         affectedCohort: {
             cohort_id: number
         } | null
         payload?: {
-            tag: string | undefined
+            qualifier: AffectedCohortQualifier
+            windowDays: number
         }
     }
     scannerSaved: (scanner: ScannerFormValues) => {
@@ -726,6 +739,15 @@ export interface replayScannerLogicActions {
     toggleEnabledSuccess: (enabled: boolean) => {
         enabled: boolean
     }
+    turnOnSelfDriving: () => {
+        value: true
+    }
+    turnOnSelfDrivingFailure: () => {
+        value: true
+    }
+    turnOnSelfDrivingSuccess: (scannerVersion: number) => {
+        scannerVersion: number
+    }
     touchScannerField: (key: string) => {
         key: string
     }
@@ -815,7 +837,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setExperimentVariant: (variantKey: string | null) => ({ variantKey }),
         detachExperimentContext: true,
         rebuildExperimentContext: true,
-        saveAffectedCohort: (tag?: string) => ({ tag }),
+        saveAffectedCohort: (windowDays: number, qualifier: AffectedCohortQualifier = {}) => ({
+            windowDays,
+            qualifier,
+        }),
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         startFromTemplate: (templateKey: string | null) => ({ templateKey }),
         discardScannerDraft: true,
@@ -841,6 +866,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         toggleEnabled: true,
         toggleEnabledSuccess: (enabled: boolean) => ({ enabled }),
         toggleEnabledFailure: true,
+        turnOnSelfDriving: true,
+        turnOnSelfDrivingSuccess: (scannerVersion: number) => ({ scannerVersion }),
+        turnOnSelfDrivingFailure: true,
         setObservationStatusFilter: (values: ObservationStatusValue[]) => ({ values }),
         setObservationTriggeredByFilter: (values: ObservationTriggeredByValue[]) => ({ values }),
         setObservationVerdictFilter: (values: ObservationVerdictValue[]) => ({ values }),
@@ -976,7 +1004,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         lemonToast.success('Scanner created. First scan in progress.', {
                             button: {
                                 label: 'Scan a recording now',
-                                action: () => router.actions.push(`${urls.replayVision(response.id)}?tab=on-demand`),
+                                action: () => router.actions.push(`${urls.replayVision(response.id)}?tab=run`),
                                 dataAttr: 'vision-scanner-created-scan-now',
                             },
                         })
@@ -1005,17 +1033,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         affectedCohort: [
             null as { cohort_id: number } | null,
             {
-                saveAffectedCohort: async ({ tag }) => {
+                saveAffectedCohort: async ({ windowDays, qualifier }) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId || props.id === 'new') {
                         return values.affectedCohort
                     }
                     try {
-                        const response = await visionScannersAffectedCohortCreate(
-                            String(teamId),
-                            props.id,
-                            tag ? { tag } : {}
-                        )
+                        const response = await visionScannersAffectedCohortCreate(String(teamId), props.id, {
+                            window_days: windowDays,
+                            ...qualifier,
+                        })
                         lemonToast.success(
                             `Cohort "${response.name}" created with ${response.users_in_cohort.toLocaleString()} ${
                                 response.users_in_cohort === 1 ? 'person' : 'people'
@@ -1125,11 +1152,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     (templateKey ? 'template' : 'scratch') as ScannerCreationMethodEnumApi,
             },
         ],
-        // Which tag's cohort is being created, so tag rows can show a per-row spinner.
-        savingCohortTag: [
+        savingCohortKey: [
             null as string | null,
             {
-                saveAffectedCohort: (_, { tag }) => tag ?? null,
+                saveAffectedCohort: (_, { qualifier }) => qualifier.verdict ?? qualifier.tag ?? null,
                 saveAffectedCohortSuccess: () => null,
                 saveAffectedCohortFailure: () => null,
             },
@@ -1154,6 +1180,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // Keyed on the real save, not submitScannerSuccess — kea-forms fires that on the no-API advance path too.
                 scannerSaved: (_, { scanner }) => scanner,
                 toggleEnabledSuccess: (state, { enabled }) => (state ? { ...state, enabled } : state),
+                // Self-driving changes the prompt the model gets, so the backend bumps the version with it.
+                turnOnSelfDrivingSuccess: (state, { scannerVersion }) =>
+                    state ? { ...state, emits_signals: true, scanner_version: scannerVersion } : state,
             },
         ],
         togglingEnabled: [
@@ -1162,6 +1191,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 toggleEnabled: () => true,
                 toggleEnabledSuccess: () => false,
                 toggleEnabledFailure: () => false,
+            },
+        ],
+        turningOnSelfDriving: [
+            false,
+            {
+                turnOnSelfDriving: () => true,
+                turnOnSelfDrivingSuccess: () => false,
+                turnOnSelfDrivingFailure: () => false,
             },
         ],
         triggeringOnDemandObservation: [
@@ -2178,6 +2215,26 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const verb = next ? 'enable' : 'disable'
                     lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
                     actions.toggleEnabledFailure()
+                }
+            },
+
+            turnOnSelfDriving: async () => {
+                const teamId = teamLogic.values.currentTeamId
+                if (props.id === 'new' || !values.scanner || !teamId) {
+                    actions.turnOnSelfDrivingFailure()
+                    return
+                }
+                try {
+                    const response = await visionScannersPartialUpdate(String(teamId), props.id, {
+                        emits_signals: true,
+                    })
+                    actions.setScannerValue('emits_signals', true)
+                    actions.setScannerValue('scanner_version', response.scanner_version)
+                    actions.turnOnSelfDrivingSuccess(response.scanner_version)
+                    lemonToast.success('Self-driving turned on')
+                } catch (error: any) {
+                    lemonToast.error(`Failed to turn on self-driving${error.detail ? `: ${error.detail}` : ''}`)
+                    actions.turnOnSelfDrivingFailure()
                 }
             },
 

@@ -78,6 +78,21 @@ def sweep_throttle_factor(spend_bytes: int, override: int | None) -> int:
     return _throttle_factor(spend_bytes, SWEEP_READ_BUDGET_BYTES_24H, SWEEP_THROTTLE_MAX_FACTOR)
 
 
+def current_sweep_throttle_factor(
+    fast_by_hour: dict[str, int] | None,
+    pre_split_by_hour: dict[str, int] | None,
+    override: int | None,
+    now: dt.datetime,
+) -> int:
+    """The frequent sweep's throttle factor right now, from the scanner's metered read buckets.
+
+    `is None`, not truthiness: only a column the meter has never written falls back to the pre-split
+    total bucket, which keeps throttled scanners throttled across the deploy.
+    """
+    buckets = pre_split_by_hour if fast_by_hour is None else fast_by_hour
+    return sweep_throttle_factor(sweep_spend_bytes_24h(buckets, now), override)
+
+
 def deep_sweep_throttle_factor(spend_bytes_per_day: int) -> int:
     """Interval-stretch multiplier for the deep pass: N means it runs every N x DEEP_SWEEP_INTERVAL.
 

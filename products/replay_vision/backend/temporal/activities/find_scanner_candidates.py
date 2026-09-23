@@ -47,10 +47,9 @@ from products.replay_vision.backend.temporal.metrics import (
     record_sweep_outcome,
 )
 from products.replay_vision.backend.temporal.read_meter_types import (
+    current_sweep_throttle_factor,
     deep_spend_bytes_per_day,
     deep_sweep_throttle_factor,
-    sweep_spend_bytes_24h,
-    sweep_throttle_factor,
 )
 from products.replay_vision.backend.temporal.sweep_types import (
     CandidateSessionPayload,
@@ -234,9 +233,11 @@ def _throttled(scanner: ReplayScanner) -> bool:
     lagging behind the horizon) is never throttled harder while it drains its backlog.
     """
     now = dt.datetime.now(dt.UTC)
-    factor = sweep_throttle_factor(
-        sweep_spend_bytes_24h(_buckets_or_pre_split(scanner.fast_read_bytes_by_hour, scanner), now),
+    factor = current_sweep_throttle_factor(
+        scanner.fast_read_bytes_by_hour,
+        scanner.sweep_read_bytes_by_hour,
         scanner.sweep_throttle_factor_override,
+        now,
     )
     if factor <= 1:
         return False
