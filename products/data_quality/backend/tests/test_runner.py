@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseCreden
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 STAGED_FOLDER = "query_2000000000000"
+SAVED_QUERY_DEFINITION = "products.data_modeling.backend.logic.saved_query_reads.get_saved_query_definition"
 CREATE_NOTIFICATION = "products.data_quality.backend.logic.notifications.create_notification"
 
 
@@ -293,6 +294,18 @@ class TestCheckRunner(BaseTest):
 
         run = DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check)
         assert (run.compiled_query, run.audited_staged_refresh) == (expected, audit_staged)
+
+    def test_a_staged_run_still_audits_when_its_replay_query_cannot_be_built(self) -> None:
+        self._materialize_view()
+        check = self._check()
+        staged = StagedSubjectOverride(saved_query_id=str(self.view.id), queryable_folder=STAGED_FOLDER)
+        with (
+            patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])),
+            patch(SAVED_QUERY_DEFINITION, side_effect=RuntimeError("database unavailable")),
+        ):
+            outcome = run_check(check, self.suite_run, self.team, staged=staged)
+
+        assert (outcome.status, outcome.failed_row_count, outcome.compiled_query) == (CheckRunStatus.FAILED, 3, "")
 
     @parameterized.expand(
         [

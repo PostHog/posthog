@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -236,7 +237,11 @@ def _execute(
 
 
 def _replayable_against_sources(compiled: CompiledCheck, team: Team, staged: StagedSubjectOverride) -> CompiledCheck:
-    replayable = replayable_failing_rows_query(team.pk, staged.saved_query_id, compiled.failing_rows)
+    try:
+        replayable = replayable_failing_rows_query(team.pk, staged.saved_query_id, compiled.failing_rows)
+    except Exception as err:
+        capture_exception(err)
+        replayable = None
     return replace(compiled, printed_failing_rows_query=replayable or "")
 
 

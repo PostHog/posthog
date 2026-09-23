@@ -89,7 +89,7 @@ def _view_definition_cte(team_id: int, saved_query_id: str | UUID) -> ast.CTE | 
 
 
 def _with_cte(query: "ast.SelectQuery | ast.SelectSetQuery", cte: ast.CTE) -> ast.SelectQuery:
-    if isinstance(query, ast.SelectSetQuery):
+    if isinstance(query, ast.SelectSetQuery) or cte.name in (query.ctes or {}):
         return ast.SelectQuery(
             select=[ast.Field(chain=["*"])],
             select_from=ast.JoinExpr(table=query),

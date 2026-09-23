@@ -25187,7 +25187,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly observed_value: number | null;
-      /** HogQL selecting the failing rows. Re-run it to see them. For a run that audited a staged refresh it inlines the view's definition, so it reads the source tables rather than the published table. */
+      /** HogQL selecting the failing rows. Re-run it to see them. For a run that audited a staged refresh it inlines the view's definition, so it reads the source tables rather than the published table. Empty when there is nothing to replay: retention cleared it, or a staged run could not read the view's definition. */
       readonly compiled_query: string;
       /** True when the run audited a refresh that was staged but not yet published, under the materialization gate. */
       readonly audited_staged_refresh: boolean;

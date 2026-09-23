@@ -62,7 +62,7 @@ Notification recipient checks retain the existing global warehouse-resource poli
 
 Catalog access is a project permission resource. Notification visibility follows that permission, including after access is revoked.
 
-A run under the materialization gate reads the refresh before it is published, and sets `audited_staged_refresh`. Its stored failing-rows query cannot name the view, because the SQL editor resolves that name to the published table, which after a block is still the previous version. So the query holds the view's definition in a `WITH` clause and reads the view's source tables. Those sources can change after the run, so a replay can return different rows than the run counted.
+A run under the materialization gate sets `audited_staged_refresh`, including a run that errored before it could read the staged files. Check `status` and `error` before treating the refresh as audited. The stored failing-rows query cannot name the view, because the SQL editor resolves that name to the published table, which after a block is still the previous version. So the query holds the view's definition in a `WITH` clause and reads the view's source tables. Those sources can change after the run, so a replay can return different rows than the run counted. When the view's definition cannot be read, the run stores no query.
 
 ## Models overview
 

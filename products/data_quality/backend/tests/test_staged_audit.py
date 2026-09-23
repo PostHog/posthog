@@ -103,6 +103,14 @@ class TestStagedAudit(BaseTest):
                 "WITH orders AS (SELECT 1 AS customer_id) SELECT * FROM "
                 "(SELECT customer_id FROM orders UNION ALL SELECT customer_id FROM orders)",
             ),
+            (
+                "custom_sql_whose_cte_shadows_the_view",
+                CheckType.CUSTOM_SQL,
+                "",
+                {"query": "WITH orders AS (SELECT customer_id FROM orders) SELECT customer_id FROM orders"},
+                "WITH orders AS (SELECT 1 AS customer_id) SELECT * FROM "
+                "(WITH orders AS (SELECT customer_id FROM orders) SELECT customer_id FROM orders)",
+            ),
         ]
     )
     def test_the_stored_query_for_a_staged_run_inlines_the_view_definition(

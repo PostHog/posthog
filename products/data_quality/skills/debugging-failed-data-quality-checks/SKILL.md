@@ -57,7 +57,7 @@ On the newest run, read:
 - `status` and `error`
 - `check_config` and `check_severity`: what the run asserted, which can differ from the check today
 - `compiled_query`: HogQL that selects the failing rows. For `row_count` it returns the count instead, so judge that check by `observed_value`.
-- `audited_staged_refresh`: true when the run checked a refresh before it was published
+- `audited_staged_refresh`: true when the run was part of a gated audit of a refresh before it was published. An errored run can carry it too, so read `status` first.
 
 Retention clears `compiled_query` after 30 days.
 For an older run, run the check again.
@@ -65,6 +65,7 @@ For an older run, run the check again.
 ### Step 2: Look at the failing rows
 
 Run `compiled_query` with `posthog:execute-sql`.
+An empty `compiled_query` means there is nothing to replay: retention cleared it, or a gated run could not read the view's definition.
 Look at what it matched before you report anything.
 A failure means one of two things: the data is bad, or the assertion is wrong.
 The rows tell you which.
