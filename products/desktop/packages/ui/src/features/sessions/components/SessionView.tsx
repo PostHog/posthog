@@ -11,6 +11,7 @@ import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
   FAST_MODE_OPTION_CATEGORY,
 } from "@posthog/core/task-detail/previewConfig";
+import { voiceQuestionFromPermission } from "@posthog/core/voice/voiceQuestion";
 import { useService } from "@posthog/di/react";
 import {
   type AcpMessage,
@@ -53,6 +54,7 @@ import { SessionSummaryPanel } from "@posthog/ui/features/sessions/components/Se
 import { SideQuestionCard } from "@posthog/ui/features/sessions/components/SideQuestionCard";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
 import {
+  getNewAttachments,
   isSubmittedContentUnchanged,
   shouldSubmitComposerOptimistically,
   submitComposerPrompt,
@@ -79,6 +81,7 @@ import {
 } from "@posthog/ui/features/sessions/sessionViewStore";
 import type { Plan } from "@posthog/ui/features/sessions/types";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { useInUnfocusedTile } from "@posthog/ui/features/tab-tiling/tileContext";
 import { VoiceConversationControl } from "@posthog/ui/features/voice/VoiceConversationControl";
 import { useIsWorkspaceCloudRun } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
@@ -94,13 +97,6 @@ import {
   useRef,
   useState,
 } from "react";
-
-export function getNewAttachments(
-  previousIds: ReadonlySet<string>,
-  attachments: FileAttachment[],
-): FileAttachment[] {
-  return attachments.filter(({ id }) => !previousIds.has(id));
-}
 
 interface SessionViewProps {
   events: AcpMessage[];
@@ -174,6 +170,7 @@ export function SessionView({
   useSessionEventsResidency(taskId);
   const showRawLogs = useShowRawLogs();
   const { setShowRawLogs } = useSessionViewActions();
+  const inBackgroundTile = useInUnfocusedTile();
   const pendingPermissions = usePendingPermissionsForTask(taskId);
   const modeOption = useModeConfigOptionForTask(taskId);
   const thoughtOption = useThoughtLevelConfigOptionForTask(taskId);
@@ -507,6 +504,11 @@ export function SessionView({
     return { ...permission, toolCallId };
   }, [pendingPermissions]);
 
+  const voiceQuestion = useMemo(
+    () => voiceQuestionFromPermission(firstPendingPermission),
+    [firstPendingPermission],
+  );
+
   const handlePermissionSelect = useCallback(
     async (
       optionId: string,
@@ -768,130 +770,156 @@ export function SessionView({
                       )}
                     </Flex>
                   </Flex>
-                ) : hideInput ? null : firstPendingPermission ? (
-                  // Keyed on when the prompt arrived, not just which tool call
-                  // it belongs to, so a re-asked permission for the same call
-                  // arrives shown rather than inheriting the last one's hidden
-                  // state.
-                  <PermissionDock
-                    key={`${firstPendingPermission.toolCall.toolCallId}-${firstPendingPermission.receivedAt}`}
-                    compact={compact}
-                  >
-                    <PermissionSelector
-                      toolCall={firstPendingPermission.toolCall}
-                      options={firstPendingPermission.options}
-                      onSelect={handlePermissionSelect}
-                      onCancel={handlePermissionCancel}
-                    />
-                  </PermissionDock>
-                ) : (
-                  <Box className="shrink-0">
-                    <ComposerWidth compact={compact}>
-                      {taskId && (
-                        <SessionSummaryPanel
-                          taskId={taskId}
-                          taskRunId={activeTaskRunId}
-                        />
-                      )}
-                      {taskId && (
-                        <SideQuestionCard
-                          taskId={taskId}
-                          taskRunId={activeTaskRunId}
-                        />
-                      )}
-                      {taskId && <QueuedMessagesDock taskId={taskId} />}
-                      {taskId && (
-                        <VoiceConversationControl
-                          taskId={taskId}
-                          events={events}
-                          pending={!!isPromptPending}
-                          active={isActiveSession}
-                          disabled={
-                            !isRunning || !isOnline || spendStop !== null
-                          }
-                          onSend={onSendPrompt}
-                        />
-                      )}
-                      <PromptInput
-                        ref={editorRef}
-                        sessionId={sessionId}
-                        placeholder={
-                          isRunning
-                            ? "Type a message... ! for bash mode, / for skills"
-                            : "Waiting for the agent..."
-                        }
-                        disabled={!isRunning}
-                        submitDisabledExternal={
-                          !isOnline ||
-                          attachmentsUploading ||
-                          attachmentUploadFailed ||
-                          spendStop !== null
-                        }
-                        clearOnSubmit={false}
-                        submitTooltipOverride={
-                          !isOnline
-                            ? "No internet connection"
-                            : attachmentsUploading
-                              ? "Uploading attachments…"
-                              : attachmentUploadFailed
-                                ? "Attachment upload failed"
-                                : spendStop
-                                  ? spendStopMessage(spendStop)
-                                  : undefined
-                        }
-                        isLoading={!!isPromptPending}
-                        isActiveSession={isActiveSession}
-                        taskId={taskId}
-                        repoPath={repoPath}
-                        modeOption={modeOption}
-                        onModeChange={modeOption ? handleModeChange : undefined}
-                        allowBypassPermissions={allowBypassPermissions}
-                        enableBashMode={!isCloudRun}
-                        modelSelector={null}
-                        reasoningSelector={
-                          thoughtOption || sessionModelOption ? (
-                            <ReasoningLevelSelector
-                              thoughtOption={thoughtOption}
-                              modelOption={sessionModelOption}
-                              adapter={adapter}
-                              modelAccess={claudeModelAccess}
-                              contextWindowOption={contextWindowOption}
-                              fastModeOption={fastModeOption}
-                              onChange={handleThoughtChange}
-                              onConfigOptionChange={handleConfigOptionChange}
-                              disabled={
-                                !isRunning ||
-                                (isCloudRunTerminal && !!isPromptPending)
-                              }
+                ) : hideInput ? null : (
+                  <VoiceConversationControl
+                    taskId={taskId}
+                    events={events}
+                    pending={!!isPromptPending}
+                    question={voiceQuestion}
+                    active={
+                      isActiveSession !== false &&
+                      !inBackgroundTile &&
+                      (!firstPendingPermission || !!voiceQuestion)
+                    }
+                    disabled={!isRunning || !isOnline || spendStop !== null}
+                    onSend={onSendPrompt}
+                    onAnswerQuestion={(id, answers) =>
+                      taskId
+                        ? sessionService.answerVoiceQuestion(
+                            taskId,
+                            id,
+                            answers,
+                          )
+                        : Promise.resolve(false)
+                    }
+                    render={(voiceControls, voiceActivity) => (
+                      <>
+                        {voiceActivity}
+                        {firstPendingPermission ? (
+                          // Keyed on when the prompt arrived, not just which tool call
+                          // it belongs to, so a re-asked permission for the same call
+                          // arrives shown rather than inheriting the last one's hidden
+                          // state.
+                          <PermissionDock
+                            key={`${firstPendingPermission.toolCall.toolCallId}-${firstPendingPermission.receivedAt}`}
+                            compact={compact}
+                            actions={voiceControls}
+                          >
+                            <PermissionSelector
+                              toolCall={firstPendingPermission.toolCall}
+                              options={firstPendingPermission.options}
+                              onSelect={handlePermissionSelect}
+                              onCancel={handlePermissionCancel}
                             />
-                          ) : null
-                        }
-                        messagingModeToggle={
-                          taskId ? (
-                            <SteerQueueToggle taskId={taskId} />
-                          ) : undefined
-                        }
-                        toolbarEndSlot={
-                          <ContextUsageIndicator
-                            usage={contextUsage}
-                            taskId={taskId}
-                            originProduct={task?.origin_product}
-                            focused={isActiveSession !== false}
-                          />
-                        }
-                        onToggleMessagingMode={toggleMessagingMode}
-                        onAttachmentsChange={handleAttachmentsChange}
-                        attachmentUploadStatuses={attachmentUploadStatuses}
-                        onPromptRecall={handlePromptRecall}
-                        onBeforeSubmit={handleBeforeSubmit}
-                        onSubmit={handleSubmit}
-                        onBashCommand={onBashCommand}
-                        onCancel={onCancelPrompt}
-                        isEditingQueued={isEditingQueued}
-                        onCancelEdit={cancelQueuedEdit}
-                      />
-                    </ComposerWidth>
-                  </Box>
+                          </PermissionDock>
+                        ) : (
+                          <Box className="shrink-0">
+                            <ComposerWidth compact={compact}>
+                              {taskId && (
+                                <SessionSummaryPanel
+                                  taskId={taskId}
+                                  taskRunId={activeTaskRunId}
+                                />
+                              )}
+                              {taskId && (
+                                <SideQuestionCard
+                                  taskId={taskId}
+                                  taskRunId={activeTaskRunId}
+                                />
+                              )}
+                              {taskId && <QueuedMessagesDock taskId={taskId} />}
+                              <PromptInput
+                                submitAdornment={voiceControls}
+                                ref={editorRef}
+                                sessionId={sessionId}
+                                placeholder={
+                                  isRunning
+                                    ? "Type a message... ! for bash mode, / for skills"
+                                    : "Waiting for the agent..."
+                                }
+                                disabled={!isRunning}
+                                submitDisabledExternal={
+                                  !isOnline ||
+                                  attachmentsUploading ||
+                                  attachmentUploadFailed ||
+                                  spendStop !== null
+                                }
+                                clearOnSubmit={false}
+                                submitTooltipOverride={
+                                  !isOnline
+                                    ? "No internet connection"
+                                    : attachmentsUploading
+                                      ? "Uploading attachments…"
+                                      : attachmentUploadFailed
+                                        ? "Attachment upload failed"
+                                        : spendStop
+                                          ? spendStopMessage(spendStop)
+                                          : undefined
+                                }
+                                isLoading={!!isPromptPending}
+                                isActiveSession={isActiveSession}
+                                taskId={taskId}
+                                repoPath={repoPath}
+                                modeOption={modeOption}
+                                onModeChange={
+                                  modeOption ? handleModeChange : undefined
+                                }
+                                allowBypassPermissions={allowBypassPermissions}
+                                enableBashMode={!isCloudRun}
+                                modelSelector={null}
+                                reasoningSelector={
+                                  thoughtOption || sessionModelOption ? (
+                                    <ReasoningLevelSelector
+                                      thoughtOption={thoughtOption}
+                                      modelOption={sessionModelOption}
+                                      adapter={adapter}
+                                      modelAccess={claudeModelAccess}
+                                      contextWindowOption={contextWindowOption}
+                                      fastModeOption={fastModeOption}
+                                      onChange={handleThoughtChange}
+                                      onConfigOptionChange={
+                                        handleConfigOptionChange
+                                      }
+                                      disabled={
+                                        !isRunning ||
+                                        (isCloudRunTerminal &&
+                                          !!isPromptPending)
+                                      }
+                                    />
+                                  ) : null
+                                }
+                                messagingModeToggle={
+                                  taskId ? (
+                                    <SteerQueueToggle taskId={taskId} />
+                                  ) : undefined
+                                }
+                                toolbarEndSlot={
+                                  <ContextUsageIndicator
+                                    usage={contextUsage}
+                                    taskId={taskId}
+                                    originProduct={task?.origin_product}
+                                    focused={isActiveSession !== false}
+                                  />
+                                }
+                                onToggleMessagingMode={toggleMessagingMode}
+                                onAttachmentsChange={handleAttachmentsChange}
+                                attachmentUploadStatuses={
+                                  attachmentUploadStatuses
+                                }
+                                onPromptRecall={handlePromptRecall}
+                                onBeforeSubmit={handleBeforeSubmit}
+                                onSubmit={handleSubmit}
+                                onBashCommand={onBashCommand}
+                                onCancel={onCancelPrompt}
+                                isEditingQueued={isEditingQueued}
+                                onCancelEdit={cancelQueuedEdit}
+                              />
+                            </ComposerWidth>
+                          </Box>
+                        )}
+                      </>
+                    )}
+                  />
                 )}
               </>
             )}

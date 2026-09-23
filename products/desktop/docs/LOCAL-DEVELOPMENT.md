@@ -235,7 +235,7 @@ posthog.featureFlags.override({ "posthog-desktop-onboarding-test-tools": true })
 ## Desktop voice conversations
 
 Deploy the task voice endpoint before the desktop client.
-Set `OPENAI_LIVE_API_KEY` on the Django server to a key with access to `gpt-live-1`.
+Set `OPENAI_LIVE_API_KEY` on the Django server to a key with access to `gpt-live-1` and the delegated Responses model `gpt-5.6-luna`.
 Enable `posthog-desktop-voice` for the staff test account in the analytics project used by both clients.
 The server checks staff status, task visibility, AI data processing consent, and the flag.
 A client flag override alone does not grant access.
@@ -246,18 +246,42 @@ Allow microphone access when the operating system asks.
 Voice controls are available in local and cloud task conversations, with either agent runtime.
 The web and mobile apps do not expose these controls.
 
-Open a task and select **Start voice**.
+Open a task and select the voice bars icon beside Send to start voice.
 Audio and recent conversation text go to OpenAI; session recording is disabled.
 Spoken requests use the task's existing text, queue, and steering paths.
-Answer permission requests in the app.
-Leaving the conversation, hiding the app, or selecting **End voice** stops microphone capture.
+Desktop requests structured voice tools with `structured_tools: true`; the backend uses Responses delegation.
+The voice assistant reads clarification questions and their options aloud.
+Spoken choices produce an `answer_question` tool call that fills the question form and appears under **Voice actions**.
+Requests to explain an option leave the question open.
+The `send_to_task` tool dispatches work through the existing task agent and reports completion separately.
+Answer in your own words; for multiple questions, voice asks them one at a time and sends the answers through the existing question response path.
+Spoken answers are handled while the task turn is still waiting for input.
+Voice follows the question shown in the form and preserves answers edited there.
+If you advance to the review step manually, use its Submit control to send the answers.
+Desktop sends the current question and its options as spoken commentary, without a follow-up instruction that can interrupt narration.
+Action approvals still require the existing controls in the app.
+While connected, the three colored bars from the PostHog logo move up and down with microphone and reply audio levels.
+Select it again to end voice; its tooltip reads **End voice**.
+The animation respects reduced-motion preferences and reads local WebRTC level metadata without recording audio.
+Submitted speech appears as a **Voice message** showing the latest request, with **Show transcript** revealing the full exchange.
+The task agent still receives the complete spoken conversation.
+
+Leaving the conversation, focusing another task tile, hiding the app, or selecting **End voice** stops microphone capture.
 The client ends voice after five minutes without stopping the task.
+Task replies completed while voice connects are read after the connection starts.
+Ending voice waits briefly for final usage without reporting an expected disconnect as a connection failure.
+A temporary WebRTC disconnect can recover; a failed connection ends voice.
 
 Before rollout, test microphone denial, hiding the app, navigation, connection loss, a long reply, and a queued text edit in desktop.
 Check both local and cloud conversations with ACP and Pi agents.
 Check `Voice conversation started` and `Voice conversation ended` for connection failures and incomplete closes.
 The voice `$ai_generation` event uses provider-reported seconds; it does not report token counts or estimated costs.
 Audio, transcripts, SDP, and error text are excluded from these events.
+
+If Desktop reports "Voice service could not connect", inspect the backend response before changing microphone permissions.
+A `503` can mean `OPENAI_LIVE_API_KEY` is missing or the live provider is unavailable.
+After setting the key, restart Django so it loads the updated environment.
+Microphone permission and device failures display "Microphone unavailable" instead.
 
 ## Troubleshooting
 

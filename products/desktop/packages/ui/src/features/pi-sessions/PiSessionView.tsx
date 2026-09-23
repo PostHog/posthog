@@ -689,22 +689,6 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           widgets={currentExtensionState.widgets}
           placement="aboveEditor"
         />
-        <VoiceConversationControl
-          taskId={taskId}
-          active={!inBackgroundTile}
-          events={session.events}
-          pending={controlsPending}
-          disabled={
-            isCompacting ||
-            !sessionAvailable ||
-            !status ||
-            !isOnline ||
-            hasQueuedMessage ||
-            isAuthRestoring ||
-            spendStop !== null
-          }
-          onSend={sendPrompt}
-        />
         {mcpPermission ? (
           isMcpPermissionResponding ? (
             <Skeleton className="h-24 w-full" />
@@ -722,6 +706,24 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           )
         ) : (
           <PromptInput
+            submitAdornment={
+              <VoiceConversationControl
+                taskId={taskId}
+                active={!inBackgroundTile}
+                events={session.events}
+                pending={controlsPending}
+                disabled={
+                  isCompacting ||
+                  !sessionAvailable ||
+                  !status ||
+                  !isOnline ||
+                  hasQueuedMessage ||
+                  isAuthRestoring ||
+                  spendStop !== null
+                }
+                onSend={sendPrompt}
+              />
+            }
             sessionId={taskId}
             toolbarEndSlot={
               <ContextUsageIndicator

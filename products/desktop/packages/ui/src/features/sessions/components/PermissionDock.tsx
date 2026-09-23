@@ -31,9 +31,11 @@ const RESIZE_STEP = 40;
  */
 export function PermissionDock({
   compact,
+  actions,
   children,
 }: {
   compact: boolean;
+  actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const height = usePermissionDockHeight();
@@ -183,6 +185,7 @@ export function PermissionDock({
             <div className="h-1 w-8 rounded-full bg-(--gray-6) group-hover:bg-(--gray-8) group-focus-visible:bg-(--gray-8)" />
           </div>
         )}
+        {actions}
         <Tooltip>
           <TooltipTrigger
             render={

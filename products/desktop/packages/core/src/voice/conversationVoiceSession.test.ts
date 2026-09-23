@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { ApiRequestError } from "@posthog/api-client/fetcher";
 import type { LiveVoiceTransport } from "@posthog/platform/speech";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -100,6 +101,53 @@ describe("ConversationVoiceSession", () => {
     expect(conversation.onState).toHaveBeenLastCalledWith("error");
     expect(transport.acceptAnswer).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [
+      "createSession",
+      new ApiRequestError(503, "private server details"),
+      "service-error",
+    ],
+    [
+      "createOffer",
+      new DOMException("denied", "NotAllowedError"),
+      "microphone-error",
+    ],
+    [
+      "createOffer",
+      new DOMException("missing", "NotFoundError"),
+      "microphone-error",
+    ],
+    [
+      "createOffer",
+      new DOMException("busy", "NotReadableError"),
+      "microphone-error",
+    ],
+    ["createOffer", new Error("connection failed"), "error"],
+  ] as const)(
+    "reports %s failures without exposing raw errors (%s)",
+    async (operation, error, state) => {
+      const { session, transport, conversation, connect } = setup();
+      const attempt =
+        operation === "createSession"
+          ? conversation.createSession
+          : transport.createOffer;
+      attempt.mockRejectedValueOnce(error);
+      await session.start();
+      expect(conversation.onState).toHaveBeenLastCalledWith(state);
+      expect(transport.close).toHaveBeenCalledOnce();
+      expect(conversation.onEnded).toHaveBeenCalledWith({
+        sessionId: null,
+        seconds: null,
+        finalized: false,
+        failed: true,
+      });
+      session.stop();
+      expect(transport.close).toHaveBeenCalledOnce();
+      await connect();
+      expect(conversation.onState).toHaveBeenLastCalledWith("connected");
+    },
+  );
 
   it.each([true, false])(
     "stops the microphone and releases the connection (finalized: %s)",

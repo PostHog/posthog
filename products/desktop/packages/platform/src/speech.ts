@@ -21,10 +21,16 @@ export interface ISpeech {
 
 export const SPEECH_SERVICE = Symbol.for("posthog.platform.speech");
 
+export interface VoiceAudioLevels {
+  input: number;
+  output: number;
+}
+
 export interface LiveVoiceTransport {
   createOffer(
     onMessage: (message: string) => void,
     onDisconnect: () => void,
+    onAudioLevels?: (levels: VoiceAudioLevels) => void,
   ): Promise<string>;
   acceptAnswer(sdp: string): Promise<void>;
   send(message: string): void;

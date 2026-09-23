@@ -1,4 +1,7 @@
-import type { LiveVoiceTransport } from "@posthog/platform/speech";
+import type {
+  LiveVoiceTransport,
+  VoiceAudioLevels,
+} from "@posthog/platform/speech";
 
 export class DesktopVoiceTransport implements LiveVoiceTransport {
   private peer: RTCPeerConnection | null = null;
@@ -6,11 +9,47 @@ export class DesktopVoiceTransport implements LiveVoiceTransport {
   private channel: RTCDataChannel | null = null;
   private audio: HTMLAudioElement | null = null;
   private generation = 0;
+  private audioMeterTimeout: ReturnType<typeof setTimeout> | undefined;
   private cancelGathering: (() => void) | undefined;
+
+  private async measureAudio(
+    peer: RTCPeerConnection,
+    generation: number,
+    onAudioLevels: (levels: VoiceAudioLevels) => void,
+  ): Promise<void> {
+    if (generation !== this.generation || !this.stream) return;
+    const levels: VoiceAudioLevels = { input: 0, output: 0 };
+    try {
+      const stats = await peer.getStats();
+      for (const report of stats.values()) {
+        if (
+          report.kind !== "audio" ||
+          typeof report.audioLevel !== "number" ||
+          !Number.isFinite(report.audioLevel)
+        )
+          continue;
+        const level = Math.min(1, Math.max(0, report.audioLevel));
+        if (report.type === "media-source")
+          levels.input = Math.max(levels.input, level);
+        if (report.type === "inbound-rtp")
+          levels.output = Math.max(levels.output, level);
+      }
+    } catch {
+      // Level metering must not interrupt a voice connection.
+    }
+    // boffin: A late stats result must not restart metering after the microphone stops.
+    if (generation !== this.generation || !this.stream) return;
+    onAudioLevels(levels);
+    this.audioMeterTimeout = setTimeout(
+      () => void this.measureAudio(peer, generation, onAudioLevels),
+      100,
+    );
+  }
 
   async createOffer(
     onMessage: (message: string) => void,
     onDisconnect: () => void,
+    onAudioLevels?: (levels: VoiceAudioLevels) => void,
   ): Promise<string> {
     const generation = ++this.generation;
     const checkActive = (): void => {
@@ -51,11 +90,7 @@ export class DesktopVoiceTransport implements LiveVoiceTransport {
     channel.onclose = disconnect;
     channel.onerror = disconnect;
     peer.onconnectionstatechange = () => {
-      if (
-        peer.connectionState === "failed" ||
-        peer.connectionState === "disconnected"
-      )
-        disconnect();
+      if (peer.connectionState === "failed") disconnect();
     };
     const offer = await peer.createOffer();
     checkActive();
@@ -87,6 +122,7 @@ export class DesktopVoiceTransport implements LiveVoiceTransport {
       };
     });
     checkActive();
+    if (onAudioLevels) void this.measureAudio(peer, generation, onAudioLevels);
     const sdp = peer.localDescription?.sdp;
     if (!sdp) throw new Error("Voice connection has no offer");
     return sdp;
@@ -102,6 +138,7 @@ export class DesktopVoiceTransport implements LiveVoiceTransport {
   }
 
   mute(): void {
+    clearTimeout(this.audioMeterTimeout);
     for (const track of this.stream?.getTracks() ?? []) track.stop();
     this.stream = null;
     this.audio?.pause();

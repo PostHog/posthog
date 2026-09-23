@@ -3248,7 +3248,10 @@ export class PostHogAPIClient {
       method: "post",
       url: new URL(`${this.api.baseUrl}${path}`),
       path,
-      overrides: { body: JSON.stringify({ sdp, context }), signal },
+      overrides: {
+        body: JSON.stringify({ sdp, context, structured_tools: true }),
+        signal,
+      },
     });
     return voiceSessionResponseSchema.parse(await response.json()).sdp;
   }
