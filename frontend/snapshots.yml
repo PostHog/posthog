@@ -9212,6 +9212,10 @@ snapshots:
         hash: v1.k794b7964.de465356e1d0c3d5df4e27a38f222f1272cd482864e94f5c0926496b21585156.JrxNWbA8ll95SmETdYceyyUM7OXvaVFv4m2ZNqLTEc0
     scenes-app-inbox-scoutsuggestionsstrip--last-scan-failed--light:
         hash: v1.k794b7964.862bc68a11983494741c4d1522c7a0b5a9dbc62fa096994e7ca39fcee696dc45.Gqy-Dr8yrhe7v2EdrEZFwjferFE9JMtvLBRegJF3Ebw
+    scenes-app-inbox-scoutsuggestionsstrip--low-activity--dark:
+        hash: v1.k794b7964.732c41df9211ce01adee553f66133484b9e5ea18986cf871c44f27fa88846754.DoN92tzMp60OUzfZtXPqKJ9UiDTVJC9sLc5nQVmjHzU
+    scenes-app-inbox-scoutsuggestionsstrip--low-activity--light:
+        hash: v1.k794b7964.9073f092aa4a347930e8468bb2f212bbdbe96a636a9fbce691cffa6caa493b07.YTmjGLtgppZg6VzdbUe-5cMUkxvsWUPRELqQMczJIc8
     scenes-app-inbox-scoutsuggestionsstrip--narrow--dark:
         hash: v1.k794b7964.d16cb21c4d654c63d5f8b6047b3291b636b25e21b00a91b06bd8384967f8a4ef.h9itg-CPeBGLngbSfw7_TIYGEJHnd_Z_sQ4VYIS5u0k
     scenes-app-inbox-scoutsuggestionsstrip--narrow--light:
