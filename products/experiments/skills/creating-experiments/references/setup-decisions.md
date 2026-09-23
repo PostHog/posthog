@@ -45,11 +45,19 @@ When every `target_surface.libs[]` row that reaches the surface has `category: "
 2. **Persistence** (`ensure_experience_continuity: true`), if no matching `sdk_profile.libs` row evaluates flags locally: every row that matches a `lib` in `target_surface.libs` has `sdk_profile.libs[].locally_evaluated_share` near 0, or null on a web or mobile row. Null on a server row is unknown: go to step 3. Persistence also needs person profiles for anonymous users, no bootstrapping, and `$anon_distinct_id` on server flag calls. The tool cannot see those three, so list them for the user to check.
 3. **Otherwise**: user-id bucketing, and mark it "not decided". Say what would unlock the other options: a device ID on every flag call, or no local evaluation.
 
+Steps 1 and 2 read only the rows that match, so a `target_surface.libs[]` row with no `sdk_profile.libs` row of the same `lib` is unchecked rather than safe.
+`sdk_profile.libs` reads multivariate flag calls over 7 days while `target_surface.libs` reads target events over 14, so a missing row can mean that SDK evaluates no multivariate flag, or only that it made none in the shorter window.
+Name every unmatched SDK in the report.
+When an unmatched row has `category: "server"`, take step 3: an unread server SDK is the case that breaks both steps, because it may send its flag calls without a device ID and may evaluate them locally.
+Otherwise keep the step's choice and drop the tier to "best guess", naming the SDK that was not checked.
+
 If `sdk_profile.libs` is empty, or no row matches a `lib` in `target_surface.libs`, read `sdk_profile.libs_on_any_event`.
 It names the platforms the project sends from, which settles one case and no other: a project that sends only from mobile SDKs can never reach the share step 1 needs, so the choice there is persistence or user-id bucketing.
 Every other platform mix stays open, a server-only project included. A server SDK that forwards the browser's device ID puts one on every flag call, and this fallback cannot see whether it does.
 It says nothing about device IDs on flag calls or about local evaluation, so steps 1 and 2 still do not pass. Keep user-id bucketing and mark it "not decided".
 Say which platforms the project sends from. When `target_surface.device_id_share` is near 1 and `target_surface.libs` lists no server SDK, say device-id bucketing is the likely fit: with no server SDK in the mix, nothing has to forward the device ID for the flag call to carry one. A mobile-only project never reaches that share, so it is settled above rather than here.
+That share counts target events, and this branch read no flag call at all, so step 1's version caveat applies here with nothing to offset it: posthog-js sends the device ID on flag requests only from 1.307.1, and an older version puts one on the events while the request still gets no variant.
+Give device-id bucketing as a lead to check, with the version named as the thing to confirm, and leave the choice at user-id bucketing.
 
 Leave `ensure_experience_continuity` out unless you are choosing persistence. When omitted, `experiment-create` applies the team's default (`team_defaults.flags_persistence_default`). Set it to `false` only when the team default is `true` and local evaluation rules persistence out. The device-id recipe needs no such step: `create-feature-flag` leaves persistence off unless you set it, and `experiment-create` rejects a `feature_flag` object for a flag that already exists.
 
