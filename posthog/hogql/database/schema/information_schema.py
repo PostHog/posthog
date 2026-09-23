@@ -1088,13 +1088,15 @@ def _access_control(context: "HogQLContext") -> Any:
 def _denial_applies(context: "HogQLContext", denied: set[str]) -> bool:
     """Whether the data quality gates have anything to decide for this caller.
 
-    A non-empty denial set settles it. So does an empty one held by a member of an organization with
-    access controls, because deleting the subject they were denied is what empties it -- which is the
-    case the gates withhold for. Only a caller who could never be denied a single object skips them.
+    A denied warehouse table settles it. Denied system tables share the same database set, but their
+    resource permissions do not imply that a warehouse subject can be denied. An empty warehouse
+    denial set still applies for a member with access controls because deleting a denied subject empties
+    that set. Only a caller who could never be denied a warehouse object skips these gates.
     """
     from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
 
-    return bool(denied) or data_quality.can_be_object_denied(_access_control(context))
+    has_warehouse_denial = any(not table_name.startswith("system.") for table_name in denied)
+    return has_warehouse_denial or data_quality.can_be_object_denied(_access_control(context))
 
 
 def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
@@ -1123,7 +1125,7 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
             if context.database is None:
                 return []
             checks = data_quality.visible_checks(
-                team_id, checks, data_quality.denial_context(team_id, context.database)
+                team_id, checks, data_quality.sql_denial_context(team_id, context.database)
             )
         return [
             [
@@ -1177,7 +1179,7 @@ def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozense
         if _denial_applies(context, denied):
             if context.database is None:
                 return []
-            base = data_quality.without_denied_runs(base, data_quality.denial_context(team_id, context.database))
+            base = data_quality.without_denied_runs(base, data_quality.sql_denial_context(team_id, context.database))
         return [
             [
                 str(run.id),
@@ -1228,7 +1230,7 @@ def _data_quality_health(context: "HogQLContext", allowed: Optional[frozenset[st
             if context.database is None:
                 return []
             checks = data_quality.visible_checks(
-                team_id, checks, data_quality.denial_context(team_id, context.database)
+                team_id, checks, data_quality.sql_denial_context(team_id, context.database)
             )
         by_subject: dict[tuple[str, str], list[Any]] = defaultdict(list)
         for check in checks:
@@ -1977,7 +1979,9 @@ class InformationSchemaDataQualityChecksTable(LazyTable):
         "id": _string_field("id", description="Stable UUID of the check (pass to the run/update/delete tools)."),
         "name": _string_field("name", nullable=True, description="Optional handle; NULL when addressed by id."),
         "subject_type": _string_field(
-            "subject_type", description="'table' (synced source), 'view' (saved query), or 'metric' (catalog metric)."
+            "subject_type",
+            description="'table' (synced source), 'view' (saved query), 'metric' (catalog metric), "
+            "or 'posthog_table' (events, persons, groups).",
         ),
         "subject_uuid": _string_field(
             "subject_uuid",
@@ -2041,7 +2045,9 @@ class InformationSchemaDataQualityCheckRunsTable(LazyTable):
         ),
         "suite_run_id": _string_field("suite_run_id", description="UUID of the batch this execution belonged to."),
         "subject_type": _string_field(
-            "subject_type", description="'table' (synced source), 'view' (saved query), or 'metric' (catalog metric)."
+            "subject_type",
+            description="'table' (synced source), 'view' (saved query), 'metric' (catalog metric), "
+            "or 'posthog_table' (events, persons, groups).",
         ),
         "subject_uuid": _string_field("subject_uuid", description="UUID of the checked table, view, or metric."),
         "subject_name": _string_field("subject_name", description="Name of the subject at the time of the run."),
@@ -2092,12 +2098,15 @@ class InformationSchemaDataQualityHealthTable(LazyTable):
     )
     fields: dict[str, FieldOrTable] = {
         "subject_type": _string_field(
-            "subject_type", description="'table' (synced source), 'view' (saved query), or 'metric' (catalog metric)."
+            "subject_type",
+            description="'table' (synced source), 'view' (saved query), 'metric' (catalog metric), "
+            "or 'posthog_table' (events, persons, groups).",
         ),
         "subject_uuid": _string_field("subject_uuid", description="UUID of the table, view, or metric."),
         "subject_name": _string_field(
             "subject_name",
-            description="Name of the table, view, or metric. Only table and view names are queryable in HogQL.",
+            description="Name of the table, view, metric, or PostHog table. "
+            "Table, view and PostHog table names are queryable in HogQL; a metric name is not.",
         ),
         "health": _string_field(
             "health", description="'failing', 'erroring', 'warn', 'healthy', or 'unknown'. Worst outcome wins."

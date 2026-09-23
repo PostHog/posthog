@@ -447,25 +447,34 @@ class TestRestParityForObjectGrants(BaseTest):
 
     @parameterized.expand(
         [
-            ("resource_denied", "none", "in(toString(system__dashboards.id)"),
-            ("resource_granted", "editor", "notIn(toString(system__dashboards.id)"),
+            (f"{name}_{table}", resource_level, scope, parent, table, operator)
+            for name, resource_level, operator in (
+                ("resource_denied", "none", "in"),
+                ("resource_granted", "editor", "notIn"),
+            )
+            for scope, parent, table in (
+                ("dashboard", "dashboards", "dashboards"),
+                ("account", "accounts", "_account_tagged_items"),
+                ("account", "accounts", "_account_resource_notebooks"),
+            )
         ]
     )
-    def test_creator_keeps_their_own_denied_object(self, _name, resource_level, expected_id_guard):
-        # REST exempts the creator from object-level denial on both branches of the filter, so a
-        # dashboard's creator must not lose it to HogQL either.
-        self._ac(resource="dashboard", access_level=resource_level)
+    def test_creator_keeps_their_own_denied_object(
+        self, _name: str, resource_level: str, scope: str, parent: str, table: str, operator: str
+    ) -> None:
+        self._ac(resource="customer_analytics" if scope == "account" else scope, access_level=resource_level)
         self._ac(
-            resource="dashboard",
-            resource_id="dash-mine",
+            resource=scope,
+            resource_id="018f0000-0000-0000-0000-000000000001",
             access_level="none" if resource_level == "editor" else "viewer",
             organization_member=self.membership,
         )
 
-        sql, _context = self._compile("SELECT id FROM system.dashboards")
-        assert expected_id_guard in sql
-        assert f"ifNull(equals(system__dashboards.created_by_id, {self.user.pk}), 0)" in sql
+        sql, context = self._compile(f"SELECT id FROM system.{table}")
+        assert f"{operator}(toString(system__{parent}.id)" in sql
+        assert f"ifNull(equals(system__{parent}.created_by_id, {self.user.pk}), 0)" in sql
         assert sql.count("or(") == 1
+        assert len(self._id_list_placeholders(context)) == 1
 
 
 class TestDeniedTableError(BaseTest):
@@ -550,8 +559,17 @@ class TestAccessControlIntegration(BaseTest):
         assert "id" in sql
         assert "name" in sql
 
-    def test_query_without_user_fails_on_scoped_table(self):
-        """Querying a scoped system table without user should fail with access error."""
+    @parameterized.expand(
+        [
+            ("dashboards",),
+            ("_account_tagged_items",),
+            ("_account_resource_notebooks",),
+            ("_ticket_tagged_items",),
+            ("_ticket_assignments",),
+            ("_ticket_assignee_roles",),
+        ]
+    )
+    def test_query_without_user_fails_on_scoped_table(self, table: str) -> None:
         context = HogQLContext(
             team_id=self.team.pk,
             team=self.team,
@@ -560,7 +578,7 @@ class TestAccessControlIntegration(BaseTest):
         )
 
         with self.assertRaises(TableAccessDeniedError):
-            self._compile_select("SELECT id, name FROM system.dashboards", context)
+            self._compile_select(f"SELECT id FROM system.{table}", context)
 
     def test_query_without_user_works_for_unscoped_tables(self):
         """Unscoped system tables should still be queryable without user context."""

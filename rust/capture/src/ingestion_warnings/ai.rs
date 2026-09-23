@@ -34,6 +34,7 @@ pub fn warning_for_ai_rejection(rejection: &AiRejection) -> Option<WarningType> 
         // Sending ordinary analytics to the AI path, or omitting the one
         // property every AI event needs.
         AiRejection::EventNameNotAllowed(_)
+        | AiRejection::EventNameNotAiPrefixed(_)
         | AiRejection::AiModelMissing
         | AiRejection::AiModelNotString
         | AiRejection::AiModelEmpty => Some(WarningType::InvalidAiEvent),
@@ -145,6 +146,13 @@ fn details_for(rejection: &AiRejection) -> Map<String, serde_json::Value> {
                 json!(crate::ai_rejection::ALLOWED_AI_EVENTS),
             );
         }
+        AiRejection::EventNameNotAiPrefixed(event_name) => {
+            details.insert("eventName".to_string(), json!(bounded_detail(event_name)));
+            details.insert(
+                "requiredPrefix".to_string(),
+                json!(crate::v0_request::AI_LANE_NAME_PREFIX),
+            );
+        }
         AiRejection::FirstPartNotEvent(field) | AiRejection::UnknownField(field) => {
             details.insert("part".to_string(), json!(bounded_detail(field)));
         }
@@ -176,6 +184,10 @@ mod tests {
     #[rstest]
     #[case::wrong_event_name(
         AiRejection::EventNameNotAllowed("$pageview".to_string()),
+        Some(WarningType::InvalidAiEvent)
+    )]
+    #[case::wrong_event_name_under_prefix(
+        AiRejection::EventNameNotAiPrefixed("$pageview".to_string()),
         Some(WarningType::InvalidAiEvent)
     )]
     #[case::no_model(AiRejection::AiModelMissing, Some(WarningType::InvalidAiEvent))]
