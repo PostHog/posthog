@@ -12,6 +12,7 @@ from posthog.models import Team
 
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
+    MIN_ACTIVE_RATIO_FOR_VIDEO_SCANNER,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
 )
@@ -114,6 +115,8 @@ def fetch_visited_paths(
                 GROUP BY session_id
                 HAVING dateDiff('second', min(min_first_timestamp), max(max_last_timestamp)) >= {min_duration}
                    AND sum(active_milliseconds) / 1000 >= {min_active}
+                   AND sum(active_milliseconds) / 1000
+                       >= dateDiff('second', min(min_first_timestamp), max(max_last_timestamp)) * {min_active_ratio}
                    AND sum(active_milliseconds) / 1000 <= {max_active}
             )
         )
@@ -135,6 +138,7 @@ def fetch_visited_paths(
             "max_pathname_chars": ast.Constant(value=_MAX_PATHNAME_CHARS),
             "min_duration": ast.Constant(value=MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S),
             "min_active": ast.Constant(value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),
+            "min_active_ratio": ast.Constant(value=MIN_ACTIVE_RATIO_FOR_VIDEO_SCANNER),
             "max_active": ast.Constant(value=MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),
             "min_sessions": ast.Constant(value=min_sessions),
             "limit": ast.Constant(value=limit),

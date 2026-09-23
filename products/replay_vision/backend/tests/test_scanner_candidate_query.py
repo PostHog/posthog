@@ -35,9 +35,20 @@ from products.replay_vision.backend.queries.scanner_volume_estimate import (
     estimate_scanner_session_volume,
     project_monthly_observations,
 )
+from products.replay_vision.backend.session_limits import MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S
 
 _NOW = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
 _FROZEN_TIME = _NOW.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _eligible_active_milliseconds(first: dt.datetime, last: dt.datetime) -> int:
+    """Active time that clears every eligibility bound for a recording of this span.
+
+    A fifth of the span sits well clear of the active-to-duration ratio, and still leaves room for a session
+    produced as several rows, whose active time the candidate query sums while its span stays the outer bounds.
+    """
+    span_seconds = max((last - first).total_seconds(), 0.0)
+    return min(max(30_000, int(span_seconds * 200)), (MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S - 100) * 1000)
 
 
 # Construction-time sanitization (no DB needed).
@@ -243,9 +254,11 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @staticmethod
     def _produce(team_id: int, session_id: str, first: dt.datetime, last: dt.datetime, **kwargs) -> None:
-        # Default to an eligibility-passing recording (>= MIN_ACTIVE active seconds) so tests exercising the watermark /
-        # settle / sampling dimensions aren't incidentally dropped by the eligibility filter; override per-test as needed.
-        kwargs.setdefault("active_milliseconds", 30_000)
+        # Default to an eligibility-passing recording: over the absolute active floor, and over the active-to-duration
+        # ratio for whatever span the test chose, so tests exercising the watermark / settle / sampling dimensions
+        # aren't incidentally dropped by the eligibility filter. Capped under the max-active bound so a long span
+        # doesn't trip the other end. Override per-test as needed.
+        kwargs.setdefault("active_milliseconds", _eligible_active_milliseconds(first, last))
         produce_replay_summary(
             team_id=team_id,
             session_id=session_id,
@@ -435,14 +448,14 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         self._produce(
             team.id,
             "long",
-            _NOW - dt.timedelta(hours=2),
+            _NOW - dt.timedelta(minutes=50),
             _NOW - dt.timedelta(minutes=40),
             active_milliseconds=120_000,
         )
         self._produce(
             team.id,
             "short",
-            _NOW - dt.timedelta(hours=2),
+            _NOW - dt.timedelta(minutes=50),
             _NOW - dt.timedelta(minutes=40),
             active_milliseconds=5_000,
         )
@@ -468,6 +481,8 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         produce("too-short", sb - dt.timedelta(minutes=10), 10, 10_000)  # 10s wall < 15s min duration
         produce("too-idle", sb - dt.timedelta(minutes=12), 60, 5_000)  # 5s active < 10s min active
         produce("too-long", sb - dt.timedelta(minutes=80), 4200, 3_700_000)  # 3700s active > 3600s max active
+        # Clears the 10s floor, but 11s over 771s is 1.4% active: a backgrounded tab, nothing to watch.
+        produce("idle-tab", sb - dt.timedelta(minutes=30), 771, 11_000)
         produce("eligible", sb - dt.timedelta(minutes=20), 60, 30_000)  # 60s wall, 30s active
 
         results = {r.session_id for r in self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))}
@@ -596,11 +611,11 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
     @pytest.mark.django_db
     def test_straddling_session_keeps_full_aggregates(self, team) -> None:
         last_swept_at = _NOW - dt.timedelta(hours=1)
-        # Three rows totalling 36 active seconds — passes the 30s HAVING bound only if all rows are aggregated.
+        # Three rows totalling 150 active seconds — passes the 120s HAVING bound only if all rows are aggregated.
         for last_offset_minutes, ms in (
-            (75, 12_000),
-            (45, 12_000),
-            (40, 12_000),
+            (75, 50_000),
+            (45, 50_000),
+            (40, 50_000),
         ):
             self._produce(
                 team.id,
@@ -609,18 +624,20 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
                 _NOW - dt.timedelta(minutes=last_offset_minutes),
                 active_milliseconds=ms,
             )
-        # Control: only 18s of activity — should fail HAVING.
+        # Control: eligible on its own numbers, but only 60s of activity — should fail HAVING.
         self._produce(
             team.id,
             "post-watermark-short",
             _NOW - dt.timedelta(minutes=50),
             _NOW - dt.timedelta(minutes=40),
-            active_milliseconds=18_000,
+            active_milliseconds=60_000,
         )
 
         query = RecordingsQuery(
             having_predicates=[
-                RecordingPropertyFilter(type="recording", key="active_seconds", operator=PropertyOperator.GTE, value=30)
+                RecordingPropertyFilter(
+                    type="recording", key="active_seconds", operator=PropertyOperator.GTE, value=120
+                )
             ]
         )
         results = self._run(team=team, query=query, last_swept_at=last_swept_at)
@@ -797,7 +814,7 @@ class TestWindowedCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @staticmethod
     def _produce(team_id: int, session_id: str, first: dt.datetime, last: dt.datetime, **kwargs) -> None:
-        kwargs.setdefault("active_milliseconds", 30_000)
+        kwargs.setdefault("active_milliseconds", _eligible_active_milliseconds(first, last))
         produce_replay_summary(
             team_id=team_id,
             session_id=session_id,
