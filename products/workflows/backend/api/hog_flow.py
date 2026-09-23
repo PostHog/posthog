@@ -2860,6 +2860,113 @@ class HogFlowCodeSerializer(serializers.Serializer):
     )
 
 
+# The request fields below are typed like the stored workflow for codegen, but only their outer shape
+# is checked at runtime. The editor holds half-finished steps that a save accepts as a lenient draft,
+# so a copy must not refuse them. The renderer reads every nested value defensively.
+class _JSONObjectListField(serializers.JSONField):
+    def to_internal_value(self, data: Any) -> list[dict[str, Any]]:
+        value = super().to_internal_value(data)
+        if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+            raise serializers.ValidationError("Expected a list of objects.")
+        return value
+
+
+class _JSONObjectField(serializers.JSONField):
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Expected an object.")
+        return value
+
+
+@extend_schema_field(serializers.ListField(child=HogFlowActionSerializer()))
+class _HogFlowCodeActionsField(_JSONObjectListField):
+    pass
+
+
+@extend_schema_field(serializers.ListField(child=HogFlowEdgeSerializer()))
+class _HogFlowCodeEdgesField(_JSONObjectListField):
+    pass
+
+
+@extend_schema_field(HogFlowConversionSerializer)
+class _HogFlowCodeConversionField(_JSONObjectField):
+    pass
+
+
+@extend_schema_field(HogFlowMaskingSerializer)
+class _HogFlowCodeMaskingField(_JSONObjectField):
+    pass
+
+
+@extend_schema_field(HogFlowEmailSendingRateLimitSerializer)
+class _HogFlowCodeRateLimitField(_JSONObjectField):
+    pass
+
+
+class HogFlowCodeVariableSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The name steps use to read the variable.")
+    type = serializers.CharField(
+        help_text="string, number or boolean. A variable of another type is left out of the code with a warning."
+    )
+    default = serializers.JSONField(required=False, allow_null=True, help_text="The value the variable starts with.")
+    label = serializers.CharField(required=False, allow_blank=True, help_text="Display name of the variable.")
+
+
+@extend_schema_field(serializers.ListField(child=HogFlowCodeVariableSerializer()))
+class _HogFlowCodeVariablesField(_JSONObjectListField):
+    pass
+
+
+class HogFlowCodeRequestSerializer(serializers.Serializer):
+    """The workflow as the editor holds it. Every field is optional, and an omitted field keeps the stored value."""
+
+    name = serializers.CharField(required=False, allow_null=True, allow_blank=True, help_text="Workflow name.")
+    description = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, help_text="Workflow description."
+    )
+    actions = _HogFlowCodeActionsField(
+        required=False,
+        help_text=(
+            "Every step of the workflow, the trigger and the exit included. Each step needs a text `id` and a "
+            "text `type`. A secret input is never rendered as its value, even when this body carries it."
+        ),
+    )
+    edges = _HogFlowCodeEdgesField(required=False, help_text="The edges that connect the steps.")
+    variables = _HogFlowCodeVariablesField(required=False, help_text="Workflow variables.")
+    conversion = _HogFlowCodeConversionField(
+        required=False, allow_null=True, help_text="Conversion goal. The code cannot declare one, so it adds a warning."
+    )
+    exit_condition = serializers.ChoiceField(
+        choices=HogFlow.ExitCondition.choices, required=False, help_text="When a person leaves the workflow."
+    )
+    trigger_masking = _HogFlowCodeMaskingField(
+        required=False,
+        allow_null=True,
+        help_text="Dedup or throttle on the trigger. The code cannot declare it, so it adds a warning.",
+    )
+    email_sending_rate_limit = _HogFlowCodeRateLimitField(
+        required=False,
+        allow_null=True,
+        help_text="Email pacing for the workflow. The code cannot declare it, so it adds a warning.",
+    )
+
+    def validate_actions(self, actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        for index, step in enumerate(actions):
+            if not isinstance(step.get("id"), str) or not isinstance(step.get("type"), str):
+                raise serializers.ValidationError(f"Step {index} needs a text `id` and a text `type`.")
+            config = step.get("config")
+            if config is None:
+                continue
+            if not isinstance(config, dict):
+                raise serializers.ValidationError(f'The `config` of step "{step["id"]}" must be an object.')
+            if config.get("inputs") is not None and not isinstance(config["inputs"], dict):
+                raise serializers.ValidationError(f'The `config.inputs` of step "{step["id"]}" must be an object.')
+            if config.get("conditions") is not None and not isinstance(config["conditions"], list):
+                raise serializers.ValidationError(f'The `config.conditions` of step "{step["id"]}" must be a list.')
+        return actions
+
+
 class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
     """Cheap suspension-only read for the persistent scene-wide banner — no reputation computation."""
 
@@ -5374,13 +5481,36 @@ class HogFlowViewSet(
         page = self.paginate_queryset(queryset)
         return self.get_paginated_response(HogFlowRevisionBasicSerializer(page, many=True).data)
 
-    @extend_schema(operation_id="hog_flows_code_retrieve", responses={200: HogFlowCodeSerializer})
-    @action(detail=True, methods=["GET"], filter_backends=[], url_path="code")
+    @extend_schema(methods=["GET"], operation_id="hog_flows_code_retrieve", responses={200: HogFlowCodeSerializer})
+    @extend_schema(
+        methods=["POST"],
+        operation_id="hog_flows_code_create",
+        request=HogFlowCodeRequestSerializer,
+        responses={200: HogFlowCodeSerializer},
+        description=(
+            "Renders the workflow in the body as @posthog/workflows source and stores nothing. A field the body "
+            "omits keeps its stored value."
+        ),
+    )
+    @action(detail=True, methods=["GET", "POST"], filter_backends=[], url_path="code")
     def code(self, request: Request, *args, **kwargs) -> Response:
         # Renders what the editor shows: the staged draft when one exists, else the live definition.
         # The serializer output is the input on purpose, so secrets arrive already masked.
         data = self.get_serializer(self.get_object()).data
-        rendered = render_workflow_code({**data, **(data.get("draft") or {})})
+        definition = {**data, **(data.get("draft") or {})}
+        if request.method == "POST":
+            unsaved = HogFlowCodeRequestSerializer(data=request.data)
+            unsaved.is_valid(raise_exception=True)
+            posted = dict(unsaved.validated_data)
+            if "actions" in posted:
+                # A body can carry a secret in plaintext. Mask it the way a read masks a stored
+                # secret, so the source names the secret and never prints its value.
+                posted["actions"] = mask_secret_action_inputs(deepcopy(posted["actions"]), {}, {})
+            definition.update(posted)
+        try:
+            rendered = render_workflow_code(definition)
+        except RecursionError:
+            raise exceptions.ValidationError("The workflow is nested too deeply to render as code.")
         return Response(
             HogFlowCodeSerializer(
                 {

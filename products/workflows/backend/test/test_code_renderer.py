@@ -160,6 +160,43 @@ class TestCodeRenderer(SimpleTestCase):
                 ["\u2028"],
                 None,
             ),
+            (
+                "malformed_trigger_filters_stay_in_a_raw_trigger",
+                _basic_workflow(
+                    actions=[
+                        {
+                            "id": "trigger_node",
+                            "name": "Trigger",
+                            "type": "trigger",
+                            "config": {"type": "event", "filters": {"events": 5}},
+                        },
+                        {"id": "exit_node", "name": "Exit", "type": "exit", "config": {"reason": "Done"}},
+                    ]
+                ),
+                ["on: trigger({ type: 'event', filters: { events: 5 } })"],
+                ["onEvent("],
+                None,
+            ),
+            (
+                "malformed_trigger_event_properties_stay_in_a_raw_trigger",
+                _basic_workflow(
+                    actions=[
+                        {
+                            "id": "trigger_node",
+                            "name": "Trigger",
+                            "type": "trigger",
+                            "config": {
+                                "type": "event",
+                                "filters": {"events": [{"id": "$pageview", "type": "events", "properties": 5}]},
+                            },
+                        },
+                        {"id": "exit_node", "name": "Exit", "type": "exit", "config": {"reason": "Done"}},
+                    ]
+                ),
+                ["properties: 5"],
+                ["onEvent("],
+                None,
+            ),
         ]
     )
     def test_keeps_every_loss_visible(
