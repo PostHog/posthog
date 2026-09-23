@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from posthog.github.merge_queue import MergeQueueState
 
-TRUNK = {"login": "trunk-io[bot]"}
+TRUNK = {"login": "trunk-io[bot]", "type": "Bot"}
 LINK = "https://app.trunk.io/example-org/merge-queue/repo-id/4242"
 
 
@@ -83,6 +83,11 @@ class TestMergeQueueState(SimpleTestCase):
                 [{"user": {"login": "someone"}, "body": f"Running tests on this pull request, see {LINK}"}],
             ),
             ("no_trunk_comment", [{"user": {"login": "someone"}, "body": "LGTM"}]),
+            (
+                "lookalike_account",
+                [{"user": {"login": "trunk-io-fan", "type": "User"}, "body": f"😎 Merged successfully - {LINK}"}],
+            ),
+            ("missing_user", [{"body": f"😎 Merged successfully - {LINK}"}]),
         ]
     )
     def test_ignores_comments_that_are_not_the_queue_comment(self, _name: str, comments: list[dict[str, Any]]) -> None:

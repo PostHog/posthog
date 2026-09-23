@@ -163,7 +163,7 @@ class TestPullRequestCommentMarker(SimpleTestCase):
         response.json.return_value = [
             {"user": {"login": "someone"}, "body": "LGTM"},
             {
-                "user": {"login": "trunk-io[bot]"},
+                "user": {"login": "trunk-io[bot]", "type": "Bot"},
                 "body": "🧪 Running tests on this pull request. https://app.trunk.io/example-org/merge-queue/x/1",
             },
         ]

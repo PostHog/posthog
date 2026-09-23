@@ -11,6 +11,7 @@ from collections.abc import Iterable, Mapping
 from enum import StrEnum
 from typing import Any
 
+_TRUNK_LOGIN = "trunk-io[bot]"
 _QUEUE_COMMENT_MARKER = "<!-- Trunk Merge -->"
 _TEST_ANALYTICS_MARKER = "<!-- Trunk Test Analytics -->"
 _CHECKBOX_START = "<!-- Start PR Submit Checkbox -->"
@@ -128,10 +129,9 @@ _STATUS_PATTERNS: tuple[tuple[re.Pattern[str], MergeQueueState], ...] = tuple(
 
 
 def _is_queue_comment(body: str, user: object) -> bool:
-    # Requiring Trunk's own structure keeps a person who quotes "running tests on this pull
-    # request" from reading as the queue.
-    login = user.get("login") if isinstance(user, Mapping) else None
-    if isinstance(login, str) and not login.lower().startswith("trunk"):
+    # Anyone can comment on a public pull request, so a lookalike account that posts Trunk's
+    # wording must not change the state a bot pushes on.
+    if not isinstance(user, Mapping) or user.get("login") != _TRUNK_LOGIN or user.get("type") != "Bot":
         return False
     if _TEST_ANALYTICS_MARKER in body:
         return False
