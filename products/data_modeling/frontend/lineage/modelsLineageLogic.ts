@@ -2,15 +2,15 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 
 import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
 
-import { NodeTypeEnumApi } from 'products/data_modeling/frontend/generated/api.schemas'
-import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
+import { NodeTypeEnumApi } from '../generated/api.schemas'
+import { lineageDataLogic } from './lineageDataLogic'
 import {
     ParsedLineageSearch,
     edgesWithinNodes,
     matchNodesByName,
     nodeIdsForLineageSearch,
     parseLineageSearch,
-} from 'products/data_modeling/frontend/lineage/lineageSearch'
+} from './lineageSearch'
 
 export const LINEAGE_FILTER_TYPES: DataModelingNodeType[] = Object.values(NodeTypeEnumApi)
 

@@ -6,7 +6,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
-import { nodeDetailSceneLogic } from '../nodeDetailSceneLogic'
+import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
     const { savedQuery, savedQueryLoading, savedQueryError } = useValues(nodeDetailSceneLogic({ id }))
