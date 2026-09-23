@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { MergePersonUpdate } from '~/common/persons/person-update-batch'
 import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
@@ -32,7 +33,7 @@ export interface PersonsStoreTransactionForBatch {
 
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
@@ -183,7 +184,7 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
 
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         return this.tx.updatePersonForMerge(person, update, distinctId, this.batchId)

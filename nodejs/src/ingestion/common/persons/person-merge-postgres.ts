@@ -145,6 +145,22 @@ export interface PostgresMergePolicy {
  * claims, tombstone races, creation races) throw for the caller's
  * retry loop, which re-enters with fresh fetches.
  */
+/**
+ * What a merge changes on the target: the keys it sets to a value the target did not
+ * already hold, and the keys the event's ops removed. Only these travel to the row, so
+ * the target's own snapshot never overwrites a write that landed since it was read.
+ */
+function propertyChanges(before: Properties, after: Properties): { toSet: Properties; toUnset: string[] } {
+    const toSet: Properties = {}
+    for (const [key, value] of Object.entries(after)) {
+        if (before[key] !== value) {
+            toSet[key] = value
+        }
+    }
+    const toUnset = Object.keys(before).filter((key) => !(key in after))
+    return { toSet, toUnset }
+}
+
 export class PostgresPersonMerge {
     private batchStore: PersonsStoreForBatch
     private createService: PersonCreateService
@@ -663,11 +679,13 @@ export class PostgresPersonMerge {
             let person = currentTarget
             let updateMessages: PersonMessage[] = []
             if (mergeSources.length > 0) {
+                const changes = propertyChanges(currentTarget.properties, updatedTempPerson.properties)
                 ;[person, updateMessages] = await tx.updatePersonForMerge(
                     currentTarget,
                     {
                         created_at: createdAt,
-                        properties: updatedTempPerson.properties,
+                        properties: changes.toSet,
+                        properties_to_unset: changes.toUnset,
                         is_identified: true,
                         version,
                     },
@@ -789,7 +807,7 @@ export class PostgresPersonMerge {
         // Create a temporary person object to apply property updates to
         const tempPerson: InternalPerson = { ...mergeInto, properties: mergedProperties }
         const [updatedTempPerson, _] = applyEventPropertyUpdates(propertyUpdates, tempPerson)
-        const properties = updatedTempPerson.properties
+        const changes = propertyChanges(mergeInto.properties, updatedTempPerson.properties)
 
         const result = await this.handleMergeTransaction(
             mergeInto,
@@ -797,7 +815,7 @@ export class PostgresPersonMerge {
             otherPerson,
             otherPersonDistinctId,
             olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
-            properties
+            changes
         )
 
         if (result.success) {
@@ -858,7 +876,7 @@ export class PostgresPersonMerge {
         currentTargetPerson: InternalPerson,
         currentSourcePerson: InternalPerson,
         createdAt: DateTime,
-        properties: Properties
+        changes: { toSet: Properties; toUnset: string[] }
     ): Promise<PersonMergeResult> {
         try {
             mergeTxnAttemptCounter
@@ -909,7 +927,8 @@ export class PostgresPersonMerge {
                     currentTargetPerson,
                     {
                         created_at: createdAt,
-                        properties: properties,
+                        properties: changes.toSet,
+                        properties_to_unset: changes.toUnset,
                         is_identified: true,
 
                         // By using the max version between the two Persons, we ensure that if
@@ -1142,19 +1161,14 @@ export class PostgresPersonMerge {
         sourcePerson: InternalPerson,
         sourceDistinctId: string,
         createdAt: DateTime,
-        properties: Properties,
+        changes: { toSet: Properties; toUnset: string[] },
         maxRetries: number = 5
     ): Promise<PersonMergeResult> {
         let currentTargetPerson = targetPerson
         let currentSourcePerson = sourcePerson
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            const result = await this.executeTransaction(
-                currentTargetPerson,
-                currentSourcePerson,
-                createdAt,
-                properties
-            )
+            const result = await this.executeTransaction(currentTargetPerson, currentSourcePerson, createdAt, changes)
 
             if (result.success) {
                 return result

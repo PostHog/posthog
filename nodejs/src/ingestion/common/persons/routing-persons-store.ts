@@ -576,10 +576,14 @@ export class RoutingPersonsStore implements PersonsStore {
         const left = authoritative as MergePersonsResult
         const right = shadow as MergePersonsResult
         personhogStoreShadowComparedCounter.labels({ verb: 'mergePersons' }).inc()
+        // Sorted by source: the backends report the same verdicts in different orders.
         const verdicts = (result: MergePersonsResult): string =>
             result.foldAborted !== undefined
                 ? `aborted:${result.foldAborted}`
-                : result.results.map((source) => `${source.sourceDistinctId}=${source.outcome}`).join(',')
+                : result.results
+                      .map((source) => `${source.sourceDistinctId}=${source.outcome}`)
+                      .sort()
+                      .join(',')
         const disagree =
             (left.foldAborted === undefined) !== (right.foldAborted === undefined) ||
             (left.survivor?.uuid ?? null) !== (right.survivor?.uuid ?? null) ||

@@ -2129,6 +2129,39 @@ describe('PersonState.processEvent()', () => {
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
         })
 
+        it(`merge writes only the keys it changes on the survivor, including the event's $unset`, async () => {
+            await createPerson(hub, timestamp, { a: 1, b: 2 }, {}, {}, teamId, null, false, oldUserUuid, {
+                distinctId: oldUserDistinctId,
+            })
+            await createPerson(hub, timestamp2, { b: 3, c: 4, d: 5 }, {}, {}, teamId, null, false, newUserUuid, {
+                distinctId: newUserDistinctId,
+            })
+
+            const mergeService = personMergeService({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: { $set: { d: 6 }, $unset: ['c'], $anon_distinct_id: oldUserDistinctId },
+            })
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+            // The survivor's own keys (b) stay out of the write; the source's key (a), the $set (d) and the $unset (c) travel.
+            expect(personRepository.updatePersonsBatch).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    uuid: newUserUuid,
+                    properties_to_set: { a: 1, d: 6 },
+                    properties_to_unset: ['c'],
+                }),
+            ])
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { a: 1, b: 3, d: 6 } })
+        })
+
         it(`handles race condition when other thread creates the user`, async () => {
             await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, {
                 distinctId: oldUserDistinctId,

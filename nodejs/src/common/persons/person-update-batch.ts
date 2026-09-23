@@ -27,6 +27,9 @@ export interface PersonUpdate {
     force_update?: boolean
 }
 
+/** A merge's write to the survivor: the keys it sets, the keys it removes, and the scalars it moves. */
+export type MergePersonUpdate = Partial<InternalPerson> & { properties_to_unset?: string[] }
+
 export interface PersonPropertyUpdate {
     updated: boolean
     properties: Properties

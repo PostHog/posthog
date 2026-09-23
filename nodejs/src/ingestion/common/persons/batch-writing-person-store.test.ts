@@ -244,7 +244,7 @@ describe('BatchWritingPersonStore', () => {
         const cache = personStore.getUpdateCache()
         const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
         expect(cachedUpdate.properties).toEqual({ test: 'test' })
-        expect(cachedUpdate.properties_to_set).toEqual({ test: 'test' })
+        expect(cachedUpdate.properties_to_set).toEqual({})
         expect(cachedUpdate.properties_to_unset).toEqual(['value_to_unset'])
         expect(cachedUpdate.needs_write).toBe(true)
 
@@ -280,7 +280,7 @@ describe('BatchWritingPersonStore', () => {
         // Check cache - property should be in properties_to_set and NOT in properties_to_unset
         const cache = personStore.getUpdateCache()
         const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
-        expect(cachedUpdate.properties_to_set).toEqual({ test: 'test', prop_to_toggle: 'new_value' })
+        expect(cachedUpdate.properties_to_set).toEqual({ prop_to_toggle: 'new_value' })
         expect(cachedUpdate.properties_to_unset).toEqual([])
 
         await personStore.flush()
@@ -291,7 +291,7 @@ describe('BatchWritingPersonStore', () => {
             expect.arrayContaining([
                 expect.objectContaining({
                     uuid: person.uuid,
-                    properties_to_set: { test: 'test', prop_to_toggle: 'new_value' },
+                    properties_to_set: { prop_to_toggle: 'new_value' },
                     properties_to_unset: [],
                 }),
             ])
@@ -316,7 +316,7 @@ describe('BatchWritingPersonStore', () => {
         // Check cache - property should be in properties_to_unset and NOT in properties_to_set
         const cache = personStore.getUpdateCache()
         const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
-        expect(cachedUpdate.properties_to_set).toEqual({ test: 'test' })
+        expect(cachedUpdate.properties_to_set).toEqual({})
         expect(cachedUpdate.properties_to_unset).toEqual(['prop_to_toggle'])
 
         await personStore.flush()
@@ -1119,7 +1119,6 @@ describe('BatchWritingPersonStore', () => {
             initial_prop: 'initial_value',
         }) // Original properties from database
         expect(cacheValue?.properties_to_set).toEqual({
-            initial_prop: 'initial_value',
             prop_from_distinctId1: 'value1',
             prop_from_distinctId2: 'value2',
         }) // Properties to set
@@ -1137,13 +1136,37 @@ describe('BatchWritingPersonStore', () => {
                 expect.objectContaining({
                     id: sharedPerson.id,
                     properties_to_set: {
-                        initial_prop: 'initial_value',
                         prop_from_distinctId1: 'value1',
                         prop_from_distinctId2: 'value2',
                     },
                 }),
             ])
         )
+    })
+
+    it('flushes only the sets this batch made, never the snapshot it read', async () => {
+        const mockRepo = createMockRepository()
+        const row = { ...person, properties: { kept: 'row value', shared: 'row value' } }
+        mockRepo.fetchPerson = jest.fn().mockResolvedValue(row)
+        const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
+
+        const viaFirst = await personStore.fetchForUpdate(teamId, 'first-id', 0)
+        await personStore.updatePersonWithPropertiesDiffForUpdate(
+            viaFirst!,
+            { shared: 'batch value' },
+            [],
+            {},
+            'first-id'
+        )
+        // A second distinct id of the same person reads the row again, with the pre-batch value of `shared`.
+        const viaSecond = await personStore.fetchForUpdate(teamId, 'second-id', 0)
+        await personStore.updatePersonWithPropertiesDiffForUpdate(viaSecond!, { other: 'value' }, [], {}, 'second-id')
+
+        await personStore.flush()
+
+        expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith([
+            expect.objectContaining({ properties_to_set: { shared: 'batch value', other: 'value' } }),
+        ])
     })
 
     it('should handle set/unset conflicts when merging updates for same person via different distinct IDs', async () => {
@@ -1189,7 +1212,6 @@ describe('BatchWritingPersonStore', () => {
         expect(cacheValue).toBeDefined()
         // The set should win - property should be in properties_to_set and NOT in properties_to_unset
         expect(cacheValue?.properties_to_set).toEqual({
-            existing_prop: 'existing_value',
             conflicting_prop: 'new_value',
         })
         expect(cacheValue?.properties_to_unset).toEqual([])
@@ -1202,7 +1224,6 @@ describe('BatchWritingPersonStore', () => {
             expect.arrayContaining([
                 expect.objectContaining({
                     properties_to_set: {
-                        existing_prop: 'existing_value',
                         conflicting_prop: 'new_value',
                     },
                     properties_to_unset: [],
@@ -1253,9 +1274,7 @@ describe('BatchWritingPersonStore', () => {
 
         expect(cacheValue).toBeDefined()
         // The unset should win - property should be in properties_to_unset and NOT in properties_to_set
-        expect(cacheValue?.properties_to_set).toEqual({
-            existing_prop: 'existing_value',
-        })
+        expect(cacheValue?.properties_to_set).toEqual({})
         expect(cacheValue?.properties_to_unset).toEqual(['conflicting_prop'])
 
         await personStore.flush()
@@ -1265,9 +1284,7 @@ describe('BatchWritingPersonStore', () => {
         expect(mockRepo.updatePersonsBatch).toHaveBeenCalledWith(
             expect.arrayContaining([
                 expect.objectContaining({
-                    properties_to_set: {
-                        existing_prop: 'existing_value',
-                    },
+                    properties_to_set: {},
                     properties_to_unset: ['conflicting_prop'],
                 }),
             ])
@@ -1396,8 +1413,6 @@ describe('BatchWritingPersonStore', () => {
                 source_prop: 'source_value',
                 rich_property: 'rich_value',
                 merged_from_source: 'merged_value',
-                target_prop: 'target_value',
-                existing_target_prop: 'existing_target_value',
             }) // Properties to set
             expect(cacheAfterMerge?.properties_to_unset).toEqual([]) // Properties to unset
             expect(cacheAfterMerge?.is_identified).toBe(true)
@@ -1421,8 +1436,6 @@ describe('BatchWritingPersonStore', () => {
                 source_prop: 'source_value',
                 rich_property: 'rich_value',
                 merged_from_source: 'merged_value',
-                target_prop: 'target_value',
-                existing_target_prop: 'existing_target_value',
             })
             expect(cacheAfterMove?.properties_to_unset).toEqual([])
             expect(cacheAfterMove?.is_identified).toBe(true)
@@ -1595,8 +1608,6 @@ describe('BatchWritingPersonStore', () => {
                 shared_prop: 'updated_value',
                 additional_prop: 'additional_value',
                 source_only: 'source_only_value',
-                target_only: 'target_only_value',
-                target_prop: 'target_value',
             })
             expect(finalCache?.properties_to_unset).toEqual([])
         })

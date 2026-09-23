@@ -322,30 +322,34 @@ describe('PostgresPersonRepository', () => {
             const olderCreatedAt = person.created_at.minus({ minutes: 5 })
             const laterLastSeenAt = person.created_at.plus({ hours: 1 })
 
-            // Another writer (a merge fold on another pod) lands a property, the older
-            // constituent's created_at, the identified flag and a later last_seen_at.
+            // Another writer (a merge fold on another pod) lands a property with its metadata,
+            // the older constituent's created_at, the identified flag and a later last_seen_at.
             await postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 `UPDATE posthog_person
-                 SET properties = properties || '{"from_merge": "kept?"}'::jsonb,
+                 SET properties = properties || '{"from_merge": "kept?", "gone": "x"}'::jsonb,
+                     properties_last_updated_at = '{"from_merge": "new", "gone": "x"}'::jsonb,
                      created_at = $3, is_identified = true, last_seen_at = $4, version = version + 1
                  WHERE team_id = $1 AND id = $2`,
                 [team.id, person.id, olderCreatedAt.toISO(), laterLastSeenAt.toISO()],
                 'otherWriter'
             )
 
-            // This pod flushes its own $set from the snapshot it read before that write.
+            // This pod flushes its own $set and $unset from the snapshot it read before that write.
             const stale = {
                 ...buildPersonUpdate(person, 'batch-lost-update-did', person.version),
                 properties: { own: 'v1' },
                 properties_to_set: { own: 'v2' },
+                properties_to_unset: ['gone'],
+                properties_last_updated_at: { from_merge: 'old' },
+                is_identified: false,
             }
             const results = await repository.updatePersonsBatch([stale])
             expect(results.get(person.uuid)).toMatchObject({ success: true })
 
             const rows = await postgres.query(
                 PostgresUse.PERSONS_WRITE,
-                `SELECT properties, is_identified,
+                `SELECT properties, properties_last_updated_at, is_identified,
                         extract(epoch FROM created_at)::bigint AS created_at_epoch,
                         extract(epoch FROM last_seen_at)::bigint AS last_seen_at_epoch
                  FROM posthog_person WHERE team_id = $1 AND id = $2`,
@@ -353,6 +357,7 @@ describe('PostgresPersonRepository', () => {
                 'fetchAfterBatch'
             )
             expect(rows.rows[0].properties).toEqual({ own: 'v2', from_merge: 'kept?' })
+            expect(rows.rows[0].properties_last_updated_at).toEqual({ from_merge: 'new' })
             expect(Number(rows.rows[0].created_at_epoch)).toBe(Math.floor(olderCreatedAt.toSeconds()))
             expect(rows.rows[0].is_identified).toBe(true)
             expect(Number(rows.rows[0].last_seen_at_epoch)).toBe(Math.floor(laterLastSeenAt.toSeconds()))

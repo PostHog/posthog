@@ -2103,6 +2103,7 @@ export class PostgresPersonRepository
      * No version assertion. Every field merges with the row rather than replacing it, so a
      * snapshot read before another writer's flush cannot undo that write: properties apply
      * as a diff, created_at only moves earlier, is_identified only turns on, last_seen_at only advances.
+     * The per-key metadata maps are not written here; the store never changes them, so unset only removes keys.
      */
     async updatePersonsBatch(
         personUpdates: PersonUpdate[]
@@ -2120,8 +2121,6 @@ export class PostgresPersonRepository
         const uuids: string[] = []
         const teamIds: number[] = []
         const properties: string[] = []
-        const propertiesLastUpdatedAt: string[] = []
-        const propertiesLastOperation: string[] = []
         const isIdentified: boolean[] = []
         const createdAt: string[] = []
         const lastSeenAt: (string | null)[] = []
@@ -2135,8 +2134,6 @@ export class PostgresPersonRepository
             // writer landed since this snapshot was read.
             properties.push(sanitizeJsonbValue(update.properties_to_set))
             propertiesToUnset.push(JSON.stringify(update.properties_to_unset))
-            propertiesLastUpdatedAt.push(sanitizeJsonbValue(update.properties_last_updated_at))
-            propertiesLastOperation.push(sanitizeJsonbValue(update.properties_last_operation))
             isIdentified.push(update.is_identified)
             createdAt.push(update.created_at.toISO()!)
             lastSeenAt.push(update.last_seen_at?.toISO() ?? null)
@@ -2150,8 +2147,8 @@ export class PostgresPersonRepository
                 `
                 UPDATE posthog_person AS p SET
                     properties = (p.properties || batch.new_properties::jsonb) - unset.keys,
-                    properties_last_updated_at = (p.properties_last_updated_at || batch.new_properties_last_updated_at::jsonb) - unset.keys,
-                    properties_last_operation = (p.properties_last_operation || batch.new_properties_last_operation::jsonb) - unset.keys,
+                    properties_last_updated_at = p.properties_last_updated_at - unset.keys,
+                    properties_last_operation = p.properties_last_operation - unset.keys,
                     is_identified = p.is_identified OR batch.new_is_identified,
                     created_at = LEAST(p.created_at, batch.new_created_at::timestamp with time zone),
                     last_seen_at = GREATEST(p.last_seen_at, batch.new_last_seen_at::timestamp with time zone),
@@ -2160,30 +2157,18 @@ export class PostgresPersonRepository
                     $1::uuid[],
                     $2::integer[],
                     $3::text[],
-                    $4::text[],
+                    $4::boolean[],
                     $5::text[],
-                    $6::boolean[],
-                    $7::text[],
-                    $8::text[],
-                    $9::text[]
-                ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at, unset_json)
+                    $6::text[],
+                    $7::text[]
+                ) AS batch(batch_uuid, batch_team_id, new_properties, new_is_identified, new_created_at, new_last_seen_at, unset_json)
                 CROSS JOIN LATERAL (
                     SELECT COALESCE(ARRAY(SELECT jsonb_array_elements_text(batch.unset_json::jsonb)), ARRAY[]::text[]) AS keys
                 ) AS unset
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id AND p.is_deleted = false
                 RETURNING ${PERSON_COLUMNS_PREFIXED}
                 `,
-                [
-                    uuids,
-                    teamIds,
-                    properties,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
-                    isIdentified,
-                    createdAt,
-                    lastSeenAt,
-                    propertiesToUnset,
-                ],
+                [uuids, teamIds, properties, isIdentified, createdAt, lastSeenAt, propertiesToUnset],
                 'updatePersonsBatch'
             )
 

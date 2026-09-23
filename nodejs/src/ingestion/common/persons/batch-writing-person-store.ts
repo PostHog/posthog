@@ -21,7 +21,12 @@ import {
     totalPersonUpdateLatencyPerBatchHistogram,
 } from '~/common/persons/metrics'
 import { isFilteredPersonUpdateProperty } from '~/common/persons/person-property-utils'
-import { PersonUpdate, fromInternalPerson, toInternalPerson } from '~/common/persons/person-update-batch'
+import {
+    MergePersonUpdate,
+    PersonUpdate,
+    fromInternalPerson,
+    toInternalPerson,
+} from '~/common/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
@@ -467,9 +472,9 @@ class BatchWritingPersonsCache {
             is_identified: existingPersonUpdate.is_identified || person.is_identified,
         }
 
+        // Only pending sets travel here; the base snapshot never becomes part of the diff.
         mergedPersonUpdate.properties_to_set = {
             ...existingPersonUpdate.properties_to_set,
-            ...person.properties,
             ...person.properties_to_set,
         }
         for (const key of person.properties_to_unset) {
@@ -1368,20 +1373,20 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         batchId: number,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         batchIdOrTx?: number | PersonRepositoryTransaction,
         _tx?: PersonRepositoryTransaction
@@ -1922,7 +1927,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     private addPersonUpdateToBatch(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         batchId: number
     ): [InternalPerson, PersonMessage[], boolean] {
@@ -1952,7 +1957,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
      */
     private mergeUpdateIntoPersonUpdate(
         personUpdate: PersonUpdate,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         allowCreatedAtUpdate: boolean = false
     ): PersonUpdate {
         // For properties, we track them in the fine-grained properties_to_set/unset
@@ -1968,8 +1973,16 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             })
         }
 
+        // An unset wins over a set the batch already queued for the same key.
+        for (const key of update.properties_to_unset ?? []) {
+            delete personUpdate.properties_to_set[key]
+            if (!personUpdate.properties_to_unset.includes(key)) {
+                personUpdate.properties_to_unset.push(key)
+            }
+        }
+
         // Apply other updates (excluding properties which we handled above)
-        const fieldsToExclude = ['properties', 'is_identified']
+        const fieldsToExclude = ['properties', 'properties_to_unset', 'is_identified']
         if (!allowCreatedAtUpdate) {
             fieldsToExclude.push('created_at')
         }
