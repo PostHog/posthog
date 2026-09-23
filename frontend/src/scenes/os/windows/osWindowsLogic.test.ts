@@ -274,7 +274,7 @@ describe('osWindowsLogic', () => {
         function arrangeThreeWindows(): void {
             mountAt(INSIGHTS)
             logic.actions.setDesktopSize({ width: 1600, height: 900 })
-            logic.actions.openWindow(REPLAY)
+            logic.actions.openWindow(REPLAY, { preview: 'Session replay' })
             logic.actions.openWindow(FLAGS)
             logic.actions.setWindowBounds(windowAt(INSIGHTS).id, { x: 40, y: 30, width: 700, height: 500 })
             logic.actions.snapWindow(windowAt(REPLAY).id, 'right')
@@ -283,15 +283,18 @@ describe('osWindowsLogic', () => {
         }
 
         function layout(): Array<Record<string, unknown>> {
-            return logic.values.windows.map(({ path, title, bounds, zIndex, minimized, maximized, restoreBounds }) => ({
-                path,
-                title,
-                bounds,
-                zIndex,
-                minimized,
-                maximized,
-                restoreBounds,
-            }))
+            return logic.values.windows.map(
+                ({ path, title, bounds, zIndex, minimized, maximized, restoreBounds, preview }) => ({
+                    path,
+                    title,
+                    bounds,
+                    zIndex,
+                    minimized,
+                    maximized,
+                    restoreBounds,
+                    preview,
+                })
+            )
         }
 
         it('restores the same layout on the same URL', () => {
@@ -301,6 +304,7 @@ describe('osWindowsLogic', () => {
             reloadAt(INSIGHTS)
 
             expect(layout()).toEqual(before)
+            expect(layout().map((w) => w.preview)).toEqual([undefined, 'Session replay', undefined])
             expect(logic.values.focusedWindow?.path).toEqual(INSIGHTS)
         })
 

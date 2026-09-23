@@ -11,6 +11,17 @@ export function isOsFrame(win: Window): boolean {
     return win.self !== win.top && win.name.startsWith(OS_FRAME_NAME_PREFIX)
 }
 
+// pinned: the OS page sets this attribute on a window frame while it previews an app that is not installed
+export const OS_PREVIEW_FRAME_ATTRIBUTE = 'data-os-preview'
+
+export function isOsPreviewFrame(win: Window): boolean {
+    try {
+        return isOsFrame(win) && !!win.frameElement?.hasAttribute(OS_PREVIEW_FRAME_ATTRIBUTE)
+    } catch {
+        return false
+    }
+}
+
 export interface OsFrameLocation {
     pathname: string
     search: string

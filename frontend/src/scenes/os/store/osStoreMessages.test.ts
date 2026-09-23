@@ -1,5 +1,5 @@
 import { osFrameName } from '../bridge/osFrame'
-import { osStoreInstalledChanged, osStoreOpenApp, readOsStoreMessage } from './osStoreMessages'
+import { osStoreInstalledChanged, osStoreOpenApp, osStorePreviewApp, readOsStoreMessage } from './osStoreMessages'
 
 describe('osStoreMessages', () => {
     const page = { location: { origin: 'https://app.example.com' } } as unknown as Window
@@ -17,6 +17,17 @@ describe('osStoreMessages', () => {
     it.each([
         ['an OS window asks to reload', message(osStoreInstalledChanged(), osWindow), osStoreInstalledChanged()],
         ['an OS window asks to open an app', message(osStoreOpenApp('Surveys'), osWindow), osStoreOpenApp('Surveys')],
+        [
+            'an OS window asks to preview an app',
+            message(osStorePreviewApp('Surveys'), osWindow),
+            osStorePreviewApp('Surveys'),
+        ],
+        [
+            'a preview request from another origin',
+            message(osStorePreviewApp('Surveys'), osWindow, 'https://evil.example.com'),
+            null,
+        ],
+        ['a preview request without a key', message({ type: 'posthog-os-store:preview-app' }, osWindow), null],
         ['another origin', message(osStoreOpenApp('Surveys'), osWindow, 'https://evil.example.com'), null],
         ['a frame that is not an OS window', message(osStoreOpenApp('Surveys'), otherFrame), null],
         ['a cross-origin frame', message(osStoreOpenApp('Surveys'), crossOriginFrame), null],

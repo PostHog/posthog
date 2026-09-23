@@ -8,7 +8,9 @@ import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortc
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 
-import { osFrameName, osFrameSrc } from '../bridge/osFrame'
+import { OS_PREVIEW_FRAME_ATTRIBUTE, osFrameName, osFrameSrc } from '../bridge/osFrame'
+import { OsAppPreviewBar } from '../store/OsAppPreviewBar'
+import { osAppPreviewLogic } from '../store/osAppPreviewLogic'
 import { OsBounds, OsPoint, OsResizeEdge, OsSnapZone, resizeBounds, snapZoneAt } from './osWindowGeometry'
 import { OS_WINDOW_SHORTCUT_KEYS, OsWindowCommand } from './osWindowShortcuts'
 import { OsWindowState, osWindowsLogic } from './osWindowsLogic'
@@ -62,6 +64,8 @@ export function OsWindow({
     onSnapPreview,
 }: OsWindowProps): JSX.Element {
     const { desktop, zoomOrigins } = useValues(osWindowsLogic)
+    const { previewBarApps } = useValues(osAppPreviewLogic)
+    const previewedApp = win.preview ? previewBarApps[win.preview] : undefined
     const { focusWindow, closeWindow, minimizeWindow, maximizeWindow, unmaximizeWindow, snapWindow, setWindowBounds } =
         useActions(osWindowsLogic)
     const reduceMotion = useReducedMotion()
@@ -270,9 +274,11 @@ export function OsWindow({
                     />
                 </div>
             </header>
+            {previewedApp && <OsAppPreviewBar app={previewedApp} />}
             {src && (
                 <iframe
                     name={osFrameName(win.id)}
+                    {...(previewedApp ? { [OS_PREVIEW_FRAME_ATTRIBUTE]: '' } : {})}
                     src={src}
                     title={win.title}
                     className={cn(

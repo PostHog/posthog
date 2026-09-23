@@ -31,6 +31,8 @@ export interface OsWindowState {
     maximized: boolean
     /** The bounds to go back to after a maximize or a snap. */
     restoreBounds: OsBounds | null
+    /** Set when the window previews an App Store app: the app's catalog key. The store draws the preview bar. */
+    preview?: string
 }
 
 export interface OsOpenWindowOptions {
@@ -38,6 +40,8 @@ export interface OsOpenWindowOptions {
     title?: string
     /** The desktop point the window zooms open from, for example the icon that opened it. */
     origin?: OsPoint
+    /** Marks a new window as a preview of this App Store app. */
+    preview?: string
 }
 
 export interface OsDesktopState {
@@ -87,6 +91,7 @@ function parseWindow(value: unknown): OsWindowState | null {
         minimized: raw.minimized === true,
         maximized: raw.maximized === true,
         restoreBounds: parseBounds(raw.restoreBounds),
+        ...(typeof raw.preview === 'string' && raw.preview ? { preview: raw.preview.slice(0, 200) } : {}),
     }
 }
 
@@ -332,6 +337,7 @@ export const osWindowsLogic = kea<osWindowsLogicType>([
                         minimized: false,
                         maximized: false,
                         restoreBounds: null,
+                        ...(options.preview ? { preview: options.preview } : {}),
                     }
                     return { ...state, windows: raise([...state.windows, created], id) }
                 },

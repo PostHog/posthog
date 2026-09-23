@@ -1,9 +1,10 @@
-import { isOsFrame, osFrameName, osFrameSrc } from './osFrame'
+import { OS_PREVIEW_FRAME_ATTRIBUTE, isOsFrame, isOsPreviewFrame, osFrameName, osFrameSrc } from './osFrame'
 
-function fakeWindow(name: string, framed: boolean): Window {
-    const win = { name } as { name: string; self?: unknown; top?: unknown }
+function fakeWindow(name: string, framed: boolean, frameAttributes: string[] = []): Window {
+    const win = { name } as { name: string; self?: unknown; top?: unknown; frameElement?: unknown }
     win.self = win
     win.top = framed ? {} : win
+    win.frameElement = framed ? { hasAttribute: (attribute: string) => frameAttributes.includes(attribute) } : null
     return win as unknown as Window
 }
 
@@ -16,6 +17,14 @@ describe('osFrame', () => {
         ['a plain top-level tab', '', false, false],
     ])('%s', (_description, name, framed, expected) => {
         expect(isOsFrame(fakeWindow(name, framed))).toBe(expected)
+    })
+
+    test.each([
+        ['an OS window frame that previews an app', osFrameName('window-1'), [OS_PREVIEW_FRAME_ATTRIBUTE], true],
+        ['an OS window frame without the preview attribute', osFrameName('window-1'), [], false],
+        ['another site that frames the app with the attribute', 'embed', [OS_PREVIEW_FRAME_ATTRIBUTE], false],
+    ])('preview frame: %s', (_description, name, frameAttributes, expected) => {
+        expect(isOsPreviewFrame(fakeWindow(name, true, frameAttributes))).toBe(expected)
     })
 
     test.each([
