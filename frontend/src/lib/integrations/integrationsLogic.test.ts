@@ -148,21 +148,21 @@ describe('integrationsLogic', () => {
             const request = jest
                 .spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
                 .mockResolvedValue(discovery('fresh'))
-            logic.actions.startPolling()
+            logic.actions.subscribeGithubSuggestions()
             integrationsPayload = [githubIntegration()]
             await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions([
                 'loadIntegrationsSuccess',
                 'loadGithubAvailableInstallations',
             ])
             expect(request).toHaveBeenCalled()
-            logic.actions.stopPolling()
+            logic.actions.unsubscribeGithubSuggestions()
         })
 
         it('discovers once when switching projects with a mounted GitHub surface', async () => {
             const request = jest
                 .spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
                 .mockResolvedValue(discovery('fresh'))
-            logic.actions.startPolling()
+            logic.actions.subscribeGithubSuggestions()
             await expectLogic(logic).toFinishAllListeners()
             request.mockClear()
             integrationsPayload = [githubIntegration()]
@@ -173,7 +173,16 @@ describe('integrationsLogic', () => {
 
             expect(request).toHaveBeenCalledTimes(1)
             expect(request).toHaveBeenCalledWith('999')
-            logic.actions.stopPolling()
+            logic.actions.unsubscribeGithubSuggestions()
+        })
+
+        it('keeps loaded integrations when the same project refreshes', async () => {
+            integrationsPayload = [githubIntegration()]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toFinishAllListeners()
+
+            teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam! })
+
+            expect(logic.values.integrations).toHaveLength(1)
         })
 
         it.each([false, true])(
@@ -331,6 +340,7 @@ describe('integrationsLogic', () => {
     describe('polling', () => {
         it('polls integrations only while at least one surface is subscribed', async () => {
             jest.useFakeTimers()
+            const discoveryRequest = jest.spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
 
             logic.actions.startPolling()
             logic.actions.startPolling()
@@ -344,6 +354,7 @@ describe('integrationsLogic', () => {
             expect(logic.cache.disposables.registry.has('poll')).toBe(true)
             logic.actions.stopPolling()
             expect(logic.cache.disposables.registry.has('poll')).toBe(false)
+            expect(discoveryRequest).not.toHaveBeenCalled()
         })
     })
 

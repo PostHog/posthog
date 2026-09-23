@@ -32,6 +32,7 @@ class GitHubAuditPayload:
     CANDIDATE_FIELDS = frozenset(
         {"installation_id", "account_name", "account_type", "source_team_id", "source_team_name"}
     )
+    FILTERED_FIELDS = frozenset({"installation_id", "source", "reason"})
     RESPONSE_FIELDS = frozenset(
         {
             "discovery_id",
@@ -54,7 +55,7 @@ class GitHubAuditPayload:
         "discovery_credential_selected": {"discovery_id", *PERSONAL_FIELDS},
         "discovery_github_response": {"discovery_id", "github_status", "github_request_id"},
         "discovery_candidates": {"discovery_id", "source"},
-        "discovery_candidate_filtered": {"discovery_id", "installation_id", "source", "reason"},
+        "discovery_candidates_filtered": {"discovery_id"},
         "discovery_completed": {"discovery_id"},
         "discovery_failed": {"discovery_id", "reason"},
         "link_started": {"discovery_id", "installation_id", "path"},
@@ -82,8 +83,13 @@ class GitHubAuditPayload:
         }
 
     @classmethod
-    def candidates(cls, value: object) -> list[dict[str, Any]]:
-        return [cls.fields(item, cls.CANDIDATE_FIELDS) for item in value] if isinstance(value, list) else []
+    def candidates(cls, value: object, allowed: frozenset[str] | None = None) -> list[dict[str, Any]]:
+        allowed = allowed or cls.CANDIDATE_FIELDS
+        return [cls.fields(item, allowed) for item in value] if isinstance(value, list) else []
+
+    @classmethod
+    def capped(cls, entries: list[dict[str, Any]]) -> tuple[int, list[dict[str, Any]]]:
+        return len(entries), entries[: cls.MAX_RECORDED_INSTALLATIONS]
 
     @classmethod
     def error_codes(cls, value: object) -> list[str]:
@@ -100,13 +106,17 @@ class GitHubAuditPayload:
         result = cls.fields(value, cls.EVENT_FIELDS.get(event, set()))
         if event == "discovery_candidates":
             result["candidates"] = cls.candidates(value.get("candidates"))
+        elif event == "discovery_candidates_filtered":
+            result["filtered_count"], result["filtered"] = cls.capped(
+                cls.candidates(value.get("filtered"), cls.FILTERED_FIELDS)
+            )
         elif event == "discovery_completed":
             response = value.get("response")
             result["response"] = cls.fields(response, cls.RESPONSE_FIELDS)
             if isinstance(response, dict):
-                installations = cls.candidates(response.get("installations"))
-                result["response"]["installation_count"] = len(installations)
-                result["response"]["installations"] = installations[: cls.MAX_RECORDED_INSTALLATIONS]
+                result["response"]["installation_count"], result["response"]["installations"] = cls.capped(
+                    cls.candidates(response.get("installations"))
+                )
         elif event in {"link_rejected", "setup_failed"}:
             field = "rejection_reason" if event == "link_rejected" else "failure_category"
             result[field] = cls.error_codes(value.get(field))

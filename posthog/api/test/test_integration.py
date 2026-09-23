@@ -7491,19 +7491,49 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert "synthetic-secret" not in json.dumps(log.detail)
         assert "synthetic-secret" not in json.dumps(captured, default=str)
 
-    def test_github_audit_caps_recorded_installations(self) -> None:
-        installations = [
-            {"installation_id": str(9100 + index), "account_name": f"synthetic-owner-{index}"}
+    @parameterized.expand([("discovery_completed",), ("discovery_candidates_filtered",)])
+    def test_github_audit_caps_recorded_installations(self, event: str) -> None:
+        entries = [
+            {"installation_id": str(9100 + index), "source": "sibling"}
             for index in range(GitHubAuditPayload.MAX_RECORDED_INSTALLATIONS + 5)
         ]
+        evidence = {"response": {"installations": entries}} if event == "discovery_completed" else {"filtered": entries}
         GitHubAudit(organization_id=self.organization.id, team_id=self.team.id).record(
-            "discovery_completed", discovery_id="synthetic-discovery", response={"installations": installations}
+            event, discovery_id="synthetic-discovery", **evidence
         )
         log = ActivityLog.objects.get(activity="github_diagnostic")
         assert log.detail is not None
-        response = log.detail["trigger"]["payload"]["response"]
-        assert response["installation_count"] == len(installations)
-        assert response["installations"] == installations[: GitHubAuditPayload.MAX_RECORDED_INSTALLATIONS]
+        payload = log.detail["trigger"]["payload"]
+        if event == "discovery_completed":
+            count, recorded = payload["response"]["installation_count"], payload["response"]["installations"]
+            expected = [{"installation_id": entry["installation_id"]} for entry in entries]
+        else:
+            count, recorded = payload["filtered_count"], payload["filtered"]
+            expected = entries
+        assert count == len(entries)
+        assert recorded == expected[: GitHubAuditPayload.MAX_RECORDED_INSTALLATIONS]
+
+    def test_discovery_records_filtered_installations_in_one_row(self) -> None:
+        for installation_id in ("9201", "9202", "9203"):
+            Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id=installation_id,
+                config={"installation_id": installation_id, "account": {"name": "synthetic-owner"}},
+            )
+        response = self.client.get(f"/api/projects/{self.team.id}/integrations/github/available_installations/")
+        assert response.status_code == 200
+        filtered_logs = [
+            log
+            for log in ActivityLog.objects.filter(activity="github_diagnostic")
+            if log.detail and log.detail["trigger"]["payload"]["event"] == "discovery_candidates_filtered"
+        ]
+        assert len(filtered_logs) == 1
+        detail = filtered_logs[0].detail
+        assert detail is not None
+        payload = detail["trigger"]["payload"]
+        assert payload["filtered_count"] == 3
+        assert {entry["reason"] for entry in payload["filtered"]} == {"current_project"}
 
     @parameterized.expand([({},), ({"installation_id": None},)])
     @patch("posthog.api.integration.link_existing_team_github_integration")

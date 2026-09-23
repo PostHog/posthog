@@ -453,6 +453,33 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(data.get("connect_flow"), "app_install")
         self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
 
+    @parameterized.expand([("oauth_discover", "posthog_code"), ("app_install", None)])
+    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
+    @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=None)
+    @patch(
+        "posthog.api.github_callback.types.get_instance_settings",
+        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
+    )
+    def test_github_start_records_the_selected_project_organization(
+        self, expected_flow, connect_from, _mock_settings, _mock_unlinked
+    ):
+        other_org = Organization.objects.create(name="Synthetic other organization")
+        OrganizationMembership.objects.create(organization=other_org, user=self.user)
+        self.user.current_organization = other_org
+        self.user.save(update_fields=["current_organization"])
+
+        body = {"team_id": self.team.id, **({"connect_from": connect_from} if connect_from else {})}
+        response = self.client.post("/api/users/@me/integrations/github/start/", body, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["connect_flow"], expected_flow)
+        state = parse_qs(urlparse(response.json()["install_url"]).query)["state"][0]
+        token, _ = parse_github_authorize_state_param(state)
+        assert token is not None
+        stored = load_authorize_state(token, user_id=self.user.id)
+        assert stored is not None
+        assert stored.originating_organization_id == self.organization.id
+
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=False)
     @patch(

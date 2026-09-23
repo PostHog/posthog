@@ -641,6 +641,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                         flow=FlowKind.OAUTH_DISCOVER,
                         user_id=user.id,
                         connect_from=connect_from,
+                        originating_organization_id=team.organization_id if team else None,
                     ),
                 )
                 return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_discover"})
@@ -660,6 +661,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 flow=FlowKind.PERSONAL_INSTALL,
                 user_id=user.id,
                 connect_from=str(connect_from) if connect_from else None,
+                # The resolved team can be a Desktop-selected project outside the current organization.
+                originating_organization_id=team.organization_id if team else None,
             ),
         )
         return Response(
@@ -911,6 +914,7 @@ def _attempt_app_oauth_fast_path(
             user_id=user.id,
             installation_id=team_installation_id,
             connect_from=connect_from,
+            originating_organization_id=team.organization_id,
         ),
     )
     return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_authorize"})

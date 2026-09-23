@@ -676,6 +676,7 @@ def list_org_github_installations(
     # adoption merge below excludes against, instead of two near-identical queries.
     installations: dict[str, dict[str, Any]] = {}
     org_linked_installation_ids: set[str] = set()
+    filtered: list[dict[str, str]] = []
     for integration in org_github:
         config = integration.config or {}
         raw_installation_id = config.get("installation_id")
@@ -684,24 +685,18 @@ def list_org_github_installations(
         installation_id = str(raw_installation_id)
         org_linked_installation_ids.add(installation_id)
         if integration.team_id not in accessible_team_ids or integration.team_id == exclude_team_id:
-            if discovery:
-                discovery.audit.record(
-                    "discovery_candidate_filtered",
-                    discovery_id=discovery.discovery_id,
-                    installation_id=installation_id,
-                    source="sibling",
-                    reason="current_project" if integration.team_id == exclude_team_id else "inaccessible_project",
-                )
+            filtered.append(
+                {
+                    "installation_id": installation_id,
+                    "source": "sibling",
+                    "reason": "current_project" if integration.team_id == exclude_team_id else "inaccessible_project",
+                }
+            )
             continue
         if installation_id in installations:
-            if discovery:
-                discovery.audit.record(
-                    "discovery_candidate_filtered",
-                    discovery_id=discovery.discovery_id,
-                    installation_id=installation_id,
-                    source="sibling",
-                    reason="duplicate_installation",
-                )
+            filtered.append(
+                {"installation_id": installation_id, "source": "sibling", "reason": "duplicate_installation"}
+            )
             continue
         sibling_account = _sibling_installation_account(integration)
         installations[installation_id] = {
@@ -721,14 +716,9 @@ def list_org_github_installations(
         # aren't orphans, and offering them here would advertise an adoption that link_existing then
         # has to refuse.
         if installation_id in installations or installation_id in org_linked_installation_ids:
-            if discovery:
-                discovery.audit.record(
-                    "discovery_candidate_filtered",
-                    discovery_id=discovery.discovery_id,
-                    installation_id=installation_id,
-                    source="personal",
-                    reason="already_linked_in_organization",
-                )
+            filtered.append(
+                {"installation_id": installation_id, "source": "personal", "reason": "already_linked_in_organization"}
+            )
             continue
         account = raw_installation.get("account") or {}
         installations[installation_id] = {
@@ -739,6 +729,9 @@ def list_org_github_installations(
             "source_team_name": None,
         }
 
+    # One record per request keeps repeated discovery refreshes from writing a row per filtered installation.
+    if discovery and filtered:
+        discovery.audit.record("discovery_candidates_filtered", discovery_id=discovery.discovery_id, filtered=filtered)
     return list(installations.values())
 
 

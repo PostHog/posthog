@@ -50,8 +50,14 @@ export function GithubIntegration({
         githubAvailableInstallationsResponseLoading,
         githubDiscoveryFailed,
     } = useValues(integrationsLogic)
-    const { linkExistingGithubInstallation, loadGithubAvailableInstallations, startPolling, stopPolling } =
-        useActions(integrationsLogic)
+    const {
+        linkExistingGithubInstallation,
+        loadGithubAvailableInstallations,
+        startPolling,
+        stopPolling,
+        subscribeGithubSuggestions,
+        unsubscribeGithubSuggestions,
+    } = useActions(integrationsLogic)
     const { reportIntegrationConnectClicked, reportIntegrationLinkExistingOffered, reportGithubInstallationSelected } =
         useActions(eventUsageLogic)
     const { hasPendingInstallRequests } = useValues(githubInstallRequestsLogic)
@@ -62,7 +68,11 @@ export function GithubIntegration({
     // scoped to the settings surface: an uninstall on GitHub should show up while someone is looking.
     useOnMountEffect(() => {
         startPolling()
-        return () => stopPolling()
+        subscribeGithubSuggestions()
+        return () => {
+            unsubscribeGithubSuggestions()
+            stopPolling()
+        }
     })
 
     const settingsPath = next ?? urls.settings('environment-integrations')
