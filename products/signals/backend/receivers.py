@@ -652,12 +652,7 @@ def reconcile_report_embedding_on_verdict_saved(
 def _sync_report_latest_actionability(instance: SignalReportArtefact) -> None:
     if instance.type != SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
         return
-    latest = SignalReportArtefact.latest_actionability(instance.report_id)
-    # `update()`, not `save()`: refreshing a cache must not bump `updated_at`, which the inbox
-    # sorts on, or fire the report's own save receivers.
-    SignalReport.objects.filter(team_id=instance.team_id, id=instance.report_id).update(
-        latest_actionability=latest.actionability, latest_already_addressed=latest.already_addressed
-    )
+    SignalReport.refresh_latest_actionability(team_id=instance.team_id, report_id=instance.report_id)
 
 
 @receiver(post_save, sender=SignalReportArtefact)

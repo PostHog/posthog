@@ -591,6 +591,37 @@ class SignalReport(UUIDModel):
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
 
+    @classmethod
+    def refresh_latest_actionability(cls, *, team_id: int, report_id: Any) -> bool:
+        """Recompute the cached actionability from the artefact log and store it on the row.
+
+        Returns whether the row changed, and False when the report no longer exists. The row is
+        locked for the read and the write, so two judgment writers cannot interleave: without the
+        lock, a writer that read the log before a concurrent judgment committed would overwrite
+        the cache with the older value once the other writer released the row.
+        """
+        with transaction.atomic():
+            # FOR NO KEY UPDATE, not FOR UPDATE: an artefact insert holds KEY SHARE on its report
+            # through the foreign key, and FOR UPDATE conflicts with that, so two concurrent
+            # judgment writers would deadlock.
+            row = (
+                cls.objects.select_for_update(no_key=True)
+                .filter(team_id=team_id, id=report_id)
+                .values_list("latest_actionability", "latest_already_addressed")
+                .first()
+            )
+            if row is None:
+                return False
+            latest = SignalReportArtefact.latest_actionability(report_id)
+            if row == (latest.actionability, latest.already_addressed):
+                return False
+            # `update()`, not `save()`: refreshing a cache must not bump `updated_at`, which the
+            # inbox sorts on, or fire the report's own save receivers.
+            cls.objects.filter(id=report_id).update(
+                latest_actionability=latest.actionability, latest_already_addressed=latest.already_addressed
+            )
+            return True
+
     def restore_target_status(self) -> "SignalReport.Status":
         """
         The status a suppressed report should return to on restore (un-archive).
