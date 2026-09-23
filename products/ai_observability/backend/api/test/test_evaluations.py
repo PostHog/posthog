@@ -837,7 +837,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             cursor.execute("SET LOCAL enable_indexscan = off")
             cursor.execute("SET LOCAL enable_bitmapscan = off")
 
-        paged_ids = []
+        paged_ids: list[str] = []
         for offset in range(0, len(ids), 2):
             response = self.client.get(f"/api/environments/{self.team.id}/evaluations/?limit=2&offset={offset}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
