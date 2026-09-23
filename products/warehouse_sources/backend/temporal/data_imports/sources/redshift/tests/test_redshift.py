@@ -1781,7 +1781,10 @@ class TestBuildPipeline:
         list(response.items())  # type: ignore[arg-type]
 
         assert attempts["n"] == 3
-        assert streaming_cursor.execute.called
+        # The metadata connect's own `SET statement_timeout` also calls `execute` on this shared
+        # cursor mock, so asserting `execute.called` would pass even if the retried streaming
+        # connection never ran its query. `stream` is only called once the retry succeeds.
+        streaming_cursor.stream.assert_called_once()
 
     def test_returns_source_response(self, build_pipeline_mocks):
         mock_connect, _ = build_pipeline_mocks
