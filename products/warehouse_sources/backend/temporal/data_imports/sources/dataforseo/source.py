@@ -116,10 +116,10 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # `targets` selects which domains the stored credential runs paid requests against, so
-        # retargeting it must re-require the secret — a preserved credential can't be pointed at
-        # attacker-chosen domains without re-entering the password.
-        return ["targets"]
+        # `targets` and `keywords` select which paid requests the stored credential runs, so
+        # changing either must re-require the secret — a preserved credential can't be pointed at
+        # attacker-chosen domains or keywords without re-entering the password.
+        return ["targets", "keywords"]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         invalid_credentials_message = (

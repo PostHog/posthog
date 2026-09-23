@@ -1,11 +1,12 @@
 import base64
-import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -43,7 +44,7 @@ class DataForSEOAPIError(Exception):
     """Raised on permanent body-level errors (auth, funds, invalid request)."""
 
 
-@dataclasses.dataclass
+@frozen
 class DataForSEOResumeConfig:
     # Which fan-out value the sync is on and the next page offset within it: `target` for the
     # target-scoped endpoints, `keyword` for the keyword-scoped ones. Values are processed in

@@ -67,10 +67,10 @@ class TestDataForSEOSource:
         assert input_field("location_name").required is False
         assert input_field("language_name").required is False
 
-    def test_connection_host_fields_includes_targets(self) -> None:
-        # targets selects which domains the stored credential runs paid requests against, so
-        # changing it must force re-entry of the secret.
-        assert DataForSEOSource().connection_host_fields == ["targets"]
+    def test_connection_host_fields_cover_every_spend_field(self) -> None:
+        # targets and keywords both select what the stored credential spends paid requests on,
+        # so changing either must force re-entry of the secret.
+        assert DataForSEOSource().connection_host_fields == ["targets", "keywords"]
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
