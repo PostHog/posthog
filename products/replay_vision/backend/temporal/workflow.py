@@ -606,7 +606,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 # is what we want: that run is already rendering this observation.
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
-                retry_policy=common.RetryPolicy(maximum_attempts=2),
+                # The execution timeout spans every attempt and the thumbnail's own retries fill it, so a second run has no time left.
+                retry_policy=common.RetryPolicy(maximum_attempts=1),
                 execution_timeout=MEDIA_WORKFLOW_EXECUTION_TIMEOUT,
             )
         except Exception:
