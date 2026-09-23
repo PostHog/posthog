@@ -9,6 +9,9 @@ export const MAX_WINDOW_START_AGE_DAYS = 35
 const START_AGE_MARGIN_HOURS = 1
 // Hours, not calendar days: a week across a daylight saving change is 169 hours, and the backend refuses it.
 const WEEK_HOURS = 7 * 24
+// Hours for the same reason: the backend compares elapsed time, and 35 calendar days across a
+// daylight saving change is 841 hours, which eats the whole margin.
+const MAX_WINDOW_START_AGE_HOURS = MAX_WINDOW_START_AGE_DAYS * 24
 
 export const ANOMALIES_ROLLING_OPTIONS = [
     { label: '24 hours', dateFrom: '-24h' },
@@ -38,7 +41,7 @@ export function resolveAnomaliesWindow(dateRange: DateRange, now: dayjs.Dayjs): 
 }
 
 export function oldestAllowedStart(now: dayjs.Dayjs): dayjs.Dayjs {
-    return now.subtract(MAX_WINDOW_START_AGE_DAYS, 'day').add(START_AGE_MARGIN_HOURS, 'hour')
+    return now.subtract(MAX_WINDOW_START_AGE_HOURS - START_AGE_MARGIN_HOURS, 'hour')
 }
 
 export function weekStartingOn(day: dayjs.Dayjs): DateRange {
