@@ -3,7 +3,6 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
-/** Path of the product whose page is open, or null when the page belongs to no product. */
 export function findActiveProductPath(pathname: string, products: FileSystemImport[]): string | null {
     const currentPath = removeProjectIdIfPresent(pathname)
     let activePath: string | null = null
