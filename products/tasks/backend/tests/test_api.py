@@ -2064,6 +2064,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.TASK_ANALYSIS,),
             (Task.OriginProduct.REVIEW_HOG,),
             (Task.OriginProduct.SLACK,),
+            (Task.OriginProduct.SPACE_SETUP,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
