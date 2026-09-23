@@ -137,7 +137,7 @@ export function WizardRunSyncCard({
                     <LemonMenu
                         items={[
                             { label: 'Close', onClick: onClose },
-                            { label: "Don't show this again", onClick: onHide },
+                            { label: "Don't show this run again", onClick: onHide },
                         ]}
                         placement="top-end"
                     >

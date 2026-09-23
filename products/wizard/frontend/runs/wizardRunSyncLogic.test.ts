@@ -82,13 +82,13 @@ describe('wizardRunSyncLogic', () => {
         expect(logic.values.run).toBeNull()
     })
 
-    it('keeps a closed run hidden while polling and streams the next run', async () => {
+    it('keeps a dismissed run hidden while polling and streams the next run', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const stream = MockEventSource.last()
 
         logic.actions.dismissRun('newer')
         expect(stream.readyState).toBe(MockEventSource.CLOSED)
-        expect(logic.values.dismissedRunId).toBe('newer')
+        expect(logic.values.dismissedRunIds).toEqual(['newer'])
 
         logic.actions.checkActiveRuns()
         await expectLogic(logic).toFinishAllListeners()
@@ -99,5 +99,44 @@ describe('wizardRunSyncLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.run?.id).toBe('next')
         expect(MockEventSource.instances).toHaveLength(2)
+
+        mockWizardRunsList.mockResolvedValue({ count: 1, results: [run('newer')] })
+        logic.actions.checkActiveRuns()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.dismissedRunIds).toEqual(['newer'])
+        expect(MockEventSource.instances).toHaveLength(2)
+
+        logic.unmount()
+        logic = wizardRunSyncLogic({ projectId: '1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.dismissedRunIds).toEqual(['newer'])
+        expect(MockEventSource.instances).toHaveLength(2)
+    })
+
+    it('closes the current run until the page reloads', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.closeRun('newer')
+        expect(logic.values.closedRunIds).toEqual(['newer'])
+        expect(logic.values.dismissedRunIds).toEqual([])
+        expect(MockEventSource.last().readyState).toBe(MockEventSource.CLOSED)
+
+        logic.actions.checkActiveRuns()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(MockEventSource.instances).toHaveLength(1)
+
+        logic.unmount()
+        logic = wizardRunSyncLogic({ projectId: '1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.closedRunIds).toEqual([])
+        expect(MockEventSource.instances).toHaveLength(2)
+
+        mockWizardRunsList.mockResolvedValue({ count: 1, results: [run('next')] })
+        logic.actions.checkActiveRuns()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.run?.id).toBe('next')
+        expect(MockEventSource.instances).toHaveLength(3)
     })
 })
