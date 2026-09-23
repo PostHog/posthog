@@ -21,6 +21,8 @@ export const signalsConfigCreateBodyIssueTrackingConfigMaxOne = 255
 
 export const signalsConfigCreateBodyMaxReportsPerDayMax = 2147483647
 
+export const signalsConfigCreateBodyPullRequestLabelMax = 50
+
 export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
     autostart_enabled: zod
         .boolean()
@@ -76,6 +78,19 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Whether self-driving comments back on a GitHub issue that raised a report, linking to the report so everybody watching the issue knows it is being researched. The comment is public on the issue thread and carries a link only, never report content. False by default. Needs a GitHub integration that can reach the issue's repository."
+        ),
+    pull_request_label_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether self-driving adds a label to every pull request it opens, so GitHub search, saved searches, and notification rules can separate them from other automation on the repository. False by default. Needs a GitHub integration that can reach the repository.'
+        ),
+    pull_request_label: zod
+        .string()
+        .max(signalsConfigCreateBodyPullRequestLabelMax)
+        .nullish()
+        .describe(
+            "The label name self-driving applies, at most 50 characters. Null or blank means 'self-driving'. The label is created in the repository when it does not exist yet. Only used while pull_request_label_enabled is true."
         ),
 })
 
