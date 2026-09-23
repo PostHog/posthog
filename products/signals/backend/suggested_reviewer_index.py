@@ -119,8 +119,8 @@ def rebuild_suggested_reviewer_index(
 ) -> Iterator[tuple[int, str]]:
     """Rebuild index rows from the reviewer artefact log, a batch of reports at a time.
 
-    Yields `(reports written, resume cursor)` once per batch, so a caller can report progress and
-    resume a stopped walk. Each batch commits on its own, which keeps a long run off a single
+    Yields `(reports in the batch, resume cursor)` once per batch, so a caller can report progress
+    and resume a stopped walk. Each batch commits on its own, which keeps a long run off a single
     transaction.
 
     The caller passes the two querysets rather than a team id, because the two callers reach the
@@ -152,11 +152,10 @@ def rebuild_suggested_reviewer_index(
                 if only_missing:
                     # The artefact read sits outside this transaction, so a live sync can commit
                     # between the two. Reading the index again here keeps the walk from replacing
-                    # a newer row set with rows built from an older artefact. It narrows the
-                    # window rather than closing it: a sync that commits after this read leaves
-                    # the report with a second copy of its identities, which both readers match
-                    # with `id__in` and so count once, and the next reviewer write rewrites all of
-                    # them.
+                    # a newer row set with rows built from an older artefact. The window narrows
+                    # rather than closes: a sync that commits after this read leaves the report
+                    # with a second copy of its identities, which both readers match by report id
+                    # and so count once, and the next reviewer write rewrites all of them.
                     indexed = set(index_rows.filter(report_id__in=targets).values_list("report_id", flat=True))
                     rows = [row for row in rows if row.report_id not in indexed]
                 else:
