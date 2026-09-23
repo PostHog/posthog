@@ -152,7 +152,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         [
             (kind, json_type, prop)
             for kind, json_type in [("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON")]
-            for prop in ["$screen_height", "$ai_score", "$ai_score_min", "$ai_score_max"]
+            for prop in ["$screen_height", "$ai_evaluation_numeric_result", "$ai_score_min", "$ai_score_max"]
         ]
     )
     def test_numeric_casts_preserve_mixed_native_types(self, _name: str, json_type: str, prop: str) -> None:
