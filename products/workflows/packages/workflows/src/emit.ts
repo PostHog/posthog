@@ -13,7 +13,7 @@ import type {
     JsonObject,
     JsonValue,
     StepFilters,
-    TriggerConfig,
+    TriggerAuthoringConfig,
     WorkflowDefinition,
     WorkflowStatus,
     WorkflowVariable,
@@ -103,10 +103,10 @@ export interface CompileOptions {
     readonly status?: WorkflowStatus
     readonly exitCondition?: ExitCondition
     readonly variables?: readonly WorkflowVariable[]
-    /** What starts a run. Build it with `onEvent` or `onSchedule`. */
-    readonly trigger: TriggerConfig
+    /** What starts a run. Build it with `onEvent`, `onSchedule` or `trigger`. */
+    readonly trigger: TriggerAuthoringConfig
     readonly steps: Path
-    readonly exit: { readonly reason: string }
+    readonly exit: { readonly reason: string; readonly name?: string; readonly description?: string }
 }
 
 function checkKey(key: string): void {
@@ -653,9 +653,22 @@ export function compile(options: CompileOptions, emitOptions: EmitOptions = {}):
     const placements = place(options.steps, new Ids(), false)
     const entry = emitPath(placements, EXIT_ID, context)
 
-    context.actions.unshift({ id: TRIGGER_ID, name: 'Trigger', type: 'trigger', config: options.trigger })
+    const { __workflowTriggerName, __workflowTriggerDescription, ...triggerConfig } = options.trigger
+    context.actions.unshift({
+        id: TRIGGER_ID,
+        name: __workflowTriggerName ?? 'Trigger',
+        ...(__workflowTriggerDescription === undefined ? {} : { description: __workflowTriggerDescription }),
+        type: 'trigger',
+        config: triggerConfig,
+    })
     context.edges.unshift({ from: TRIGGER_ID, to: entry, type: 'continue' })
-    context.actions.push({ id: EXIT_ID, name: 'Exit', type: 'exit', config: { reason: options.exit.reason } })
+    context.actions.push({
+        id: EXIT_ID,
+        name: options.exit.name ?? 'Exit',
+        ...descriptionOf(options.exit),
+        type: 'exit',
+        config: { reason: options.exit.reason },
+    })
 
     // Copied on the way out, so a caller that edits the definition cannot reach back into
     // the step values the file exports and change what a second emit produces.

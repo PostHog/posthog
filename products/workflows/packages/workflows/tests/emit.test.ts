@@ -405,6 +405,49 @@ describe('@posthog/workflows', () => {
         })
     })
 
+    test('emits trigger and exit names and descriptions when set', () => {
+        const flow = workflow({
+            key: 'named-nodes',
+            name: 'Named nodes',
+            on: onEvent({
+                event: 'user signed up',
+                name: 'Signup trigger',
+                description: 'User performs an action to start the workflow.',
+            }),
+            steps: path(delay('1d', { name: 'Wait' })),
+            exit: {
+                name: 'Finished',
+                description: 'User moved through the workflow without errors.',
+                reason: 'Done',
+            },
+        })
+
+        const { actions } = flow.emit().definition
+        assert.deepStrictEqual(action(actions, 'trigger_node'), {
+            id: 'trigger_node',
+            name: 'Signup trigger',
+            description: 'User performs an action to start the workflow.',
+            type: 'trigger',
+            config: {
+                type: 'event',
+                filters: {
+                    events: [
+                        { id: 'user signed up', name: 'user signed up', type: 'events', order: 0, properties: [] },
+                    ],
+                    properties: [],
+                    filter_test_accounts: false,
+                },
+            },
+        })
+        assert.deepStrictEqual(action(actions, 'exit_node'), {
+            id: 'exit_node',
+            name: 'Finished',
+            description: 'User moved through the workflow without errors.',
+            type: 'exit',
+            config: { reason: 'Done' },
+        })
+    })
+
     for (const reservedType of ['trigger', 'exit'] as const) {
         test(`refuses ${reservedType} as a pass-through step action type`, () => {
             assert.strictEqual(

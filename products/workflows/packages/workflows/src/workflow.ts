@@ -1,4 +1,4 @@
-import type { ExitCondition, TriggerConfig, WorkflowStatus, WorkflowVariable } from './definition.js'
+import type { ExitCondition, TriggerAuthoringConfig, WorkflowStatus, WorkflowVariable } from './definition.js'
 import { compile, type EmitOptions, type EmitResult } from './emit.js'
 import type { Path } from './steps.js'
 
@@ -33,12 +33,12 @@ export interface WorkflowOptions {
      * whole list is capped at 5120 bytes. See `WorkflowVariable`.
      */
     readonly variables?: readonly WorkflowVariable[]
-    /** What starts a run. Build it with `onEvent` or `onSchedule`. */
-    readonly on: TriggerConfig
+    /** What starts a run. Build it with `onEvent`, `onSchedule` or `trigger`. */
+    readonly on: TriggerAuthoringConfig
     /** The steps, in order. Build the path with `path`. */
     readonly steps: Path
     /** The terminal step. `reason` is the label PostHog records when a run finishes. */
-    readonly exit: { readonly reason: string }
+    readonly exit: { readonly reason: string; readonly name?: string; readonly description?: string }
 }
 
 /** One declared workflow, ready to emit. */

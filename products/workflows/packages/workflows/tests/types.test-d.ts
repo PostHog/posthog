@@ -137,11 +137,14 @@ step({
 workflow({
     key: 'manual-start',
     name: 'Manual start',
-    on: trigger({
-        type: 'manual',
-        template_id: 'template-source-webhook',
-        inputs: { event: { value: '$workflow_triggered' }, distinct_id: { value: '{request.body.user_id}' } },
-    }),
+    on: trigger(
+        {
+            type: 'manual',
+            template_id: 'template-source-webhook',
+            inputs: { event: { value: '$workflow_triggered' }, distinct_id: { value: '{request.body.user_id}' } },
+        },
+        { name: 'Manual trigger' }
+    ),
     steps: path(wait),
-    exit: { reason: 'Done' },
+    exit: { name: 'Finished', description: 'Done without errors.', reason: 'Done' },
 })

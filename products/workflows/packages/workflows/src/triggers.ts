@@ -1,4 +1,10 @@
-import type { JsonObject, PropertyCondition, TriggerConfig } from './definition.js'
+import type {
+    JsonObject,
+    PropertyCondition,
+    TriggerActionOptions,
+    TriggerAuthoringConfig,
+    TriggerConfig,
+} from './definition.js'
 
 /**
  * A trigger that starts a run for each matching event, emitted as the trigger action's
@@ -12,6 +18,8 @@ import type { JsonObject, PropertyCondition, TriggerConfig } from './definition.
  * `user signed up`.
  * @param options.properties - Conditions the event must also meet. Build them with
  * `eventProperty`, `person` or `group`. Omit them to match every occurrence.
+ * @param options.name - The trigger action label. Defaults to `Trigger`.
+ * @param options.description - What starts the workflow, shown on the trigger in the editor.
  * @returns A trigger config to pass as a workflow's `on`.
  * @example
  * ```ts
@@ -25,8 +33,13 @@ import type { JsonObject, PropertyCondition, TriggerConfig } from './definition.
  * })
  * ```
  */
-export function onEvent(options: { event: string; properties?: readonly PropertyCondition[] }): TriggerConfig {
-    return {
+export function onEvent(options: {
+    event: string
+    properties?: readonly PropertyCondition[]
+    name?: string
+    description?: string
+}): TriggerAuthoringConfig {
+    return withTriggerMeta(options, {
         type: 'event',
         filters: {
             events: [
@@ -41,7 +54,15 @@ export function onEvent(options: { event: string; properties?: readonly Property
             properties: [],
             filter_test_accounts: false,
         },
-    }
+    })
+}
+
+function withTriggerMeta(options: TriggerActionOptions, config: TriggerConfig): TriggerAuthoringConfig {
+    return Object.freeze({
+        ...config,
+        ...(options.name === undefined ? {} : { __workflowTriggerName: options.name }),
+        ...(options.description === undefined ? {} : { __workflowTriggerDescription: options.description }),
+    })
 }
 
 /**
@@ -58,6 +79,9 @@ export function onEvent(options: { event: string; properties?: readonly Property
  * workflow exists, which means a scheduled workflow pushed for the first time has no
  * cadence yet and does not run, `active` or not.
  *
+ * @param options - The trigger action label and description.
+ * @param options.name - The trigger action label. Defaults to `Trigger`.
+ * @param options.description - What starts the workflow, shown on the trigger in the editor.
  * @returns A trigger config to pass as a workflow's `on`.
  * @example
  * ```ts
@@ -79,8 +103,8 @@ export function onEvent(options: { event: string; properties?: readonly Property
  * })
  * ```
  */
-export function onSchedule(): TriggerConfig {
-    return { type: 'schedule' }
+export function onSchedule(options: TriggerActionOptions = {}): TriggerAuthoringConfig {
+    return withTriggerMeta(options, { type: 'schedule' })
 }
 
 /**
@@ -93,6 +117,9 @@ export function onSchedule(): TriggerConfig {
  * the editor stores.
  *
  * @param config - The trigger config to emit.
+ * @param options - The trigger action label and description.
+ * @param options.name - The trigger action label. Defaults to `Trigger`.
+ * @param options.description - What starts the workflow, shown on the trigger in the editor.
  * @returns A trigger config to pass as a workflow's `on`.
  * @example
  * ```ts
@@ -108,6 +135,9 @@ export function onSchedule(): TriggerConfig {
  * })
  * ```
  */
-export function trigger(config: TriggerConfig & JsonObject): TriggerConfig {
-    return Object.freeze(config)
+export function trigger(
+    config: TriggerConfig & JsonObject,
+    options: TriggerActionOptions = {}
+): TriggerAuthoringConfig {
+    return withTriggerMeta(options, config)
 }

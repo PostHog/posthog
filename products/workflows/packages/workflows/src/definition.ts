@@ -79,6 +79,16 @@ export type TriggerConfig =
     | { readonly type: 'schedule' }
     | ({ readonly type: string } & JsonObject)
 
+export interface TriggerActionOptions {
+    readonly name?: string
+    readonly description?: string
+}
+
+export type TriggerAuthoringConfig = TriggerConfig & {
+    readonly __workflowTriggerName?: string
+    readonly __workflowTriggerDescription?: string
+}
+
 /**
  * One condition of a `conditional_branch` action in the definition.
  *
