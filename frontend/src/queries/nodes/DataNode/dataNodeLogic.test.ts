@@ -930,6 +930,28 @@ describe('dataNodeLogic', () => {
         })
     })
 
+    it('clears the error when a dashboard refresh delivers results after a failed load', async () => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        })
+        logic = dataNodeLogic({ key: testUniqueKey, query, cachedResults: { result: null } as any })
+        logic.mount()
+        mockedQuery.mockRejectedValueOnce(new Error('Query failed'))
+        logic.actions.loadData('force_blocking')
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ responseError: 'Query failed' })
+
+        const results = [commonResult]
+        dataNodeLogic({ key: testUniqueKey, query, cachedResults: { result: results } as any })
+
+        // Otherwise the tile renders the error state over results it already has.
+        await expectLogic(logic).toMatchValues({
+            responseError: null,
+            responseErrorObject: null,
+            response: partial({ result: results }),
+        })
+    })
+
     it('stops polling when the scan endpoint 404s', async () => {
         jest.useFakeTimers()
         try {
