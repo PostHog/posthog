@@ -140,7 +140,7 @@ A `function` step on `template-webhook` fails the whole step on any 4xx or 5xx, 
 2. Store the status with `output_variable: {"key": "signup_status", "result_path": "status"}`. The step returns `{status, body}`.
 3. Branch with a `workflow_variable` condition on `signup_status`.
 
-A retriable status (408, 429, and 5xx) is retried first, so the branch reads the last attempt's status. A status outside the list still fails the step, and `on_error` decides what happens next.
+A retriable status (408, 429, 500, 502, 503, or 504) is retried first, so the branch reads the last attempt's status. A status outside the list still fails the step, and `on_error` decides what happens next.
 
 ## `function*` inputs
 
