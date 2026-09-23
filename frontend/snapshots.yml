@@ -2811,7 +2811,7 @@ snapshots:
     exporter-other--adhoc-query-export-with-legend--dark:
         hash: v1.k794b7964.05bdee694b9100978a444f9afff5a32394bebcbd1a6582678776224e90c266dc.9xLqysbdLK5WSP_Q_lJSxAvRU4ThNKDL_-ZLqzOwOIs
     exporter-other--adhoc-query-export-with-legend--light:
-        hash: v1.k794b7964.9f7bd917227abe1d09bb1c4ac03fd798ca70dd40183648b4b9918de869a4ff44.UZQ5m4f3Vf1mHSpB-aWS4r0BY_6218WJyhWsaKcZv-E
+        hash: v1.k794b7964.9bfbce5de96db2dffe1ca1fc0ae03987f4e8df504f4d39fbf8321268b830feba.-Oe02xM40Nwy3yJTSq5bK0WvRRSgzckQc5djtxehgWI
     exporter-other--adhoc-sql-chart-export--dark:
         hash: v1.k794b7964.f91b32a705bb3aa76adfd1f2b4100b4e5b1215ebc517c3df92b5737a2ed546df.pBb3VkFcp8aV4gCP-Jk4qAQtASUUKwL04P4Go1leROo
     exporter-other--adhoc-sql-chart-export--light:
