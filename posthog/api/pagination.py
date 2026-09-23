@@ -9,6 +9,9 @@ from rest_framework.views import APIView
 
 def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
     """Add the primary key as a final ordering term for a paginated queryset."""
+    if queryset.query.is_sliced or queryset.query.group_by is not None:
+        return queryset
+
     ordering = queryset.query.order_by or queryset.query.extra_order_by or queryset.model._meta.ordering
     if not ordering:
         return queryset.order_by("pk")

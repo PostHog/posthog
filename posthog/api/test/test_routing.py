@@ -7,6 +7,7 @@ from datetime import timedelta
 import pytest
 from posthog.test.base import APIBaseTest
 
+from django.db.models import Count
 from django.db.models.functions import Lower
 from django.test import override_settings
 from django.urls import include, path
@@ -63,6 +64,16 @@ def test_stable_queryset_ordering_adds_a_primary_key_tiebreaker() -> None:
     expression_queryset = stable_queryset_ordering(FileSystem.objects.order_by(Lower("path")))
 
     assert expression_queryset.query.order_by[-1] == "pk"
+
+
+def test_stable_queryset_ordering_leaves_sliced_and_grouped_querysets_unchanged() -> None:
+    sliced_queryset = Annotation.objects.order_by("date_marker")[:1]
+
+    assert stable_queryset_ordering(sliced_queryset) is sliced_queryset
+
+    grouped_queryset = Annotation.objects.values("team_id").annotate(count=Count("id")).order_by("team_id")
+
+    assert stable_queryset_ordering(grouped_queryset).query.order_by == ("team_id",)
 
 
 def test_stable_cursor_pagination_adds_a_primary_key_tiebreaker() -> None:
