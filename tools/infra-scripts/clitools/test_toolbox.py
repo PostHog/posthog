@@ -1368,8 +1368,7 @@ class TestToolbox(unittest.TestCase):
     def test_main_jumphost_pool_without_context_uses_the_pool_namespace(self):
         """With no KUBE_CONTEXT the jumphost namespace is known before the context is chosen.
 
-        The pool's namespace no longer depends on the environment, so select_context
-        receives the pool namespace and the pod lookup uses the same one.
+        The pool has one fixed namespace, so select_context and the pod lookup both receive it.
         """
         patches = self._patch_main_collaborators()
         patches["get_current_user"] = patch.object(
