@@ -17,6 +17,8 @@ concurrency:
 
 jobs:
     tag:
+        # A manual run can start from any branch, so the ref check keeps a release tag on master.
+        if: github.ref == 'refs/heads/master'
         permissions:
             contents: write
         runs-on: depot-ubuntu-24.04
