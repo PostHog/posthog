@@ -1,0 +1,46 @@
+from posthog.test.base import APIBaseTest
+
+from django.test import override_settings
+
+from freezegun import freeze_time
+from parameterized import parameterized
+from rest_framework import status
+
+
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+class TestEventsRetentionAPI(APIBaseTest):
+    def url(self) -> str:
+        return f"/api/projects/{self.team.id}/events_retention/"
+
+    @parameterized.expand(
+        [
+            ("utc", "UTC", "2025-09-22"),
+            ("ahead_of_utc", "Pacific/Auckland", "2025-09-23"),
+        ]
+    )
+    @freeze_time("2026-09-22T23:30:00Z")
+    def test_reports_the_window_in_the_project_timezone(self, _name: str, tz: str, retained_from: str) -> None:
+        self.team.timezone = tz
+        self.team.event_retention_months = 12
+        self.team.save()
+
+        response = self.client.get(self.url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "retention_months": 12,
+            "retained_from": retained_from,
+            "docs_url": "https://posthog.com/docs/data/events-retention",
+        }
+
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
+    def test_is_absent_until_retention_is_enforced(self) -> None:
+        response = self.client.get(self.url())
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand([("patch",), ("put",), ("post",), ("delete",)])
+    def test_rejects_writes(self, method: str) -> None:
+        response = getattr(self.client, method)(self.url(), {"retention_months": 1})
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED

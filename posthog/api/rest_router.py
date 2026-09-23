@@ -4,6 +4,7 @@ from rest_framework import decorators, exceptions
 import posthog.temporal.ai  # noqa: F401
 from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
 from posthog.api.csp_reporting import CSPReportingViewSet
+from posthog.api.events_retention import EventsRetentionViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.product_enablement import ProductEnablementViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
@@ -97,6 +98,7 @@ projects_router = routers.add("projects", router.register(r"projects", project.R
 projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
 
 projects_router.register(r"sdk_health", SdkHealthViewSet, "project_sdk_health", ["project_id"])
+projects_router.register(r"events_retention", EventsRetentionViewSet, "project_events_retention", ["project_id"])
 projects_router.register(
     r"activity_log",
     advanced_activity_logs.ActivityLogViewSet,
