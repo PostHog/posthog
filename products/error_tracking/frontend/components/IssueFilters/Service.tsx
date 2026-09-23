@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { IconSearch } from '@posthog/icons'
 
@@ -23,7 +23,6 @@ import { PropertyDefinitionType } from '~/types'
 import { getEventPropertyFilterValue, issueFiltersLogic } from './issueFiltersLogic'
 
 export const SERVICE_PROPERTY = 'service'
-const EXCEPTION_EVENT_NAMES = ['$exception']
 const ALL_SERVICES_VALUE = '__all__'
 
 export const ServiceFilter = (): JSX.Element | null => {
@@ -32,25 +31,33 @@ export const ServiceFilter = (): JSX.Element | null => {
     const { filterGroup } = useValues(issueFiltersLogic)
     const { addPropertyFilter, removePropertyFilter } = useActions(issueFiltersLogic)
     const triggerRef = useRef<HTMLButtonElement>(null)
-    const [open, setOpen] = useState(false)
 
+    const option = options[SERVICE_PROPERTY]
+
+    // The model does not dedupe, so an already loaded key would refetch on every mount.
     useOnMountEffect(() => {
+        if (option?.status === 'loading' || option?.status === 'loaded') {
+            return
+        }
         loadPropertyValues({
             endpoint: undefined,
             type: PropertyDefinitionType.Event,
             newInput: undefined,
             propertyKey: SERVICE_PROPERTY,
-            eventNames: EXCEPTION_EVENT_NAMES,
+            eventNames: ['$exception'],
         })
     })
 
-    const option = options[SERVICE_PROPERTY]
     const selected = getEventPropertyFilterValue(filterGroup, SERVICE_PROPERTY)
     const items = useMemo(() => {
         const names = (option?.values ?? [])
             .map(({ name }) => (typeof name === 'string' ? name : ''))
             .filter((name) => name !== '')
-        return [ALL_SERVICES_VALUE, ...(selected && !names.includes(selected) ? [selected] : []), ...names]
+        // Keep a selection restored from the URL pickable even before its value load lands.
+        if (selected && !names.includes(selected)) {
+            names.unshift(selected)
+        }
+        return [ALL_SERVICES_VALUE, ...names]
     }, [option?.values, selected])
 
     // A project that never sets the property would only ever see an empty control, so hide it.
@@ -72,8 +79,6 @@ export const ServiceFilter = (): JSX.Element | null => {
                 }
                 addPropertyFilter(SERVICE_PROPERTY, next, undefined, false, true)
             }}
-            open={open}
-            onOpenChange={setOpen}
         >
             <ComboboxTrigger
                 render={

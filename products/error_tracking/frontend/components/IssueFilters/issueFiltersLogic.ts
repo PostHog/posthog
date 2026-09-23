@@ -2,7 +2,7 @@ import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { SelectedQuickFilter, quickFiltersSectionLogic } from 'lib/components/QuickFilters'
-import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { isEventPropertyFilter, isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, QuickFilterContext } from '~/queries/schema/schema-general'
@@ -316,10 +316,9 @@ export function getEventPropertyFilterValue(filterGroup: UniversalFiltersGroup, 
     if (!isUniversalGroupFilterLike(firstGroup)) {
         return null
     }
-    const match = firstGroup.values.find(
-        (filter) =>
-            !isUniversalGroupFilterLike(filter) && filter.type === PropertyFilterType.Event && filter.key === key
-    ) as EventPropertyFilter | undefined
+    const match = firstGroup.values
+        .filter((filter) => !isUniversalGroupFilterLike(filter))
+        .find((filter) => isEventPropertyFilter(filter) && filter.key === key) as EventPropertyFilter | undefined
     const value = Array.isArray(match?.value) ? match.value[0] : match?.value
     return value == null ? null : String(value)
 }
