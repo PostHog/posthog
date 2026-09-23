@@ -16,15 +16,12 @@ class NonReportableError(Exception):
 
 
 class NonReportableWhileRetryingError(Exception):
-    """Marker for a failure that error tracking must record only once the activity's retries are spent.
+    """Marker for a failure the activity interceptor reports only on the last attempt the retry policy allows.
 
     An attempt that a later attempt recovers from costs the user nothing, so one captured exception per
-    attempt overstates the impact and hides the runs that really failed. The activity interceptor captures
-    a subclass of this only on the last attempt the activity's retry policy allows. Subclass it for a
-    transient upstream or infrastructure condition the retry policy is expected to absorb. An instance that
-    is also a Temporal ApplicationError marked non_retryable is reported at once, because no retry follows it.
-    Use NonReportableError instead when no attempt is ever worth reporting.
-    """
+    attempt overstates the impact and hides the runs that really failed. Subclass it for a transient
+    upstream or infrastructure condition the retry policy is expected to absorb. Use NonReportableError
+    instead when no attempt is ever worth reporting."""
 
 
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)

@@ -76,12 +76,10 @@ def is_expected_activity_failure(error: BaseException) -> bool:
 
 
 def is_deferred_until_retries_spent(error: BaseException, info: activity.Info) -> bool:
-    """Whether reporting must wait for the last attempt the activity's retry policy allows.
+    """Whether another attempt follows this one, so reporting waits for the last of them.
 
-    The raiser opts in with NonReportableWhileRetryingError. An attempt that the retry policy will not
-    follow with another one is reported at once: a non-retryable ApplicationError, a type the policy
-    excludes, the last permitted attempt, or a policy with no attempt limit, which never reaches a last
-    attempt.
+    The raiser opts in with NonReportableWhileRetryingError. `maximum_attempts` of 0 means unlimited,
+    which never reaches a last attempt, so the comparison below reports it at once rather than never.
     """
     if not isinstance(error, NonReportableWhileRetryingError):
         return False
@@ -89,11 +87,9 @@ def is_deferred_until_retries_spent(error: BaseException, info: activity.Info) -
     if policy is None:
         return False
     if isinstance(error, temporalio.exceptions.ApplicationError):
-        if error.non_retryable:
+        if error.non_retryable or error.type in (policy.non_retryable_error_types or ()):
             return False
-        if error.type and error.type in (policy.non_retryable_error_types or ()):
-            return False
-    return policy.maximum_attempts >= 1 and info.attempt < policy.maximum_attempts
+    return info.attempt < policy.maximum_attempts
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -153,11 +149,12 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                 raise
             activity_info = activity.info()
             if is_deferred_until_retries_spent(e, activity_info):
+                # No traceback: a later attempt is expected to recover, and the last attempt reports in full.
                 await logger.awarning(
-                    "Retryable failure in activity %s on attempt %s, reporting deferred to the last attempt",
+                    "Retryable failure in activity %s on attempt %s: %r",
                     activity_info.activity_type,
                     activity_info.attempt,
-                    exc_info=e,
+                    e,
                 )
                 raise
             capture_kwargs = {

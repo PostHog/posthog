@@ -26,6 +26,7 @@ from parameterized import parameterized
 from posthoganalytics.exception_utils import exceptions_from_error_tuple
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
+from temporalio.common import RetryPolicy
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -40,6 +41,7 @@ from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
+from posthog.temporal.tests.common.interceptor_harness import run_and_capture
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -4105,3 +4107,20 @@ async def test_apply_scanner_workflow_counts_signals_for_pre_patch_histories() -
     assert succeeded.scanner_result.signals_count == 2
     assert succeeded.scanner_result.signal_problem_types == []
     assert succeeded.scanner_result.signal_summaries == []
+
+
+@pytest.mark.asyncio
+class TestScannerFailureErrorTracking:
+    @parameterized.expand(
+        [
+            # A provider outage recovers on a later attempt, so only the spent chain is a scan the user lost.
+            ("transient_below_the_budget", FailureKind.PROVIDER_TRANSIENT, 1, False),
+            ("transient_on_the_last_attempt", FailureKind.PROVIDER_TRANSIENT, 4, True),
+            # A rejected video never recovers, so deferring the report would drop it.
+            ("deterministic_on_the_first_attempt", FailureKind.PROVIDER_REJECTED, 1, True),
+        ]
+    )
+    async def test_only_a_spent_retry_chain_reaches_error_tracking(self, _name, kind, attempt, reported):
+        error = ScannerFailureError("the provider could not run this scan", kind=kind)
+        mock_capture = await run_and_capture(error, attempt=attempt, policy=RetryPolicy(maximum_attempts=4))
+        assert mock_capture.call_count == (1 if reported else 0)
