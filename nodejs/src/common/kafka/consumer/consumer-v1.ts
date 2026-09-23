@@ -468,9 +468,11 @@ export class KafkaConsumer {
         } finally {
             this.resetRebalanceCoordination()
         }
-        this.onPartitionsRevoked?.(assignments).catch((error) => {
-            logger.error('🔁', 'partition_revoked_handler_failed', { error: String(error) })
-        })
+        Promise.resolve()
+            .then(() => this.onPartitionsRevoked?.(assignments))
+            .catch((error) => {
+                logger.error('🔁', 'partition_revoked_handler_failed', { error: String(error) })
+            })
     }
 
     private updateMetricsAfterRevocation(assignments: Assignment[]): void {
