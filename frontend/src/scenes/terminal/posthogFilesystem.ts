@@ -303,7 +303,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
     private removalConfirmation(nodes: TerminalNode[]): TerminalConfirmation {
         return {
             title: 'Delete PostHog files and folders?',
-            description: `Remove ${nodes.length} files and folders from project ${this.projectId}. Removing the last file reference also deletes the PostHog object. This affects everyone in the project.`,
+            description: `Remove ${nodes.length === 1 ? '1 file or folder' : `${nodes.length} files and folders`} from project ${this.projectId}. Removing the last file reference also deletes the PostHog object. This affects everyone in the project.`,
             items: nodes.map((node) => {
                 const entry = this.projectNodes.get(node)?.entry
                 return `${this.mountedPath(node)}${entry && entry.type !== 'folder' ? ` (${entry.type}: ${entry.ref})` : ''}`

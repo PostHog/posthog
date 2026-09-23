@@ -2,7 +2,12 @@ export const RM_SCRIPT = String.raw`#!/bin/sh
 set -eu
 resolve_target() {
     parent=$(readlink -f -- "$(dirname -- "$1")") || return 1
-    printf '%s/%s' "$parent" "$(basename -- "$1")"
+    if [ "$parent" = / ]; then parent=''; fi
+    name=$(basename -- "$1")
+    case "$name" in
+        /|.|..) readlink -f -- "$1" ;;
+        *) printf '%s/%s' "$parent" "$name" ;;
+    esac
 }
 mounted=false
 options=true
@@ -13,8 +18,21 @@ for argument in "$@"; do
             -?*) continue ;;
         esac
     fi
-    target=$(resolve_target "$argument") || exec busybox rm "$@"
-    case "$target" in /posthog/*) mounted=true ;; esac
+    target=$(resolve_target "$argument") || {
+        printf 'Could not resolve %s. Check the path before deleting it.\n' "$argument" >&2
+        exit 1
+    }
+    case "$target" in
+        /)
+            printf 'Refusing to remove the filesystem root. Choose a specific file or folder.\n' >&2
+            exit 1
+            ;;
+        /posthog)
+            printf 'Refusing to remove the PostHog mount. Choose a file or folder inside /posthog/files.\n' >&2
+            exit 1
+            ;;
+        /posthog/*) mounted=true ;;
+    esac
 done
 if [ "$mounted" = false ]; then
     exec busybox rm "$@"
