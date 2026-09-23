@@ -1396,7 +1396,9 @@ def update_all_orgs_billing_quotas(
                 for resource in QuotaResource:
                     field = resource.value
                     # for each organization, we check if the current usage + today's unreported usage is over the limit
-                    result = org_quota_limited_until(org, resource, previously_quota_limited_team_tokens[field])
+                    result = org_quota_limited_until(
+                        org, resource, previously_quota_limited_team_tokens[field], teams_by_org.get(org_id, [])
+                    )
                     if result:
                         quota_limited_until = result.get("quota_limited_until")
                         limiting_suspended_until = result.get("quota_limiting_suspended_until")

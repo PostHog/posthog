@@ -8,15 +8,6 @@ The shared PR-linking service applies this rule to task outputs and agent attach
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
 Suppressed reports remain suppressed when another PR is attached.
 
-## Quota release
-
-Before removing an existing Self-driving quota block, the quota checker verifies any below-limit usage estimate against the organization's billable PRs for the full billing period.
-This keeps a reset of today's usage at midnight from reopening the pipeline before billing includes the previous day's PRs.
-The check preserves billing's stored counters and applies credited refunds once.
-If the period usage query fails, an active stored block keeps its original expiry; a block found only in the quota cache remains until a later check succeeds or the period ends.
-An expired stored block does not trigger verification unless a team still has an active block in the quota cache.
-Removing the limit, raising it above the verified usage, or starting a new billing period can still release the block.
-
 ## Repository selection
 
 The shared repository selection prompt asks the agent to check the sources in the supplied context before choosing a repository.
