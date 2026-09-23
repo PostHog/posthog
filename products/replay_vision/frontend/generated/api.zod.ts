@@ -507,6 +507,7 @@ export const visionScannersCreateBodyTagsItemMax = 255
 
 export const visionScannersCreateBodyTagsMax = 32
 
+export const visionScannersCreateBodyNameIsSuggestedDefault = false
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
@@ -550,6 +551,12 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
+            ),
+        name_is_suggested: zod
+            .boolean()
+            .default(visionScannersCreateBodyNameIsSuggestedDefault)
+            .describe(
+                'Whether `name` is a name the client proposed rather than one the user chose. On create, a proposed name that the team already uses gets the first free numeric suffix instead of being rejected, so a repeat creator is never blocked by a name nobody picked. A name the user chose still fails with a duplicate-name error. Not stored on the scanner. Ignored on update.'
             ),
         scanner_config: zod
             .unknown()
@@ -647,6 +654,7 @@ export const visionScannersPartialUpdateBodyTagsItemMax = 255
 
 export const visionScannersPartialUpdateBodyTagsMax = 32
 
+export const visionScannersPartialUpdateBodyNameIsSuggestedDefault = false
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
 
@@ -692,6 +700,12 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
+            ),
+        name_is_suggested: zod
+            .boolean()
+            .default(visionScannersPartialUpdateBodyNameIsSuggestedDefault)
+            .describe(
+                'Whether `name` is a name the client proposed rather than one the user chose. On create, a proposed name that the team already uses gets the first free numeric suffix instead of being rejected, so a repeat creator is never blocked by a name nobody picked. A name the user chose still fails with a duplicate-name error. Not stored on the scanner. Ignored on update.'
             ),
         scanner_config: zod
             .unknown()

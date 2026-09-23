@@ -2,10 +2,12 @@ import { dayjs } from 'lib/dayjs'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
+import { experimentScannerName } from './experimentTargeting'
 import type {
     ClassifierScannerConfig,
     MonitorScannerConfig,
     ScannerFormValues,
+    ScannerType,
     ScorerScannerConfig,
     SummarizerScannerConfig,
 } from './types'
@@ -112,6 +114,34 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
         },
     },
 ] as const
+
+/**
+ * Whether the app proposed this name rather than the user choosing it. Every name the wizard fills in
+ * by itself is the same string for everyone on the team, so the second scanner of a type or template
+ * would collide on the team-unique name. The API adds a numeric suffix to a proposed name instead of
+ * rejecting it, so this decides which of the two a save gets.
+ */
+export function isSuggestedScannerName(
+    name: string | null | undefined,
+    teamName: string | null | undefined,
+    scannerType: ScannerType,
+    experimentName?: string | null
+): boolean {
+    const trimmed = name?.trim()
+    if (!trimmed) {
+        return true
+    }
+    const bases = [
+        defaultScannerName(teamName, scannerType),
+        ...defaultScannerTemplates.map((template) => template.scanner_name),
+    ]
+    // An experiment entry scopes whichever base it started from, and the user can detach the
+    // experiment afterwards, so both forms count as proposed.
+    const proposed = experimentName
+        ? [...bases, ...bases.map((base) => experimentScannerName(base, experimentName))]
+        : bases
+    return proposed.includes(trimmed)
+}
 
 export function findScannerTemplate(key: string | undefined): ScannerTemplate | undefined {
     if (!key) {
