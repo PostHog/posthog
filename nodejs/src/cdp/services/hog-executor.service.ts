@@ -168,7 +168,12 @@ export class HogExecutorService {
 
         // Declared out here so the terminal catch can mask secrets out of `result.error`, which is
         // persisted to `hog_invocation_results.error_message` and rendered in the Invocations tab.
-        let sensitiveValues: string[] = []
+        // Starts from the values the function config holds, so an error raised while the inputs are
+        // still resolving is masked too; the resolved values are added once the build succeeds.
+        let sensitiveValues: string[] = this.getSensitiveValues(
+            invocation.hogFunction,
+            configuredInputValues(invocation.hogFunction)
+        )
 
         try {
             let globals: HogFunctionInvocationGlobalsWithInputs
@@ -198,20 +203,13 @@ export class HogExecutorService {
                     )
                 }
             } catch (e) {
-                // The inputs did not resolve, so mask with the values the function config holds. A
-                // template can hand an earlier secret input to a function that quotes its argument.
-                addLog(
-                    'error',
-                    sanitizeLogMessage(
-                        [`Error building inputs: ${e}`],
-                        this.getSensitiveValues(invocation.hogFunction, configuredInputValues(invocation.hogFunction))
-                    )
-                )
+                // A template can hand an earlier secret input to a function that quotes its argument.
+                addLog('error', sanitizeLogMessage([`Error building inputs: ${e}`], sensitiveValues))
 
                 throw e
             }
 
-            sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
+            sensitiveValues = [...sensitiveValues, ...this.getSensitiveValues(invocation.hogFunction, globals.inputs)]
             const invocationInput = invocation.state.vmState ?? invocation.hogFunction.bytecode
             const eventId = invocation?.state.globals?.event?.uuid || 'Unknown event'
 

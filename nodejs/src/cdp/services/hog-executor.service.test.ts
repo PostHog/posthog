@@ -311,6 +311,9 @@ describe('Hog Executor', () => {
 
             const messages = result.logs.map((x) => x.message)
             expect(messages.join('\n')).not.toContain('super secret')
+            // result.error is persisted and shown in the Invocations tab, so it must be masked too.
+            expect(result.error).toContain('***REDACTED***')
+            expect(result.error).not.toContain('super secret')
             expect(messages).toEqual(
                 expect.arrayContaining([
                     expect.stringContaining(
