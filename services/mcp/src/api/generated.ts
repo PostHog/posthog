@@ -10444,10 +10444,27 @@ export namespace Schemas {
       type: EnsembleDetectorConfigType;
     }
 
+    export type LLMDetectorConfigType = typeof LLMDetectorConfigType[keyof typeof LLMDetectorConfigType];
+
+
+    export const LLMDetectorConfigType = {
+      Llm: 'llm',
+    } as const;
+
+    export interface LLMDetectorConfig {
+      /** What counts as unusual or interesting for this metric, in your own words. Optional. */
+      instructions?: string | null;
+      /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
+      threshold?: number | null;
+      type: LLMDetectorConfigType;
+      /** How many recent points the model is shown (default: 90) */
+      window?: number | null;
+    }
+
     /**
      * Detector configuration types
      */
-    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
+    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig | LLMDetectorConfig;
 
     /**
      * * `real_time` - real_time
@@ -10503,6 +10520,11 @@ export namespace Schemas {
       readonly insight_short_id: string;
       /** Display name of the insight monitored by this alert. */
       readonly insight_display_name: string;
+      /**
+         * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+         * @nullable
+         */
+      readonly llm_detector_available: boolean | null;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -10661,7 +10683,7 @@ export namespace Schemas {
       data: number[];
       /** Date labels for each point. */
       dates: string[];
-      /** Anomaly score for each point (null if insufficient data). */
+      /** Score for each point. Null can mean insufficient data or a valid unscored point. AI previews report model confidence only for points flagged by an anomaly verdict; all other points are null, including every point in a normal verdict. */
       scores: (number | null)[];
       /** Indices of points flagged as anomalies. */
       triggered_indices: number[];
@@ -68930,6 +68952,11 @@ export namespace Schemas {
       /** Display name of the insight monitored by this alert. */
       readonly insight_display_name?: string;
       /**
+         * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+         * @nullable
+         */
+      readonly llm_detector_available?: boolean | null;
+      /**
          * Human-readable name for the alert.
          * @maxLength 255
          */
@@ -111370,6 +111397,10 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean;
+    /**
      * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
      * @minimum 1
      * @maximum 500
@@ -111384,6 +111415,10 @@ export namespace Schemas {
      * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
      */
     order_by?: string;
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string;
     /**
      * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
      */
@@ -111403,6 +111438,10 @@ export namespace Schemas {
      */
     date_from?: string;
     /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean;
+    /**
      * Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.
      * @minimum 1
      * @maximum 500
@@ -111413,6 +111452,21 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string;
+    };
+
+    export type McpAnalyticsSessionsActivityOverviewParams = {
+    /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean;
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string;
     };
 
     export type McpGatewayAuditListParams = {
