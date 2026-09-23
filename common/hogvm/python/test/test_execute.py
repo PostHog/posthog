@@ -858,6 +858,9 @@ class TestBytecodeExecute:
         assert self._run_program("return null >= 0;") is True
         assert self._run_program("return 1 > null;") is True
         assert self._run_program("return null > true;") is False
+        # Equality does not coerce: a zero is not a null.
+        assert self._run_program("return 0 == null;") is False
+        assert self._run_program("return 0 != null;") is True
 
     @parameterized.expand(
         [

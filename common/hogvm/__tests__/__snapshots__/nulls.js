@@ -141,5 +141,8 @@ print(arrayCount(__lambda((x) => (x == "a")), null));
 print(arrayReduce(__lambda((acc, x) => (acc + x)), null, 0));
 print(splitByString(" ", null));
 print(arrayStringConcat(arrayPopFront(splitByString(" ", null)), " "));
+print((0 == null));
+print((0 != null));
+print((() => { const expr=(0), low=(1), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr < 1 || expr > 10); })());
 print((length(null) > 3));
 print((length(null) < 3));

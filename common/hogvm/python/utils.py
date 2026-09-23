@@ -123,7 +123,8 @@ def regex_extract(string: Any, pattern: Any) -> str:
 
 def like(string: Any, pattern: Any, case_insensitive: bool = False) -> bool:
     _validate_regex_pattern(pattern)
-    pattern = re2.escape(pattern).replace("%", ".*").replace("_", ".")
+    # re2.escape backslash-escapes the SQL wildcards too, so strip that before turning them into regex.
+    pattern = re2.escape(pattern).replace("\\%", "%").replace("\\_", "_").replace("%", ".*").replace("_", ".")
     re_pattern = re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
     return re_pattern.search(string) is not None
 
@@ -196,7 +197,7 @@ def calculate_cost(object, marked: set | None = None) -> int:
     return COST_PER_UNIT
 
 
-def unify_comparison_types(left, right):
+def unify_comparison_types(left, right, ordering: bool = False):
     # Two temporal values order by epoch seconds (matching ClickHouse and the TS/Rust VMs). Without
     # this a HogDateTime/HogDate dict falls through unchanged and ordering operators end up comparing
     # dicts, which Python can't order.
@@ -218,10 +219,12 @@ def unify_comparison_types(left, right):
 
     # A null orders as 0 against a number or a boolean, which is what the Node VM does. Without this
     # Python raises where the other runtimes return false, and a filter fails instead of not matching.
-    if left is None and (right is None or isinstance(right, int | float)):
-        return 0, 0 if right is None else right
-    if right is None and isinstance(left, int | float):
-        return left, 0
+    # Equality keeps null distinct: 0 == null stays false.
+    if ordering:
+        if left is None and (right is None or isinstance(right, int | float)):
+            return 0, 0 if right is None else right
+        if right is None and isinstance(left, int | float):
+            return left, 0
 
     # Handle boolean cases FIRST since bool is a subclass of int in Python
     if isinstance(left, bool) and isinstance(right, str):

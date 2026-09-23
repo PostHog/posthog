@@ -53,7 +53,7 @@ function trim (str, char) {
     }
     return str.slice(start, end)
 }
-function splitByString (separator, str, maxSplits) { if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }
+function splitByString (separator, str, maxSplits) { if (str === null || str === undefined) { return null } if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function positionCaseInsensitive (str, elem) { if (typeof str === 'string') { return str.toLowerCase().indexOf(String(elem).toLowerCase()) + 1 } else { return 0 } }
 function position (str, elem) { if (typeof str === 'string') { return str.indexOf(String(elem)) + 1 } else { return 0 } }

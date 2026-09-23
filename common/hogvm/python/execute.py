@@ -285,16 +285,16 @@ def execute_bytecode(
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                 push_stack(var1 != var2)
             case Operation.GT:
-                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack(), ordering=True)
                 push_stack(_compare_values(var1, var2, operator.gt))
             case Operation.GT_EQ:
-                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack(), ordering=True)
                 push_stack(_compare_values(var1, var2, operator.ge))
             case Operation.LT:
-                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack(), ordering=True)
                 push_stack(_compare_values(var1, var2, operator.lt))
             case Operation.LT_EQ:
-                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack(), ordering=True)
                 push_stack(_compare_values(var1, var2, operator.le))
             case Operation.LIKE:
                 push_stack(like(pop_stack(), pop_stack()))
