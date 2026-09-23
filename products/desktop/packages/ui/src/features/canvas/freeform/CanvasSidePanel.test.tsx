@@ -54,7 +54,7 @@ describe("CanvasSidePanel", () => {
     );
 
     expect(screen.getByTestId("task-chat")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Comments"));
+    fireEvent.click(screen.getByLabelText("Comments"));
     expect(screen.getByTestId("task-comments")).toHaveTextContent(
       "task-1:canvas-1",
     );
@@ -78,7 +78,7 @@ describe("CanvasSidePanel", () => {
       <CanvasSidePanel {...props} chatTaskId="task-1" />,
     );
 
-    fireEvent.click(screen.getByText("Chat"));
+    fireEvent.click(screen.getByLabelText("Chat"));
     expect(screen.getByTestId("task-chat")).toBeInTheDocument();
 
     rerender(<CanvasSidePanel {...props} chatTaskId={null} />);

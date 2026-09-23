@@ -1,4 +1,5 @@
 import { ShapesIcon } from "@phosphor-icons/react";
+import { CanvasBlocksStarter } from "@posthog/ui/features/canvas/blocks/CanvasBlocks";
 import { CANVAS_GENERATE_SUGGESTIONS } from "@posthog/ui/features/canvas/freeform/canvasGenerateSuggestions";
 import { FreeformGenerateBar } from "@posthog/ui/features/canvas/freeform/FreeformGenerateBar";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
@@ -50,7 +51,7 @@ export function CanvasGenerateHero({
             Build a canvas
           </Text>
           <Text size="2" className="text-gray-10">
-            Describe what you want and an agent builds it.
+            Describe it and an agent builds it, or drop in blocks yourself.
           </Text>
         </Flex>
 
@@ -81,6 +82,13 @@ export function CanvasGenerateHero({
               />
             ))}
           </div>
+        </Flex>
+
+        <Flex direction="column" gap="2">
+          <Text size="1" weight="medium" className="px-1 text-gray-11">
+            Build it yourself
+          </Text>
+          <CanvasBlocksStarter canvasId={dashboardId} />
         </Flex>
       </Flex>
     </Flex>

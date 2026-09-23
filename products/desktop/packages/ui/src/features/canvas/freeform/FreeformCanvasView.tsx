@@ -55,6 +55,13 @@ import { CANVAS_COMPONENT_PATH, formatRelativeAge } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { CanvasSourceAutosave } from "@posthog/ui/features/canvas/blocks/CanvasBlocks";
+import { CanvasSourceEditor } from "@posthog/ui/features/canvas/blocks/CanvasSourceEditor";
+import { useCanvasSourceSync } from "@posthog/ui/features/canvas/blocks/canvasSourceHooks";
+import {
+  useCanvasSourceEntry,
+  useCanvasSourceStore,
+} from "@posthog/ui/features/canvas/blocks/canvasSourceStore";
 import {
   isCanvasGenerating,
   isCanvasGenerationRunning,
@@ -433,12 +440,26 @@ export function FreeformCanvasView({
     browseVersionId: browsing ? browseVersionId : null,
   });
   const { currentIndex } = nav;
-  const canUndo = !isGenerating && nav.canUndo;
-  const canRedo = !isGenerating && nav.canRedo;
+  const editHistory = useCanvasSourceEntry(dashboardId);
+  const editsInHistory = interactive && !embedded && !browsing && !!editHistory;
+  const versionCanUndo = !isGenerating && nav.canUndo;
+  const versionCanRedo = !isGenerating && nav.canRedo;
+  const canUndo = editsInHistory ? editHistory.past.length > 0 : versionCanUndo;
+  const canRedo = editsInHistory
+    ? editHistory.future.length > 0
+    : versionCanRedo;
   const onUndo = () => {
+    if (editsInHistory) {
+      useCanvasSourceStore.getState().undo(dashboardId);
+      return;
+    }
     if (nav.undoTargetId) setBrowseVersion(threadId, nav.undoTargetId);
   };
   const onRedo = () => {
+    if (editsInHistory) {
+      useCanvasSourceStore.getState().redo(dashboardId);
+      return;
+    }
     // A null target means stepping onto (or past) the head — back to live.
     setBrowseVersion(threadId, nav.redoTargetId);
   };
@@ -789,7 +810,9 @@ export function FreeformCanvasView({
   // published — the record is the always-available signal, so a canvas with
   // content never flashes the empty state while source/builds load.
   const hasSource = !!headVersionId || !!headCode?.trim();
-  const hasContent = hasSource || !!pinnedArtifact;
+  const sourceLoad = useCanvasSourceSync(dashboardId, interactive && !embedded);
+  const sourceEntry = useCanvasSourceEntry(dashboardId);
+  const hasContent = hasSource || !!pinnedArtifact || !!sourceEntry;
   // `isGenerating` keys off the effective task (the optimistic bridge right after
   // submit, then the polled record) and short-circuits on a terminal run — so a
   // failed/cancelled run can't strand the canvas body on the spinner.
@@ -843,8 +866,53 @@ export function FreeformCanvasView({
       latestFinishedCanvasBuild(lifecycle)?.buildStatus === "failed");
   const showToolbar = !embedded && (interactive || hasBuildSignal);
 
+  const liveAppElement = pinnedArtifact ? (
+    <BuiltCanvas
+      key={`${pinnedArtifact.buildId}:${artifactRefreshKey}`}
+      artifactUrl={pinnedArtifact.url}
+      capabilities={publishedBuild?.manifest?.capabilities}
+      onDataRequest={onDataRequest}
+      onError={onError}
+      onReady={onArtifactReady}
+      onRendered={onRendered}
+      onNavigate={onNavigate}
+      onTextSelection={setTextSelection}
+      onCommentActivate={activateComment}
+      commentHighlights={commentHighlights}
+      clearTextSelectionKey={clearTextSelectionKey}
+    />
+  ) : headCode ? (
+    // The iframe lives in the persistent warm-frame pool
+    // (CanvasFrameHost); this placeholder just reserves the viewport
+    // box and owns scroll via the host's overlay, so the canvas
+    // survives navigation without a reload.
+    <CanvasFramePlaceholder
+      dashboardId={dashboardId}
+      code={headCode}
+      analytics={analytics}
+      onDataRequest={onDataRequest}
+      onError={onError}
+      onRendered={onRendered}
+      onNavigate={onNavigate}
+      onTextSelection={setTextSelection}
+      onCommentActivate={activateComment}
+      commentHighlights={commentHighlights}
+      clearTextSelectionKey={clearTextSelectionKey}
+    />
+  ) : null;
+  const sourceEditing = interactive && !embedded && !!sourceEntry && !browsing;
+  const sourcePending =
+    interactive &&
+    !embedded &&
+    !sourceEntry &&
+    sourceLoad === "loading" &&
+    hasSource;
+
   return (
     <Flex height="100%" overflow="hidden" position="relative">
+      {interactive && !embedded ? (
+        <CanvasSourceAutosave canvasId={dashboardId} />
+      ) : null}
       <CanvasAgentRequestDialog
         prompt={agentRequest?.prompt ?? null}
         loading={agentRequest?.submitting ?? false}
@@ -1219,43 +1287,18 @@ export function FreeformCanvasView({
                 </Empty>
               </ScrollArea>
             )
-          ) : pinnedArtifact ? (
-            <Box className="h-full w-full">
-              <BuiltCanvas
-                key={`${pinnedArtifact.buildId}:${artifactRefreshKey}`}
-                artifactUrl={pinnedArtifact.url}
-                capabilities={publishedBuild?.manifest?.capabilities}
-                onDataRequest={onDataRequest}
-                onError={onError}
-                onReady={onArtifactReady}
-                onRendered={onRendered}
-                onNavigate={onNavigate}
-                onTextSelection={setTextSelection}
-                onCommentActivate={activateComment}
-                commentHighlights={commentHighlights}
-                clearTextSelectionKey={clearTextSelectionKey}
-              />
-            </Box>
-          ) : headCode ? (
-            // The iframe lives in the persistent warm-frame pool
-            // (CanvasFrameHost); this placeholder just reserves the viewport
-            // box and owns scroll via the host's overlay, so the canvas
-            // survives navigation without a reload.
-            <Box className="h-full w-full">
-              <CanvasFramePlaceholder
-                dashboardId={dashboardId}
-                code={headCode}
-                analytics={analytics}
-                onDataRequest={onDataRequest}
-                onError={onError}
-                onRendered={onRendered}
-                onNavigate={onNavigate}
-                onTextSelection={setTextSelection}
-                onCommentActivate={activateComment}
-                commentHighlights={commentHighlights}
-                clearTextSelectionKey={clearTextSelectionKey}
-              />
-            </Box>
+          ) : sourceEditing ? (
+            <CanvasSourceEditor
+              canvasId={dashboardId}
+              onDataRequest={onDataRequest}
+              onError={onError}
+              onRendered={onRendered}
+              onNavigate={onNavigate}
+            />
+          ) : sourcePending ? (
+            <LoadingState label="Loading canvas" />
+          ) : liveAppElement ? (
+            <Box className="h-full w-full">{liveAppElement}</Box>
           ) : (
             <ScrollArea className="h-full">
               {isGenerating ? (
@@ -1327,6 +1370,7 @@ export function FreeformCanvasView({
             channelName={channelName}
             name={dashboard?.name ?? "Canvas"}
             displayedVersionId={displayedVersionId}
+            liveVersionId={headVersionId ?? null}
             commentVersionLabel={commentVersionLabel}
             onCommentOpen={(versionId) => {
               setBrowseVersion(
@@ -1338,6 +1382,7 @@ export function FreeformCanvasView({
             isEdit={hasSource}
             editorRef={editorRef}
             onStarted={setStartedTaskId}
+            onAskAgent={prefillComposer}
           />
         </ResizableSidebar>
       )}

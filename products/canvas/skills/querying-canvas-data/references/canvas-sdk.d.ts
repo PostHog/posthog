@@ -195,6 +195,43 @@ export interface CanvasSdk {
     navigate?: CanvasNavigate
 }
 
+export type CanvasParamType =
+    | 'text'
+    | 'longtext'
+    | 'number'
+    | 'boolean'
+    | 'select'
+    | 'event'
+    | 'events'
+    | 'property'
+    | 'insight'
+    | 'color'
+
+export interface CanvasParam {
+    type: CanvasParamType
+    label?: string
+    description?: string
+    /** The prop's own default, shown in the editor while the prop is unset. */
+    default?: string | number | boolean | string[]
+    /** `select` only: strings, or `{ value, label }` pairs. */
+    options?: Array<string | { value: string; label: string }>
+    /** `number` only. With both `min` and `max` the editor shows a slider. */
+    min?: number
+    max?: number
+    step?: number
+}
+
+/**
+ * Spread on a component's root element to make its props editable in the
+ * desktop editor: `<Card {...editable('SignupFunnel', props, { title: { type: 'text' } })}>`.
+ * Only the props named in `params` are recorded. Use the component with literal props.
+ */
+export declare function editable(
+    name: string,
+    props: Record<string, unknown>,
+    params: Record<string, CanvasParam>
+): Record<string, string>
+
 /**
  * The canvas's PostHog bridge, the same object as the `window.ph` global. Both
  * are installed on the document, so a `?worker` bundle cannot reach them.

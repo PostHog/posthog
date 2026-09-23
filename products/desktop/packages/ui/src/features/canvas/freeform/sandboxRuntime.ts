@@ -11,6 +11,10 @@ import {
   CANVAS_SDK_SPECIFIER,
 } from "@posthog/shared";
 import {
+  compileCanvasProject,
+  installCanvasEditing,
+} from "@posthog/ui/features/canvas/blocks/canvasEditRuntime";
+import {
   commentActionAnchorRect,
   installSelectionSettleGate,
 } from "@posthog/ui/features/sessions/components/selectionCommentAction";
@@ -585,6 +589,11 @@ export function buildSandboxDocument(
       },
     });
 
+    const compileCanvasProject = ${compileCanvasProject.toString()};
+    const installCanvasEditing = ${installCanvasEditing.toString()};
+    const editing = installCanvasEditing(post);
+    const moduleCache = new Map();
+
     let root = null;
     // mount() is async and is called once per streamed code snapshot, so several
     // runs overlap on their awaits. Without ordering, a slower EARLIER (partial,
@@ -593,25 +602,35 @@ export function buildSandboxDocument(
     // A monotonic sequence makes only the newest mount commit its render/error;
     // superseded runs bail out after each await.
     let mountSeq = 0;
-    const mount = async (code) => {
+    const mount = async (input) => {
       const seq = ++mountSeq;
       try {
-        const out = Babel.transform(code, {
-          filename: "canvas.tsx",
-          plugins: [jsxUnicodeEscapesPlugin],
-          presets: [
-            ["react", { runtime: "automatic" }],
-            ["typescript", { isTSX: true, allExtensions: true, onlyRemoveTypeImports: true }],
-          ],
-        }).code;
-        const url = URL.createObjectURL(
-          new Blob([out], { type: "text/javascript" }),
-        );
+        let url;
+        let revoke = true;
+        if (input.files) {
+          const compiled = await compileCanvasProject(Babel, input.files, input.entry || "src/canvas.tsx", {
+            editing: !!input.editing,
+            basePlugins: [jsxUnicodeEscapesPlugin],
+            cache: moduleCache,
+          });
+          url = compiled.url;
+          revoke = false;
+        } else {
+          const out = Babel.transform(input.code, {
+            filename: "canvas.tsx",
+            plugins: [jsxUnicodeEscapesPlugin],
+            presets: [
+              ["react", { runtime: "automatic" }],
+              ["typescript", { isTSX: true, allExtensions: true, onlyRemoveTypeImports: true }],
+            ],
+          }).code;
+          url = URL.createObjectURL(new Blob([out], { type: "text/javascript" }));
+        }
         let mod;
         try {
           mod = await import(url);
         } finally {
-          URL.revokeObjectURL(url);
+          if (revoke) URL.revokeObjectURL(url);
         }
         if (seq !== mountSeq) return; // a newer snapshot superseded this one
         const Comp = mod.default;
@@ -631,19 +650,34 @@ export function buildSandboxDocument(
           static getDerivedStateFromError(error) { return { error }; }
           componentDidCatch(error) { reportError(error.message, error.stack); }
           render() {
-            if (this.state.error) return null;
+            if (this.state.error) return React.createElement(Committed, { key: "failed" });
             return this.props.children;
           }
         }
+        if (input.editing) editing.capture();
+        const afterCommit = () => {
+          requestAnimationFrame(() => {
+            if (seq !== mountSeq) return;
+            renderCommentHighlights(currentCommentHighlights);
+            editing.setEnabled(!!input.editing);
+            if (input.editing) editing.afterMount(input.rev || 0, input.focusBlockId || null, input.focusSource || null);
+            post({ type: "rendered" });
+          });
+        };
+        function Committed() {
+          React.useLayoutEffect(() => {
+            afterCommit();
+          }, []);
+          return null;
+        }
         root.render(
-          React.createElement(Boundary, null, React.createElement(Comp)),
+          React.createElement(
+            Boundary,
+            null,
+            React.createElement(Comp),
+            React.createElement(Committed, { key: seq }),
+          ),
         );
-        // Let layout settle, then report success.
-        requestAnimationFrame(() => {
-          if (seq !== mountSeq) return;
-          renderCommentHighlights(currentCommentHighlights);
-          post({ type: "rendered" });
-        });
       } catch (err) {
         // Only the latest snapshot reports — a superseded partial's parse error
         // must not surface as the canvas's error or flicker the host banner.
@@ -663,11 +697,12 @@ export function buildSandboxDocument(
     window.addEventListener("message", (e) => {
       const d = e.data;
       if (!d || d.channel !== CHANNEL) return;
+      if (editing.handle(d)) return;
       if (d.type === "init") {
         applyTheme(d.theme);
         currentCommentHighlights = d.highlights || [];
         if (d.analytics) void bootAnalytics(d.analytics);
-        void mount(d.code);
+        void mount(d);
       } else if (d.type === "set-theme") {
         // Re-theme in place — no mount(), so the app keeps all its state.
         applyTheme(d.theme);

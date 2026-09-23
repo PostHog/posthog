@@ -3,10 +3,12 @@ import {
   canvasCaptureInput,
   canvasDataQueryInput,
   canvasLoadInsightInput,
+  savedInsightSchema,
 } from "@posthog/core/canvas/freeformSchemas";
 import { CANVAS_DATA_SERVICE } from "@posthog/core/canvas/identifiers";
 import type { ICanvasDataService } from "@posthog/core/canvas/services";
 import { publicProcedure, router } from "@posthog/host-trpc/trpc";
+import { z } from "zod";
 
 // The data avenue behind a freeform canvas's `ph.*` shims. One-line forwards to
 // CanvasDataService, which injects the PostHog credentials host-side.
@@ -22,6 +24,13 @@ export const canvasDataRouter = router({
       ctx.container
         .get<ICanvasDataService>(CANVAS_DATA_SERVICE)
         .loadInsight(input),
+    ),
+  savedInsights: publicProcedure
+    .output(z.array(savedInsightSchema))
+    .query(({ ctx }) =>
+      ctx.container
+        .get<ICanvasDataService>(CANVAS_DATA_SERVICE)
+        .listSavedInsights(),
     ),
   capture: publicProcedure
     .input(canvasCaptureInput)

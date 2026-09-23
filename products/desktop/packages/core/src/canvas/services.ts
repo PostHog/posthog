@@ -3,6 +3,10 @@ import type {
   CanvasBuildLifecycle,
   CanvasBuildRecord,
 } from "./canvasBuildSchemas";
+import type {
+  PublishProjectInput,
+  PublishProjectResult,
+} from "./canvasProjectSave";
 import type { ChannelTaskRecord } from "./channelTaskSchemas";
 import type {
   CanvasActionDefinition,
@@ -24,6 +28,7 @@ import type {
   CanvasDataQueryInput,
   CanvasDataResult,
   CanvasLoadInsightInput,
+  SavedInsight,
 } from "./freeformSchemas";
 import type {
   CanvasLayout,
@@ -46,6 +51,7 @@ export interface IDashboardsService {
   listComponents(input: { search?: string }): Promise<DashboardRecord[]>;
   listAll(): Promise<DashboardRecord[]>;
   get(id: string): Promise<DashboardRecord | null>;
+  publishProject(input: PublishProjectInput): Promise<PublishProjectResult>;
   // Everything needed to open a canvas, in one round trip.
   view(id: string): Promise<CanvasView>;
   create(input: {
@@ -149,6 +155,7 @@ export interface IDashboardsService {
 export interface ICanvasDataService {
   query(input: CanvasDataQueryInput): Promise<CanvasDataResult>;
   loadInsight(input: CanvasLoadInsightInput): Promise<CanvasDataResult>;
+  listSavedInsights(): Promise<SavedInsight[]>;
   capture(input: CanvasCaptureInput): Promise<CanvasCaptureResult>;
   captureConfig(): Promise<CanvasCaptureConfig>;
 }

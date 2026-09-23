@@ -4,6 +4,10 @@ import {
   canvasBuildRecordSchema,
 } from "@posthog/core/canvas/canvasBuildSchemas";
 import {
+  publishProjectInput,
+  publishProjectResultSchema,
+} from "@posthog/core/canvas/canvasProjectSave";
+import {
   canvasActionDefinitionSchema,
   canvasActionInvokeInput,
   canvasActionResultSchema,
@@ -108,6 +112,14 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .patchLayout(input),
+    ),
+  publishProject: publicProcedure
+    .input(publishProjectInput)
+    .output(publishProjectResultSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .publishProject(input),
     ),
   source: publicProcedure
     .input(canvasSourceInput)
