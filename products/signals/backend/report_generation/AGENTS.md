@@ -26,6 +26,7 @@ It is exercised locally via management commands, and it is also used by the prod
   - an optional task-attributed fix verification note for actionable reports
 
   The repository used for research is tracked separately via the `repo_selection` artefact.
+
 - `ownership_reviewers.py`
   Matches a finding's relevant code paths against the repository's `owners.yaml` and CODEOWNERS on the connected GitHub repository. When both name different project members, it suggests the `owners.yaml` owner first and the CODEOWNERS owner second. The organization feature flag `signals-repository-reviewer-ownership` controls rollout. A human reviewer edit prevents subsequent research runs from replacing the selection.
 

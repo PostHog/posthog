@@ -105,10 +105,10 @@ def suggest_repository_owners(
                     seen_owners.add(handles)
     for path in paths:
         owners = codeowners.get(path, ())
-        handles = tuple(owner.lower() for owner in owners)
-        if handles and handles not in seen_owners:
-            groups.append((list(handles), bounded_reviewer_reason(f"CODEOWNERS: {path}") or "CODEOWNERS"))
-            seen_owners.add(handles)
+        codeowner_handles = tuple(owner.lower() for owner in owners)
+        if codeowner_handles and codeowner_handles not in seen_owners:
+            groups.append((list(codeowner_handles), bounded_reviewer_reason(f"CODEOWNERS: {path}") or "CODEOWNERS"))
+            seen_owners.add(codeowner_handles)
 
     email_logins: dict[str, str] = {}
     email_owners = {owner for owners, _ in groups for owner in owners if "@" in owner[1:]}
@@ -125,9 +125,9 @@ def suggest_repository_owners(
             logger.exception("Could not match code owner emails for %s", repository)
     team_logins: dict[str, list[str]] = {}
     candidates: list[tuple[list[str], str]] = []
-    for owners, reason in groups:
+    for owner_handles, reason in groups:
         logins: list[str] = []
-        for owner in owners:
+        for owner in owner_handles:
             if not owner.startswith("@"):
                 if login := email_logins.get(owner):
                     logins.append(login.lower())
