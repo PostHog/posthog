@@ -70,6 +70,30 @@ describe('PostHog terminal commands', () => {
         )
     })
 
+    it.each(['--csv', '--tsv'])(
+        'escapes spreadsheet formulas in %s exports while preserving numbers',
+        async (format) => {
+            jest.mocked(performQuery).mockResolvedValue({
+                columns: ['=header'],
+                results: [['=1+1'], ['+1+1'], ['-1+1'], ['@SUM(1)'], ['\t=1+1'], ['\r=1+1'], [-42], [null], ['a"b']],
+            })
+            expect(await commands.execute(['run', '/tmp/report.sql', 'select value', format], cwd)).toBe(
+                [
+                    '"\'=header"',
+                    '"\'=1+1"',
+                    '"\'+1+1"',
+                    '"\'-1+1"',
+                    '"\'@SUM(1)"',
+                    '"\'\t=1+1"',
+                    '"\'\r=1+1"',
+                    '-42',
+                    '',
+                    '"a""b"',
+                ].join('\n')
+            )
+        }
+    )
+
     it('completes aliases and JSON arguments without invoking commands', async () => {
         expect(await commands.execute(['_complete', '1', 'op', 'ph', ''], cwd)).toBe('open')
         expect(await commands.execute(['_complete', '1', 'notebook-g', 'ph', ''], cwd)).toBe('notebook-get')

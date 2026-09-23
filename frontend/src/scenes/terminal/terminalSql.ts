@@ -1,3 +1,5 @@
+import Papa from 'papaparse'
+
 import { HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
 function queryCell(value: unknown): string {
@@ -15,19 +17,14 @@ export function terminalQueryTable(
     const columns = result.columns ?? result.results[0]?.map((_, index) => `Column ${index + 1}`) ?? []
     const rows: unknown[][] = [columns, ...result.results]
     if (format !== 'markdown') {
-        const separator = format === 'csv' ? ',' : '\t'
-        return rows
-            .map((row) =>
-                row
-                    .map((value) => {
-                        const cell = value === null || value === undefined ? '' : queryCell(value)
-                        return cell.includes(separator) || /["\r\n]/.test(cell)
-                            ? `"${cell.replaceAll('"', '""')}"`
-                            : cell
-                    })
-                    .join(separator)
-            )
-            .join('\n')
+        return Papa.unparse(
+            rows.map((row) =>
+                row.map((value) =>
+                    value === null || value === undefined ? '' : typeof value === 'number' ? value : queryCell(value)
+                )
+            ),
+            { delimiter: format === 'csv' ? ',' : '\t', newline: '\n', escapeFormulae: true }
+        )
     }
     if (!columns.length) {
         return ''
