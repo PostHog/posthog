@@ -44,18 +44,21 @@ export interface SlackDestinationInput {
 export interface ScoutCreateInput extends SlackDestinationInput {
     suggestion: ScoutTurnSuggestion
     cadence: ScoutSuggestionCadence
+    /** The instructions the user reviewed on the card, which start as the drafted ones. */
+    body: string
 }
 
 export function buildScoutCreatePayload({
     suggestion,
     cadence,
+    body,
     slackIntegrationId,
     slackChannel,
 }: ScoutCreateInput): SignalScoutCreateApi {
     return {
         display_name: suggestion.scout.displayName,
         description: suggestion.scout.description || suggestion.scout.displayName,
-        body: suggestion.scout.body,
+        body,
         config: {
             run_cron_schedule: cadenceToCron(cadence),
             output_destinations: {

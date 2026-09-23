@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonLabel, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonLabel, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -13,8 +13,8 @@ import { SuggestionDraftSummary } from './SuggestionDraftSummary'
 
 export function ScoutSuggestionCard(props: TurnSuggestionLogicProps): JSX.Element | null {
     const logic = suggestionActionLogic(props)
-    const { suggestion, cadence, accepted, slackChannelLabel } = useValues(logic)
-    const { setCadence } = useActions(logic)
+    const { suggestion, cadence, scoutBody, accepted, slackChannelLabel } = useValues(logic)
+    const { setCadence, setScoutBody } = useActions(logic)
 
     if (suggestion?.kind !== 'scout') {
         return null
@@ -39,6 +39,19 @@ export function ScoutSuggestionCard(props: TurnSuggestionLogicProps): JSX.Elemen
                 )}
                 {modeHint && <span className="text-xs text-secondary">{modeHint}</span>}
             </SuggestionDraftSummary>
+
+            <div className="flex flex-col gap-1">
+                <LemonLabel info="The scout follows these on every run. Review them before you create it.">
+                    Instructions
+                </LemonLabel>
+                <LemonTextArea
+                    value={scoutBody}
+                    onChange={setScoutBody}
+                    minRows={3}
+                    maxRows={10}
+                    data-attr="posthog-ai-turn-suggestion-scout-instructions"
+                />
+            </div>
 
             <div className="flex flex-col gap-1">
                 <LemonLabel>Runs</LemonLabel>

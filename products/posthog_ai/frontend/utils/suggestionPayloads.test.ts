@@ -26,17 +26,19 @@ describe('suggestionPayloads', () => {
     it('buildScoutCreatePayload maps the cadence to a cron and keeps a watch scout off the inactivity sweep', () => {
         const suggestion = parsed('scout')
 
-        expect(buildScoutCreatePayload({ suggestion, cadence: 'daily', ...SLACK })).toEqual({
+        expect(buildScoutCreatePayload({ suggestion, cadence: 'daily', body: 'Edited steps', ...SLACK })).toEqual({
             display_name: 'Weekly signups',
             description: 'Counts signed_up events for the last 7 days.',
-            body: suggestion.scout.body,
+            body: 'Edited steps',
             config: {
                 run_cron_schedule: '0 9 * * *',
                 output_destinations: { slack: { integration_id: 7, channel: 'C123|#growth' } },
             },
         })
         const watch = { ...suggestion, scout: { ...suggestion.scout, mode: 'watch' as const } }
-        expect(buildScoutCreatePayload({ suggestion: watch, cadence: 'daily', ...SLACK }).config).toMatchObject({
+        expect(
+            buildScoutCreatePayload({ suggestion: watch, cadence: 'daily', body: '', ...SLACK }).config
+        ).toMatchObject({
             auto_pause_exempt: true,
         })
     })

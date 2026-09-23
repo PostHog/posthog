@@ -45,6 +45,7 @@ export interface AcceptInput {
     slackIntegrationId: number | null
     slackChannel: string | null
     cadence: ScoutSuggestionCadence
+    scoutBody: string
     direction: AlertSuggestionDirection
     changePercent: number
     notebookTitle: string
@@ -75,7 +76,7 @@ export async function acceptSuggestion(input: AcceptInput): Promise<AcceptOutcom
         case 'scout': {
             const created = await signalsScoutCreate(
                 projectId,
-                buildScoutCreatePayload({ suggestion, cadence, ...slackDestination(input) })
+                buildScoutCreatePayload({ suggestion, cadence, body: input.scoutBody, ...slackDestination(input) })
             )
             return {
                 accepted: { url: urls.inboxScout(created.skill.name), slackConnected: true },

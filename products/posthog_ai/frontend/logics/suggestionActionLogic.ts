@@ -56,6 +56,8 @@ export interface suggestionActionLogicValues {
     direction: AlertSuggestionDirection
     directionOverride: AlertSuggestionDirection | null
     notebookTitle: string
+    scoutBody: string
+    scoutBodyOverride: string | null
     titleOverride: string | null
 }
 
@@ -91,6 +93,9 @@ export interface suggestionActionLogicActions {
     setDirection: (direction: AlertSuggestionDirection) => {
         direction: 'decrease' | 'increase'
     }
+    setScoutBody: (scoutBody: string) => {
+        scoutBody: string
+    }
     setTitle: (title: string) => {
         title: string
     }
@@ -110,6 +115,7 @@ export interface suggestionActionLogicMeta {
         ) => AlertSuggestionDirection
         changePercent: (changePercentOverride: number | null, suggestion: TurnSuggestion | null) => number
         notebookTitle: (titleOverride: string | null, suggestion: TurnSuggestion | null) => string
+        scoutBody: (scoutBodyOverride: string | null, suggestion: TurnSuggestion | null) => string
         conversationBlocks: (
             threadItems: ThreadItem[],
             toolInvocations: Map<string, ToolInvocation>
@@ -120,7 +126,8 @@ export interface suggestionActionLogicMeta {
             user: UserType | null,
             slackDestinationDisabledReason: string | null,
             notebookTitle: string,
-            changePercent: number
+            changePercent: number,
+            scoutBody: string
         ) => string | null
     }
 }
@@ -162,6 +169,7 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
         setDirection: (direction: AlertSuggestionDirection) => ({ direction }),
         setChangePercent: (changePercent: number) => ({ changePercent }),
         setTitle: (title: string) => ({ title }),
+        setScoutBody: (scoutBody: string) => ({ scoutBody }),
     }),
     loaders(({ values, props }) => ({
         accepted: [
@@ -179,6 +187,7 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                         slackIntegrationId: values.slackIntegrationId,
                         slackChannel: values.slackChannel,
                         cadence: values.cadence,
+                        scoutBody: values.scoutBody,
                         direction: values.direction,
                         changePercent: values.changePercent,
                         notebookTitle: values.notebookTitle,
@@ -196,6 +205,7 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
         directionOverride: [null as AlertSuggestionDirection | null, { setDirection: (_, { direction }) => direction }],
         changePercentOverride: [null as number | null, { setChangePercent: (_, { changePercent }) => changePercent }],
         titleOverride: [null as string | null, { setTitle: (_, { title }) => title }],
+        scoutBodyOverride: [null as string | null, { setScoutBody: (_, { scoutBody }) => scoutBody }],
         acceptFailed: [false, { accept: () => false, acceptFailure: () => true }],
     }),
     selectors({
@@ -232,6 +242,11 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
             (titleOverride: string | null, suggestion: TurnSuggestion | null): string =>
                 titleOverride ?? (suggestion?.kind === 'notebook' ? suggestion.notebook.title : ''),
         ],
+        scoutBody: [
+            (s) => [s.scoutBodyOverride, s.suggestion],
+            (scoutBodyOverride: string | null, suggestion: TurnSuggestion | null): string =>
+                scoutBodyOverride ?? (suggestion?.kind === 'scout' ? suggestion.scout.body : ''),
+        ],
         conversationBlocks: [
             (s) => [s.threadItems, s.toolInvocations],
             (threadItems: ThreadItem[], toolInvocations: Map<string, ToolInvocation>): ConversationBlocks =>
@@ -245,6 +260,7 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                 s.slackDestinationDisabledReason,
                 s.notebookTitle,
                 s.changePercent,
+                s.scoutBody,
             ],
             (
                 suggestion: TurnSuggestion | null,
@@ -252,12 +268,15 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                 user: UserType | null,
                 slackDestinationDisabledReason: string | null,
                 notebookTitle: string,
-                changePercent: number
+                changePercent: number,
+                scoutBody: string
             ): string | null => {
                 if (currentProjectId === null || !user) {
                     return 'Your project is still loading'
                 }
                 switch (suggestion?.kind) {
+                    case 'scout':
+                        return scoutBody.trim() ? slackDestinationDisabledReason : 'Add instructions for the scout'
                     case 'notebook':
                         return notebookTitle.trim() ? null : 'Add a notebook title'
                     case 'alert':
