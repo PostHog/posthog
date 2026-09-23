@@ -190,3 +190,11 @@ export function isMethod(
 ): boolean {
   return matchesExt(method, expected);
 }
+
+/**
+ * How the agent is told who sent a message. The uuid is what the PostHog tools address a
+ * member by, so the agent can look the person up rather than only name them.
+ */
+export function senderContextLine(senderUserUuid: string): string {
+  return `[Sent by PostHog user ${senderUserUuid}]`;
+}

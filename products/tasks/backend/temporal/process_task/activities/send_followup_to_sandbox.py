@@ -27,7 +27,11 @@ from products.tasks.backend.logic.services.agent_command import (
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.peer_messages import mark_peer_message_outcome, peer_message_id_from_context
-from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates, user_has_current_team_access
+from products.tasks.backend.logic.services.run_actor import (
+    record_task_actor,
+    slack_actor_state_updates,
+    user_has_current_team_access,
+)
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
 from products.tasks.backend.logic.services.store_skills import refresh_store_skills_state
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
@@ -445,6 +449,9 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
     if input.message_id and actor_slack_user_id:
         record_message_actor(input.run_id, input.message_id, actor_slack_user_id)
 
+    sender_user_uuid = str(actor_user.uuid) if actor_user is not None else None
+    record_task_actor(team_id=task_run.team_id, task_id=task_run.task_id, user_uuid=sender_user_uuid)
+
     result = send_user_message(
         task_run,
         input.message,
@@ -452,6 +459,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         auth_token=auth_token,
         timeout=FOLLOWUP_TIMEOUT_SECONDS,
         message_id=input.message_id,
+        sender_user_uuid=sender_user_uuid,
         steer=input.steer,
     )
     logger.info(

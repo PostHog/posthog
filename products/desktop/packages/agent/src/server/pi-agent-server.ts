@@ -25,7 +25,7 @@ import { buildPosthogPropertyHeaderRecord } from "@posthog/shared/posthog-proper
 import type { TaskContext } from "@posthog/shared/task-context";
 import { Hono } from "hono";
 import { z } from "zod/v4";
-import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
+import { POSTHOG_NOTIFICATIONS, senderContextLine } from "../acp-extensions";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import {
@@ -81,6 +81,7 @@ const userMessageCommandSchema = z
     content: z.string().min(1).optional(),
     artifacts: z.array(z.record(z.string(), z.unknown())).optional(),
     messageId: z.string().min(1).optional(),
+    senderUserUuid: z.string().min(1).optional(),
     steer: z.boolean().optional(),
   })
   .refine(
@@ -918,9 +919,14 @@ export class PiAgentServer {
       typeof params.content === "string" ? params.content : "",
       artifacts,
     );
+    // Pi's command carries no metadata channel, so the sender goes in front of the content.
+    const content =
+      typeof params.senderUserUuid === "string" && params.senderUserUuid
+        ? `${senderContextLine(params.senderUserUuid)}\n\n${message.content}`
+        : message.content;
     const result = await this.dispatchUserMessage(
       runtime,
-      message.content,
+      content,
       message.images,
       typeof params.messageId === "string" ? params.messageId : randomUUID(),
       params.steer === true,

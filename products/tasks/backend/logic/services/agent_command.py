@@ -394,6 +394,7 @@ def send_user_message(
     auth_token: str | None = None,
     timeout: int = COMMAND_TIMEOUT_SECONDS,
     message_id: str | None = None,
+    sender_user_uuid: str | None = None,
     steer: bool = False,
 ) -> CommandResult:
     """Send a user_message command to the sandbox agent.
@@ -401,6 +402,10 @@ def send_user_message(
     ``message_id`` is an idempotency key: the agent-server ignores a
     redelivery carrying an id it has already accepted, which makes retrying
     delivery after an attempt-level death (worker restart) safe.
+
+    ``sender_user_uuid`` names the person who sent the message. The agent server puts it on
+    the prompt's ``_meta``, where the harness turns it into context the model reads and the
+    run stream carries it for clients. Inbound only, so nothing here trusts the sandbox.
     """
     params: dict[str, Any] = {}
     if message:
@@ -409,6 +414,8 @@ def send_user_message(
         params["artifacts"] = artifacts
     if message_id:
         params["messageId"] = message_id
+    if sender_user_uuid:
+        params["senderUserUuid"] = sender_user_uuid
     if steer:
         params["steer"] = True
     return send_agent_command(

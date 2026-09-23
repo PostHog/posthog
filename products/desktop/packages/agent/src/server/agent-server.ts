@@ -1294,6 +1294,10 @@ export class AgentServer {
           typeof params.messageId === "string" && params.messageId
             ? params.messageId
             : undefined;
+        const senderUserUuid =
+          typeof params.senderUserUuid === "string" && params.senderUserUuid
+            ? params.senderUserUuid
+            : undefined;
         const inFlightDelivery = messageId
           ? this.inFlightMessageDeliveries.get(messageId)
           : undefined;
@@ -1385,6 +1389,7 @@ export class AgentServer {
           const promptMeta: Record<string, unknown> = {
             ...(builtPrompt.meta ?? {}),
             ...(messageId ? { messageId } : {}),
+            ...(senderUserUuid ? { senderUserUuid } : {}),
             budgetSteerMode: this.budgetSteerMode(),
             ...(hostContext.length > 0
               ? { prContext: hostContext.join("\n\n") }

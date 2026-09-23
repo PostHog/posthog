@@ -9,6 +9,7 @@ import {
   isImageFile,
   MAX_CLAUDE_IMAGE_BYTES,
 } from "@posthog/shared";
+import { senderContextLine } from "../../../acp-extensions";
 import { isLocalSkillCommandChunk } from "../../local-skill";
 
 const PDF_EXTENSIONS = new Set(["pdf"]);
@@ -179,6 +180,10 @@ export function promptToClaude(prompt: PromptRequest): SDKUserMessage {
   const context: ContentBlockParam[] = [];
 
   const meta = prompt._meta as Record<string, unknown> | undefined;
+  const senderUserUuid = meta?.senderUserUuid;
+  if (typeof senderUserUuid === "string" && senderUserUuid) {
+    content.push(sdkText(senderContextLine(senderUserUuid)));
+  }
   const prContext = meta?.prContext;
   if (typeof prContext === "string") {
     content.push(sdkText(prContext));

@@ -48,6 +48,7 @@ from products.tasks.backend.logic.services.run_actor import (
     get_task_run_credential_user as get_task_run_credential_user,
     is_slack_interaction_state as is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
+    record_task_actor as record_task_actor,
 )
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
