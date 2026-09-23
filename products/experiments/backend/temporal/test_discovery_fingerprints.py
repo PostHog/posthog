@@ -16,7 +16,8 @@ from products.experiments.backend.models.experiment import Experiment, Experimen
 from products.experiments.backend.temporal.metric_resolution import find_metric_dict
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
-METRIC = {"metric_type": "mean", "uuid": "metric-uuid-1", "source": {"kind": "EventsNode", "event": "test"}}
+METRIC_UUID = "metric-uuid-1"
+METRIC = {"metric_type": "mean", "uuid": METRIC_UUID, "source": {"kind": "EventsNode", "event": "test"}}
 
 # Access the underlying sync functions, patching out close_old_connections which kills the test DB connection
 _raw_regular_sync = _get_experiment_regular_metrics_for_hour_sync.func  # type: ignore[attr-defined]
@@ -93,7 +94,7 @@ class TestDiscoveryFingerprints:
             results = _raw_saved_sync(hour=2)
 
         discovery_fingerprints = [r.fingerprint for r in results if r.experiment_id == experiment.id]
-        merged_dict = find_metric_dict(experiment, METRIC["uuid"])
+        merged_dict = find_metric_dict(experiment, METRIC_UUID)
         assert merged_dict is not None
         assert discovery_fingerprints == [self._expected_fingerprint(experiment, merged_dict)]
 
