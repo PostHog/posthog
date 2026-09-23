@@ -77,17 +77,12 @@ export function codeUsageMeter(
   return { kind: "hidden" };
 }
 
-/** The valve bucket counts a fixed 30-day window, not a calendar month. */
-const VALVE_WINDOW_DAYS = 30;
-
 /**
  * The window the meter's number covers. Org dollars are a billing-period total,
- * while the valve bucket is a 30-day window, and the two rarely line up.
+ * while the valve bucket counts a fixed 30 days, and the two rarely line up.
  */
 export function codeUsageWindowSuffix(meter: CodeUsageMeter): string {
-  return meter.kind === "bucket"
-    ? `this ${VALVE_WINDOW_DAYS}-day window`
-    : "this billing period";
+  return meter.kind === "bucket" ? "this 30-day window" : "this billing period";
 }
 
 /** The meter's heading: what the number is, over the window it covers. */

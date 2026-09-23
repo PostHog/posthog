@@ -1,5 +1,6 @@
 import { formatUsd } from "@posthog/core/billing/spendAnalysisFormat";
 import { Text } from "@posthog/quill";
+import { MetricCard, useChartTheme } from "@posthog/quill-charts";
 import type { SpendSnapshot } from "@posthog/ui/features/billing/useSpendTotals";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 
@@ -16,6 +17,8 @@ export function PersonalSpendTotals({
   totals,
   isLoading,
 }: PersonalSpendTotalsProps) {
+  const theme = useChartTheme();
+
   if (isLoading) {
     return (
       <LoadingState className="rounded-(--radius-3) border border-border bg-card p-4" />
@@ -34,20 +37,25 @@ export function PersonalSpendTotals({
   }
 
   return (
-    <div className="flex flex-wrap gap-8 rounded-(--radius-3) border border-border bg-card p-4">
-      <SpendTotal label="Today" valueUsd={totals.todayUsd} />
-      <SpendTotal label="Last 30 days" valueUsd={totals.monthUsd} />
-    </div>
-  );
-}
-
-function SpendTotal({ label, valueUsd }: { label: string; valueUsd: number }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <Text className="text-muted-foreground text-xs">{label}</Text>
-      <Text className="font-medium text-foreground text-sm">
-        {formatUsd(Math.max(0, valueUsd))}
-      </Text>
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-(--radius-3) border border-(--gray-5) bg-(--gray-5)">
+      <div className="min-w-0 bg-(--color-panel-solid) px-4 py-3">
+        <MetricCard
+          title={<span className="text-[12px] text-gray-11">Today</span>}
+          value={Math.max(0, totals.todayUsd)}
+          theme={theme}
+          formatValue={formatUsd}
+          change={null}
+        />
+      </div>
+      <div className="min-w-0 bg-(--color-panel-solid) px-4 py-3">
+        <MetricCard
+          title={<span className="text-[12px] text-gray-11">Last 30 days</span>}
+          value={Math.max(0, totals.monthUsd)}
+          theme={theme}
+          formatValue={formatUsd}
+          change={null}
+        />
+      </div>
     </div>
   );
 }

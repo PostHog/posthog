@@ -89,5 +89,7 @@ export function useSpendTotalsState(): SpendTotalsState {
       avgDailyUsd: averageDailySpend(days, WINDOW_DAYS),
     };
   }, [days]);
-  return { totals, isLoading: query.isLoading };
+  // A query disabled before auth is not idle, it is waiting: react-query
+  // reports isLoading false there, which would read as "unavailable".
+  return { totals, isLoading: client === null || query.isLoading };
 }
