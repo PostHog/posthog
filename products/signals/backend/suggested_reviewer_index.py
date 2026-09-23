@@ -128,9 +128,9 @@ def rebuild_suggested_reviewer_index(
     hands over the historical models its own state knows. The index model comes from `index_rows`
     for the same reason.
 
-    `only_missing` skips a report that already has index rows. A backfill runs that way, because a
-    report the live code has already indexed needs no repair, and rewriting it could undo a write
-    that landed between this walk's read and its own.
+    `only_missing` restricts the walk to reports that have no index rows, and inserts without
+    deleting. A backfill runs that way, because a report the live code has already indexed needs
+    no repair.
     """
     index_model = index_rows.model
     while True:
@@ -149,10 +149,44 @@ def rebuild_suggested_reviewer_index(
                 by_report[artefact.report_id].append(artefact)
             rows = [row for artefacts in by_report.values() for row in _rows_for_report(artefacts, index_model)]
             with transaction.atomic():
-                index_rows.filter(report_id__in=targets).delete()
+                if only_missing:
+                    # The artefact read sits outside this transaction, so a live sync can commit
+                    # between the two. Reading the index again here keeps the walk from replacing
+                    # a newer row set with rows built from an older artefact. It narrows the
+                    # window rather than closing it: a sync that commits after this read leaves
+                    # the report with a second copy of its identities, which both readers match
+                    # with `id__in` and so count once, and the next reviewer write rewrites all of
+                    # them.
+                    indexed = set(index_rows.filter(report_id__in=targets).values_list("report_id", flat=True))
+                    rows = [row for row in rows if row.report_id not in indexed]
+                else:
+                    index_rows.filter(report_id__in=targets).delete()
                 if rows:
                     index_rows.bulk_create(rows)
         yield len(targets), after
+
+
+def rebuild_suggested_reviewer_index_for_team(
+    *,
+    team_id: int,
+    after: str | None = None,
+    batch_size: int = _REBUILD_BATCH_SIZE,
+    only_missing: bool = False,
+) -> Iterator[tuple[int, str]]:
+    """`rebuild_suggested_reviewer_index` over one project's reports.
+
+    Which artefact type carries reviewers, and which manager scopes the index rows to a team, are
+    this module's knowledge, so a caller that has only a team id does not repeat them.
+    """
+    return rebuild_suggested_reviewer_index(
+        reviewer_artefacts=SignalReportArtefact.objects.filter(
+            team_id=team_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        ),
+        index_rows=SignalReportSuggestedReviewer.objects.for_team(team_id),
+        after=after,
+        batch_size=batch_size,
+        only_missing=only_missing,
+    )
 
 
 def _identity_filter(user_uuids: list[str], github_logins: list[str], *, logins_match_unidentified_only: bool) -> Q:

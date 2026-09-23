@@ -3,8 +3,7 @@ from typing import cast
 
 from django.core.management.base import BaseCommand
 
-from products.signals.backend.models import SignalReportArtefact, SignalReportSuggestedReviewer
-from products.signals.backend.suggested_reviewer_index import rebuild_suggested_reviewer_index
+from products.signals.backend.suggested_reviewer_index import rebuild_suggested_reviewer_index_for_team
 
 
 class Command(BaseCommand):
@@ -26,12 +25,8 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: object, **options: object) -> None:
-        team_id = cast(int, options["team_id"])
-        for count, cursor in rebuild_suggested_reviewer_index(
-            reviewer_artefacts=SignalReportArtefact.objects.filter(
-                team_id=team_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
-            ),
-            index_rows=SignalReportSuggestedReviewer.objects.for_team(team_id),
+        for count, cursor in rebuild_suggested_reviewer_index_for_team(
+            team_id=cast(int, options["team_id"]),
             after=cast(str | None, options["after"]),
             batch_size=max(1, min(cast(int, options["batch_size"]), 1000)),
             only_missing=cast(bool, options["only_missing"]),

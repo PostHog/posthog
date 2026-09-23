@@ -99,7 +99,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         return set(SignalReportSuggestedReviewer.all_teams.filter(report_id=report.id).values_list("id", flat=True))
 
     def _run_backfill_walk(self) -> None:
-        # The walk the 0152 data migration runs, over the concrete models rather than historical
+        # The walk the 0153 data migration runs, over the concrete models rather than historical
         # ones: every team, and only the reports that have no rows yet.
         walk = rebuild_suggested_reviewer_index(
             reviewer_artefacts=SignalReportArtefact.objects.filter(
