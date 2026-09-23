@@ -2766,6 +2766,14 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 {"type": "no_assets", "detail": "Nothing could be generated to send this time."},
             ),
             ("successful_run_has_no_failure_reason", SubscriptionDelivery.Status.COMPLETED, None, [], None),
+            # A completed run can still carry an error payload from a recovered step.
+            (
+                "completed_run_with_an_error_payload_has_no_failure_reason",
+                SubscriptionDelivery.Status.COMPLETED,
+                {"message": "transient", "type": "HTTPError"},
+                [],
+                None,
+            ),
         ]
     )
     def test_failed_delivery_exposes_a_redacted_failure_reason(

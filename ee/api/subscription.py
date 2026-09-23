@@ -2150,9 +2150,9 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
 
     @extend_schema_field(SubscriptionDeliveryFailureReasonSerializer(allow_null=True))
     def get_failure_reason(self, delivery: SubscriptionDelivery) -> Optional[dict[str, Optional[str]]]:
-        error = delivery.error if isinstance(delivery.error, dict) else None
-        if error is None and delivery.status != SubscriptionDelivery.Status.FAILED:
+        if delivery.status != SubscriptionDelivery.Status.FAILED:
             return None
+        error = delivery.error if isinstance(delivery.error, dict) else None
         recipient_failure = self._vetted_recipient_failure(delivery)
         return {
             "type": self._failure_type(error, recipient_failure),
@@ -2206,10 +2206,11 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             if isinstance(data.get("error"), dict) and data["error"].get("type") == AI_REPORT_QUERY_FAILURE_TYPE:
                 data["error"] = self.AI_REPORT_SCRUBBED_ERROR
                 # The query-failure detail names the query error types, so it is scrubbed with the report.
-                data["failure_reason"] = {
-                    "type": self.AI_REPORT_SCRUBBED_ERROR["type"],
-                    "detail": self.AI_REPORT_SCRUBBED_ERROR["message"],
-                }
+                if data.get("failure_reason"):
+                    data["failure_reason"] = {
+                        "type": self.AI_REPORT_SCRUBBED_ERROR["type"],
+                        "detail": self.AI_REPORT_SCRUBBED_ERROR["message"],
+                    }
             return data
         # The AI report now ships via the typed ai_report / ai_report_diagnostics / ai_report_prompt
         # fields, so drop the same keys from content_snapshot to avoid shipping the report twice.
