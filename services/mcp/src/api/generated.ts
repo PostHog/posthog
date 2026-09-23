@@ -15779,6 +15779,54 @@ export namespace Schemas {
       results: BillingProduct[];
     }
 
+    export interface BillingProductsSummaryAddon {
+      /** The add-on key. */
+      key: string;
+      /** The add-on name, as the billing page shows it. */
+      name: string;
+      /** What the add-on does. */
+      description: string;
+      /**
+         * Whether the organization subscribes to the add-on.
+         * @nullable
+         */
+      subscribed: boolean | null;
+    }
+
+    export interface BillingProductsSummaryFeature {
+      /** The feature key. */
+      key: string;
+      /** The feature name, as the billing page shows it. */
+      name: string;
+      /** Whether the feature is available to the organization, trials and overrides included. */
+      included: boolean;
+      /** The add-ons of this product that carry the feature. Empty when only the product carries it. */
+      addon_keys: string[];
+    }
+
+    export interface BillingProductsSummaryProduct {
+      /** The product key. Pass it to the product route for prices and plans. */
+      key: string;
+      /** The product name, as the billing page shows it. */
+      name: string;
+      /** What the product does. */
+      description: string;
+      /**
+         * Whether the organization subscribes to the product. Null for an inclusion-only product that carries no price of its own, such as Platform and support, where the plan the organization is on is what counts.
+         * @nullable
+         */
+      subscribed: boolean | null;
+      /** The product's add-ons. */
+      addons: BillingProductsSummaryAddon[];
+      /** The features the product and its add-ons carry, each one listed once. */
+      features: BillingProductsSummaryFeature[];
+    }
+
+    export interface BillingProductsSummary {
+      /** Every product, add-ons included. */
+      results: BillingProductsSummaryProduct[];
+    }
+
     export interface BillingProject {
       id: number;
       /**
@@ -76625,6 +76673,7 @@ export namespace Schemas {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -76652,6 +76701,7 @@ export namespace Schemas {
       PosthogAi: 'posthog_ai',
       Experiments: 'experiments',
       SignalReport: 'signal_report',
+      Autoresearch: 'autoresearch',
       SignalsScout: 'signals_scout',
       ScoutSuggestions: 'scout_suggestions',
       SupportReply: 'support_reply',
@@ -76710,6 +76760,7 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
+       * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
        * * `scout_suggestions` - Signals Scout Suggestions
        * * `support_reply` - Support Reply
@@ -95446,6 +95497,7 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
+       * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
        * * `scout_suggestions` - Signals Scout Suggestions
        * * `support_reply` - Support Reply
@@ -97036,6 +97088,7 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
+       * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
        * * `scout_suggestions` - Signals Scout Suggestions
        * * `support_reply` - Support Reply
@@ -113824,6 +113877,7 @@ export namespace Schemas {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -113967,6 +114021,7 @@ export namespace Schemas {
       PosthogAi: 'posthog_ai',
       Experiments: 'experiments',
       SignalReport: 'signal_report',
+      Autoresearch: 'autoresearch',
       SignalsScout: 'signals_scout',
       ScoutSuggestions: 'scout_suggestions',
       SupportReply: 'support_reply',
