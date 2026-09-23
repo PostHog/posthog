@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -24,6 +24,7 @@ import {
 import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
 import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
+import { alertsSimulateCreate } from 'products/alerts/frontend/generated/api'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
@@ -526,7 +527,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     const formConfig = values.alertForm.config
                     let result: AlertSimulationResult
                     try {
-                        result = await api.alerts.simulate({
+                        result = (await alertsSimulateCreate(String(ApiConfig.getCurrentProjectId()), {
                             insight: props.insightId,
                             detector_config: detectorConfig,
                             series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
@@ -536,7 +537,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                             // SQL insights have no series_index; the config carries the evaluated column
                             // and read direction so the preview matches what the alert will score.
                             config: formConfig,
-                        })
+                        })) as AlertSimulationResult
                     } catch (error) {
                         if (values.simulationRequestId === requestId) {
                             throw error

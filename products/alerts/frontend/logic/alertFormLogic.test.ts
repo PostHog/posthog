@@ -22,6 +22,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
+import * as generatedApi from '../generated/api'
 import { supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import {
@@ -212,7 +213,7 @@ describe('alertFormLogic', () => {
         // Neither action cancels the request the model is still judging, so its verdict must not
         // repopulate the chart against settings the model never saw.
         let resolveSimulation: (result: any) => void = () => {}
-        jest.spyOn(api.alerts, 'simulate').mockImplementation(
+        jest.spyOn(generatedApi, 'alertsSimulateCreate').mockImplementation(
             () => new Promise((resolve) => (resolveSimulation = resolve))
         )
         const logic = mountForm()
@@ -229,7 +230,7 @@ describe('alertFormLogic', () => {
     it('leaves the loader to the newest preview when an older one settles first', async () => {
         const pending: ((result: any) => void)[] = []
         const failing: ((error: Error) => void)[] = []
-        jest.spyOn(api.alerts, 'simulate').mockImplementation(
+        jest.spyOn(generatedApi, 'alertsSimulateCreate').mockImplementation(
             () => new Promise((resolve, reject) => (pending.push(resolve), failing.push(reject)))
         )
         const logic = mountForm()
