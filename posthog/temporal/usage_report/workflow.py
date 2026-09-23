@@ -109,7 +109,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=common.RetryPolicy(maximum_attempts=3),
                 )
-                counter_names = {counter.value for counter in ctx.usage_counter_plan.modes}
+                counter_names = ctx.usage_counter_plan.query_names
                 queries = [spec for spec in queries if spec.name not in counter_names]
             workflow.logger.info(
                 "Starting usage reports workflow",

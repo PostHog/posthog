@@ -247,6 +247,11 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     )
 
     for counter, query_name in (
+        (UsageCounter.EVENTS, "get_teams_with_billable_event_count_in_period"),
+        (UsageCounter.ENHANCED_PERSON_EVENTS, "get_teams_with_billable_enhanced_persons_event_count_in_period"),
+        (UsageCounter.MOBILE_BILLABLE_RECORDINGS, "get_teams_with_mobile_billable_recording_count_in_period"),
+        (UsageCounter.SURVEY_RESPONSES, "get_teams_with_survey_responses_count_in_period"),
+        (UsageCounter.AI_EVENTS, "get_teams_with_ai_event_count_in_period"),
         (UsageCounter.CDP_INVOCATIONS, "get_teams_with_cdp_billable_invocations_in_period"),
         (UsageCounter.WORKFLOW_EMAILS, "get_teams_with_workflow_emails_sent_in_period"),
         (UsageCounter.WORKFLOW_PUSH, "get_teams_with_workflow_push_sent_in_period"),
@@ -254,6 +259,28 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         (UsageCounter.WORKFLOW_INVOCATIONS, "get_teams_with_workflow_billable_invocations_in_period"),
     ):
         monkeypatch.setattr(usage_report, query_name, mock.Mock(return_value=list(seeded[counter].items())))
+    monkeypatch.setattr(
+        usage_report,
+        "get_teams_with_recording_count_in_period",
+        lambda begin, end, snapshot_source: list(
+            seeded[UsageCounter.RECORDINGS if snapshot_source == "web" else UsageCounter.MOBILE_RECORDINGS].items()
+        ),
+    )
+    exception_spec = next(spec for spec in QUERIES if spec.name == "exceptions_captured")
+    monkeypatch.setattr(
+        usage_report,
+        "get_teams_with_exceptions_captured_in_period",
+        mock.Mock(
+            return_value=(
+                {
+                    library: list(seeded[field].items())
+                    for library, field in exception_spec.multi_keys_mapping.items()
+                    if library != "total"
+                },
+                list(seeded[UsageCounter.EXCEPTIONS].items()),
+            )
+        ),
+    )
     monkeypatch.setattr(
         usage_report,
         "get_teams_with_feature_flag_requests_count_in_period",
@@ -283,7 +310,9 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     )
     ctx.usage_counter_plan = asyncio.run(activity_environment.run(plan_usage_counters, ctx))
     query_results = [
-        result for result in _seed_temporal_query_files(s3, ctx, seeded) if result.query_name not in UsageCounter
+        result
+        for result in _seed_temporal_query_files(s3, ctx, seeded)
+        if result.query_name not in ctx.usage_counter_plan.query_names
     ]
     counter_result = asyncio.run(activity_environment.run(fetch_usage_counter_report, ctx))
     # The activity is async; the test is sync so DB setup can use the

@@ -30,7 +30,24 @@ class TestUsageCounterReport(SimpleTestCase):
         self.addCleanup(_mode_cache.clear)
         self.legacy = {counter: Mock(return_value=[]) for counter in UsageCounter}
         self.records = Mock(return_value=[])
+        self.exceptions = Mock(side_effect=lambda begin, end: ({}, self.legacy[UsageCounter.EXCEPTIONS](begin, end)))
+        self.events = Mock(side_effect=lambda begin, end, **kwargs: self.legacy[UsageCounter.EVENTS](begin, end))
         patches = {
+            "get_teams_with_billable_event_count_in_period": self.events,
+            "get_teams_with_billable_enhanced_persons_event_count_in_period": Mock(
+                side_effect=lambda begin, end, **kwargs: self.legacy[UsageCounter.ENHANCED_PERSON_EVENTS](begin, end)
+            ),
+            "get_teams_with_recording_count_in_period": Mock(
+                side_effect=lambda begin, end, snapshot_source: self.legacy[
+                    UsageCounter.RECORDINGS if snapshot_source == "web" else UsageCounter.MOBILE_RECORDINGS
+                ](begin, end)
+            ),
+            "get_teams_with_mobile_billable_recording_count_in_period": self.legacy[
+                UsageCounter.MOBILE_BILLABLE_RECORDINGS
+            ],
+            "get_teams_with_survey_responses_count_in_period": self.legacy[UsageCounter.SURVEY_RESPONSES],
+            "get_teams_with_ai_event_count_in_period": self.legacy[UsageCounter.AI_EVENTS],
+            "get_teams_with_exceptions_captured_in_period": self.exceptions,
             "get_teams_with_cdp_billable_invocations_in_period": self.legacy[UsageCounter.CDP_INVOCATIONS],
             "get_teams_with_feature_flag_requests_count_in_period": Mock(
                 side_effect=lambda begin, end, kind: self.legacy[
@@ -270,3 +287,101 @@ class TestUsageCounterReport(SimpleTestCase):
             assert report.realtime_counters == {"cdp_billable_invocations_in_period": {"org-a": 9}}
         records.assert_called_once_with(period, ("cdp_billable_invocations", "workflow_emails_sent"), "daily_report")
         email_legacy.assert_not_called()
+
+    @parameterized.expand([(mode,) for mode in UsageCounterMode])
+    def test_remaining_readers_preserve_counts_and_exception_breakdowns(self, mode: UsageCounterMode) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        counter_keys = {
+            UsageCounter.EVENTS: ("events", 101),
+            UsageCounter.ENHANCED_PERSON_EVENTS: ("enhanced_person_events", 102),
+            UsageCounter.RECORDINGS: ("session_replay_recordings", 103),
+            UsageCounter.MOBILE_RECORDINGS: ("mobile_replay_recordings", 104),
+            UsageCounter.MOBILE_BILLABLE_RECORDINGS: ("mobile_replay_recordings", 104),
+            UsageCounter.SURVEY_RESPONSES: ("survey_responses", 105),
+            UsageCounter.AI_EVENTS: ("ai_events", 106),
+            UsageCounter.EXCEPTIONS: ("exceptions", 107),
+        }
+        for index, counter in enumerate(counter_keys):
+            self.legacy[counter].return_value = [(1, index + 1)]
+        self.exceptions.side_effect = None
+        self.exceptions.return_value = ({"web": [[1, 3]], "web_lite": [[1, 5]]}, [[1, 8]])
+        self.records.return_value = [
+            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key=key, quantity=quantity)
+            for key, quantity in dict(counter_keys.values()).items()
+        ]
+        with patch("posthoganalytics.get_feature_flag", return_value=mode):
+            service = UsageCounterService()
+            plan = service.resolve_plan(period, caller="daily_report", counters=tuple(counter_keys))
+        report = service.fetch_report(period, plan=plan)
+
+        for index, (counter, (_, quantity)) in enumerate(counter_keys.items()):
+            assert report.counts[counter] == [(1, quantity if mode == UsageCounterMode.REALTIME else index + 1)]
+        assert report.counts["teams_with_web_exceptions_captured_in_period"] == [(1, 3)]
+        assert report.counts["teams_with_js_lite_exceptions_captured_in_period"] == [(1, 5)]
+        self.exceptions.assert_called_once_with(period.start, period.end)
+        self.legacy[UsageCounter.CDP_INVOCATIONS].assert_not_called()
+        if mode == UsageCounterMode.LEGACY:
+            self.records.assert_not_called()
+            assert report.realtime_counters is None
+        else:
+            self.records.assert_called_once_with(period, tuple(dict(counter_keys.values())), "daily_report")
+            assert report.realtime_counters == (
+                {
+                    counter.value.removeprefix("teams_with_"): {"org-a": quantity}
+                    for counter, (_, quantity) in counter_keys.items()
+                }
+                if mode == UsageCounterMode.BOTH
+                else None
+            )
+
+    @override_settings(USAGE_COUNTER_REALTIME_MODES="mobile-recordings:both,mobile-billable-recordings:realtime")
+    def test_mobile_replay_counters_select_modes_independently_with_one_record_key(self) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        self.legacy[UsageCounter.MOBILE_RECORDINGS].return_value = [(1, 5)]
+        self.records.return_value = [
+            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="mobile_replay_recordings", quantity=7)
+        ]
+        with patch("posthoganalytics.get_feature_flag", return_value="legacy"):
+            service = UsageCounterService()
+            plan = service.resolve_plan(
+                period,
+                caller="daily_report",
+                counters=(UsageCounter.MOBILE_RECORDINGS, UsageCounter.MOBILE_BILLABLE_RECORDINGS),
+            )
+        report = service.fetch_report(period, plan=plan)
+
+        assert report.counts == {
+            UsageCounter.MOBILE_RECORDINGS: [(1, 5)],
+            UsageCounter.MOBILE_BILLABLE_RECORDINGS: [(1, 7)],
+        }
+        assert report.realtime_counters == {"mobile_recording_count_in_period": {"org-a": 7}}
+        assert report.usage_sources == {
+            "mobile_recording_count_in_period": UsageCounterMode.BOTH,
+            "mobile_billable_recording_count_in_period": UsageCounterMode.REALTIME,
+        }
+        self.records.assert_called_once_with(period, ("mobile_replay_recordings",), "daily_report")
+        self.legacy[UsageCounter.MOBILE_BILLABLE_RECORDINGS].assert_not_called()
+
+    @parameterized.expand([("daily_report", True), ("usage_reports_v2", True), ("quota_limiting", False)])
+    def test_legacy_event_reader_preserves_caller_deduplication(
+        self, caller: UsageCounterCaller, count_distinct: bool
+    ) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        self.legacy[UsageCounter.EVENTS].return_value = [(1, 7)]
+        with patch("posthoganalytics.get_feature_flag", return_value="legacy"):
+            service = UsageCounterService()
+            plan = service.resolve_plan(period, caller=caller, counters=(UsageCounter.EVENTS,))
+        assert service.fetch_report(period, plan=plan).counts == {UsageCounter.EVENTS: [(1, 7)]}
+        self.events.assert_called_once_with(period.start, period.end, count_distinct=count_distinct)
+        self.exceptions.assert_not_called()
+
+    def test_realtime_exception_quota_reader_does_not_query_library_breakdowns(self) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        self.records.return_value = [
+            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="exceptions", quantity=7)
+        ]
+        with patch("posthoganalytics.get_feature_flag", return_value="realtime"):
+            service = UsageCounterService()
+            plan = service.resolve_plan(period, caller="quota_limiting", counters=(UsageCounter.EXCEPTIONS,))
+        assert service.fetch_report(period, plan=plan).counts == {UsageCounter.EXCEPTIONS: [(1, 7)]}
+        self.exceptions.assert_not_called()

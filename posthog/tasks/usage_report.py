@@ -2971,21 +2971,12 @@ def _get_all_usage_data(
     logs_retention_byte_days_rows = get_teams_with_logs_retention_byte_days_in_period(period_start, period_end)
     apm_tracing_usage = get_teams_with_apm_tracing_usage_in_period(period_start, period_end)
     metrics_usage = get_teams_with_metrics_usage_in_period(period_start, period_end)
-    exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
-        period_start, period_end
-    )
     task_sandbox_usage = get_teams_with_task_sandbox_usage_in_period(period_start, period_end)
     sandbox_compute_usage = get_teams_with_billable_sandbox_compute_usage_in_period(period_start, period_end)
     token_credits = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
 
     return {
         **counter_report.counts,
-        "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
-            period_start, period_end, count_distinct=True
-        ),
-        "teams_with_enhanced_persons_event_count_in_period": get_teams_with_billable_enhanced_persons_event_count_in_period(
-            period_start, period_end, count_distinct=True
-        ),
         "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
             period_start, period_end
         ),
@@ -3029,23 +3020,14 @@ def _get_all_usage_data(
         "teams_with_unity_events_count_in_period": all_metrics["unity_events"],
         "teams_with_rust_events_count_in_period": all_metrics["rust_events"],
         "teams_with_heatmap_count_in_period": get_teams_with_heatmap_count_in_period(period_start, period_end),
-        "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
-            period_start, period_end, snapshot_source="web"
-        ),
         "teams_with_zero_duration_recording_count_in_period": get_teams_with_zero_duration_recording_count_in_period(
             period_start, period_end
         ),
         "teams_with_recording_bytes_in_period": get_teams_with_recording_bytes_in_period(
             period_start, period_end, snapshot_source="web"
         ),
-        "teams_with_mobile_recording_count_in_period": get_teams_with_recording_count_in_period(
-            period_start, period_end, snapshot_source="mobile"
-        ),
         "teams_with_mobile_recording_bytes_in_period": get_teams_with_recording_bytes_in_period(
             period_start, period_end, snapshot_source="mobile"
-        ),
-        "teams_with_mobile_billable_recording_count_in_period": get_teams_with_mobile_billable_recording_count_in_period(
-            period_start, period_end
         ),
         "teams_with_replay_vision_credits_used_in_period": get_teams_with_replay_vision_credits_used_in_period(
             period_start, period_end
@@ -3181,9 +3163,6 @@ def _get_all_usage_data(
             query_types=["EventsQuery"],
             access_method="personal_api_key",
         ),
-        "teams_with_survey_responses_count_in_period": get_teams_with_survey_responses_count_in_period(
-            period_start, period_end
-        ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
         "teams_with_free_historical_rows_synced_in_period": get_teams_with_free_historical_rows_synced_in_period(
             period_start, period_end
@@ -3194,26 +3173,12 @@ def _get_all_usage_data(
         "teams_with_dwh_tables_storage_in_s3_in_mib": get_teams_with_dwh_tables_storage_in_s3(),
         "teams_with_dwh_mat_views_storage_in_s3_in_mib": get_teams_with_dwh_mat_views_storage_in_s3(),
         "teams_with_dwh_total_storage_in_s3_in_mib": get_teams_with_dwh_total_storage_in_s3(),
-        "teams_with_exceptions_captured_in_period": exception_metrics,
-        "teams_with_web_exceptions_captured_in_period": exception_metrics_by_library["web"],
-        "teams_with_js_lite_exceptions_captured_in_period": exception_metrics_by_library["web_lite"],
-        "teams_with_node_exceptions_captured_in_period": exception_metrics_by_library["node"],
-        "teams_with_go_exceptions_captured_in_period": exception_metrics_by_library["go"],
-        "teams_with_java_exceptions_captured_in_period": exception_metrics_by_library["java"],
-        "teams_with_ruby_exceptions_captured_in_period": exception_metrics_by_library["ruby"],
-        "teams_with_python_exceptions_captured_in_period": exception_metrics_by_library["python"],
-        "teams_with_android_exceptions_captured_in_period": exception_metrics_by_library["android"],
-        "teams_with_react_native_exceptions_captured_in_period": exception_metrics_by_library["react_native"],
-        "teams_with_ios_exceptions_captured_in_period": exception_metrics_by_library["ios"],
-        "teams_with_flutter_exceptions_captured_in_period": exception_metrics_by_library["flutter"],
-        "teams_with_unknown_exceptions_captured_in_period": exception_metrics_by_library["unknown"],
         "teams_with_hog_function_calls_in_period": get_teams_with_hog_function_calls_in_period(
             period_start, period_end
         ),
         "teams_with_hog_function_fetch_calls_in_period": get_teams_with_hog_function_fetch_calls_in_period(
             period_start, period_end
         ),
-        "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
         "teams_with_ai_credits_used_in_period": get_teams_with_ai_credits_used_in_period(period_start, period_end),
         "teams_with_signals_credits_used_in_period": get_teams_with_signals_credits_used_in_period(
             period_start, period_end
