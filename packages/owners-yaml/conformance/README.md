@@ -4,7 +4,7 @@ This directory holds test cases for the resolution rules of the `owners.yaml` fo
 The cases are data, so a resolver in any language can run them.
 
 The cases are normative together with [SPEC.md section 4](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md#4-resolution) and [section 5.2](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md#52-team-channels).
-A tool that implements those sections has to give the expected result for every case that applies to it.
+A resolver has to give the expected result for every case that applies to it.
 
 ## Contents
 

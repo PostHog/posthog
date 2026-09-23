@@ -134,7 +134,7 @@ A consumer decides both, for example from the change set of a pull request.
 A consumer SHOULD get resolutions from a resolver, not by reading ownership files itself.
 A consumer chooses which version of the ownership files the resolver reads, through the repository root that it passes (section 7.1).
 For example, a consumer can read the version before a change, so that the change cannot alter the owners that apply to it.
-A resolver MUST return the same resolution as the steps below for every path, except where it documents an extension. Section 8 lists the extensions of `owners-yaml`. A resolver MAY use a different method.
+A resolver MUST return the same resolution as the steps below for every path. A resolver MAY use a different method. A resolver MAY also remove a placeholder owner that it documents from every list, as `owners-yaml` does with `team-CHANGEME` (section 8).
 
 To resolve a path `P`:
 
@@ -203,7 +203,7 @@ flowchart TD
 ### 4.3 Conformance
 
 The cases in [`conformance/`](https://github.com/PostHog/posthog/tree/master/packages/owners-yaml/conformance) are part of this specification.
-A tool that implements section 4 or section 5.2 MUST produce the expected result for every case that applies to it.
+A resolver MUST produce the expected result for every case that applies to it.
 When the prose and a case disagree, the disagreement is a defect in this specification.
 
 ## 5. Repository settings
@@ -321,7 +321,7 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
 This section describes the reference implementation. It is not part of the format.
 
 - It reads the alias files the root `owners.yaml` declares. PostHog's own repository declares `product.yaml`.
-- It removes the placeholder owner `team-CHANGEME` from every `owners` and `additions` list. This extension changes the resolution of a path whose owners name only `team-CHANGEME`.
+- It removes the placeholder owner `team-CHANGEME` from every `owners` and `additions` list. Section 4 allows this removal.
 - Its linter reports schema errors, reserved locations, directories with both an `owners.yaml` and an alias file, rules that name a tracked directory without the trailing `/`, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
 - Its CODEOWNERS export covers test files only: `test_*.py` and `*_test.py` for pytest, and `*.test.*` or `*.spec.*` with a `.js`, `.jsx`, `.ts`, or `.tsx` extension for Jest. The `codeowners` setting accepts these keys:
 
