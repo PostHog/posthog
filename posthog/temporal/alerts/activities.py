@@ -131,6 +131,12 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
         alerts_query = (
             due_alerts_query.annotate(_interval_order=calculation_interval_order)
             .annotate(
+                # Window aggregates run over the whole due set before the cap, so the backlog
+                # metrics come back on the page itself instead of a second scan of the table.
+                _due_count=Window(expression=Count("id")),
+                _oldest_due_at=Window(expression=Min(Coalesce("next_check_at", "created_at"))),
+            )
+            .annotate(
                 _team_rank=Window(
                     expression=RowNumber(),
                     partition_by=[F("team_id")],
@@ -151,6 +157,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             .only("id", "team_id", "calculation_interval", "insight_id")[: inputs.max_alerts_per_run]
         )
 
+        due_rows = list(alerts_query)
         alerts = [
             AlertInfo(
                 alert_id=str(a.id),
@@ -159,16 +166,13 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
                 calculation_interval=a.calculation_interval,
                 insight_id=a.insight_id,
             )
-            for a in alerts_query
+            for a in due_rows
         ]
 
-        due_alert_metrics = due_alerts_query.aggregate(
-            due_count=Count("id"), oldest_due_at=Min(Coalesce("next_check_at", "created_at"))
-        )
         return _RetrievedAlerts(
             alerts=alerts,
-            due_count=due_alert_metrics["due_count"],
-            oldest_due_at=due_alert_metrics["oldest_due_at"],
+            due_count=due_rows[0]._due_count if due_rows else 0,
+            oldest_due_at=due_rows[0]._oldest_due_at if due_rows else None,
             polled_at=polled_at,
         )
 

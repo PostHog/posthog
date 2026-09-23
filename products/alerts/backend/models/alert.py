@@ -194,6 +194,15 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     class Meta:
         db_table = "posthog_alertconfiguration"
+        indexes = [
+            # The scheduler polls for due alerts by next_check_at over the enabled rows only,
+            # so a partial index keeps the scan proportional to that much smaller set.
+            models.Index(
+                fields=["next_check_at", "id"],
+                condition=models.Q(enabled=True),
+                name="alert_cfg_due_idx",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
