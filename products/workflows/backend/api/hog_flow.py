@@ -4961,10 +4961,12 @@ class HogFlowViewSet(
         # usage event fires only after commit. delete() nulls the pk, so stash it for the event.
         flow_id = instance.id
         with transaction.atomic():
-            self._log_activity(instance, activity="deleted")
-            instance.delete()
-        instance.id = flow_id
-        self._report_workflow_action("hog_flow_deleted", instance, {"via": "destroy"})
+            locked = HogFlow.objects.select_for_update().get(pk=flow_id)
+            self._refuse_if_code_managed(self.request, locked)
+            self._log_activity(locked, activity="deleted")
+            locked.delete()
+        locked.id = flow_id
+        self._report_workflow_action("hog_flow_deleted", locked, {"via": "destroy"})
 
     def _refresh_action_redirects(self, target: HogFlow, old: HogFlow, new_actions: Optional[list]) -> None:
         # Skip-forward for deleted steps: refresh the redirect map whenever a live graph write is about
