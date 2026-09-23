@@ -102,17 +102,15 @@ describe("staged arch-specific binaries reach the packaged app", () => {
 });
 
 describe("native module globs", () => {
-  it("packages Playwright MCP for Chrome browser access", () => {
-    expect(runtimeModules).toContain("@playwright/mcp");
-    expect(runtimeModules).toContain("playwright-core");
+  it("packages Chrome DevTools MCP for browser access", () => {
+    expect(runtimeModules).toContain("chrome-devtools-mcp");
     expect(requiredRuntimeModules).toEqual(
-      expect.arrayContaining(["@playwright/mcp", "playwright-core"]),
+      expect.arrayContaining(["chrome-devtools-mcp"]),
     );
-    expect(runtimeModuleSources["playwright-core"]).toBe(
-      "@playwright/mcp/node_modules/playwright-core",
+    expect(runtimeModuleSources).toEqual({});
+    expect(packagedFileGlobs).toContain(
+      "node_modules/chrome-devtools-mcp/**/*",
     );
-    expect(packagedFileGlobs).toContain("node_modules/@playwright/mcp/**/*");
-    expect(packagedFileGlobs).toContain("node_modules/playwright-core/**/*");
   });
 
   it("collapses the @parcel scope to a single glob", () => {

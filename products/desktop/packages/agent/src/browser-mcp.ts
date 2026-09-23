@@ -11,12 +11,20 @@ export interface BrowserMcpServer {
 const require = createRequire(import.meta.url);
 
 export function createBrowserMcpServer(): BrowserMcpServer {
-  const packageJson = require.resolve("@playwright/mcp/package.json");
+  const packageJson = require.resolve("chrome-devtools-mcp/package.json");
 
   return {
     name: "browser",
     command: process.execPath,
-    args: [path.join(path.dirname(packageJson), "cli.js"), "--extension"],
+    args: [
+      path.join(
+        path.dirname(packageJson),
+        "build/src/bin/chrome-devtools-mcp.js",
+      ),
+      "--auto-connect",
+      "--no-usage-statistics",
+      "--no-performance-crux",
+    ],
     env: [{ name: "ELECTRON_RUN_AS_NODE", value: "1" }],
   };
 }

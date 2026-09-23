@@ -27,8 +27,7 @@ import { useSyncExternalStore } from "react";
 import { OnboardingTestTools } from "./OnboardingTestTools";
 import { SettingsBackup } from "./SettingsBackup";
 
-const PLAYWRIGHT_EXTENSION_URL =
-  "https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm";
+const CHROME_REMOTE_DEBUGGING_URL = "chrome://inspect/#remote-debugging";
 
 export function AdvancedSettings() {
   const showDebugLogsToggle =
@@ -66,15 +65,15 @@ export function AdvancedSettings() {
         <SettingsCard>
           <SettingsCardRow
             label="Google Chrome"
-            description="Let local agents inspect and control open Chrome tabs, including signed-in pages. Requires the Playwright browser extension."
+            description="Let local agents inspect and control open Chrome tabs, including signed-in pages. In Chrome, enable remote debugging and approve the connection."
           >
             <div className="flex items-center gap-3">
               <Button
                 size="1"
                 variant="soft"
-                onClick={() => openExternalUrl(PLAYWRIGHT_EXTENSION_URL)}
+                onClick={() => openExternalUrl(CHROME_REMOTE_DEBUGGING_URL)}
               >
-                Install extension
+                Open Chrome setup
               </Button>
               <Switch
                 checked={browserIntegrationEnabled}

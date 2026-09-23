@@ -11,8 +11,7 @@
 
 // Staged + packaged on every platform.
 export const runtimeModules = [
-  "@playwright/mcp",
-  "playwright-core",
+  "chrome-devtools-mcp",
   "node-pty",
   "node-addon-api",
   "@parcel/watcher",
@@ -32,12 +31,9 @@ export const runtimeModules = [
 ];
 
 export const runtimeNativeModules = runtimeModules.filter(
-  (name) => name !== "@playwright/mcp" && name !== "playwright-core",
+  (name) => name !== "chrome-devtools-mcp",
 );
-
-export const runtimeModuleSources: Record<string, string> = {
-  "playwright-core": "@playwright/mcp/node_modules/playwright-core",
-};
+export const runtimeModuleSources: Record<string, string> = {};
 
 // The base native modules that must exist when packaging; a missing one is a
 // broken build, not a warning. before-pack stages these with copyRequiredDep.
@@ -49,8 +45,7 @@ export const requiredNativeModules = [
 
 export const requiredRuntimeModules = [
   ...requiredNativeModules,
-  "@playwright/mcp",
-  "playwright-core",
+  "chrome-devtools-mcp",
 ];
 
 // file-icon is only used on macOS; koffi only reads the macOS window list.

@@ -798,12 +798,12 @@ importers:
       '@opentelemetry/semantic-conventions':
         specifier: ^1.28.0
         version: 1.39.0
-      '@playwright/mcp':
-        specifier: 0.0.82
-        version: 0.0.82
       '@types/jsonwebtoken':
         specifier: ^9.0.10
         version: 9.0.10
+      chrome-devtools-mcp:
+        specifier: 1.10.1
+        version: 1.10.1
       commander:
         specifier: ^14.0.2
         version: 14.0.3
@@ -6193,11 +6193,6 @@ packages:
     resolution: {integrity: sha512-SEeaJLb3qBNF/OaXnaR1NmmBbFYk1zC0ZH/52fATcRPLFg/p791YrcyFFy44Bo9sLaGuSuLp5Q6axbb/O+v/RA==}
     engines: {node: ^14.18.0 || >=16.0.0}
 
-  '@playwright/mcp@0.0.82':
-    resolution: {integrity: sha512-OCqftfb8H4dnqm/njbTBRk3seUvUPttOlJUxCtEzXGETYOlRH5Qt3bbXIjmZIuWAxD9RF+yg1ASrPeXvm0y5cA==}
-    engines: {node: '>=18'}
-    hasBin: true
-
   '@playwright/test@1.60.0':
     resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
     engines: {node: '>=18'}
@@ -9821,6 +9816,19 @@ packages:
   chownr@3.0.0:
     resolution: {integrity: sha512-+IxzY9BZOQd/XuYPRmrvEVjF/nqj5kgT4kEq7VofrDoM1MxoRjEWkrCC3EtLi59TVawxTAn+orJwFQcrqEN1+g==}
     engines: {node: '>=18'}
+
+  chrome-devtools-mcp@1.10.1:
+    resolution: {integrity: sha512-Klw6HWDqHC/XS1JwZldd2r49aUhbUJN9m9Mvcx4SEueIPXtzuQX+QelxAViobv8YUkDZ7HWDrmViR6LeYK0wAw==}
+    engines: {node: ^20.19.0 || ^22.12.0 || >=23}
+    hasBin: true
+    peerDependencies:
+      '@blackwell-systems/gcf': ^2.2.2
+      '@toon-format/toon': ^4.1.0
+    peerDependenciesMeta:
+      '@blackwell-systems/gcf':
+        optional: true
+      '@toon-format/toon':
+        optional: true
 
   chrome-launcher@0.15.2:
     resolution: {integrity: sha512-zdLEwNo3aUVzIhKhTtXfxhdvZhUghrnmkvcAq2NoDd+LeOHKf03H5jwZ8T/STsAlzyALkBVK552iaG1fGf1xVQ==}
@@ -13825,19 +13833,9 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  playwright-core@1.64.0-alpha-1789764292000:
-    resolution: {integrity: sha512-ZgRaybFv4rRy7QMGnYprEGFdNJnvapNqcaER2w96bDQA+40BWIle1el1Yh9KHD3E6XYmieMB+r+UxFTCauTGGQ==}
-    engines: {node: '>=20'}
-    hasBin: true
-
   playwright@1.60.0:
     resolution: {integrity: sha512-hheHdokM8cdqCb0lcE3s+zT4t4W+vvjpGxsZlDnikarzx8tSzMebh3UiFtgqwFwnTnjYQcsyMF8ei2mCO/tpeA==}
     engines: {node: '>=18'}
-    hasBin: true
-
-  playwright@1.64.0-alpha-1789764292000:
-    resolution: {integrity: sha512-3Ngs4ERGdC912uW3srEDtNVey4u1wSaQ/EFcKhxMpz0by0K6nidaJgM087pLpJc1osytiVnL7ack5gvgPArPNw==}
-    engines: {node: '>=20'}
     hasBin: true
 
   plist@3.1.0:
@@ -20893,11 +20891,6 @@ snapshots:
 
   '@pkgr/core@0.3.6': {}
 
-  '@playwright/mcp@0.0.82':
-    dependencies:
-      playwright: 1.64.0-alpha-1789764292000
-      playwright-core: 1.64.0-alpha-1789764292000
-
   '@playwright/test@1.60.0':
     dependencies:
       playwright: 1.60.0
@@ -24846,6 +24839,8 @@ snapshots:
   chownr@1.1.4: {}
 
   chownr@3.0.0: {}
+
+  chrome-devtools-mcp@1.10.1: {}
 
   chrome-launcher@0.15.2:
     dependencies:
@@ -29905,17 +29900,11 @@ snapshots:
 
   playwright-core@1.62.1: {}
 
-  playwright-core@1.64.0-alpha-1789764292000: {}
-
   playwright@1.60.0:
     dependencies:
       playwright-core: 1.60.0
     optionalDependencies:
       fsevents: 2.3.2
-
-  playwright@1.64.0-alpha-1789764292000:
-    dependencies:
-      playwright-core: 1.64.0-alpha-1789764292000
 
   plist@3.1.0:
     dependencies:

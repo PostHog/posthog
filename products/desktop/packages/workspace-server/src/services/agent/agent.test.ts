@@ -118,7 +118,12 @@ vi.mock("@posthog/agent/browser-mcp", () => ({
   createBrowserMcpServer: () => ({
     name: "browser",
     command: "/mock/electron",
-    args: ["/mock/playwright-mcp/cli.js", "--extension"],
+    args: [
+      "/mock/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js",
+      "--auto-connect",
+      "--no-usage-statistics",
+      "--no-performance-crux",
+    ],
     env: [{ name: "ELECTRON_RUN_AS_NODE", value: "1" }],
   }),
 }));
@@ -863,7 +868,12 @@ describe("AgentService", () => {
             expect.objectContaining({
               name: "browser",
               command: "/mock/electron",
-              args: ["/mock/playwright-mcp/cli.js", "--extension"],
+              args: [
+                "/mock/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js",
+                "--auto-connect",
+                "--no-usage-statistics",
+                "--no-performance-crux",
+              ],
             }),
           ]),
         );
