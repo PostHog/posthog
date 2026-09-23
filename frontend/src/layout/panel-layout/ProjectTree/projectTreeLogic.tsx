@@ -69,6 +69,7 @@ export interface ProjectTreeLogicProps {
     includeRoot?: boolean
     hideFolders?: string[]
     isActiveInPanel?: boolean
+    shortcutScope?: 'apps' | 'files'
 }
 
 const FOLDER_LOADING = [
@@ -494,7 +495,8 @@ export interface projectTreeLogicMeta {
             searchTerm: string,
             arg: any,
             arg2: any,
-            arg3: any
+            arg3: any,
+            arg4: any
         ) => TreeDataItem[]
         treeTableColumnOffsets: (treeTableColumnSizes: number[]) => number[]
         checkedItemCountNumeric: (checkedItems: Record<string, boolean>) => number
@@ -1119,8 +1121,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 (_, props) => props.root,
                 (_, props) => props.includeRoot,
                 (_, props) => props.hideFolders,
+                (_, props) => props.shortcutScope,
             ],
-            (fullFileSystem: TreeDataItem[], searchTerm: string, root, includeRoot, hideFolders): TreeDataItem[] => {
+            (
+                fullFileSystem: TreeDataItem[],
+                searchTerm: string,
+                root,
+                includeRoot,
+                hideFolders,
+                shortcutScope: ProjectTreeLogicProps['shortcutScope']
+            ): TreeDataItem[] => {
                 let firstFolders = fullFileSystem
 
                 // Filter out folders specified in hideFolders prop
@@ -1148,6 +1158,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     } else {
                         firstFolders = []
                     }
+                }
+
+                if (root === 'shortcuts://' && shortcutScope) {
+                    firstFolders = firstFolders.filter((item) => {
+                        const isApp = item.record?.type !== 'folder' && !item.record?.ref
+                        return shortcutScope === 'apps' ? isApp : !isApp
+                    })
                 }
 
                 function addRoot(tree: TreeDataItem[]): TreeDataItem[] {

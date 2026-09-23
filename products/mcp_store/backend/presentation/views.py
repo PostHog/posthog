@@ -82,6 +82,7 @@ from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_sta
 from ..proxy import proxy_mcp_request, record_tool_call_audit, resolve_call_decision, validate_installation_auth
 from ..tasks import sync_installation_tools_task
 from ..tools import ToolCallError, ToolsFetchError, call_upstream_tool, sync_installation_tools
+from .visibility import slack_dev_mcp_ui_enabled
 
 
 class MCPProxyRenderer(renderers.BaseRenderer):
@@ -256,7 +257,11 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
         responses={200: OpenApiResponse(response=MCPServerTemplateSerializer(many=True))},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        queryset = MCPServerTemplate.objects.filter(is_active=True).order_by("name")
+        queryset = MCPServerTemplate.available_for_team(self.team_id).order_by("name")
+        if queryset.filter(oauth_credentials_source="slack_dev_app").exists() and not slack_dev_mcp_ui_enabled(
+            user=cast(User, request.user), team=self.team
+        ):
+            queryset = queryset.exclude(oauth_credentials_source="slack_dev_app")
         serializer = MCPServerTemplateSerializer(queryset, many=True)
         return Response({"results": serializer.data})
 
@@ -1382,7 +1387,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         self._validate_gateway_options(data)
 
         try:
-            template = MCPServerTemplate.objects.get(id=template_id, is_active=True)
+            template = MCPServerTemplate.available_for_team(self.team_id).get(id=template_id)
         except MCPServerTemplate.DoesNotExist:
             return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
         self._require_server_enabled_for_team(template.url)
@@ -1883,7 +1888,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         web_return_path: str = "",
     ) -> HttpResponse:
         try:
-            template = MCPServerTemplate.objects.get(id=template_id, is_active=True)
+            template = MCPServerTemplate.available_for_team(self.team_id).get(id=template_id)
         except MCPServerTemplate.DoesNotExist:
             return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
         self._require_server_enabled_for_team(template.url)

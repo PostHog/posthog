@@ -7,7 +7,10 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import (
+    DATAFORSEO_ENDPOINTS,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source import DataForSEOSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source"
@@ -78,13 +81,17 @@ class TestDataForSEOSource:
         assert schemas["ranked_keywords"].detected_primary_keys == ["target", "keyword", "item_type", "rank_absolute"]
         assert schemas["historical_rank_overview"].detected_primary_keys == ["target", "year", "month"]
         assert schemas["competitors_domain"].detected_primary_keys == ["target", "domain"]
+        # The lookup tables are global, so they key on their own code rather than on a target.
+        assert schemas["locations_and_languages"].detected_primary_keys == ["location_code"]
+        assert schemas["categories"].detected_primary_keys == ["category_code"]
 
-    def test_backlinks_summary_is_off_by_default(self) -> None:
-        # Backlinks requires a separate paid DataForSEO subscription, so it must not be part of
-        # the default selection that one-shot setup enables.
+    def test_backlinks_tables_are_off_by_default(self) -> None:
+        # The Backlinks API is a separate paid DataForSEO subscription, so none of its tables may
+        # be part of the default selection that one-shot setup enables.
         schemas = {s.name: s for s in DataForSEOSource().get_schemas(_make_config(), team_id=1)}
-        assert schemas["backlinks_summary"].should_sync_default is False
-        assert all(s.should_sync_default is True for name, s in schemas.items() if name != "backlinks_summary")
+        for name, schema in schemas.items():
+            needs_backlinks_api = DATAFORSEO_ENDPOINTS[name].path.startswith("/backlinks/")
+            assert schema.should_sync_default is not needs_backlinks_api
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = DataForSEOSource().get_schemas(_make_config(), team_id=1, names=["ranked_keywords"])

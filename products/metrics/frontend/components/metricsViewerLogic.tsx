@@ -29,7 +29,7 @@ import {
     MetricsYAxisSettings,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 import { PropertyFilterType, PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import {
@@ -385,7 +385,7 @@ export interface metricsViewerLogicValues {
     queryResults: MetricsViewerSeries[]
     queryResultsLoading: boolean
     queryState: MetricsViewerQueryState
-    savedInsight: QueryBasedInsightModel | null
+    savedInsight: InsightModel | null
     savedInsightLoading: boolean
     selectedMetricType: OtelMetricTypeEnumApi | null
     selectedServices: string[]
@@ -534,10 +534,10 @@ export interface metricsViewerLogicActions {
         errorObject?: any
     }
     saveAsInsightSuccess: (
-        savedInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null,
+        savedInsight: InsightModel<Node<Record<string, any>>> | null,
         payload?: any
     ) => {
-        savedInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null
+        savedInsight: InsightModel<Node<Record<string, any>>> | null
         payload?: any
     }
     setActiveClauseIndex: (index: number) => {
@@ -1172,7 +1172,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             },
         ],
         savedInsight: [
-            null as QueryBasedInsightModel | null,
+            null as InsightModel | null,
             {
                 saveAsInsight: async () => {
                     if (!canCreateMetricsInsight()) {
