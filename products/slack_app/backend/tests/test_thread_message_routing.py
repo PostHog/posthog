@@ -27,7 +27,7 @@ class TestRouteThreadMessage(TestCase):
     workflow so the webhook handler stays fast."""
 
     def setUp(self):
-        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+        from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -247,12 +247,8 @@ class TestRouteThreadMessage(TestCase):
         mock_start.assert_not_called()
 
     @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
-    def test_thread_reply_crosses_once_via_region_gate_not_mirror(self):
-        # A thread reply on a workspace held in both regions must cross exactly once. The follow-up
-        # pipeline's region gate already forwards it to the region that also claims the workspace, so
-        # adding an emit-only mirror would make that region emit the reply twice and trigger a
-        # workflow twice. Deliver to EU (can defer) with the other region claiming the workspace.
-        from products.slack_app.backend.api import ROUTE_PROXIED, route_posthog_code_event_to_relevant_region
+    def test_owned_thread_stays_local_without_an_emit_only_mirror(self):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
         event = self._make_event()  # thread_ts != ts, a reply
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
@@ -260,13 +256,17 @@ class TestRouteThreadMessage(TestCase):
             patch("products.slack_app.backend.api.cross_region_routing_enabled", return_value=True),
             patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=True),
             patch("products.slack_app.backend.api._proxy_event_to_region") as mock_proxy,
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+            ) as start,
             patch("products.slack_app.backend.tasks.mirror_slack_message_event.delay") as mock_delay,
             patch("products.slack_app.backend.slack_workflow_events.produce_internal_event"),
         ):
             result = route_posthog_code_event_to_relevant_region(request, event, "T_SLACK")
 
-        assert result == ROUTE_PROXIED
-        mock_proxy.assert_called_once()
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_proxy.assert_not_called()
+        start.assert_called_once()
         mock_delay.assert_not_called()
 
     # --- Mapping + FF gate -------------------------------------------------
