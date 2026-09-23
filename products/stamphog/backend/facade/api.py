@@ -343,9 +343,10 @@ def list_available_repositories(team_id: int, *, search: str = "", limit: int) -
     A repository another team holds under the same installation is left out too, because the
     cross-team unique constraint would refuse it. ``search`` is a case-insensitive substring.
     """
+    # A record without a connecting user cannot mint review credentials, so add_repository refuses it.
     snapshots = list(
         StamphogInstallation.objects.for_team(team_id)
-        .filter(provider="github")
+        .filter(provider="github", connected_by_user_id__isnull=False)
         .values_list("installation_id", "repositories")
     )
     if not snapshots:
@@ -389,11 +390,16 @@ def add_repository(team_id: int, repository: str) -> contracts.AddRepositoryResu
     write_db = router.db_for_write(StamphogRepoConfig)
     try:
         with transaction.atomic(using=write_db):
-            # Writer pin: this read decides which installation the row binds to.
+            # Writer pin: this read decides which installation the row binds to. The lock is the one a
+            # removal or uninstall webhook takes first. Without it, a webhook can drop the repository
+            # and tombstone the team's rows between this read and the create below, and the new row
+            # then stays enabled for a repository that left the installation. A record without a
+            # connecting user cannot mint review credentials, so a member has to sync it first.
             installation = (
                 StamphogInstallation.objects.for_team(team_id)
                 .using(write_db)
-                .filter(provider="github", repositories__contains=[repository])
+                .select_for_update()
+                .filter(provider="github", repositories__contains=[repository], connected_by_user_id__isnull=False)
                 .order_by("-updated_at")
                 .first()
             )
@@ -429,9 +435,8 @@ def add_repository(team_id: int, repository: str) -> contracts.AddRepositoryResu
                     update_fields += reset_unverified_review_policy(existing)
                 existing.installation_id = installation.installation_id
                 update_fields.append("installation_id")
-            if installation.connected_by_user_id is not None:
-                existing.connected_by_user_id = installation.connected_by_user_id
-                update_fields.append("connected_by_user_id")
+            existing.connected_by_user_id = installation.connected_by_user_id
+            update_fields.append("connected_by_user_id")
             existing.enabled = True
             existing.save(update_fields=update_fields)
             return contracts.AddRepositoryResultDTO(config=_repo_config_to_dto(existing), created=False)

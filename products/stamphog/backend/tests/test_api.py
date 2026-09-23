@@ -514,10 +514,15 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             # The API never trusts a client-supplied repository: only the snapshot proves access.
             ("outside_the_snapshot", "acme/unknown"),
             ("held_by_another_team", "acme/theirs"),
+            # A backfilled record can lack a connector, and a row bound from it never mints review credentials.
+            ("no_connecting_user", "acme/unsynced"),
         ]
     )
     def test_add_repository_refuses_what_the_team_cannot_bind(self, _name: str, repository: str) -> None:
         self._record_installation(["acme/theirs"])
+        StamphogInstallation.objects.unscoped().create(
+            team_id=self.team.id, installation_id="43", repositories=["acme/unsynced"], connected_by_user_id=None
+        )
         other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
         StamphogRepoConfig.objects.unscoped().create(
             team_id=other_team.id, repository="acme/theirs", installation_id="42"

@@ -998,8 +998,11 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
                 )
         elif action == "deleted":
             for team_id in team_ids:
-                _disable_installation_repos(team_id, installation_id, action=action, delivery_id=delivery_id)
+                # Record first: the delete waits for an add_repository that holds the record's lock, so
+                # the disable below sees the row that add created. A retry still finds this team
+                # through its bound rows.
                 delete_installation(team_id, installation_id)
+                _disable_installation_repos(team_id, installation_id, action=action, delivery_id=delivery_id)
         else:
             logger.info("stamphog_installation_event_ignored", action=action)
     except Exception as e:
