@@ -362,8 +362,6 @@ INSIGHT_KINDS = {
 ASYNC_QUERY_KINDS = INSIGHT_KINDS | {
     "TracesQuery",
     "ExperimentQuery",
-    "ExperimentTrendsQuery",
-    "ExperimentFunnelsQuery",
     "ExperimentExposureQuery",
 }
 _EXTRA_ASYNC_KINDS = ASYNC_QUERY_KINDS - INSIGHT_KINDS
