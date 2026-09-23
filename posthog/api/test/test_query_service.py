@@ -53,6 +53,7 @@ from posthog.api.services.query import (
     _DatabaseSchemaCatalog,
     _EditorAssistRoute,
     _language_service_call,
+    _metadata_response_from_language_service,
     _record_editor_assist_backend,
     process_query_model,
 )
@@ -72,6 +73,41 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 
 
 class TestLanguageServiceRouting(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "new_payload",
+                [
+                    {"message": "Field 'event' is of type 'String'", "start": 13, "end": 18},
+                    {"message": "Table 'events'", "start": 24, "end": 30},
+                ],
+                2,
+            ),
+            ("old_payload", None, 0),
+        ]
+    )
+    def test_metadata_maps_optional_notices_with_utf16_positions(
+        self, _name: str, raw_notices: list[dict[str, object]] | None, expected_count: int
+    ) -> None:
+        query = HogQLMetadata(query="SELECT '😀', event FROM events", language=HogLanguage.HOG_QL)
+        body: dict[str, object] = {"valid": True, "diagnostics": [], "tableNames": ["events"]}
+        if raw_notices is not None:
+            body["notices"] = raw_notices
+        response = _metadata_response_from_language_service(
+            query, LanguageServiceResult(body=body, duration_seconds=0, response_size_bytes=0)
+        )
+
+        assert response.isValid is True
+        assert len(response.notices or []) == expected_count
+        if expected_count:
+            assert response.notices[0].message == "Field 'event' is of type 'String'"
+            assert response.notices[0].start == 13
+            assert response.notices[0].end == 18
+            assert response.notices[0].fix is None
+            assert response.notices[1].message == "Table 'events'"
+            assert response.notices[1].start == 24
+            assert response.notices[1].end == 30
+
     def test_served_backend_counter_is_exported_for_prometheus(self) -> None:
         labels = {"operation": "metadata", "backend": "python", "reason": "service_error"}
         before = REGISTRY.get_sample_value("hogql_editor_assist_responses_total", labels) or 0
@@ -351,7 +387,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
     @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
     @patch("posthog.api.services.query.LanguageServiceClient")
-    def test_hogql_metadata_with_source_context_uses_language_service_diagnostics(
+    def test_hogql_metadata_with_source_context_uses_language_service_result(
         self,
         _name: str,
         source_query: HogQLQuery | None,
@@ -368,19 +404,23 @@ class TestLanguageServiceRouting(SimpleTestCase):
                     {
                         "code": "unknown_table",
                         "message": 'Unknown table "evnts"',
-                        "start": 14,
-                        "end": 19,
+                        "start": 30,
+                        "end": 35,
                         "suggestions": [{"label": "events", "distance": 1}],
                     }
                 ],
-                "tableNames": ["evnts"],
+                "notices": [
+                    {"message": "Field 'event' is of type 'String'", "start": 7, "end": 12},
+                    {"message": "Table 'events'", "start": 18, "end": 24},
+                ],
+                "tableNames": ["events", "evnts"],
             },
             duration_seconds=0.001,
             response_size_bytes=128,
         )
 
         query = HogQLMetadata(
-            query="SELECT * FROM evnts",
+            query="SELECT event FROM events JOIN evnts ON 1 = 1",
             language=HogLanguage.HOG_QL,
             sourceQuery=source_query,
             indexUsage=index_usage,
@@ -398,8 +438,12 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert response.isValid is False
         assert response.errors[0].message == 'Unknown table "evnts"'
         assert response.errors[0].fix == "events"
+        assert [(notice.message, notice.start, notice.end) for notice in response.notices] == [
+            ("Field 'event' is of type 'String'", 7, 12),
+            ("Table 'events'", 18, 24),
+        ]
         assert response.query == query.query
-        assert response.table_names == ["evnts"]
+        assert response.table_names == ["events", "evnts"]
         assert response.index_usage is None
         assert response.isUsingIndices is None
         assert "timings" not in response.model_dump()
@@ -471,7 +515,19 @@ class TestLanguageServiceRouting(SimpleTestCase):
         else:
             capture_malformed.assert_called_once_with("metadata", malformed_stage)
 
-    @parameterized.expand([("collection", {}), ("nested", [None])])
+    @parameterized.expand(
+        [
+            ("diagnostics_collection", {"diagnostics": {}}, "SELECT event FROM events"),
+            ("diagnostics_nested", {"diagnostics": [None]}, "SELECT event FROM events"),
+            ("notices_collection", {"notices": {}}, "SELECT event FROM events"),
+            ("notices_nested", {"notices": [None]}, "SELECT event FROM events"),
+            (
+                "notices_out_of_range",
+                {"notices": [{"message": "field", "start": 7, "end": 999}]},
+                "SELECT event FROM events",
+            ),
+        ]
+    )
     @patch("posthog.api.services.query._capture_malformed_language_service_response")
     @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
     @patch("posthog.api.services.query.get_hogql_metadata")
@@ -480,7 +536,8 @@ class TestLanguageServiceRouting(SimpleTestCase):
     def test_malformed_metadata_mapping_falls_back(
         self,
         _name: str,
-        diagnostics: object,
+        payload: dict[str, object],
+        query_text: str,
         client_class: MagicMock,
         enabled: MagicMock,
         python_metadata: MagicMock,
@@ -488,13 +545,13 @@ class TestLanguageServiceRouting(SimpleTestCase):
         capture_malformed: MagicMock,
     ) -> None:
         client_class.return_value.validate.return_value = LanguageServiceResult(
-            body={"catalogRevision": "warehouse-aliases-v1:cached", "diagnostics": diagnostics},
+            body={"catalogRevision": "warehouse-aliases-v1:cached", "diagnostics": [], **payload},
             duration_seconds=0,
             response_size_bytes=0,
         )
         python_metadata.return_value = HogQLMetadataResponse(
             isValid=True,
-            query="SELECT event FROM events",
+            query=query_text,
             errors=[],
             warnings=[],
             notices=[],
@@ -503,7 +560,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
         response = process_query_model(
             cast(Team, SimpleNamespace(pk=12)),
-            HogQLMetadata(query="SELECT event FROM events", language=HogLanguage.HOG_QL),
+            HogQLMetadata(query=query_text, language=HogLanguage.HOG_QL),
             user=cast(User, SimpleNamespace(pk=34)),
         )
 
