@@ -374,6 +374,19 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     }
 }
 
+function metricEditorSourceQuery(definition: Record<string, unknown> | null | undefined): DataVisualizationNode {
+    const storedHogQLSource = definition?.kind === NodeKind.HogQLQuery ? (definition as unknown as HogQLQuery) : {}
+    return {
+        kind: NodeKind.DataVisualizationNode,
+        source: {
+            ...storedHogQLSource,
+            kind: NodeKind.HogQLQuery,
+            query: typeof definition?.query === 'string' ? definition.query : '',
+        },
+        display: ChartDisplayType.Auto,
+    }
+}
+
 function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizationNode {
     const { connectionId: _ignoredConnectionId, ...sanitizedSourceQuery } = sourceQuery as LegacyDataVisualizationNode
 
@@ -3380,6 +3393,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !searchParams.open_view &&
                 !searchParams.open_insight &&
                 !searchParams.open_draft &&
+                !searchParams.edit_metric &&
                 !searchParams.output_tab &&
                 !hashParams.q &&
                 !hashParams.c &&
@@ -3603,6 +3617,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.edit_metric) {
+                    const openMetricTab = (sourceQuery: DataVisualizationNode, metricName?: string): void => {
+                        actions.createTab(
+                            sourceQuery.source.query,
+                            undefined,
+                            undefined,
+                            undefined,
+                            metricName,
+                            biEditorStateFromUrl ?? undefined
+                        )
+                        actions.setQueryInput(sourceQuery.source.query)
+                        actions.setSourceQuery(sourceQuery)
+                    }
                     // edit_metric binds the "Update metric" button to overwrite a named metric.
                     // Both edit_metric and open_query are URL-controlled, so we never bind the
                     // update target to URL-supplied SQL — a crafted link could otherwise overwrite
@@ -3620,27 +3646,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             String(ApiConfig.getCurrentTeamId()),
                             searchParams.edit_metric
                         )
-                        const definition = metric.definition as Record<string, unknown> | null | undefined
-                        const metricQuery = typeof definition?.query === 'string' ? definition.query : ''
-                        actions.createTab(
-                            metricQuery,
-                            undefined,
-                            undefined,
-                            undefined,
-                            metric.name,
-                            biEditorStateFromUrl ?? undefined
-                        )
+                        openMetricTab(metricEditorSourceQuery(metric.definition), metric.name)
                     } catch {
                         // Invalid name, metric not found, or no access — open an unbound empty tab
                         // rather than binding an update target we couldn't verify.
-                        actions.createTab(
-                            '',
-                            undefined,
-                            undefined,
-                            undefined,
-                            undefined,
-                            biEditorStateFromUrl ?? undefined
-                        )
+                        openMetricTab(metricEditorSourceQuery(null))
                     }
                     tabAdded = true
                 } else if (searchParams.open_query) {

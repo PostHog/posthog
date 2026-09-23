@@ -1049,6 +1049,48 @@ describe('sqlEditorLogic', () => {
                 })
         })
 
+        it('opens another metric when the editor already holds a query', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/:name/': (req: any) => [
+                        200,
+                        {
+                            name: req.params.name,
+                            definition: {
+                                kind: NodeKind.HogQLQuery,
+                                query: `SELECT '${req.params.name}'`,
+                                ...(req.params.name === 'first_metric' && {
+                                    filters: { dateRange: { date_from: '-7d' } },
+                                }),
+                            },
+                        },
+                    ],
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'first_metric' })
+            await expectLogic(logic).toDispatchActions(['createTab', 'setSourceQuery']).toMatchValues({
+                queryInput: "SELECT 'first_metric'",
+                editingMetricName: 'first_metric',
+            })
+
+            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'second_metric' })
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'setSourceQuery'])
+                .toMatchValues({
+                    queryInput: "SELECT 'second_metric'",
+                    editingMetricName: 'second_metric',
+                    sourceQuery: partial({ source: { kind: NodeKind.HogQLQuery, query: "SELECT 'second_metric'" } }),
+                })
+        })
+
         it('opens an unbound tab when the metric cannot be loaded', async () => {
             useMocks({
                 get: {
@@ -1062,10 +1104,13 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
+            logic.actions.setQueryInput('SELECT 1')
 
             router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'missing_metric' })
 
-            await expectLogic(logic).toDispatchActions(['createTab']).toMatchValues({ editingMetricName: null })
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'setSourceQuery'])
+                .toMatchValues({ editingMetricName: null, queryInput: '' })
         })
 
         it('does not request or bind a traversal-shaped edit_metric name', async () => {
