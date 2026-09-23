@@ -4,7 +4,7 @@ description: >
   Keep heavy imports off the django.setup() path that every process (web, celery, temporal,
   migrate, shell, CI) pays for. Use when touching AppConfig.ready(), wiring signal receivers,
   editing the lazy API router (posthog/api/rest_router.py or its __init__.py shim), deferring a
-  heavy import, when the startup-import-budget guard fails, or when merging master into a
+  heavy import or profiling import time (importtime, hothog), when the startup-import-budget guard fails, or when merging master into a
   long-lived branch that made the router lazy.
 ---
 
@@ -12,7 +12,7 @@ description: >
 
 Full background — the four mechanisms (lazy router, model registration, receiver wiring, boot GC window), the regression guards, how to add code without regressing them, how to measure, and the detailed trap write-ups: **[docs/internal/django-startup-time.md](../../../docs/internal/django-startup-time.md)**. That doc is the single source of detail; this skill is the trigger and the checklist.
 
-The guards live in `posthog/test/repo_invariants/test_startup_import_budget.py`. **When one fails, defer the import — don't remove an entry to dodge it.** Conversely, when you deliberately defer a significant heavy lib off setup, **add it to `FORBIDDEN_AT_SETUP`** (after confirming it's absent from a bare `django.setup()`). New imports nobody has named yet are caught by `test_no_new_heavy_imports_at_setup`: any package not in `posthog/test/repo_invariants/setup_import_baseline.txt` costing ≥100ms at setup fails the build — defer it; baseline only what every process genuinely needs at setup.
+The guards live in `posthog/test/repo_invariants/test_startup_import_budget.py`. **When one fails, defer the import — don't remove an entry to dodge it.** Conversely, when you deliberately defer a significant heavy lib off setup, **add it to `FORBIDDEN_AT_SETUP`** (after confirming it's absent from a bare `django.setup()`). Never pin a product facade or its contracts module there: facades must stay importable from anywhere, so pin the heavy module you deferred instead. New imports nobody has named yet are caught by `test_no_new_heavy_imports_at_setup`: any package not in `posthog/test/repo_invariants/setup_import_baseline.txt` costing ≥100ms at setup fails the build — defer it; baseline only what every process genuinely needs at setup.
 
 ## Defaults when adding backend code
 
@@ -21,6 +21,7 @@ The guards live in `posthog/test/repo_invariants/test_startup_import_budget.py`.
 - New heavy dependency (vendor SDK, Temporal/AI/ClickHouse, pandas/pyarrow/scipy): import it function-locally on the path that uses it with `# noqa: PLC0415`, never at module scope.
 - Schema types on a setup-path module: enums from `posthog.schema_enums` (cheap); pydantic models from `posthog.schema` only inside the method that uses them. No module-level `from posthog.tasks...` on setup paths — `CeleryQueue` lives in `posthog.celery_queues`.
 - New viewset/route: it no longer loads at setup — don't rely on import side effects; routes go in `rest_router.py`, not the `__init__.py` shim.
+- Where to cut: at the setup-path entry (the module `ready()` wires, a model file, `apps.py`), never inside a module that consumes a product facade. When a facade reaches setup, the entry defers the implementation module that leads to it; facade imports stay at module scope. If the setup path needs one symbol from a heavy module, move it to a light module and re-export it.
 - Any deferral relocates cost — ask which process pays now, on what path, and whether that path is latency-sensitive (background workers paying lazily: fine; web workers paying on first requests: usually not).
 
 ## Traps to check before you commit
@@ -37,4 +38,5 @@ One line each — the doc has the full write-up and the fix recipe for every ent
 - **Patch targets break on call-time imports** — `@patch("mod.helper")` stops intercepting once `mod` imports `helper` at call time; patch the defining module instead.
 - **Snapshot regen on a bad merge** — regenerate `.ambr` against the merged branch, then confirm it isn't masking a regression.
 - **Measuring the wrapper, not the work** — time inside the process; `importtime` + `tuna`, not pyinstrument; `grimp` for cycles and door enumeration.
+- **Guessing where to defer** — run [hothog](https://github.com/PostHog/hothog) on the `importtime` log; its `1-cut@` column names the dominator to defer at, and `--compare` gives the before/after. Name this skill and hothog in the PR's agent context, so a reviewer knows how the cuts were chosen.
 - **Phantom importtime costs from GC** — re-capture with `gc.disable()`; if the cost vanishes, the finding is GC, not the module. Keep the entrypoints' GC window closing in a `finally`.
