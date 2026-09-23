@@ -4,7 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { getAppContext, isHobby } from 'lib/utils/getAppContext'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
 import { PreflightStatus, Realm } from '~/types'
@@ -104,7 +104,7 @@ export interface preflightLogicMeta {
         configOptions: (preflight: PreflightStatus | null) => EnvironmentConfigOption[]
         isCloudOrDev: (preflight: PreflightStatus | null) => boolean | undefined
         isTest: (preflight: PreflightStatus | null) => boolean
-        isHobby: (preflight: PreflightStatus | null) => boolean
+        isHobby: (isCloudOrDev: boolean | undefined, isTest: boolean) => boolean
         isCloud: (preflight: PreflightStatus | null) => boolean | undefined
         isDev: (preflight: PreflightStatus | null) => boolean | undefined
         disableNavigationHooks: (preflight: PreflightStatus | null) => boolean | undefined
@@ -358,7 +358,10 @@ export const preflightLogic = kea<preflightLogicType>([
             },
         ],
         isTest: [(s) => [s.preflight], (preflight: PreflightStatus | null) => !!preflight?.is_test],
-        isHobby: [(s) => [s.preflight], isHobby],
+        isHobby: [
+            (s) => [s.isCloudOrDev, s.isTest],
+            (isCloudOrDev: boolean | undefined, isTest: boolean) => !isCloudOrDev && !isTest,
+        ],
         isCloud: [
             (s) => [s.preflight],
             (preflight: PreflightStatus | null): boolean | undefined => {

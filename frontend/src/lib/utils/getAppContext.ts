@@ -1,6 +1,6 @@
 import { getOAuthContextIds, isOAuthMode } from 'lib/oauth/oauthClient'
 
-import { AppContext, OrganizationType, PathType, PreflightStatus, TeamType, UserType } from '~/types'
+import { AppContext, OrganizationType, PathType, TeamType, UserType } from '~/types'
 
 declare global {
     export interface Window {
@@ -86,6 +86,3 @@ export function getCurrentOrganizationId(): OrganizationType['id'] {
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
-
-export const isHobby = (preflight: PreflightStatus | null | undefined): boolean =>
-    !!preflight && !preflight.cloud && !preflight.is_debug && !preflight.is_test

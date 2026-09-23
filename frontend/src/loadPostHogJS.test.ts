@@ -14,10 +14,12 @@ describe('loadPostHogJS', () => {
     )
 
     it.each([
-        ['hobby', { preflight: { cloud: false } }, false],
-        ['cloud', { preflight: { cloud: true } }, undefined],
-        ['local development', { preflight: { cloud: false, is_debug: true } }, undefined],
-        ['tests', { preflight: { cloud: false, is_test: true } }, undefined],
+        ['hobby', { run_mode: 'HOBBY' }, false],
+        ['US cloud', { run_mode: 'US' }, undefined],
+        ['EU cloud', { run_mode: 'EU' }, undefined],
+        ['cloud development', { run_mode: 'DEV' }, undefined],
+        ['local development', { run_mode: 'LOCAL' }, undefined],
+        ['E2E', { run_mode: 'E2E' }, undefined],
         ['older app context', {}, undefined],
         ['missing app context', undefined, undefined],
     ] as const)('selects script versioning for %s', (_, context, expected) => {
