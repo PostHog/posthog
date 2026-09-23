@@ -13,8 +13,10 @@ from django.utils import timezone
 
 import requests
 from celery import shared_task
+from django_redis.exceptions import ConnectionInterrupted
 from prometheus_client import Counter, Gauge
 from redis import Redis
+from redis.exceptions import RedisError
 from rest_framework.exceptions import APIException
 from structlog import get_logger
 
@@ -50,6 +52,24 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER = Counter(
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER = Counter(
     "posthog_feature_flag_last_called_at_sync_chunk_failures_total",
     "ClickHouse chunk queries that failed during feature flag last_called_at sync",
+)
+
+# The Redis transport failures the last_called_at sync can hit on its lock and checkpoint calls.
+# django-redis wraps the underlying error in ConnectionInterrupted, and the raw redis errors cover
+# the paths that use the redis client directly.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS = (
+    ConnectionInterrupted,
+    RedisError,
+    ConnectionError,
+    TimeoutError,
+)
+
+# Redis errors are not ClickHouse errors, so without them a Redis blip ends the run with the
+# checkpoint unmoved and no Celery retry; FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS then
+# drops the last_called_at updates for any outage longer than that cap.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_TRANSIENT_ERRORS = (
+    *CH_TRANSIENT_ERRORS,
+    *FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS,
 )
 
 
@@ -1244,7 +1264,7 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
     # ClickHouseAtCapacity, which CH_TRANSIENT_ERRORS includes.
-    autoretry_for=CH_TRANSIENT_ERRORS,
+    autoretry_for=FEATURE_FLAG_LAST_CALLED_AT_SYNC_TRANSIENT_ERRORS,
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,
@@ -1324,18 +1344,24 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         # Get last sync timestamp from Redis or use lookback
         try:
             last_sync_str = redis_client.get(FEATURE_FLAG_LAST_CALLED_SYNC_KEY)
-            if last_sync_str:
+        except FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS:
+            # The fallback below caps the window at the max lookback, and the end of the run then
+            # advances the checkpoint past everything older than that cap. So a read that failed on
+            # the transport has to reach Celery and retry, rather than take the fallback. The outer
+            # exception handler below already logs and reports it.
+            raise
+
+        last_sync_timestamp = None
+        if last_sync_str:
+            try:
                 parsed_timestamp = datetime.fromisoformat(last_sync_str.decode())
                 # Ensure timezone-aware to avoid comparison issues with timezone.now()
                 last_sync_timestamp = (
                     parsed_timestamp if parsed_timestamp.tzinfo else timezone.make_aware(parsed_timestamp)
                 )
-            else:
-                last_sync_timestamp = timezone.now() - timedelta(
-                    days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
-                )
-        except Exception as e:
-            logger.warning("Failed to get or parse last sync timestamp", error=str(e))
+            except ValueError as e:
+                logger.warning("Failed to parse last sync timestamp", error=str(e))
+        if last_sync_timestamp is None:
             last_sync_timestamp = timezone.now() - timedelta(
                 days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
             )
@@ -1617,8 +1643,12 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         )
         raise
     finally:
-        # Always release the lock
-        cache.delete(LOCK_KEY)
+        # Always release the lock. A failing delete must not replace the error that is already on
+        # its way out, and the lock expires on its own after LOCK_TIMEOUT.
+        try:
+            cache.delete(LOCK_KEY)
+        except Exception:
+            logger.warning("Failed to release feature flag sync lock", exc_info=True)
 
 
 @shared_task(ignore_result=True, time_limit=7200)
