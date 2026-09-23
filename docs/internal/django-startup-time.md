@@ -113,7 +113,9 @@ The batch-exports `ready()` wired its receiver through the API module on a "the 
 Cut at the setup-path entry: the module that `ready()` wires, a model file, or `apps.py`.
 Do not defer a product facade import inside the modules that consume it.
 That hides the product boundary and treats the facade like an optional SDK.
-When a heavy facade reaches setup, defer it in the receiver or model module that pulls it in.
+When a heavy facade reaches setup, find the receiver or model module on the setup path that leads to it.
+In that module, defer the import of the implementation module that sits between it and the facade.
+Leave every facade import itself at module scope.
 When the setup path needs only one symbol from a heavy module, move that symbol to a light module and re-export it from the old place.
 hothog's `1-cut@` column (see [Measuring](#measuring)) names the dominator: the one module where a deferral removes the whole subtree.
 

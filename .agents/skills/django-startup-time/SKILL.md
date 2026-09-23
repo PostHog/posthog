@@ -21,7 +21,7 @@ The guards live in `posthog/test/repo_invariants/test_startup_import_budget.py`.
 - New heavy dependency (vendor SDK, Temporal/AI/ClickHouse, pandas/pyarrow/scipy): import it function-locally on the path that uses it with `# noqa: PLC0415`, never at module scope.
 - Schema types on a setup-path module: enums from `posthog.schema_enums` (cheap); pydantic models from `posthog.schema` only inside the method that uses them. No module-level `from posthog.tasks...` on setup paths — `CeleryQueue` lives in `posthog.celery_queues`.
 - New viewset/route: it no longer loads at setup — don't rely on import side effects; routes go in `rest_router.py`, not the `__init__.py` shim.
-- Where to cut: at the setup-path entry (the module `ready()` wires, a model file, `apps.py`), never inside a module that consumes a product facade. If the setup path needs one symbol from a heavy module, move it to a light module and re-export it.
+- Where to cut: at the setup-path entry (the module `ready()` wires, a model file, `apps.py`), never inside a module that consumes a product facade. When a facade reaches setup, the entry defers the implementation module that leads to it; facade imports stay at module scope. If the setup path needs one symbol from a heavy module, move it to a light module and re-export it.
 - Any deferral relocates cost — ask which process pays now, on what path, and whether that path is latency-sensitive (background workers paying lazily: fine; web workers paying on first requests: usually not).
 
 ## Traps to check before you commit
