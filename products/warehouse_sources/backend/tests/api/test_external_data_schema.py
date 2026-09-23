@@ -90,6 +90,37 @@ class TestExternalDataSchema(APIBaseTest):
         self.postgres_config = postgres_config
         self.temporal = temporal
 
+    @parameterized.expand(
+        [
+            ("healthy", {}, ExternalDataSchema.Status.RUNNING),
+            (
+                "halted",
+                {"cdc_extraction_paused": {"reason": "transaction_too_large"}},
+                ExternalDataSchema.Status.FAILED,
+            ),
+        ]
+    )
+    def test_sync_now_leaves_a_halted_cdc_schema_failed(self, _name: str, config: dict, expected: str) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(
+            name="users",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config=config,
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema._trigger_schema_sync"
+        ):
+            response = self.client.post(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/reload/")
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.status == expected
+
     def test_incremental_fields_stripe(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1064,6 +1095,18 @@ class TestExternalDataSchema(APIBaseTest):
                 ExternalDataSchema.SyncType.FULL_REFRESH,
                 None,
             ),
+            (
+                "rejects_a_source_column_named_like_the_position_column",
+                {
+                    "primary_key_columns": ["id"],
+                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "_ph_cdc_seq"}]},
+                },
+                None,
+                status.HTTP_400_BAD_REQUEST,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+                "_ph_cdc_seq",
+            ),
         ]
     )
     def test_update_schema_to_cdc(
@@ -1074,6 +1117,7 @@ class TestExternalDataSchema(APIBaseTest):
         expected_status: int,
         expected_sync_type: str,
         expected_pk_columns: list[str] | None,
+        expected_error: str = "primary key",
     ):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1113,7 +1157,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == expected_status, response.content
         if expected_status == status.HTTP_400_BAD_REQUEST:
-            assert "primary key" in str(response.json()).lower()
+            assert expected_error in str(response.json()).lower()
         schema.refresh_from_db()
         assert schema.sync_type == expected_sync_type
         if expected_pk_columns is not None:

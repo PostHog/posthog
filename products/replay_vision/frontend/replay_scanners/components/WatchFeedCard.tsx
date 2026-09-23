@@ -1,8 +1,8 @@
 import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPlay, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconFlag, IconPlay, IconPlayFilled } from '@posthog/icons'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
@@ -15,7 +15,7 @@ import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
-import { citedTimestampRange } from '../../utils/citations'
+import { citedTextToPlainText, citedTimestampRange } from '../../utils/citations'
 import { ScannerType } from '../types'
 
 const roundScore = (value: number): number => Math.round(value * 100) / 100
@@ -151,6 +151,50 @@ export function observationClipRange(observation: ReplayObservationApi): { start
     return typeof text === 'string' ? citedTimestampRange(text, segments) : null
 }
 
+/**
+ * The card's bold headline, plus the prose that follows it. A summarizer authored a title, so its
+ * summary rides along whole (with citation chips). Otherwise the first sentence of the prose the
+ * scan wrote (an untitled summarizer's summary, the other types' reasoning) is promoted to the
+ * headline, with citation chips rendered as plain timestamps so a mid-sentence citation keeps
+ * its place, and the rest becomes the body, already plain.
+ */
+export function watchCardHeadline(
+    observation: ReplayObservationApi
+): { title: string; body: { text: string; segments?: unknown } | null } | null {
+    const result = readResult(observation)
+    if (!result) {
+        return null
+    }
+    const scannerType =
+        (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
+        (result.scanner_type as ScannerType | undefined)
+    if (scannerType === 'summarizer' && typeof result.title === 'string' && result.title) {
+        const summary = typeof result.summary === 'string' ? result.summary : null
+        return {
+            title: result.title,
+            body: summary ? { text: summary, segments: result.summary_segments } : null,
+        }
+    }
+    // The summarizer's title defaults to "", so an untitled summary still earns a derived headline.
+    const [text, segments] =
+        scannerType === 'summarizer'
+            ? [result.summary, result.summary_segments]
+            : [result.reasoning, result.reasoning_segments]
+    if (typeof text !== 'string' || !text) {
+        return null
+    }
+    const plain = citedTextToPlainText(text, segments).replace(/\s+/g, ' ').trim()
+    if (!plain) {
+        return null
+    }
+    // A sentence ends at ./!/? followed by whitespace and a non-lowercase character, so "9.5",
+    // "$0.50", "e.g. this", and "8 vs. 5" never split mid-sentence.
+    const match = plain.match(/^[\s\S]*?[.!?](?=\s+(?![a-z])|$)/)
+    const title = (match?.[0] ?? plain).trim()
+    const rest = plain.slice(match?.[0]?.length ?? plain.length).trim()
+    return { title, body: rest ? { text: rest } : null }
+}
+
 interface WatchFeedCardProps {
     item: WatchFeedItemApi
     /** Zero-based place in the feed, captured so we can see how deep people read. */
@@ -169,15 +213,10 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
         (result?.scanner_type as ScannerType | undefined)
     const scannerName = (observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)'
     const person = observation.recording_subject_email || observation.distinct_id
-    // A monitor verdict or a scorer score is a single token, so it rides the header row instead of
-    // taking its own line. Classifier tags and summarizer text need the body's full width, so their
-    // outcome stays there.
-    const outcomeInHeader = scannerType === 'monitor' || scannerType === 'scorer'
-    // Summarizers already tell the story through title + summary; the other types show only an
-    // outcome chip, so bring their reasoning along for context, clamped to keep the card scannable.
-    const reasoning =
-        scannerType !== 'summarizer' && typeof result?.reasoning === 'string'
-            ? { text: result.reasoning, segments: result.reasoning_segments }
+    const headline = watchCardHeadline(observation)
+    const clipDuration =
+        clip && clip.endMs > clip.startMs
+            ? colonDelimitedDuration(Math.ceil((clip.endMs - clip.startMs) / 1000), null)
             : null
     // t=0 when nothing is cited, so the observation page still opens with the player expanded. `from`
     // marks the feed as the origin, so the observation's back button returns here rather than the scanner.
@@ -214,99 +253,93 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
             className="@container relative border rounded bg-bg-light p-4 flex gap-4 hover:border-accent"
             data-attr="vision-watch-feed-card"
         >
-            {/* The thumbnail column spans the card's full height; everything else stacks beside it. */}
-            <div className="hidden @md:flex w-48 shrink-0 flex-col gap-1">
-                {/* The dot and the duration sit outside the poster, which clips its own overflow. */}
-                <div className="relative">
+            {/* The thumbnail is the watch affordance, so the whole poster opens the clip modal.
+                The dot and the duration sit outside the poster, which clips its own overflow. */}
+            <div className="relative hidden @md:block w-64 shrink-0 self-start">
+                <button
+                    type="button"
+                    onClick={watchClipInModal}
+                    className="relative z-10 block w-full cursor-pointer"
+                    data-attr="vision-watch-clip"
+                    aria-label="Watch clip"
+                >
                     <ObservationThumbnail observation={observation}>
-                        <IconPlayFilled className="text-2xl text-brand-red drop-shadow" aria-hidden />
+                        <span className="flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
+                            <IconPlayFilled aria-hidden />
+                            {clipDuration ? `Watch ${clipDuration}` : 'Watch clip'}
+                        </span>
                     </ObservationThumbnail>
-                    {!observation.viewed && (
-                        <Tooltip title="You haven't opened this observation yet">
-                            <span
-                                className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-accent border border-bg-light z-10"
-                                aria-label="Unviewed"
-                            />
-                        </Tooltip>
-                    )}
                     {clip && (
                         <span className="absolute bottom-1 right-1 text-xs tabular-nums bg-bg-light border rounded px-1">
                             {colonDelimitedDuration(Math.floor(clip.startMs / 1000), null)} to{' '}
                             {colonDelimitedDuration(Math.floor(clip.endMs / 1000), null)}
                         </span>
                     )}
-                </div>
-                {clip && clip.endMs > clip.startMs && (
-                    <span className="text-xs text-muted">
-                        {colonDelimitedDuration(Math.ceil((clip.endMs - clip.startMs) / 1000), null)} of the session
-                        cited
-                    </span>
+                </button>
+                {!observation.viewed && (
+                    <Tooltip title="You haven't opened this observation yet">
+                        <span
+                            className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-accent border border-bg-light z-10"
+                            aria-label="Unviewed"
+                        />
+                    </Tooltip>
                 )}
             </div>
-            <div className="flex-1 min-w-0 flex flex-col gap-2">
-                <div className="flex items-start justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2 min-w-0">
-                        {scannerType && <ScannerTypeBadge scannerType={scannerType} />}
-                        <span className="text-muted text-sm truncate">{scannerName}</span>
-                        {/* Above the card's full-area overlay link, like the other interactive
-                            elements, so the outcome's hover tooltip stays reachable. */}
-                        {outcomeInHeader && (
-                            <span className="relative z-10">
-                                <ObservationResultSummary observation={observation} />
-                            </span>
-                        )}
-                    </div>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconPlay />}
-                        onClick={watchClipInModal}
-                        className="relative z-10 shrink-0"
-                        data-attr="vision-watch-clip"
-                    >
-                        Watch clip
-                    </LemonButton>
-                </div>
+            <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                 {/* Stretched to cover the card: clicking anywhere opens the observation with the
-                    player expanded at the first cited moment. Inner links and the button sit
-                    above it via `relative z-10`, so the anchors never nest. */}
+                    player expanded at the first cited moment. Inner links and the thumbnail button
+                    sit above it via `relative z-10`, so the anchors never nest. */}
                 <Link
                     to={observationUrl}
                     onClick={() => capture('observation')}
-                    className="text-sm text-default after:absolute after:inset-0 after:content-['']"
+                    className="text-default after:absolute after:inset-0 after:content-['']"
                     data-attr="vision-watch-feed-card-body"
                 >
-                    <div className="flex flex-col gap-1">
-                        {!outcomeInHeader && <ObservationResultSummary observation={observation} />}
-                        {reasoning && (
-                            <p className="text-muted m-0 line-clamp-2">
-                                <CitedText text={reasoning.text} segments={reasoning.segments} />
-                            </p>
-                        )}
-                    </div>
+                    <h3 className="text-sm font-semibold m-0 line-clamp-2">{headline?.title ?? scannerName}</h3>
                 </Link>
-                <LemonDivider className="my-0" />
-                <div className="text-xs text-secondary">
-                    <span className="font-semibold uppercase">Why this clip</span> {watchReasonCopy(reason)}
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-                    {person ? (
-                        observation.distinct_id ? (
+                <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
+                    {person &&
+                        (observation.distinct_id ? (
                             <Link
                                 to={urls.personByDistinctId(observation.distinct_id)}
-                                className="relative z-10 truncate min-w-0"
+                                className="relative z-10 truncate min-w-0 text-muted"
                                 data-attr="vision-watch-feed-person"
                             >
                                 {person}
                             </Link>
                         ) : (
                             <span className="truncate min-w-0">{person}</span>
-                        )
-                    ) : (
-                        <span />
-                    )}
+                        ))}
+                    {person && <span aria-hidden>·</span>}
                     <TZLabel time={observation.created_at} className="shrink-0" />
                 </div>
+                {/* Above the overlay link so the outcome's hover tooltip stays reachable. The
+                    summarizer's outcome is the title + body above, so it adds no chip here. */}
+                <div className="relative z-10 flex flex-wrap items-center gap-2 min-w-0">
+                    {scannerType && <ScannerTypeBadge scannerType={scannerType} />}
+                    <span className="text-muted text-xs truncate">{scannerName}</span>
+                    {scannerType !== 'summarizer' && <ObservationResultSummary observation={observation} />}
+                </div>
+                {headline?.body && (
+                    <p className="text-muted text-xs m-0 line-clamp-2">
+                        <CitedText text={headline.body.text} segments={headline.body.segments} />
+                    </p>
+                )}
+                <div className="flex items-start gap-1.5 text-xs text-muted">
+                    <IconFlag className="mt-0.5 shrink-0 text-accent" aria-hidden />
+                    <span>{watchReasonCopy(reason)}</span>
+                </div>
+                {/* Narrow containers hide the thumbnail, so they keep an explicit watch control. */}
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    icon={<IconPlay />}
+                    onClick={watchClipInModal}
+                    className="@md:hidden self-start relative z-10"
+                    data-attr="vision-watch-clip"
+                >
+                    Watch clip
+                </LemonButton>
             </div>
         </div>
     )
