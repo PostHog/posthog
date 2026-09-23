@@ -1048,18 +1048,40 @@ class TestProjectSecretApiKeyTeamRateThrottle(APIBaseTest):
         self.assertIn("psak-team:7", _PSAKTeamThrottleForTest().get_cache_key(self._psak_request(team_id=7), Mock()))
 
 
-class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):
+class TestWidgetThrottles(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
 
     def tearDown(self) -> None:
         cache.clear()
 
+    @staticmethod
+    def _identity_request(distinct_id: str, ip: str = "203.0.113.7") -> Mock:
+        return Mock(
+            data={},
+            query_params={"identity_distinct_id": distinct_id},
+            META={"REMOTE_ADDR": ip},
+        )
+
     def test_exhausted_poll_bucket_does_not_block_write(self) -> None:
-        request = Mock(headers={"X-Conversations-Token": "widget-token"})
+        request = Mock(
+            headers={"X-Conversations-Token": "widget-token"},
+            path="/api/conversations/v1/widget/tickets",
+        )
         view = Mock()
         with patch.object(rate_limit.WidgetTeamPollThrottle, "rate", "1/minute"):
             poll = rate_limit.WidgetTeamPollThrottle()
             self.assertTrue(poll.allow_request(request, view))
             self.assertFalse(poll.allow_request(request, view))
         self.assertTrue(rate_limit.WidgetTeamWriteThrottle().allow_request(request, view))
+
+    def test_identity_visitors_sharing_an_ip_get_separate_burst_buckets(self) -> None:
+        throttle = rate_limit.WidgetUserBurstThrottle()
+        view = Mock()
+
+        first = throttle.get_cache_key(self._identity_request("visitor-1"), view)
+        second = throttle.get_cache_key(self._identity_request("visitor-2"), view)
+        repeat = throttle.get_cache_key(self._identity_request("visitor-1"), view)
+
+        self.assertNotEqual(first, second)
+        self.assertEqual(first, repeat)
