@@ -2249,14 +2249,14 @@ Note: Diffed against the Dagster+ cloud GraphQL schema snapshot vendored in dags
 
 ## Datadog — gaps
 
-Today (10): `audit_logs`, `dashboards`, `downtimes`, `events`, `incidents`, `logs`, `monitors`, `slos`, `synthetic_tests`, `users`
+Today (20): `audit_logs`, `dashboards`, `downtimes`, `events`, `incidents`, `logs`, `metrics`, `monitors`, `slo_corrections`, `slo_history`, `slos`, `synthetic_tests`, `team_memberships`, `teams`, `usage_billable_summary`, `usage_estimated_cost`, `usage_historical_cost`, `usage_hourly`, `usage_summary`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/DataDog/datadog-api-client-go/master/.generator/schemas/v2/openapi.yaml>
 
-- [ ] `GET /api/v2/team and /api/v2/team/{team_id}/memberships` — lookup resolving the team handles attached to monitors, incidents, SLOs and services we already sync (high)
-- [ ] `GET /api/v1/metrics, GET /api/v1/metrics/{metric_name}, GET /api/v1/query` — metric metadata and timeseries point query — Datadog's headline data type, entirely absent today (high)
-- [ ] `GET /api/v1/usage/* (summary, billable-summary, hourly-attribution) and /api/v2/usage/hourly_usage, /estimated_cost, /cost_by_org` — billable usage and cost attribution, the most-requested Datadog warehouse use case (high)
-- [ ] `GET /api/v1/slo/{slo_id}/history, /api/v1/slo/{slo_id}/corrections, GET /api/v2/slo/{slo_id}/status` — error-budget and status history for the SLOs we already sync as static definitions (high)
+- [x] `GET /api/v2/team and /api/v2/team/{team_id}/memberships` — lookup resolving the team handles attached to monitors, incidents, SLOs and services we already sync (high)
+- [x] `GET /api/v1/metrics, GET /api/v1/metrics/{metric_name}, GET /api/v1/query` — metric metadata and timeseries point query — Datadog's headline data type, entirely absent today (high)
+- [x] `GET /api/v1/usage/* (summary, billable-summary, hourly-attribution) and /api/v2/usage/hourly_usage, /estimated_cost, /cost_by_org` — billable usage and cost attribution, the most-requested Datadog warehouse use case (high)
+- [x] `GET /api/v1/slo/{slo_id}/history, /api/v1/slo/{slo_id}/corrections, GET /api/v2/slo/{slo_id}/status` — error-budget and status history for the SLOs we already sync as static definitions (high)
 - [ ] `GET /api/v1/hosts and /api/v1/hosts/totals` — host inventory with tags, agent version and muting state — the join key for infrastructure metrics (medium)
 - [ ] `POST /api/v2/security_monitoring/signals/search` — security signal events, the analytical output of the detection rules (medium)
 - [ ] `POST /api/v2/rum/events/search` — RUM event stream for real-user performance and session analysis (medium)
@@ -2266,7 +2266,16 @@ Diffed against: <https://raw.githubusercontent.com/DataDog/datadog-api-client-go
 - [ ] `GET /api/v2/roles and /api/v2/roles/{role_id}/users` — lookup resolving role assignments for the users table we already sync (medium)
 - [ ] `GET /api/v2/services/definitions and /api/v2/catalog/entity` — Software Catalog service definitions — lookup resolving the service names on monitors, incidents and spans (medium)
 
-Note: Diffed against both machine-readable specs (v1: 1.6 MB, v2: 7.3 MB), 1062 paths total. Coverage of the core observability config objects is solid; the missing pieces are almost entirely the metric/usage/cost and event-search families plus the team and role lookup tables. Also unqueried but lower value: on-call schedules and escalation policies, DORA deployments/failures, Scorecards, notebooks, powerpacks.
+Note: Diffed against both machine-readable specs (v1: 1.6 MB, v2: 7.3 MB), 1062 paths total. Coverage of the core observability config objects is solid; the remaining missing pieces are the event-search families plus the role and service-catalog lookup tables. Also unqueried but lower value: on-call schedules and escalation policies, DORA deployments/failures, Scorecards, notebooks, powerpacks.
+
+Ticked above with substitutions, because four of the audited paths were verified against the spec and rejected:
+
+- `GET /api/v1/query` takes a required free-text `query` string with no default, so it has no table shape without per-schema query input, and the spec itself steers callers to `/api/v2/query/timeseries`. `metrics` covers the metric-name half of that line.
+- `GET /api/v1/metrics/{metric_name}` answers for exactly one metric per request, and `/api/v1/metrics` routinely returns tens of thousands of names, so the table would cost one request per metric per sync with no cursor to checkpoint.
+- `GET /api/v1/usage/hourly-attribution` requires a single `usage_type` enum value per request with no "all" option, so one table means fanning out over every usage type and re-walking the full hourly history for each. `usage_hourly` reports the same hourly grain in one paginated, time-filtered call.
+- `GET /api/v2/usage/cost_by_org` is marked `deprecated: true`; `usage_historical_cost` implements `/api/v2/usage/historical_cost`, the replacement the spec names.
+- `GET /api/v2/slo/{slo_id}/status` carries `x-unstable` (public beta, subject to change) and reports the same overall SLI and error budget that `slo_history` already returns.
+- `slo_corrections` reads the org-wide `/api/v1/slo/correction` list rather than fanning `/api/v1/slo/{slo_id}/corrections` out per SLO: the rows are the same and each one carries `slo_id`.
 
 ## DataForSEO — **thin**
 
