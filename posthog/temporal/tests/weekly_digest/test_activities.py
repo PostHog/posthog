@@ -9,6 +9,8 @@ import pytest
 from posthog.test.base import _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import fakeredis
@@ -277,16 +279,68 @@ def _make_error_issues(team: Team, other_team: Team, digest: Digest) -> list[str
 def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
     activity_fn, key_kind, payload_field, make_rows, organization, team, redis_servers, common_input, digest
 ):
-    other_team = Team.objects.create(organization=organization, name="other team")
+    quiet_team = _make_team(organization, "quiet team")
+    other_team = _make_team(organization, "other team")
     expected = make_rows(team, other_team, digest)
+    # Left over from an earlier attempt of the same digest; the quiet team has no rows anymore.
+    redis_servers.digest.set(team_data_key(digest.key, key_kind, quiet_team.id), "[]")
 
-    run_sync(activity_fn, batch_input(team, digest, common_input))
+    run_sync(
+        activity_fn,
+        GenerateDigestDataBatchInput(
+            team_id_range=TeamIdRange(start=team.id, end=other_team.id), digest=digest, common=common_input
+        ),
+    )
 
     key = team_data_key(digest.key, key_kind, team.id)
     stored = json.loads(redis_servers.digest.get(key))
     assert sorted(row[payload_field] for row in stored) == sorted(expected)
     assert 0 < redis_servers.digest.ttl(key) <= common_input.redis_ttl
-    assert redis_servers.digest.get(team_data_key(digest.key, key_kind, other_team.id)) is None
+    # The quiet team is in range with nothing new, so its stale key goes; the other team is out of range.
+    assert team.id < quiet_team.id < other_team.id
+    assert redis_servers.digest.keys(f"{digest.key}-{key_kind}-*") == [key]
+
+
+def _run_lookup(activity_fn: Callable[..., Any]) -> Callable[[TeamIdRange, Digest, CommonInput], None]:
+    return lambda team_range, digest, common: run_sync(
+        activity_fn, GenerateDigestDataBatchInput(team_id_range=team_range, digest=digest, common=common)
+    )
+
+
+def _run_organization_digest_batch(team_range: TeamIdRange, digest: Digest, common: CommonInput) -> None:
+    run_sync(
+        generate_organization_digest_batch,
+        GenerateOrganizationDigestInput(batch=(0, Organization.objects.count()), digest=digest, common=common),
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "run_activity,make_row",
+    [
+        (_run_lookup(generate_dashboard_lookup), lambda team: Dashboard.objects.create(team=team, name="Dashboard")),
+        (_run_lookup(generate_error_issue_lookup), lambda team: create_issue(team_id=team.id, name="issue")),
+        (
+            _run_lookup(generate_filter_lookup),
+            lambda team: SessionRecordingPlaylist.objects.create(team=team, name="Filter", type="filters"),
+        ),
+        (_run_organization_digest_batch, lambda team: None),
+    ],
+)
+def test_batch_activities_run_a_fixed_number_of_queries_per_range(
+    run_activity, make_row, organization, team, redis_servers, common_input, digest
+):
+    # Each activity runs a fixed set of range-wide queries, so adding teams to the range adds no queries.
+    def queries_for(team_count: int) -> int:
+        teams = [team, *(_make_team(organization, f"team {index}") for index in range(team_count - 1))]
+        for extra_team in teams:
+            make_row(extra_team)
+        team_range = TeamIdRange(start=team.id, end=max(extra_team.id for extra_team in teams) + 1)
+        with CaptureQueriesContext(connection) as queries:
+            run_activity(team_range, digest, common_input)
+        return len(queries)
+
+    assert queries_for(1) == queries_for(4)
 
 
 @pytest.mark.django_db
@@ -428,21 +482,22 @@ def test_generate_organization_digest_batch_defaults_missing_team_data(
 ):
     silent_team = _make_team(organization, "silent team")
     Team.objects.create(organization=organization, name="demo team", is_demo=True)
+    broken_organization = Organization.objects.create(name="broken org")
+    broken_team = _make_team(broken_organization, "broken team")
+    redis_servers.digest.set(team_data_key(digest.key, TeamDataKey.DASHBOARDS, broken_team.id), "not json")
     redis_servers.digest.set(
         team_data_key(digest.key, TeamDataKey.DASHBOARDS, team.id), json.dumps([{"name": "Dashboard", "id": 1}])
     )
     redis_servers.digest.set(
         team_data_key(digest.key, TeamDataKey.EXPIRING_RECORDINGS, team.id), json.dumps({"recording_count": 7})
     )
-    organization_index = list(Organization.objects.order_by("id").values_list("id", flat=True)).index(organization.id)
-
     run_sync(
         generate_organization_digest_batch,
-        GenerateOrganizationDigestInput(
-            batch=(organization_index, organization_index + 1), digest=digest, common=common_input
-        ),
+        GenerateOrganizationDigestInput(batch=(0, Organization.objects.count()), digest=digest, common=common_input),
     )
 
+    # One organization's malformed value skips that organization only.
+    assert redis_servers.digest.get(org_digest_key(digest.key, broken_organization.id)) is None
     stored = json.loads(redis_servers.digest.get(org_digest_key(digest.key, organization.id)))
     assert stored["name"] == organization.name
     assert [td["id"] for td in stored["team_digests"]] == sorted([team.id, silent_team.id])
