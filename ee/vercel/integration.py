@@ -34,7 +34,6 @@ from posthog.utils import absolute_uri
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
-from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
 from ee.billing.billing_types import BillingProvider
 from ee.vercel.client import SSOTokenResponse, VercelAPIClient
@@ -874,7 +873,11 @@ class VercelIntegration:
         if not token_response.id_token:
             raise exceptions.AuthenticationFailed("Vercel SSO response missing id_token")
 
-        # Then exchange token for claim
+        # Then exchange token for claim. Call-time import: ee.api.authentication holds @api_view
+        # functions whose decorator resolves the DRF schema class (drf_spectacular, django.test),
+        # and this module is wired at ready() in every process.
+        from ee.api.authentication import VercelAuthentication  # noqa: PLC0415
+
         claims = VercelAuthentication()._validate_jwt_token(token_response.id_token, "user")
 
         if not isinstance(claims, VercelUserClaims):

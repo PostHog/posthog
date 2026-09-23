@@ -595,7 +595,7 @@ class TestEmailIntegration:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
 
-    @patch("posthog.models.integration.email.SESProvider")
+    @patch("products.workflows.backend.providers.SESProvider")
     def test_integration_from_domain(self, mock_ses_provider_class):
         mock_client = MagicMock()
         mock_ses_provider_class.return_value = mock_client
@@ -627,7 +627,7 @@ class TestEmailIntegration:
             org_team_ids=[self.team.id],
         )
 
-    @patch("posthog.models.integration.email.SESProvider")
+    @patch("products.workflows.backend.providers.SESProvider")
     def test_email_verify_returns_ses_result(self, mock_ses_provider_class):
         mock_client = MagicMock()
         mock_ses_provider_class.return_value = mock_client
@@ -686,7 +686,7 @@ class TestEmailIntegration:
             "provider": "ses",
         }
 
-    @patch("posthog.models.integration.email.SESProvider")
+    @patch("products.workflows.backend.providers.SESProvider")
     def test_email_verify_updates_integration(self, mock_ses_provider_class):
         mock_client = MagicMock()
         mock_ses_provider_class.return_value = mock_client
@@ -723,7 +723,7 @@ class TestEmailIntegration:
             "provider": "ses",
         }
 
-    @patch("posthog.models.integration.email.SESProvider")
+    @patch("products.workflows.backend.providers.SESProvider")
     def test_email_verify_updates_all_other_integrations_with_same_domain(self, mock_ses_provider_class, settings):
         settings.SES_ACCESS_KEY_ID = "test_access_key"
         settings.SES_SECRET_ACCESS_KEY = "test_secret_key"
