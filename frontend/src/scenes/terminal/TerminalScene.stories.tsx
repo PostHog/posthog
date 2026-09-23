@@ -367,3 +367,19 @@ export const DeleteConfirmation: StoryObj<typeof TerminalScene> = {
         expect(document.querySelector('[data-attr="terminal-confirmation"]')).not.toBeNull()
     },
 }
+
+export const Framebuffer: StoryObj<typeof TerminalScene> = {
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        terminalLogic.actions.setDisplayOpen(true)
+    },
+}
+
+export const LiveDoom: StoryObj<typeof TerminalScene> = {
+    tags: ['!test'],
+    parameters: { liveRuntime: true },
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'), { timeout: 120_000 })
+        window.posthogTerminal?.write('doom\n')
+    },
+}

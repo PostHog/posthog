@@ -5,6 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -40,6 +41,10 @@ export interface terminalLogicValues {
     terminalEnabled: boolean // terminalDockLogic
     clipboardError: string | null
     confirmation: TerminalConfirmation | null
+    displayCaptured: boolean
+    displayError: string | null
+    displayFullscreen: boolean
+    displayOpen: boolean
     error: string | null
     hasSelection: boolean
     hasStarted: boolean
@@ -67,11 +72,37 @@ export interface terminalLogicActions {
     attach: (container: HTMLElement) => {
         container: HTMLElement
     }
+    attachDisplay: (container: HTMLElement) => {
+        container: HTMLElement
+    }
+    closeDisplay: () => {
+        value: true
+    }
     copy: () => {
         value: true
     }
     detach: (container: HTMLElement) => {
         container: HTMLElement
+    }
+    detachDisplay: () => {
+        value: true
+    }
+    displayButtons: (buttons: number) => {
+        buttons: number
+    }
+    displayKey: (
+        code: string,
+        down: boolean
+    ) => {
+        code: string
+        down: boolean
+    }
+    displayMouse: (
+        x: number,
+        y: number
+    ) => {
+        x: number
+        y: number
     }
     focus: () => {
         value: true
@@ -85,11 +116,26 @@ export interface terminalLogicActions {
     paste: () => {
         value: true
     }
+    releaseDisplayInput: () => {
+        value: true
+    }
     setClipboardError: (error: string | null) => {
         error: string | null
     }
     setConfirmation: (confirmation: TerminalConfirmation | null) => {
         confirmation: TerminalConfirmation | null
+    }
+    setDisplayCaptured: (captured: boolean) => {
+        captured: boolean
+    }
+    setDisplayError: (error: string | null) => {
+        error: string | null
+    }
+    setDisplayFullscreen: (fullscreen: boolean) => {
+        fullscreen: boolean
+    }
+    setDisplayOpen: (open: boolean) => {
+        open: boolean
     }
     setError: (error: string | null) => {
         error: string | null
@@ -132,6 +178,17 @@ export const terminalLogic = kea<terminalLogicType>([
     actions({
         setConfirmation: (confirmation: TerminalConfirmation | null) => ({ confirmation }),
         answerConfirmation: (confirmation: TerminalConfirmation, approved: boolean) => ({ confirmation, approved }),
+        setDisplayFullscreen: (fullscreen: boolean) => ({ fullscreen }),
+        setDisplayCaptured: (captured: boolean) => ({ captured }),
+        setDisplayError: (error: string | null) => ({ error }),
+        setDisplayOpen: (open: boolean) => ({ open }),
+        closeDisplay: true,
+        attachDisplay: (container: HTMLElement) => ({ container }),
+        detachDisplay: true,
+        displayKey: (code: string, down: boolean) => ({ code, down }),
+        displayButtons: (buttons: number) => ({ buttons }),
+        displayMouse: (x: number, y: number) => ({ x, y }),
+        releaseDisplayInput: true,
         start: true,
         followFolder: true,
         attach: (container: HTMLElement) => ({ container }),
@@ -152,6 +209,42 @@ export const terminalLogic = kea<terminalLogicType>([
         confirmation: [
             null as TerminalConfirmation | null,
             { setConfirmation: (_, { confirmation }) => confirmation, stop: () => null },
+        ],
+        displayFullscreen: [
+            false,
+            {
+                setDisplayFullscreen: (_, { fullscreen }) => fullscreen,
+                detachDisplay: () => false,
+                closeDisplay: () => false,
+                stop: () => false,
+            },
+        ],
+        displayCaptured: [
+            false,
+            {
+                setDisplayCaptured: (_, { captured }) => captured,
+                detachDisplay: () => false,
+                closeDisplay: () => false,
+                stop: () => false,
+            },
+        ],
+        displayError: [
+            null as string | null,
+            {
+                setDisplayError: (_, { error }) => error,
+                attachDisplay: () => null,
+                closeDisplay: () => null,
+                stop: () => null,
+            },
+        ],
+        displayOpen: [
+            false,
+            {
+                setDisplayOpen: (_, { open }) => open,
+                closeDisplay: () => false,
+                stop: () => false,
+                setStatus: (state, { status }) => (status === 'error' ? false : state),
+            },
         ],
         hasStarted: [false, { start: () => true }],
         runRequested: [false, { start: () => true, stop: () => false }],
@@ -204,6 +297,38 @@ export const terminalLogic = kea<terminalLogicType>([
         answerConfirmation: ({ confirmation, approved }) => {
             if (values.confirmation === confirmation) {
                 cache.answerConfirmation?.(approved)
+            }
+        },
+        attachDisplay: ({ container }) => cache.runtime?.attachDisplay(container),
+        detachDisplay: () => cache.runtime?.detachDisplay(),
+        displayKey: ({ code, down }) => {
+            if (values.displayOpen) {
+                cache.runtime?.displayInput.key(code, down)
+            }
+        },
+        displayButtons: ({ buttons }) => {
+            if (values.displayOpen) {
+                cache.runtime?.displayInput.buttons(buttons)
+            }
+        },
+        displayMouse: ({ x, y }) => {
+            if (values.displayOpen) {
+                cache.runtime?.moveMouse(x, y)
+            }
+        },
+        releaseDisplayInput: () => cache.runtime?.displayInput.release(),
+        closeDisplay: () => {
+            cache.runtime?.displayInput.release()
+            cache.runtime?.write('\x03')
+            if (removeProjectIdIfPresent(router.values.location.pathname) !== '/terminal') {
+                terminalDockLogic.actions.setDockOpen(true)
+            }
+            actions.focus()
+        },
+        setDisplayOpen: ({ open }) => {
+            if (!open) {
+                actions.releaseDisplayInput()
+                actions.focus()
             }
         },
         attach: ({ container }) => {
@@ -286,7 +411,7 @@ export const terminalLogic = kea<terminalLogicType>([
                 return
             }
             cache.projectId = projectId
-            const runtime = new TerminalRuntime((bytes) => cache.session?.view.write(bytes))
+            const runtime = new TerminalRuntime((bytes) => cache.session?.view.write(bytes), actions.setDisplayOpen)
             cache.runtime = runtime
             cache.session.view.clear()
             runtime.resize(cache.session.view.cols, cache.session.view.rows)
