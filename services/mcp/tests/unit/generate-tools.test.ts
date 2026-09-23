@@ -2242,6 +2242,56 @@ describe('optional param with state fallback', () => {
         const collapsed = result.code.replace(/\s+/g, ' ')
         expect(collapsed).toContain('.optional()).optional()')
     })
+
+    it('sends the state-resolved value for a body field, not the omitted param', () => {
+        const bodyConfig: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            param_overrides: {
+                organization: {
+                    description: 'Organization ID. If omitted, uses the active organization.',
+                    optional: true,
+                    fallback: 'orgId',
+                },
+            },
+        }
+        const bodyResolved = makeResolved({
+            method: 'POST',
+            path: '/api/things/',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    organization: { type: 'string' },
+                                    title: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const result = generateToolCode(
+            'things-create',
+            bodyConfig,
+            bodyResolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        const collapsed = result.code.replace(/\s+/g, ' ')
+        expect(collapsed).toContain('const organization = params.organization ?? await context.stateManager.getOrgID()')
+        // Reading `params.organization` here would drop the resolved value and post a
+        // body without the field, so the API rejects every call that relies on the fallback.
+        expect(collapsed).toContain('body["organization"] = organization')
+        expect(collapsed).not.toContain('body["organization"] = params.organization')
+    })
 })
 
 describe('composeToolSchema param aliases', () => {
