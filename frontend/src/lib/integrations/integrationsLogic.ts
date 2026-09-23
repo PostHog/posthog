@@ -173,6 +173,9 @@ export interface integrationsLogicActions {
         currentTeam: null | import('~/types').TeamPublicType
         payload?: any
     } // teamLogic
+    clearIntegrations: () => {
+        value: true
+    }
     closeNewIntegrationModal: () => {
         value: true
     }
@@ -628,9 +631,6 @@ export interface integrationsLogicActions {
         value: true
     }
     unsubscribeGithubSuggestions: () => {
-        value: true
-    }
-    clearIntegrations: () => {
         value: true
     }
 }
