@@ -162,6 +162,23 @@ class TestCspReport(BaseTest):
         assert event["timestamp"] == "2026-08-12T09:59:18+00:00"
 
     @patch("posthog.api.report.capture_batch_internal")
+    def test_reports_carry_no_client_ip_and_no_geoip(self, mock_batch_capture):
+        mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps([SINGLE_VIOLATION_REPORT_TO, CRASH_REPORT]),
+            content_type="application/reports+json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        events = mock_batch_capture.call_args.kwargs["events"]
+        assert [e["event"] for e in events] == ["$csp_violation", "$browser_crash_report"]
+        for event in events:
+            assert event["properties"]["$ip"] is None
+            assert event["properties"]["$geoip_disable"] is True
+
+    @patch("posthog.api.report.capture_batch_internal")
     def test_crash_reports_bypass_csp_sampling(self, mock_batch_capture):
         mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
 

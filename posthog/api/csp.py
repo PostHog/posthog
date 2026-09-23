@@ -201,6 +201,17 @@ def parse_crash_report(data: dict) -> dict:
     }
 
 
+# The browser posts a report directly to this endpoint, and the Django app then re-posts it
+# through capture_internal. So the address the capture service resolves is the Django hop, never
+# the browser: the reporting client's IP is not collected on this path. An explicit null stops
+# ingestion from stamping that meaningless address on the event, and $geoip_disable stops GeoIP
+# from turning it into a location every report appears to share.
+NO_CLIENT_IP_PROPERTIES: dict[str, object] = {
+    "$ip": None,
+    "$geoip_disable": True,
+}
+
+
 # The browser queues crash reports and delivers them on a later visit to the origin, so
 # receipt time can be far from the crash itself; `age` recovers the actual crash time.
 # Bounded so a garbage value can't backdate the event arbitrarily.
@@ -224,6 +235,7 @@ def build_crash_event(props: dict, distinct_id: str, session_id: str, user_agent
             "$current_url": props["$browser_crash_document_url"],
             "$process_person_profile": False,
             "$raw_user_agent": props.get("$browser_crash_user_agent") or user_agent,
+            **NO_CLIENT_IP_PROPERTIES,
             **props,
         },
     }
@@ -246,6 +258,7 @@ def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str
             "$current_url": props["$csp_document_url"],
             "$process_person_profile": False,
             "$raw_user_agent": user_agent,
+            **NO_CLIENT_IP_PROPERTIES,
             **props,
         },
     }
