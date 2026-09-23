@@ -5,6 +5,45 @@ import { Terminal } from '@xterm/xterm'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+/**
+ * xterm's accessibility manager listens for `selectionchange` on the whole document, and throws
+ * "invalid range" when it maps a selection to an empty terminal range. Nothing catches a throw from
+ * an event listener, so it reaches error tracking as an unhandled exception. Wrap every
+ * `selectionchange` listener that `register` adds, and return the wrappers, because xterm keeps the
+ * unwrapped function and cannot remove them itself.
+ */
+export function guardSelectionListeners(register: () => void): EventListener[] {
+    const wrappers: EventListener[] = []
+    const addEventListener = document.addEventListener.bind(document)
+    document.addEventListener = (
+        type: string,
+        listener: EventListenerOrEventListenerObject,
+        options?: boolean | AddEventListenerOptions
+    ): void => {
+        if (type !== 'selectionchange' || typeof listener !== 'function') {
+            addEventListener(type, listener, options)
+            return
+        }
+        const wrapper = (event: Event): void => {
+            try {
+                listener(event)
+            } catch (error) {
+                if (!(error instanceof Error) || error.message !== 'invalid range') {
+                    throw error
+                }
+            }
+        }
+        wrappers.push(wrapper)
+        addEventListener(type, wrapper, options)
+    }
+    try {
+        register()
+    } finally {
+        Reflect.deleteProperty(document, 'addEventListener')
+    }
+    return wrappers
+}
+
 export class TerminalSession {
     private readonly colors = getComputedStyle(document.documentElement)
     readonly view = new Terminal({
@@ -41,6 +80,7 @@ export class TerminalSession {
     private readonly element = document.createElement('div')
     private readonly fit = new FitAddon()
     private readonly observer = new ResizeObserver(() => this.resize())
+    private readonly guardedSelectionListeners: EventListener[]
 
     constructor(
         write: (data: string) => void,
@@ -53,7 +93,7 @@ export class TerminalSession {
         this.element.dataset.shortcutsIgnore = 'ctrl'
         this.element.dataset.shortcutsAllowKeys = '` ~'
         this.view.loadAddon(this.fit)
-        this.view.open(this.element)
+        this.guardedSelectionListeners = guardSelectionListeners(() => this.view.open(this.element))
         this.view.onData(write)
         this.view.onResize(({ cols, rows }) => resize(cols, rows))
         this.view.onSelectionChange(() => {
@@ -106,6 +146,9 @@ export class TerminalSession {
 
     dispose(): void {
         this.observer.disconnect()
+        for (const listener of this.guardedSelectionListeners) {
+            document.removeEventListener('selectionchange', listener)
+        }
         this.view.dispose()
         this.element.remove()
     }
