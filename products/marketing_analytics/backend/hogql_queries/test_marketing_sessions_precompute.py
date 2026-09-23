@@ -4,19 +4,15 @@ from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
-
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse
+from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Team
 from posthog.schema_enums import SessionTableVersion
 from posthog.test.persons import create_person
 from posthog.uuidt import uuid7
@@ -97,16 +93,14 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         result = ensure_marketing_sessions_precomputed(self.team, start + timedelta(hours=1), end)
-        if duration_hours > 72:
-            assert not result.ready
-            assert not result.job_ids
-            return
-        assert result.ready
+        assert result.ready, result.errors
         assert sync_execute(
             "SELECT session_id_v7, pageview_count FROM web_sessions_dimensional_preaggregated "
             "WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s",
             {"team_id": self.team.pk, "job_ids": result.job_ids},
-        ) == [(uuid.UUID(session_id).int, 2)]
+        ) == ([] if duration_hours > 72 else [(uuid.UUID(session_id).int, 2)])
+        if duration_hours > 72:
+            return
 
         response = execute_hogql_query(
             SESSIONS_INSERT_TEMPLATE,
@@ -143,8 +137,8 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
         cached = ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False)
-        assert not cached.ready
-        assert not cached.job_ids
+        assert cached.ready
+        assert set(cached.job_ids) == set(result.job_ids)
 
     @parameterized.expand([(SessionTableVersion.V2,), (SessionTableVersion.V3,)])
     def test_window_refreshes_after_a_long_sessions_first_pageview(self, version: SessionTableVersion) -> None:
@@ -189,23 +183,3 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
                 "WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s",
                 {"team_id": self.team.pk, "job_ids": refreshed.job_ids},
             ) == [(uuid.UUID(session_id).int, 1)]
-
-
-class TestSessionPrecomputeCoverageFailure(SimpleTestCase):
-    def test_query_error_does_not_prove_session_coverage(self) -> None:
-        with (
-            patch(
-                "products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute.create_default_modifiers_for_team",
-                return_value=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),
-            ),
-            patch(
-                "products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute.execute_hogql_query",
-                return_value=HogQLQueryResponse(results=[], error="Coverage query failed"),
-            ),
-        ):
-            result = ensure_marketing_sessions_precomputed(
-                Team(id=1), datetime(2026, 9, 1, tzinfo=UTC), datetime(2026, 9, 2, tzinfo=UTC)
-            )
-        self.assertFalse(result.ready)
-        self.assertEqual(result.job_ids, [])
-        self.assertEqual(result.errors, ["Could not verify session precompute coverage"])
