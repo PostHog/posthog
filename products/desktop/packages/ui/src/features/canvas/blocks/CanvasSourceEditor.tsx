@@ -15,7 +15,6 @@ import {
   CANVAS_EDITOR_CHANNEL,
   postToCanvasEditor,
 } from "@posthog/ui/features/canvas/blocks/editorFrame";
-import { libraryLabel } from "@posthog/ui/features/canvas/blocks/libraryCatalog";
 import { SourceDragOverlay } from "@posthog/ui/features/canvas/blocks/SourceDragOverlay";
 import {
   activeSourceDrag,
@@ -48,18 +47,9 @@ function isTypingTarget(target: EventTarget | null): boolean {
 function toSelection(
   element: EditElementMessage | null,
 ): CanvasEditSelection | null {
-  if (!element) return null;
-  return {
-    rev: element.rev,
-    source: element.source,
-    blockType: element.blockType,
-    blockId: element.blockId,
-    props: element.props ?? {},
-    tag: element.tag,
-    text: element.text,
-    layout: element.layout ?? { inGrid: false, grow: null, grid: null },
-    params: parseParamSchema(element.params ?? null),
-  };
+  return element
+    ? { ...element, params: parseParamSchema(element.params) }
+    : null;
 }
 
 export function CanvasSourceEditor({
@@ -153,11 +143,8 @@ export function CanvasSourceEditor({
           if (!element) return;
           beginSourceDrag({
             source: { kind: "move", selection: element },
-            label: libraryLabel(element.blockType, element.tag),
-            blockType: element.blockType,
             startX: offsetX + Number(data.x),
             startY: offsetY + Number(data.y),
-            startActive: true,
             onDrop: latest.current.actions.drop,
           });
           return;

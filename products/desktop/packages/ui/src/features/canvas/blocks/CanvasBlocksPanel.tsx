@@ -135,7 +135,7 @@ function Library({
   addsAfter: string | null;
   onPointerDown: (event: React.PointerEvent, entry: LibraryEntry) => void;
   onActivate: (entry: LibraryEntry) => void;
-  onAskAgent?: (message: string) => void;
+  onAskAgent: (message: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const groups = useMemo(() => {
@@ -187,7 +187,7 @@ function Library({
             ? `Click a block to add it after the selected ${addsAfter.toLowerCase()}, or drag it anywhere in the canvas.`
             : "Click a block to add it at the end, or drag it anywhere in the canvas."}
         </div>
-        {onAskAgent ? <AskAgentCard onAskAgent={onAskAgent} /> : null}
+        <AskAgentCard onAskAgent={onAskAgent} />
       </div>
     </div>
   );
@@ -233,7 +233,7 @@ export function CanvasBlocksPanel({
   onAskAgent,
 }: {
   canvasId: string;
-  onAskAgent?: (message: string) => void;
+  onAskAgent: (message: string) => void;
 }) {
   const entry = useCanvasSourceEntry(canvasId);
   const selection = useCanvasEditSelection(canvasId);
@@ -276,11 +276,8 @@ export function CanvasBlocksPanel({
     event.preventDefault();
     beginSourceDrag({
       source: { kind: "new", blockType: item.type },
-      label: item.label,
-      blockType: item.type,
       startX: event.clientX,
       startY: event.clientY,
-      startActive: false,
       onDrop: (source, hit) => {
         store.setLibraryOpen(canvasId, true);
         actions.drop(source, hit);
@@ -322,20 +319,18 @@ export function CanvasBlocksPanel({
           >
             Try again
           </Button>
-          {onAskAgent ? (
-            <Button
-              variant="default"
-              size="xs"
-              onClick={() =>
-                onAskAgent(
-                  `Saving this canvas fails with: "${entry.saveError}". Fix the canvas source so it passes validation.`,
-                )
-              }
-            >
-              <Sparkle size={11} />
-              Ask the agent to fix
-            </Button>
-          ) : null}
+          <Button
+            variant="default"
+            size="xs"
+            onClick={() =>
+              onAskAgent(
+                `Saving this canvas fails with: "${entry.saveError}". Fix the canvas source so it passes validation.`,
+              )
+            }
+          >
+            <Sparkle size={11} />
+            Ask the agent to fix
+          </Button>
         </PanelNotice>
       ) : null}
       {entry.conflict ? (
@@ -389,7 +384,7 @@ export function CanvasBlocksPanel({
             onDuplicate={() => actions.duplicate(selection)}
             onRemove={() => actions.remove(selection)}
           />
-          {onAskAgent && !isRoot ? (
+          {isRoot ? null : (
             <div className="px-3 pb-3">
               <Button
                 variant="outline"
@@ -404,7 +399,7 @@ export function CanvasBlocksPanel({
                 Ask the agent about this
               </Button>
             </div>
-          ) : null}
+          )}
         </div>
       ) : (
         <Library

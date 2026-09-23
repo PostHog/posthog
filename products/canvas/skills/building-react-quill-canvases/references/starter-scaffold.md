@@ -125,11 +125,6 @@ function ViewQueryDialog({ query }) {
   )
 }
 
-// Each card is its own component that takes its tunable values as props with
-// defaults, and spreads editable() on its root. The desktop editor reads the
-// params and writes changes back into the literal props where the card is used,
-// so a person can retitle or recolor a card without a new task. Data (state,
-// callbacks) passes as ordinary props: editable() records only the params.
 function NumberCard(props) {
   const { title = 'Total', state, onRetry, query } = props
   return (

@@ -1363,7 +1363,7 @@ export function FreeformCanvasView({
             channelName={channelName}
             name={dashboard?.name ?? "Canvas"}
             displayedVersionId={displayedVersionId}
-            liveVersionId={headVersionId ?? null}
+            liveVersionId={headVersionId}
             commentVersionLabel={commentVersionLabel}
             onCommentOpen={(versionId) => {
               setBrowseVersion(

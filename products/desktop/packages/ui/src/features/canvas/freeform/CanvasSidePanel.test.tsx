@@ -48,6 +48,8 @@ describe("CanvasSidePanel", () => {
         channelName="General"
         name="Launch canvas"
         displayedVersionId="version-2"
+        liveVersionId="version-2"
+        onAskAgent={vi.fn()}
         commentVersionLabel={(versionId) => versionId}
         onCommentOpen={vi.fn()}
       />,
@@ -71,6 +73,8 @@ describe("CanvasSidePanel", () => {
       channelName: "General",
       name: "Launch canvas",
       displayedVersionId: "version-2",
+      liveVersionId: "version-2",
+      onAskAgent: vi.fn(),
       commentVersionLabel: (versionId: string) => versionId,
       onCommentOpen: vi.fn(),
     };
@@ -104,6 +108,8 @@ describe("CanvasSidePanel", () => {
         channelName="General"
         name="Launch canvas"
         displayedVersionId="version-2"
+        liveVersionId="version-2"
+        onAskAgent={vi.fn()}
         commentVersionLabel={(versionId) => versionId}
         onCommentOpen={vi.fn()}
       />,

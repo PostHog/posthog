@@ -5,6 +5,7 @@ import {
   canvasEditorFrame,
   postToCanvasEditor,
 } from "@posthog/ui/features/canvas/blocks/editorFrame";
+import { libraryLabel } from "@posthog/ui/features/canvas/blocks/libraryCatalog";
 import { create } from "zustand";
 
 export type SourceDragSource =
@@ -87,25 +88,29 @@ function isDataBlock(blockType: string | null): boolean {
 
 export function beginSourceDrag(options: {
   source: SourceDragSource;
-  label: string;
-  blockType: string | null;
   startX: number;
   startY: number;
-  startActive: boolean;
   onDrop: (source: SourceDragSource, hit: SourceDropHit) => void;
   onClick?: () => void;
-}): SourceDragController {
+}): void {
   const { setGhost } = useSourceDragStore.getState();
-  let started = options.startActive;
+  const { source } = options;
+  const blockType =
+    source.kind === "new" ? source.blockType : source.selection.blockType;
+  const label = libraryLabel(
+    blockType,
+    source.kind === "move" ? source.selection.tag : undefined,
+  );
+  let started = source.kind === "move";
   let lastX = options.startX;
   let tilt = 0;
   let latestHit: SourceDropHit | null = null;
-  const coarse = isDataBlock(options.blockType);
+  const coarse = isDataBlock(blockType);
   const reduceMotion = prefersReducedMotion();
   let lastGhost: GhostState | null = null;
   const exclude =
-    options.source.kind === "move" && options.source.selection.source
-      ? `${options.source.selection.source.file}|${options.source.selection.source.start}|${options.source.selection.source.end}`
+    source.kind === "move" && source.selection.source
+      ? `${source.selection.source.file}|${source.selection.source.start}|${source.selection.source.end}`
       : null;
 
   const render = (x: number, y: number) => {
@@ -121,8 +126,8 @@ export function beginSourceDrag(options: {
       exitTimer = null;
     }
     const ghost: GhostState = {
-      label: options.label,
-      blockType: options.blockType,
+      label,
+      blockType,
       x,
       y,
       tilt: reduceMotion ? 0 : tilt,
@@ -186,7 +191,7 @@ export function beginSourceDrag(options: {
       const dropped = commit && !!latestHit;
       if (dropped && latestHit) {
         leaveGhost({ ...lastGhost, phase: "drop" }, DROP_EXIT_MS);
-        options.onDrop(options.source, latestHit);
+        options.onDrop(source, latestHit);
         return;
       }
       leaveGhost(
@@ -217,5 +222,4 @@ export function beginSourceDrag(options: {
   window.addEventListener("keydown", onKey, true);
   active = controller;
   if (started) render(options.startX, options.startY);
-  return controller;
 }

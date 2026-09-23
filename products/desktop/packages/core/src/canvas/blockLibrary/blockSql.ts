@@ -1,14 +1,5 @@
 import type { BlockPropsRecord } from "./blockDefinitions";
 
-export const SQL_BLOCK_TYPES = new Set([
-  "Metric",
-  "Trend",
-  "TopList",
-  "Funnel",
-  "Goal",
-  "RecentEvents",
-]);
-
 export const SQL_COLUMN_HINTS: Record<string, string> = {
   SqlTable: "Any columns. Each row of the result is a row of the table.",
   Metric:
@@ -20,6 +11,10 @@ export const SQL_COLUMN_HINTS: Record<string, string> = {
   Funnel: "Each row is a step, in order: the step name, then the count.",
   RecentEvents: "Each row is a time, the event, then a detail.",
 };
+
+export const SQL_BLOCK_TYPES = new Set(
+  Object.keys(SQL_COLUMN_HINTS).filter((type) => type !== "SqlTable"),
+);
 
 const INTERVAL_FUNCTIONS: Record<string, string> = {
   hour: "toStartOfHour",

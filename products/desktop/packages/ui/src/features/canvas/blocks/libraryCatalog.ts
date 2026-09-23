@@ -25,6 +25,7 @@ import {
   BLOCK_DEFINITIONS,
   type BlockDefinition,
   type BlockGroup,
+  blockDefinition,
 } from "@posthog/core/canvas/blockLibrary/blockDefinitions";
 import { componentLabel } from "@posthog/core/canvas/blockLibrary/params";
 
@@ -72,12 +73,17 @@ const ELEMENT_LABELS: Record<string, string> = {
   section: "Section",
 };
 
+export const EDIT_LABELS: Record<string, string> = {
+  ...ELEMENT_LABELS,
+  ...Object.fromEntries(
+    BLOCK_DEFINITIONS.map((definition) => [definition.type, definition.label]),
+  ),
+};
+
 export function libraryLabel(blockType: string | null, tag?: string): string {
-  const entry = blockType
-    ? LIBRARY.find((item) => item.type === blockType)
-    : undefined;
-  if (entry) return entry.label;
-  if (blockType) return componentLabel(blockType);
+  if (blockType) {
+    return blockDefinition(blockType)?.label ?? componentLabel(blockType);
+  }
   return (tag && ELEMENT_LABELS[tag]) || "Element";
 }
 

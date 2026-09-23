@@ -188,7 +188,10 @@ export function compileCanvasProject(
 
 type Post = (message: Record<string, unknown>) => void;
 
-export function installCanvasEditing(post: Post) {
+export function installCanvasEditing(
+  post: Post,
+  labels: Record<string, string>,
+) {
   const PRIMARY = "#f54e00";
   let enabled = false;
   let rev = 0;
@@ -318,30 +321,9 @@ export function installCanvasEditing(post: Post) {
 
   const labelFor = (element: HTMLElement): string => {
     const block = element.getAttribute("data-ph-block");
-    const blockNames: Record<string, string> = {
-      Metric: "Number",
-      TopList: "Top list",
-      SqlTable: "SQL",
-      DateRange: "Date range",
-      PropertyFilter: "Property filter",
-    };
-    if (block) {
-      const spaced = block.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
-      return (
-        blockNames[block] ?? spaced.charAt(0) + spaced.slice(1).toLowerCase()
-      );
-    }
-    const names: Record<string, string> = {
-      h1: "Heading",
-      h2: "Heading",
-      h3: "Heading",
-      p: "Text",
-      hr: "Divider",
-      header: "Header",
-      main: "Page",
-      section: "Section",
-    };
-    return names[element.tagName.toLowerCase()] ?? "Element";
+    if (!block) return labels[element.tagName.toLowerCase()] ?? "Element";
+    const spaced = block.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+    return labels[block] ?? spaced.charAt(0) + spaced.slice(1).toLowerCase();
   };
 
   const paintEmptyHint = () => {

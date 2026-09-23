@@ -33,7 +33,7 @@ export type ParamSchema = Array<{ name: string; spec: ParamSpec }>;
 
 const KINDS = new Set<string>(PARAM_KINDS);
 
-function humanize(name: string): string {
+export function componentLabel(name: string): string {
   const spaced = name
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ");
@@ -69,7 +69,8 @@ function parseSpec(name: string, raw: unknown): ParamSpec | null {
   if (!KINDS.has(kind)) return null;
   return {
     kind,
-    label: typeof record.label === "string" ? record.label : humanize(name),
+    label:
+      typeof record.label === "string" ? record.label : componentLabel(name),
     description:
       typeof record.description === "string" ? record.description : null,
     options: parseOptions(record.options),
@@ -96,8 +97,4 @@ export function parseParamSchema(raw: string | null): ParamSchema | null {
   } catch {
     return null;
   }
-}
-
-export function componentLabel(name: string): string {
-  return humanize(name);
 }

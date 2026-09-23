@@ -14,6 +14,7 @@ import {
   compileCanvasProject,
   installCanvasEditing,
 } from "@posthog/ui/features/canvas/blocks/canvasEditRuntime";
+import { EDIT_LABELS } from "@posthog/ui/features/canvas/blocks/libraryCatalog";
 import {
   commentActionAnchorRect,
   installSelectionSettleGate,
@@ -591,7 +592,7 @@ export function buildSandboxDocument(
 
     const compileCanvasProject = ${compileCanvasProject.toString()};
     const installCanvasEditing = ${installCanvasEditing.toString()};
-    const editing = installCanvasEditing(post);
+    const editing = installCanvasEditing(post, ${JSON.stringify(EDIT_LABELS)});
     const moduleCache = new Map();
 
     let root = null;
@@ -605,26 +606,17 @@ export function buildSandboxDocument(
     const mount = async (input) => {
       const seq = ++mountSeq;
       try {
-        let url;
-        let revoke = true;
-        if (input.files) {
-          url = compileCanvasProject(Babel, input.files, input.entry || "src/canvas.tsx", {
+        const revoke = !input.files;
+        const url = compileCanvasProject(
+          Babel,
+          input.files || { "canvas.tsx": input.code },
+          input.files ? input.entry || "src/canvas.tsx" : "canvas.tsx",
+          {
             editing: !!input.editing,
             basePlugins: [jsxUnicodeEscapesPlugin],
-            cache: moduleCache,
-          });
-          revoke = false;
-        } else {
-          const out = Babel.transform(input.code, {
-            filename: "canvas.tsx",
-            plugins: [jsxUnicodeEscapesPlugin],
-            presets: [
-              ["react", { runtime: "automatic" }],
-              ["typescript", { isTSX: true, allExtensions: true, onlyRemoveTypeImports: true }],
-            ],
-          }).code;
-          url = URL.createObjectURL(new Blob([out], { type: "text/javascript" }));
-        }
+            cache: revoke ? new Map() : moduleCache,
+          },
+        );
         let mod;
         try {
           mod = await import(url);

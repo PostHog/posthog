@@ -120,7 +120,7 @@ export function CanvasSidePanel({
   channelName: string;
   name: string;
   displayedVersionId: string | null;
-  liveVersionId?: string | null;
+  liveVersionId: string | null;
   commentVersionLabel: (versionId: string) => string | null;
   onCommentOpen: (versionId: string | null) => void;
   templateId?: string;
@@ -130,7 +130,7 @@ export function CanvasSidePanel({
   // Exposes the edit composer's editor so self-repair can prefill it.
   editorRef?: Ref<EditorHandle>;
   onStarted?: (taskId: string) => void;
-  onAskAgent?: (message: string) => void;
+  onAskAgent: (message: string) => void;
 }) {
   const tab = useCanvasChatPanelStore((state) => state.tab);
   const setTab = useCanvasChatPanelStore((state) => state.setTab);
@@ -200,7 +200,7 @@ export function CanvasSidePanel({
         ) : visibleTab === "timeline" ? (
           <CanvasTimeline
             dashboardId={dashboardId}
-            liveVersionId={liveVersionId ?? null}
+            liveVersionId={liveVersionId}
             viewingVersionId={displayedVersionId}
             versionLabel={commentVersionLabel}
             onOpen={onCommentOpen}
