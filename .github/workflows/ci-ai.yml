@@ -11,7 +11,7 @@ jobs:
     eval:
         timeout-minutes: 45
         name: AI evals / ${{ matrix.group }}
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -97,10 +97,11 @@ jobs:
               with:
                   python-version-file: 'pyproject.toml'
 
+            # Direct install: Evaluations run the explicit PR head, which may predate the local action.
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.12.13'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -146,7 +147,7 @@ jobs:
     eval-summary:
         timeout-minutes: 5
         name: AI evals / summary
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         needs: eval
         # A status function is required to summarize even when some eval groups errored.
         # !cancelled() rather than always() so a superseded run does not post an eval

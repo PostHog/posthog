@@ -13,22 +13,19 @@ from collections.abc import Collection
 from typing import Literal
 
 import structlog
-import posthoganalytics
 from rest_framework import serializers
 
 from posthog.dataclasses import frozen
-from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_SCOUT_SUGGESTIONS, resolve_agent_runtime
-from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.scout_harness.config_registry import (
     MAX_RUN_INTERVAL_MINUTES,
     MIN_RUN_INTERVAL_MINUTES,
     cron_schedule_error,
 )
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.suggestions import (
     MAX_DESCRIPTION_CHARS,
     MAX_DRAFT_BODY_CHARS,
@@ -38,6 +35,7 @@ from products.signals.backend.scout_harness.suggestions import (
     ScoutSuggestionItem,
     SuggestionSettings,
     build_suggestions_prompt,
+    capture_suggestions_generated,
     fleet_context,
     mark_generation_failed,
     persist_suggestion_batch,
@@ -47,7 +45,7 @@ from products.signals.backend.temporal.agentic import (
     get_or_create_signals_sandbox_env,
     resolve_acting_user_id_for_team,
 )
-from products.skills.backend.api.skill_serializers import validate_skill_name_value
+from products.skills.backend.api.skill_serializers import validate_new_skill_name_value
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 
@@ -60,13 +58,16 @@ def _valid_cron(expression: str) -> bool:
 
 
 def _valid_custom_name(name: str) -> bool:
-    if not name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
-        return False
+    # The same rule the scout create API applies, so a suggestion can never fail on the click.
+    # Any name that can name a new skill is a valid scout name. The producer prompt still asks for
+    # prefixed names, which is a prompt choice rather than a validity rule.
     try:
-        validate_skill_name_value(name)
+        validate_new_skill_name_value(name)
     except serializers.ValidationError:
         return False
-    return True
+    # The inbox-reserved names clear the generic contract but the create serializer refuses them,
+    # so a draft under one would fail on the click this validation exists to protect.
+    return reserved_scout_name_error(name) is None
 
 
 def validate_suggestion_items(
@@ -133,35 +134,29 @@ class SuggestionRunResult:
 
 
 def _gate_skip_reason(team: Team) -> str | None:
+    """No self-driving credits gate here: a scan opens no pull request, so it bills nothing, and
+    the coordinator stamps `last_requested_at` at dispatch — a skip would cost the team its whole
+    refresh window for a limit the scan never charges against.
+    """
     if team.organization.is_ai_data_processing_approved is not True:
         return "ai_data_processing_not_approved"
-    if is_team_signals_quota_limited(team.api_token):
-        return "quota_limited"
     return None
 
 
 def _capture_generated(
     team: Team, *, result: SuggestionRunResult, tier: int | None, model: str | None, triggered_by: str
 ) -> None:
-    try:
-        posthoganalytics.capture(
-            event="$scout_suggestions_generated",
-            distinct_id=str(team.uuid),
-            properties={
-                "team_id": team.id,
-                "status": result.status,
-                "skip_reason": result.skip_reason,
-                "suggestion_count": result.suggestion_count,
-                "runtime_s": round(result.runtime_s, 1),
-                "task_run_id": result.task_run_id,
-                "tier": tier,
-                "model": model,
-                "triggered_by": triggered_by,
-            },
-            groups=groups(team.organization, team),
-        )
-    except Exception:
-        logger.warning("scout_suggestions: failed to capture generated event", team_id=team.id)
+    capture_suggestions_generated(
+        team,
+        status=result.status,
+        skip_reason=result.skip_reason,
+        suggestion_count=result.suggestion_count,
+        runtime_s=result.runtime_s,
+        task_run_id=result.task_run_id,
+        tier=tier,
+        model=model,
+        triggered_by=triggered_by,
+    )
 
 
 async def arun_scout_suggestions(
@@ -243,6 +238,7 @@ async def arun_scout_suggestions(
             model=runtime.model,
             runtime_adapter=runtime.runtime_adapter,
             reasoning_effort=runtime.reasoning_effort,
+            service_tier=runtime.service_tier,
         )
         session, batch = await MultiTurnSession.start(
             prompt=build_suggestions_prompt(fleet),

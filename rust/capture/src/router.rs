@@ -20,7 +20,7 @@ use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
 use crate::outputs::OutputRegistry;
 use crate::test_endpoint;
-use crate::v0_request::DataType;
+use crate::v0_request::{AiLanePredicate, DataType};
 use crate::{ai_endpoint, time::TimeSource, v0_endpoint};
 use common_ingestion_warnings::WarningEmitter;
 use common_redis::Client;
@@ -70,6 +70,9 @@ pub struct State {
     /// Largest AI-lane event this deployment accepts (`AI_MAX_EVENT_BYTES`).
     /// `0` disables the ceiling.
     pub ai_max_event_bytes: u64,
+    /// How this deployment decides an event name is on the AI lane
+    /// (`CAPTURE_AI_LANE_PREDICATE`).
+    pub ai_lane_predicate: AiLanePredicate,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
     pub capture_v1_max_compressed_body_bytes: usize,
@@ -186,6 +189,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
     ai_max_event_bytes: u64,
+    ai_lane_predicate: AiLanePredicate,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
     capture_v1_max_compressed_body_bytes: usize,
@@ -217,6 +221,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
         ai_max_event_bytes,
+        ai_lane_predicate,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
         capture_v1_max_compressed_body_bytes,
@@ -461,19 +466,19 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // scoped to v0/status routes; v1 ships its own policy.
     router = router.layer(cors);
 
-    // The v1 analytics endpoint is only routable when a v1 sink is
-    // configured. Without a sink the handler can't publish, so we keep
-    // the path unregistered (404) rather than advertising an endpoint
-    // that can only ever return 503. This also isolates the route to
-    // deployments that opt in via CAPTURE_V1_SINKS.
+    // The v1 endpoints are only routable when a v1 sink is configured.
+    // Without a sink the handler can't publish, so we keep the paths
+    // unregistered (404) rather than advertising endpoints that can only
+    // ever return 503. This also isolates the routes to deployments that
+    // opt in via CAPTURE_V1_SINKS.
     //
     // Merged after every legacy layer above: the v1 router owns its full
     // middleware stack (CORS, limits) and applies the same per-route
     // concurrency cap to its own routes.
     //
     // Matched exhaustively, like the legacy route gating above: a new capture
-    // mode must declare whether it serves the v1 analytics endpoint instead of
-    // silently defaulting to "no v1 routes" and 404ing its traffic.
+    // mode must declare whether it serves each v1 endpoint instead of silently
+    // defaulting to "no v1 routes" and 404ing its traffic.
     let serves_v1_analytics = match capture_mode {
         CaptureMode::Events | CaptureMode::Import => true,
         // `/i/v1/analytics/events` is an analytics endpoint: it accepts any
@@ -481,10 +486,20 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         // which capture-ai no longer loads.
         CaptureMode::Ai | CaptureMode::Recordings => false,
     };
-    if serves_v1_analytics && state.v1_sink_router.is_some() {
+    let serves_v1_ai_events = match capture_mode {
+        // `/i/v1/ai/events` belongs to capture-ai the way the v0 AI paths do:
+        // that deployment produces straight to the AI topic and sizes its
+        // ceilings for AI events. See `v1::analytics::router::ai_routes` for
+        // why the shared handler needs no AI-specific branch.
+        CaptureMode::Ai => true,
+        CaptureMode::Events | CaptureMode::Import | CaptureMode::Recordings => false,
+    };
+    if (serves_v1_analytics || serves_v1_ai_events) && state.v1_sink_router.is_some() {
         router = router.merge(crate::v1::router::router(crate::v1::router::RouterConfig {
             concurrency_limit,
             max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,
+            serves_analytics: serves_v1_analytics,
+            serves_ai_events: serves_v1_ai_events,
         }));
     }
 

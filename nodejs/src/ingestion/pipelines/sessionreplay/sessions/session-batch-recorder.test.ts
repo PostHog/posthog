@@ -13,11 +13,11 @@ import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types
 
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
-import { SessionBatchRecorder } from './session-batch-recorder'
+import { BLOCK_BUILD_CONCURRENCY, SessionBatchRecorder } from './session-batch-recorder'
+import { EndResult, SessionBlockRecorder } from './session-block-recorder'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionFeatureRecorder } from './session-feature-recorder'
-import { EndResult, SnappySessionRecorder } from './snappy-session-recorder'
 
 // RRWeb event type constants
 const enum EventType {
@@ -43,7 +43,7 @@ interface MessageMetadata {
     rawSize?: number
 }
 
-export class SnappySessionRecorderMock {
+export class SessionBlockRecorderMock {
     private chunks: Buffer[] = []
     private size: number = 0
     private startDateTime: DateTime | null = null
@@ -107,6 +107,7 @@ export class SnappySessionRecorderMock {
             messageCount: 0,
             snapshotSource: null,
             snapshotLibrary: null,
+            snapshotMode: null,
             batchId: this.batchId,
         }
     }
@@ -182,17 +183,18 @@ jest.mock('./metrics', () => ({
         incrementEventsRateLimited: jest.fn(),
         incrementNewSessionsDetected: jest.fn(),
         incrementNewSessionsRateLimited: jest.fn(),
+        incrementMessagesDroppedSessionKeyMismatch: jest.fn(),
         observeE2eLag: jest.fn(),
     },
 }))
 
 jest.mock('./blackhole-session-batch-writer')
-jest.mock('./snappy-session-recorder', () => ({
-    SnappySessionRecorder: jest
+jest.mock('./session-block-recorder', () => ({
+    SessionBlockRecorder: jest
         .fn()
         .mockImplementation(
             (sessionId: string, teamId: number, batchId: string) =>
-                new SnappySessionRecorderMock(sessionId, teamId, batchId)
+                new SessionBlockRecorderMock(sessionId, teamId, batchId)
         ),
 }))
 
@@ -217,9 +219,9 @@ describe('SessionBatchRecorder', () => {
     beforeEach(() => {
         jest.clearAllMocks()
 
-        jest.mocked(SnappySessionRecorder).mockImplementation(
+        jest.mocked(SessionBlockRecorder).mockImplementation(
             (sessionId: string, teamId: number, batchId: string) =>
-                new SnappySessionRecorderMock(sessionId, teamId, batchId) as unknown as SnappySessionRecorder
+                new SessionBlockRecorderMock(sessionId, teamId, batchId) as unknown as SessionBlockRecorder
         )
 
         mockWriter = {
@@ -892,6 +894,42 @@ describe('SessionBatchRecorder', () => {
     })
 
     describe('flushing behavior', () => {
+        it('builds every block before it writes any, so packing uses the whole threadpool', async () => {
+            const release: (() => void)[] = []
+            let building = 0
+            jest.mocked(SessionBlockRecorder).mockImplementation(
+                (sessionId: string, teamId: number, batchId: string) => {
+                    const mock = new SessionBlockRecorderMock(sessionId, teamId, batchId)
+                    const build = mock.end.bind(mock)
+                    mock.end = (() => {
+                        building += 1
+                        return new Promise<EndResult>((resolve) => release.push(() => resolve(build())))
+                    }) as unknown as typeof mock.end
+                    return mock as unknown as SessionBlockRecorder
+                }
+            )
+
+            await record(createMessage('session1', []))
+            await record(createMessage('session2', []))
+            await record(createMessage('session3', []))
+            const flushed = recorder.flush()
+            await new Promise((resolve) => setImmediate(resolve))
+
+            // The pool size bounds the builds, so a sequential loop only looks different above one.
+            expect(building).toBe(Math.min(3, BLOCK_BUILD_CONCURRENCY))
+            // At any limit, no write happens until every block exists.
+            expect(mockWriter.writeSession).not.toHaveBeenCalled()
+
+            while (release.length) {
+                release.splice(0).forEach((resolve) => resolve())
+                await new Promise((resolve) => setImmediate(resolve))
+            }
+            await flushed
+
+            expect(building).toBe(3)
+            expect(mockWriter.writeSession).toHaveBeenCalledTimes(3)
+        })
+
         it('should clear sessions after flush', async () => {
             const message1 = createMessage('session1', [
                 {
@@ -1321,8 +1359,8 @@ describe('SessionBatchRecorder', () => {
 
     describe('metadata handling', () => {
         it('should pass non-default metadata values to storeSessionBlocks', async () => {
-            // Create a custom mock implementation of SnappySessionRecorderMock that returns non-default values
-            const customRecorder = new SnappySessionRecorderMock('session_custom', 3, 'test_batch_id')
+            // Create a custom mock implementation of SessionBlockRecorderMock that returns non-default values
+            const customRecorder = new SessionBlockRecorderMock('session_custom', 3, 'test_batch_id')
 
             // Override the end method to return non-default values
             customRecorder.end = jest.fn().mockReturnValue({
@@ -1338,13 +1376,14 @@ describe('SessionBatchRecorder', () => {
                 activeMilliseconds: 8000,
                 size: 1024,
                 messageCount: 15,
-                snapshotSource: 'web',
-                snapshotLibrary: 'rrweb@1.0.0',
+                snapshotSource: 'mobile',
+                snapshotLibrary: 'posthog-android',
+                snapshotMode: 'screenshot',
                 batchId: 'test_batch_id',
             })
 
-            jest.mocked(SnappySessionRecorder).mockImplementationOnce(
-                () => customRecorder as unknown as SnappySessionRecorder
+            jest.mocked(SessionBlockRecorder).mockImplementationOnce(
+                () => customRecorder as unknown as SessionBlockRecorder
             )
 
             jest.mocked(SessionConsoleLogRecorder).mockImplementationOnce(
@@ -1400,8 +1439,9 @@ describe('SessionBatchRecorder', () => {
                     consoleErrorCount: 2,
                     size: 1024,
                     messageCount: 15,
-                    snapshotSource: 'web',
-                    snapshotLibrary: 'rrweb@1.0.0',
+                    snapshotSource: 'mobile',
+                    snapshotLibrary: 'posthog-android',
+                    snapshotMode: 'screenshot',
                 }),
             ])
         })
@@ -1531,12 +1571,12 @@ describe('SessionBatchRecorder', () => {
                 },
             ]
 
-            jest.mocked(SnappySessionRecorder).mockImplementation(
+            jest.mocked(SessionBlockRecorder).mockImplementation(
                 () =>
                     ({
                         recordMessage: jest.fn().mockReturnValue(1),
                         end: () => Promise.reject(new Error('Stream read error')),
-                    }) as unknown as SnappySessionRecorder
+                    }) as unknown as SessionBlockRecorder
             )
 
             await record(createMessage('session', events))
@@ -1875,12 +1915,24 @@ describe('SessionBatchRecorder', () => {
     })
 
     describe('encryption key handling', () => {
-        it('should drop messages when the session key changes between calls for the same session', async () => {
-            // The key is resolved upstream; the recorder must reject a second message that arrives
-            // with a different key for a session already in the batch, so a block isn't corrupted by
-            // events encrypted for two different keys.
-            const keyA = createMockSessionKey({ encryptedKey: Buffer.from('key-a') })
-            const keyB = createMockSessionKey({ encryptedKey: Buffer.from('key-b') })
+        // The key is resolved upstream; the recorder must reject a second message that arrives
+        // with a different key for a session already in the batch, so a block isn't corrupted by
+        // events encrypted for two different keys.
+        it.each([
+            [
+                'the encrypted key differs',
+                { encryptedKey: Buffer.from('key-a') },
+                { encryptedKey: Buffer.from('key-b') },
+            ],
+            // A sealed ML session key carries no KMS blob, so encryptedKey is empty on both sides and only the plaintext differs.
+            [
+                'only the plaintext key differs, as it does for a sealed ML key',
+                { plaintextKey: Buffer.alloc(32, 1), sessionState: 'ciphertext' as const },
+                { plaintextKey: Buffer.alloc(32, 2), sessionState: 'ciphertext' as const },
+            ],
+        ])('should drop a message for a session already in the batch when %s', async (_label, first, second) => {
+            const keyA = createMockSessionKey(first)
+            const keyB = createMockSessionKey(second)
 
             const message1 = createMessage(
                 'session1',
@@ -1893,11 +1945,8 @@ describe('SessionBatchRecorder', () => {
                 { partition: 1, offset: 1 }
             )
 
-            const bytes1 = await record(message1, '30d', keyA)
-            const bytes2 = await record(message2, '30d', keyB)
-
-            expect(bytes1).toBeGreaterThan(0)
-            expect(bytes2).toBe(0)
+            expect(await record(message1, '30d', keyA)).toBeGreaterThan(0)
+            expect(await record(message2, '30d', keyB)).toBe(0)
         })
     })
 })

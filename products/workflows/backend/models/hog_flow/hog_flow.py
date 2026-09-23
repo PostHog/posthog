@@ -136,6 +136,7 @@ class HogFlow(UUIDTModel):
 
     class OriginProduct(models.TextChoices):
         LOOPS = "loops", "Loops"
+        BROADCASTS = "broadcasts", "Broadcasts"
 
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
@@ -171,6 +172,16 @@ class HogFlow(UUIDTModel):
     # Start bound for every detector window on this workflow. Without it, resuming instantly
     # re-trips on the feedback that caused the pause in the first place.
     email_sending_resumed_at = models.DateTimeField(null=True, blank=True)
+
+    class EmailSendingPausedBy(models.TextChoices):
+        AUTO = "auto", "auto"
+        STAFF = "staff", "staff"
+
+    # Who paused it: "auto" for the deliverability detector, "staff" for a PostHog admin. A staff
+    # pause is not customer-resumable, so the resume endpoint refuses it. Empty when not paused.
+    email_sending_paused_by = models.CharField(
+        max_length=16, blank=True, default="", db_default="", choices=EmailSendingPausedBy.choices
+    )
     # When the deliverability detector last warned this workflow's admins that its rates are
     # approaching the pause thresholds. Bounds how often the warning email can repeat.
     email_sending_warned_at = models.DateTimeField(null=True, blank=True)

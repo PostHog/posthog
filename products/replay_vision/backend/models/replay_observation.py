@@ -1,11 +1,13 @@
 from django.db import models
-from django.db.models import Case, CharField, Expression, F, FloatField, Func, Value, When
+from django.db.models import Case, CharField, Exists, Expression, F, FloatField, Func, OuterRef, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 
 from posthog.models.utils import UUIDModel
 
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
+from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
+from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 
 
 class ObservationStatus(models.TextChoices):
@@ -116,6 +118,10 @@ class ReplayObservation(UUIDModel):
     completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # DEPRECATED: These fields supported the media-backfill sweep. No code reads or writes them.
+    media_render_attempts = models.PositiveSmallIntegerField(default=0, db_default=0)
+    media_render_attempted_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         constraints = [
             # Succeeded rows are sticky; admin deletes to re-trigger. A backfill may retake a failed row.
@@ -130,6 +136,8 @@ class ReplayObservation(UUIDModel):
         ]
         indexes = [
             models.Index(fields=["team", "created_at"], name="rlo_team_created_idx"),
+            # Serves the recording-delete cleanup, which looks rows up by session rather than scanner.
+            models.Index(fields=["team", "session_id"], name="rlo_team_session_idx"),
             models.Index(fields=["scanner", "status"], name="rlo_scanner_status_idx"),
             # Serves the alert-engine observation window: succeeded rows per scanner in a
             # completed_at range. Partial: terminal succeeded rows are the only ones scanned.
@@ -140,6 +148,12 @@ class ReplayObservation(UUIDModel):
             ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
+            # DEPRECATED: This index supported the media-backfill cross-team walk. No query needs it.
+            models.Index(
+                fields=["-created_at"],
+                name="rlo_succeeded_created_idx",
+                condition=models.Q(status="succeeded"),
+            ),
             models.Index(
                 fields=["workflow_id"],
                 name="rlo_workflow_id_idx",
@@ -184,13 +198,34 @@ def jsonb_typeof(expr: Expression) -> Func:
     return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
 
 
-def hydrate_for_serialization(qs: "models.QuerySet[ReplayObservation]") -> "models.QuerySet[ReplayObservation]":
+def hydrate_for_serialization(
+    qs: "models.QuerySet[ReplayObservation]", viewer_id: int | None = None
+) -> "models.QuerySet[ReplayObservation]":
     """Load everything `ReplayObservationSerializer` reads, so no queryset feeding it goes one query per row.
 
     `scanner_origin` is annotated rather than joined through `select_related("scanner")`: the serializer
     reads one enum, and hydrating the scanner would ship its config and hour-bucket JSON blobs per row.
+
+    `viewed` is per caller; without a viewer nothing counts as viewed.
     """
-    return qs.select_related("triggered_by_user", "label").annotate(scanner_origin=F("scanner__origin"))
+    viewed = (
+        Exists(ReplayObservationView.objects.filter(observation_id=OuterRef("id"), user_id=viewer_id))
+        if viewer_id is not None
+        else Value(False, output_field=models.BooleanField())
+    )
+    return (
+        qs.select_related("triggered_by_user", "label")
+        # Explicit queryset, because the serializer reads `media` off each row and the reverse manager is
+        # fail-closed: without one it raises unless the caller happens to sit inside a team scope. The rows
+        # are reachable only through an observation the caller already passed team filtering on.
+        .prefetch_related(
+            models.Prefetch(
+                "media",
+                queryset=ReplayObservationMedia.objects.unscoped().select_related("asset").order_by("kind", "position"),
+            )
+        )
+        .annotate(scanner_origin=F("scanner__origin"), viewed=viewed)
+    )
 
 
 def annotate_output_number(

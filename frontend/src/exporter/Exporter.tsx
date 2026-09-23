@@ -5,6 +5,8 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { Suspense, useEffect, useSyncExternalStore } from 'react'
 
+import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/components/DashboardLoadingState/DashboardLoadingState'
+
 import { Logo } from 'lib/brand'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
@@ -18,8 +20,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { isMetricInsightQuery } from '~/queries/utils'
 
 import { exporterViewLogic } from './exporterViewLogic'
 
@@ -98,13 +99,7 @@ export function Exporter(props: ExportedData): JSX.Element {
     // Applies to both saved insights and ad-hoc query exports — the image exporter narrows
     // the screenshot viewport for both.
     const metricQuery = insight?.query ?? query
-    const metric =
-        metricQuery &&
-        isInsightVizNode(metricQuery) &&
-        isTrendsQuery(metricQuery.source) &&
-        metricQuery.source.trendsFilter?.display === ChartDisplayType.Metric
-            ? metricQuery
-            : undefined
+    const metric = isMetricInsightQuery(metricQuery)
 
     const { currentTeam } = useValues(teamLogic)
     const { ref: elementRef, height, width } = useResizeObserver()
@@ -233,7 +228,11 @@ export function Exporter(props: ExportedData): JSX.Element {
                         />
                     </Suspense>
                 ) : dashboard ? (
-                    <Suspense fallback={<ExportedSceneSkeleton />}>
+                    <Suspense
+                        fallback={
+                            <DashboardLoadingState showControls={false} tileCount={dashboard.tiles?.length ?? 0} />
+                        }
+                    >
                         <LazyDashboardScene dashboard={dashboard} type={type} themes={themes} />
                     </Suspense>
                 ) : recording ? (

@@ -3,103 +3,10 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 6 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
-
-/**
- * Create a new MCP feedback submission for the current project.
- */
-export const McpAnalyticsFeedbackCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const mcpAnalyticsFeedbackCreateBodyAttemptedToolDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyAttemptedToolMax = 200
-
-export const mcpAnalyticsFeedbackCreateBodyMcpClientNameDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpClientNameMax = 200
-
-export const mcpAnalyticsFeedbackCreateBodyMcpClientVersionDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpClientVersionMax = 100
-
-export const mcpAnalyticsFeedbackCreateBodyMcpProtocolVersionDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpProtocolVersionMax = 50
-
-export const mcpAnalyticsFeedbackCreateBodyMcpTransportDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpTransportMax = 50
-
-export const mcpAnalyticsFeedbackCreateBodyMcpSessionIdDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpSessionIdMax = 200
-
-export const mcpAnalyticsFeedbackCreateBodyMcpTraceIdDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpTraceIdMax = 200
-
-export const mcpAnalyticsFeedbackCreateBodyGoalMax = 500
-
-export const mcpAnalyticsFeedbackCreateBodyFeedbackMax = 5000
-
-export const mcpAnalyticsFeedbackCreateBodyCategoryDefault = `other`
-
-export const McpAnalyticsFeedbackCreateBody = () => zod.object({
-    attempted_tool: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyAttemptedToolMax)
-        .default(mcpAnalyticsFeedbackCreateBodyAttemptedToolDefault)
-        .describe('The tool the user tried before leaving feedback, if known.'),
-    mcp_client_name: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpClientNameMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpClientNameDefault)
-        .describe('MCP client name, for example Claude Desktop or Cursor.'),
-    mcp_client_version: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpClientVersionMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpClientVersionDefault)
-        .describe('Version string for the MCP client when available.'),
-    mcp_protocol_version: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpProtocolVersionMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpProtocolVersionDefault)
-        .describe('MCP protocol version negotiated for the session when available.'),
-    mcp_transport: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpTransportMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpTransportDefault)
-        .describe('Transport used for the MCP session, for example streamable_http or sse.'),
-    mcp_session_id: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpSessionIdMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpSessionIdDefault)
-        .describe('Stable MCP session identifier when available.'),
-    mcp_trace_id: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpTraceIdMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpTraceIdDefault)
-        .describe('Trace identifier for the surrounding MCP workflow when available.'),
-    goal: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyGoalMax)
-        .describe("The user's intended outcome when using MCP."),
-    feedback: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyFeedbackMax)
-        .describe('Concrete feedback about the MCP experience, tool result, or workflow friction.'),
-    category: zod
-        .enum(['results', 'usability', 'bug', 'docs', 'other'])
-        .describe(
-            '\* `results` - Results\n\* `usability` - Usability\n\* `bug` - Bug\n\* `docs` - Docs\n\* `other` - Other'
-        )
-        .default(mcpAnalyticsFeedbackCreateBodyCategoryDefault)
-        .describe(
-            'High-level category for the feedback.\n\n\* `results` - Results\n\* `usability` - Usability\n\* `bug` - Bug\n\* `docs` - Docs\n\* `other` - Other'
-        ),
-})
 
 /**
  * Return the most recent intent cluster snapshot for the current project. Returns an empty IDLE snapshot when no clustering run has happened yet.
@@ -231,6 +138,7 @@ export const McpAnalyticsSessionsListParams = () => zod.object({
         ),
 })
 
+export const mcpAnalyticsSessionsListQueryFilterTestAccountsDefault = false
 export const mcpAnalyticsSessionsListQueryLimitDefault = 100
 export const mcpAnalyticsSessionsListQueryLimitMax = 500
 
@@ -238,6 +146,7 @@ export const mcpAnalyticsSessionsListQueryOffsetDefault = 0
 export const mcpAnalyticsSessionsListQueryOffsetMin = 0
 
 export const mcpAnalyticsSessionsListQueryOrderByDefault = ``
+export const mcpAnalyticsSessionsListQueryPropertiesDefault = ``
 export const mcpAnalyticsSessionsListQuerySearchDefault = ``
 
 export const McpAnalyticsSessionsListQueryParams = () => zod.object({
@@ -251,6 +160,12 @@ export const McpAnalyticsSessionsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.'),
+    filter_test_accounts: zod
+        .boolean()
+        .default(mcpAnalyticsSessionsListQueryFilterTestAccountsDefault)
+        .describe(
+            "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`."
+        ),
     limit: zod
         .number()
         .min(1)
@@ -269,6 +184,12 @@ export const McpAnalyticsSessionsListQueryParams = () => zod.object({
         .default(mcpAnalyticsSessionsListQueryOrderByDefault)
         .describe(
             "Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first)."
+        ),
+    properties: zod
+        .string()
+        .default(mcpAnalyticsSessionsListQueryPropertiesDefault)
+        .describe(
+            'Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]'
         ),
     search: zod
         .string()
@@ -311,11 +232,14 @@ export const McpAnalyticsSessionsToolCallsParams = () => zod.object({
         ),
 })
 
+export const mcpAnalyticsSessionsToolCallsQueryFilterTestAccountsDefault = false
 export const mcpAnalyticsSessionsToolCallsQueryLimitDefault = 500
 export const mcpAnalyticsSessionsToolCallsQueryLimitMax = 500
 
 export const mcpAnalyticsSessionsToolCallsQueryOffsetDefault = 0
 export const mcpAnalyticsSessionsToolCallsQueryOffsetMin = 0
+
+export const mcpAnalyticsSessionsToolCallsQueryPropertiesDefault = ``
 
 export const McpAnalyticsSessionsToolCallsQueryParams = () => zod.object({
     date_from: zod.iso
@@ -323,6 +247,12 @@ export const McpAnalyticsSessionsToolCallsQueryParams = () => zod.object({
         .optional()
         .describe(
             "Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
+        ),
+    filter_test_accounts: zod
+        .boolean()
+        .default(mcpAnalyticsSessionsToolCallsQueryFilterTestAccountsDefault)
+        .describe(
+            "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`."
         ),
     limit: zod
         .number()
@@ -338,5 +268,11 @@ export const McpAnalyticsSessionsToolCallsQueryParams = () => zod.object({
         .default(mcpAnalyticsSessionsToolCallsQueryOffsetDefault)
         .describe(
             "Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain."
+        ),
+    properties: zod
+        .string()
+        .default(mcpAnalyticsSessionsToolCallsQueryPropertiesDefault)
+        .describe(
+            'Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]'
         ),
 })

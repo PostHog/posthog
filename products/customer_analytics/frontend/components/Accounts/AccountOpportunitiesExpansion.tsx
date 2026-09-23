@@ -73,7 +73,13 @@ const columns: LemonTableColumns<AccountOpportunity> = [
     },
 ]
 
-export function AccountOpportunitiesExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountOpportunitiesExpansion({
+    accountId,
+    embedded = true,
+}: {
+    accountId: string
+    embedded?: boolean
+}): JSX.Element {
     const { opportunitiesResult, opportunitiesResultLoading } = useValues(accountOpportunitiesLogic({ accountId }))
 
     if (opportunitiesResultLoading || opportunitiesResult === NOT_LOADED) {
@@ -112,7 +118,7 @@ export function AccountOpportunitiesExpansion({ accountId }: { accountId: string
     return (
         <LemonTable<AccountOpportunity>
             size="small"
-            embedded
+            embedded={embedded}
             dataSource={opportunities}
             columns={columns}
             rowKey="id"

@@ -69,12 +69,26 @@ TEMPLATE_TO_SNAPSHOT_ALIAS: dict[SandboxTemplate, str] = {
     SandboxTemplate.DEFAULT_BASE: "alias:posthog-tasks-default",
 }
 
+# The pluggable-memory golden (baked by the tasks golden-snapshot workflow with a
+# BOX_MEM_BOOT_MIB below the cap). A box restored from it boots small and hot-adds guest
+# RAM up to the cap on demand. Selected per run by the tasks-hogland-hotplug-golden flag
+# (config.use_hotplug_golden); only the default template has a pluggable variant. The
+# alias must exist before the flag is enabled for a team.
+HOGLAND_HOTPLUG_SNAPSHOT_ALIAS = "alias:posthog-tasks-hotplug"
+
 # The golden snapshot (baked in CI) pins this machine shape. A hogland
 # restore must inherit-or-match it, so per-task overrides are ignored and the provisioned
 # box is always this size. Keep in sync with the shape the CI golden bake boots at.
 HOGLAND_GOLDEN_CPU_CORES = 4.0
-HOGLAND_GOLDEN_MEMORY_GB = 16.0
+HOGLAND_GOLDEN_MEMORY_GB = 20.0
 HOGLAND_GOLDEN_DISK_GB = 64.0
+
+# Hogland rejects a create whose tags carry a `key=value` entry longer than this. The
+# tag dict is shared with Modal, which has no such limit, so a task workflow id (a
+# dispatch prefix plus two uuids) overruns it on its own. Keep the head of an oversized
+# value: the ids it ends with already travel as their own task_id/task_run_id tags,
+# so what a long workflow id adds is the prefix in front of them.
+HOGLAND_MAX_TAG_LENGTH = 64
 
 # `create()` blocks until the box is running; a cold boot on a fresh Karpenter node
 # can take minutes, and `exec` calls legitimately run up to the caller's
@@ -93,6 +107,16 @@ _STATIC_BOX_ENV = {
     # Guards in /opt/posthog/bin must shadow the real git/gh.
     "PATH": "/opt/posthog/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 }
+
+
+def _to_box_tags(metadata: dict[str, str] | None) -> list[str]:
+    tags: list[str] = []
+    for key, value in (metadata or {}).items():
+        budget = HOGLAND_MAX_TAG_LENGTH - len(key) - 1
+        if budget <= 0:
+            continue
+        tags.append(f"{key}={value[:budget]}")
+    return tags
 
 
 @lru_cache(maxsize=4)
@@ -191,6 +215,13 @@ class HoglandSandbox(AgentServerLaunchMixin):
     _box: Hogbox
     _sandbox_url: str | None
 
+    # hogland boxes boot with the `bedrock` feature, which puts the Claude CLI in
+    # direct-Bedrock mode. Unset those vars at agent launch so the CLI routes
+    # through the PostHog LLM gateway instead — avoids AWS Bedrock Marketplace
+    # model-access and SigV4 header-signing issues, and keeps gateway-based AI
+    # observability attribution (matching the Modal backend).
+    disable_direct_bedrock = True
+
     def __init__(self, box: Hogbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = box.id
         self.config = config
@@ -210,6 +241,12 @@ class HoglandSandbox(AgentServerLaunchMixin):
                 {"config_name": config.name, "template": config.template.value},
                 cause=RuntimeError(f"no hogland golden snapshot for template {config.template.value}"),
             )
+        if config.use_hotplug_golden and config.template == SandboxTemplate.DEFAULT_BASE:
+            snapshot_alias = HOGLAND_HOTPLUG_SNAPSHOT_ALIAS
+            logger.info(
+                "Hogland run provisioning from the pluggable-memory golden",
+                extra={"config_name": config.name, "snapshot_alias": snapshot_alias},
+            )
         if config.snapshot_id or config.snapshot_external_id:
             # Backend resolution forces resume snapshots off for hogland runs; if an id
             # slips through anyway, cold-boot loudly rather than restoring the wrong thing.
@@ -221,7 +258,7 @@ class HoglandSandbox(AgentServerLaunchMixin):
         config.image_fallback = None
 
         env = {**_STATIC_BOX_ENV, **(config.environment_variables or {})}
-        tags = [f"{key}={value}" for key, value in (config.metadata or {}).items()]
+        tags = _to_box_tags(config.metadata)
 
         try:
             client = get_hogland_client()

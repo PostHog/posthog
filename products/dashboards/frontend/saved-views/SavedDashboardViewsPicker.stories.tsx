@@ -94,7 +94,6 @@ export const Default: Story = {
         onSelectView: () => undefined,
         onManageViews: () => undefined,
         onLoadMore: () => undefined,
-        onOpen: () => undefined,
         onRetryLoad: () => undefined,
     },
 }
@@ -141,7 +140,6 @@ export const UnsavedChanges: Story = {
         onSelectView: () => undefined,
         onManageViews: () => undefined,
         onLoadMore: () => undefined,
-        onOpen: () => undefined,
         onRetryLoad: () => undefined,
     },
 }
@@ -165,7 +163,6 @@ export const ReadOnly: Story = {
         onSelectView: () => undefined,
         onManageViews: () => undefined,
         onLoadMore: () => undefined,
-        onOpen: () => undefined,
         onRetryLoad: () => undefined,
     },
 }

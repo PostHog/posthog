@@ -116,7 +116,6 @@ export function DashboardSavedViews(): JSX.Element | null {
     const { currentTeamId } = useValues(teamLogic)
     const savedViewsLogic = dashboardSavedViewsLogic({ teamId: currentTeamId })
     const {
-        dashboardSavedViewsEnabled,
         savedViews,
         savedViewsNextCursors,
         loadMoreSavedViewsLoading,
@@ -127,7 +126,6 @@ export function DashboardSavedViews(): JSX.Element | null {
     } = useValues(savedViewsLogic)
     const {
         loadSavedViews,
-        ensureSavedViewsLoaded,
         loadMoreSavedViews,
         loadMoreSavedViewsSuccess,
         savedViewCreated,
@@ -384,7 +382,7 @@ export function DashboardSavedViews(): JSX.Element | null {
         }
     }
 
-    if (!dashboardSavedViewsEnabled || currentTab !== DashboardsTab.All) {
+    if (currentTab !== DashboardsTab.All) {
         return null
     }
 
@@ -419,7 +417,6 @@ export function DashboardSavedViews(): JSX.Element | null {
             }}
             onManageViews={manageSavedViews}
             onLoadMore={loadMoreSavedViews}
-            onOpen={ensureSavedViewsLoaded}
             onRetryLoad={loadSavedViews}
         />
     )

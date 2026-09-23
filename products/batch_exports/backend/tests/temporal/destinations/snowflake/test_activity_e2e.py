@@ -14,7 +14,6 @@ import pytest
 
 from django.test import override_settings
 
-from posthog.models.integration import Integration
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
@@ -50,7 +49,7 @@ async def _run_activity(
     activity_environment,
     snowflake_cursor,
     clickhouse_client,
-    snowflake_config,
+    snowflake_activity_inputs,
     team,
     data_interval_start,
     data_interval_end,
@@ -67,16 +66,9 @@ async def _run_activity(
     uppercase_columns: list[str] | None = None,
     extra_fields: dict[str, t.Any] | None = None,
     min_ingested_timestamp: dt.datetime | None = None,
-    integration_id: int | None = None,
     batch_export_id: str | None = None,
 ):
     """Helper function to run insert_into_snowflake_activity_from_stage and assert records in Snowflake"""
-    config = dict(snowflake_config)
-    if integration_id is not None:
-        # Account, user and credentials come from the Integration, not inline config.
-        for key in ("account", "user", "authentication_type", "password", "private_key", "private_key_passphrase"):
-            config.pop(key, None)
-
     insert_inputs = SnowflakeInsertInputs(
         team_id=team.pk,
         table_name=table_name,
@@ -86,8 +78,7 @@ async def _run_activity(
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=batch_export_id or str(uuid.uuid4()),
-        integration_id=integration_id,
-        **config,
+        **snowflake_activity_inputs,
     )
 
     assert insert_inputs.batch_export_id is not None
@@ -140,7 +131,7 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     exclude_events,
     model: BatchExportModel | BatchExportSchema | None,
     generate_test_data,
@@ -187,7 +178,7 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -200,63 +191,11 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
     )
 
 
-async def test_insert_into_snowflake_activity_resolves_credentials_from_integration(
-    clickhouse_client,
-    activity_environment,
-    snowflake_cursor,
-    snowflake_config,
-    generate_test_data,
-    data_interval_start,
-    data_interval_end,
-    ateam,
-):
-    """An integration-backed export resolves account, user and credentials from the linked Integration
-    at run time, with none of them present on the activity inputs.
-    """
-    sensitive_config: dict[str, str] = {}
-    if snowflake_config["authentication_type"] == "keypair":
-        sensitive_config["private_key"] = snowflake_config["private_key"]
-        if snowflake_config.get("private_key_passphrase"):
-            sensitive_config["private_key_passphrase"] = snowflake_config["private_key_passphrase"]
-    else:
-        sensitive_config["password"] = snowflake_config["password"]
-
-    integration = await Integration.objects.acreate(
-        team_id=ateam.pk,
-        kind=Integration.IntegrationKind.SNOWFLAKE,
-        integration_id="prod-snowflake",
-        config={
-            "name": "prod-snowflake",
-            "account": snowflake_config["account"],
-            "user": snowflake_config["user"],
-            "authentication_type": snowflake_config["authentication_type"],
-        },
-        sensitive_config=sensitive_config,
-    )
-
-    table_name = f"test_integration_activity_table_{ateam.pk}"
-    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
-
-    await _run_activity(
-        activity_environment=activity_environment,
-        snowflake_cursor=snowflake_cursor,
-        clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
-        team=ateam,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        table_name=table_name,
-        batch_export_model=BatchExportModel(name="events", schema=None),
-        integration_id=integration.id,
-        min_ingested_timestamp=min_ingested_timestamp,
-    )
-
-
 async def test_insert_into_snowflake_activity_merges_persons_data_in_follow_up_runs(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -276,7 +215,7 @@ async def test_insert_into_snowflake_activity_merges_persons_data_in_follow_up_r
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -312,7 +251,7 @@ async def test_insert_into_snowflake_activity_merges_persons_data_in_follow_up_r
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -326,7 +265,7 @@ async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -346,7 +285,7 @@ async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -383,7 +322,7 @@ async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=new_data_interval_start,
         data_interval_end=new_data_interval_end,
@@ -409,7 +348,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -437,7 +376,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -473,7 +412,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -494,7 +433,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
     ateam,
     snowflake_batch_export,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     activity_environment,
 ):
     """Test that the insert_into_snowflake_activity_from_stage activity sends heartbeats.
@@ -540,7 +479,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         batch_export_id=str(uuid.uuid4()),
-        **snowflake_config,
+        **snowflake_activity_inputs,
     )
 
     with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=0):
@@ -584,7 +523,7 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -608,7 +547,7 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -649,7 +588,7 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -664,7 +603,7 @@ async def test_insert_into_snowflake_activity_from_stage_handles_datetime_to_int
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -693,7 +632,7 @@ async def test_insert_into_snowflake_activity_from_stage_handles_datetime_to_int
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -710,7 +649,7 @@ async def test_insert_into_snowflake_activity_from_stage_handles_datetime_to_int
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -731,7 +670,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -755,7 +694,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -781,7 +720,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -798,7 +737,7 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
-    snowflake_config,
+    snowflake_activity_inputs,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -819,7 +758,7 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -836,7 +775,7 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
-        snowflake_config=snowflake_config,
+        snowflake_activity_inputs=snowflake_activity_inputs,
         team=ateam,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,

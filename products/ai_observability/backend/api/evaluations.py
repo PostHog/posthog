@@ -1,4 +1,4 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -17,7 +17,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
@@ -41,6 +40,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 
+from ..evaluation_conditions import build_condition_filter
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
@@ -75,6 +75,9 @@ from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
 
+if TYPE_CHECKING:
+    from posthog.models import User
+
 logger = structlog.get_logger(__name__)
 
 
@@ -101,7 +104,7 @@ logger = structlog.get_logger(__name__)
                 "properties": {
                     "source": {
                         "type": "string",
-                        "description": "Hog source code. Must return true (pass), false (fail), or null for N/A.",
+                        "description": "Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.",
                         "minLength": 1,
                     }
                 },
@@ -131,6 +134,8 @@ class _EvaluationConfigField(serializers.JSONField):
     pass
 
 
+# Keep defaults in BooleanOutputConfig: nested schema defaults become explicit MCP PATCH values
+# and overwrite stored settings even when the caller omits them.
 @extend_schema_field(
     {
         "type": "object",
@@ -138,8 +143,15 @@ class _EvaluationConfigField(serializers.JSONField):
             "allows_na": {
                 "type": "boolean",
                 "description": "Whether the evaluation can return N/A for non-applicable generations.",
-                "default": False,
-            }
+            },
+            "true_is_failure": {
+                "type": "boolean",
+                "description": (
+                    "Whether a true result means the evaluation found a problem. False (the default) suits "
+                    "pass/fail evaluations, where a true result satisfied the criteria. Set it to true for "
+                    "detector-style evaluations, so a true result is counted and labeled as a fail."
+                ),
+            },
         },
         "additionalProperties": False,
     }
@@ -318,7 +330,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     )
     output_config = _OutputConfigField(
         required=False,
-        help_text="Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+        help_text=(
+            "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and "
+            "{true_is_failure} to declare that a true result means the evaluation found a problem."
+        ),
     )
     target_config = _TargetConfigField(
         required=False,
@@ -449,6 +464,8 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 "output_config",
                 getattr(self.instance, "output_config", {}) if self.instance else {},
             )
+            if self.partial and self.instance is not None and "output_config" in data:
+                output_config = {**self.instance.output_config, **output_config}
             try:
                 data["evaluation_config"], data["output_config"] = validate_evaluation_configs(
                     evaluation_type, output_type, evaluation_config, output_config
@@ -759,7 +776,10 @@ class TestHogRequestSerializer(serializers.Serializer):
     source = serializers.CharField(
         required=True,
         min_length=1,
-        help_text="Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
+        help_text=(
+            "Hog source code to test. Must return true or false, or null for N/A. "
+            "Output settings determine which boolean counts as a failure."
+        ),
     )  # type: ignore[assignment]
     sample_count = serializers.IntegerField(
         required=False,
@@ -810,7 +830,9 @@ class TestHogResultItemSerializer(serializers.Serializer):
     trace_id = serializers.CharField(allow_null=True, help_text="Trace ID if available.")
     input_preview = serializers.CharField(help_text="First 200 characters of input from the sampled unit.")
     output_preview = serializers.CharField(help_text="First 200 characters of output from the sampled unit.")
-    result = serializers.BooleanField(allow_null=True, help_text="True = pass, False = fail, null = N/A or error.")
+    result = serializers.BooleanField(
+        allow_null=True, help_text="Raw boolean result, or null when the evaluation returns N/A or raises an error."
+    )
     reasoning = serializers.CharField(allow_null=True, help_text="Hog evaluation reasoning string, if any.")
     error = serializers.CharField(allow_null=True, help_text="Error message if the Hog code raised an exception.")
 
@@ -851,6 +873,7 @@ def _test_hog_over_sessions(
     try:
         session_results = run_hog_eval_over_recent_sessions(
             team=team,
+            user=cast("User", request.user),
             bytecode=bytecode,
             condition_filter=condition_filter,
             sample_count=sample_count,
@@ -921,6 +944,7 @@ def _test_hog_over_traces(
     try:
         trace_results = run_hog_eval_over_recent_traces(
             team=team,
+            user=cast("User", request.user),
             bytecode=bytecode,
             condition_filter=condition_filter,
             sample_count=sample_count,
@@ -1205,18 +1229,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         team = Team.objects.get(id=self.team_id)
 
-        # Build the trigger-condition filter once (OR between condition sets, AND within each).
-        # Both targets reuse it — for traces it filters which triggering generation qualifies.
-        condition_exprs: list[ast.Expr] = []
-        for condition in conditions:
-            props = condition.get("properties", [])
-            if props:
-                condition_exprs.append(property_to_expr(props, team))
-        condition_filter: ast.Expr | None = None
-        if len(condition_exprs) == 1:
-            condition_filter = condition_exprs[0]
-        elif condition_exprs:
-            condition_filter = ast.Or(exprs=condition_exprs)
+        # Both targets reuse it; for traces it filters which triggering generation qualifies.
+        condition_filter = build_condition_filter(conditions, team)
 
         if target == EvaluationTarget.SESSION.value:
             return _test_hog_over_sessions(
@@ -1287,6 +1301,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 query=query,
                 placeholders={"where_clause": ast.And(exprs=where_exprs)},
                 team=team,
+                user=cast("User", request.user),
                 query_type="EvaluationTestHog",
                 fall_back_to_events=False,
                 limit_context=None,

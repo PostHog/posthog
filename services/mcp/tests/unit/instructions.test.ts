@@ -155,6 +155,7 @@ describe('buildToolDomainsBlock', () => {
         const trailingActions = [
             'archive',
             'calculate',
+            'claim',
             'complete',
             'copy',
             'disable',
@@ -166,10 +167,13 @@ describe('buildToolDomainsBlock', () => {
             'end',
             'freeze',
             'launch',
+            'migrate',
+            'move',
             'patch',
             'pause',
             'publish',
             'record',
+            'rename',
             'reset',
             'restore',
             'resume',
@@ -317,8 +321,13 @@ describe('buildActiveEnvironmentContextPrompt', () => {
     it('renders the full project + org line when both are present', () => {
         const result = buildActiveEnvironmentContextPrompt(user, org, project)
         expect(result).toContain(
-            'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).'
+            'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).'
         )
+    })
+
+    it('never leaks the project API token into the environment prompt', () => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, project)
+        expect(result).not.toContain('token_1')
     })
 
     it('omits the organization clause when org is undefined (scope-gated path)', () => {
@@ -326,7 +335,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         // fetch is skipped. The line drops the "within organization …" tail
         // rather than rendering a fabricated "Unknown" placeholder.
         const result = buildActiveEnvironmentContextPrompt(user, undefined, project)
-        expect(result).toContain('You are currently in project "My App" (id: 1, token: token_1).')
+        expect(result).toContain('You are currently in project "My App" (id: 1).')
         expect(result).not.toContain('within organization')
         expect(result).not.toContain('Unknown')
         expect(result).not.toContain('unknown')
@@ -344,9 +353,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         // Sits right after the project/org context line.
         const lines = (result ?? '').split('\n')
         expect(lines.indexOf('Base URL: us.posthog.com — add /project/1 for project-scoped paths.')).toBe(
-            lines.indexOf(
-                'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).'
-            ) + 1
+            lines.indexOf('You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).') + 1
         )
     })
 
@@ -381,7 +388,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         // The org branch is unchanged — only the no-org branch was added.
         const result = buildActiveEnvironmentContextPrompt(user, org, undefined)
         expect(result).toContain(
-            'You are currently in project "Unknown" (id: unknown, token: unknown) within organization "Acme" (id: org_1).'
+            'You are currently in project "Unknown" (id: unknown) within organization "Acme" (id: org_1).'
         )
     })
 

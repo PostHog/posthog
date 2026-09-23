@@ -238,6 +238,7 @@ const engineeringAnalyticsWorkflowRunnerCosts = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 repo: params.repo,
+                run_scope: params.run_scope,
                 source_id: params.source_id,
                 workflow_name: params.workflow_name,
             },
@@ -273,7 +274,7 @@ const PullRequestsSchema = () => {
     const EngineeringAnalyticsPullRequestsQueryParams = orvalSchemas.EngineeringAnalyticsPullRequestsQueryParams()
     return EngineeringAnalyticsPullRequestsQueryParams.extend({
         date_from: EngineeringAnalyticsPullRequestsQueryParams.shape['date_from'].describe(
-            "Recency floor for merged/closed PRs — relative ('-30d', '-8w') or ISO8601. Open PRs are always included regardless of age. Defaults to -30d."
+            "Recency floor for merged/closed PRs: relative ('-30d', '-8w') or ISO8601. Open PRs are always included regardless of age. Defaults to -30d."
         ),
     })
 }
@@ -301,13 +302,10 @@ const WorkflowHealthSchema = () => {
     const EngineeringAnalyticsWorkflowHealthQueryParams = orvalSchemas.EngineeringAnalyticsWorkflowHealthQueryParams()
     return EngineeringAnalyticsWorkflowHealthQueryParams.extend({
         date_from: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_from'].describe(
-            "Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h."
+            "Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."
         ),
         date_to: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_to'].describe(
-            'Window end — relative or ISO8601. Defaults to now.'
-        ),
-        run_scope: EngineeringAnalyticsWorkflowHealthQueryParams.shape['run_scope'].describe(
-            'Run scope. Use "pull_request" for PR CI runs (excludes default-branch master/main runs; same-repo PRs only, since fork PRs carry no PR attribution); omit or pass "all" for every run.'
+            'Window end: relative or ISO8601. Defaults to now.'
         ),
     })
 }
@@ -330,6 +328,7 @@ const workflowHealth = (): ToolBase<
                 repo: params.repo,
                 run_scope: params.run_scope,
                 source_id: params.source_id,
+                workflow_name: params.workflow_name,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics/workflows')

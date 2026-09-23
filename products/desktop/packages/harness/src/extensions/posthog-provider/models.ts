@@ -5,7 +5,7 @@ import type { CloudRegion } from "@posthog/shared";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import { getLlmGatewayUrl } from "./gateway";
 
-export const DEFAULT_MODEL = "claude-opus-4-8";
+export const DEFAULT_MODEL = "claude-opus-5-5";
 
 const MODELS_FETCH_TIMEOUT_MS = 5_000;
 
@@ -30,6 +30,7 @@ const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 // mark `off` unsupported until the builtin catalog catches up.
 const THINKING_LEVEL_MAP_OVERRIDES: Record<string, ThinkingLevelMap> = {
   "claude-fable-5-1": { off: null, xhigh: "xhigh", max: "max" },
+  "claude-opus-5-5": { off: null, xhigh: "xhigh", max: "max" },
 };
 
 function findBuiltinModel(family: ModelFamily, id: string) {
@@ -140,6 +141,12 @@ function toModelConfig(
 
 const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
   {
+    id: "claude-opus-5-5",
+    owned_by: "anthropic",
+    context_window: 1000000,
+    supports_vision: true,
+  },
+  {
     id: "claude-opus-5",
     owned_by: "anthropic",
     context_window: 1000000,
@@ -173,6 +180,24 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     id: "claude-haiku-4-5",
     owned_by: "anthropic",
     context_window: 200000,
+    supports_vision: true,
+  },
+  {
+    id: "gpt-6-astra",
+    owned_by: "openai",
+    context_window: 922000,
+    supports_vision: true,
+  },
+  {
+    id: "gpt-6-sol",
+    owned_by: "openai",
+    context_window: 1050000,
+    supports_vision: true,
+  },
+  {
+    id: "gpt-6-luna",
+    owned_by: "openai",
+    context_window: 1050000,
     supports_vision: true,
   },
   {
@@ -229,11 +254,29 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     context_window: 262144,
     supports_vision: false,
   },
+  {
+    id: "deepseek-ai/deepseek-v4-flash-0731",
+    owned_by: "baseten",
+    context_window: 1048000,
+    supports_vision: false,
+  },
+  {
+    id: "zai-org/glm-5.3",
+    owned_by: "baseten",
+    context_window: 1048576,
+    supports_vision: false,
+  },
+  {
+    id: "zai-org/glm-5.3-flash",
+    owned_by: "baseten",
+    context_window: 1000000,
+    supports_vision: false,
+  },
 ];
 
-// DeepSeek V4 Flash is deliberately absent from the fallback list: the gateway
-// only serves it to flag-gated posthog_code callers, so it is offered only when
-// the live /v1/models listing advertises it.
+// DeepSeek V4 Flash and GLM 5.3 are advertised and allowed on the public
+// gateway listing, so they belong here too: a failed /v1/models fetch must
+// not be what decides whether they are offered.
 export function fallbackModelConfigs(
   region: CloudRegion,
 ): ProviderModelConfig[] {

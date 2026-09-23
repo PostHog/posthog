@@ -678,6 +678,7 @@ use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router::{self, HistoricalConfig};
 use crate::time::TimeSource;
+use crate::v0_request::AiLanePredicate;
 use crate::v1::sinks::kafka::mock::MockProducer;
 use crate::v1::sinks::kafka::sink::KafkaSink;
 use crate::v1::sinks::sink::Sink;
@@ -705,6 +706,8 @@ pub struct TestStateBuilder {
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
     capture_mode: CaptureMode,
+    ai_max_event_bytes: u64,
+    ai_lane_predicate: AiLanePredicate,
 }
 
 impl Default for TestStateBuilder {
@@ -729,6 +732,8 @@ impl TestStateBuilder {
             ai_gateway_signing_secret: None,
             ingestion_warning_emitter: None,
             capture_mode: CaptureMode::Events,
+            ai_max_event_bytes: 0,
+            ai_lane_predicate: AiLanePredicate::Allowlist,
         }
     }
 
@@ -820,6 +825,17 @@ impl TestStateBuilder {
     /// Set the deployment capture mode (defaults to `Events`).
     pub fn with_capture_mode(mut self, mode: CaptureMode) -> Self {
         self.capture_mode = mode;
+        self
+    }
+
+    /// Set the per-event AI ceiling (defaults to `0`, which disables it).
+    pub fn with_ai_max_event_bytes(mut self, bytes: u64) -> Self {
+        self.ai_max_event_bytes = bytes;
+        self
+    }
+
+    pub fn with_ai_lane_predicate(mut self, predicate: AiLanePredicate) -> Self {
+        self.ai_lane_predicate = predicate;
         self
     }
 
@@ -933,7 +949,8 @@ impl TestStateBuilder {
             is_mirror_deploy: false,
             verbose_sample_percent: 0.0,
             ai_max_sum_of_parts_bytes: 100 * 1024 * 1024,
-            ai_max_event_bytes: 0,
+            ai_max_event_bytes: self.ai_max_event_bytes,
+            ai_lane_predicate: self.ai_lane_predicate,
             body_chunk_read_timeout: None,
             body_read_chunk_size_kb: 64,
             capture_v1_max_compressed_body_bytes: 2 * 1024 * 1024,

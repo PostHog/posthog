@@ -19,6 +19,8 @@ from temporalio import activity
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
+from posthog.dataclasses import frozen
+from posthog.models.event.new_events_schema import use_new_events_schema
 
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
@@ -43,6 +45,7 @@ from posthog.temporal.common.clickhouse import (
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.hogql_source import UnsupportedHogQLQueryError
 from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import (
     BackfillDetails,
@@ -52,14 +55,20 @@ from products.batch_exports.backend.service import (
     afetch_last_run_records_completed,
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
-from products.batch_exports.backend.temporal.filters import compose_filters_clause
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
+from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
     is_5_min_batch_export,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
-from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel, resolve_batch_exports_model
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportError
+from products.batch_exports.backend.temporal.record_batch_model import (
+    HogQLQueryRecordBatchModel,
+    RecordBatchModel,
+    resolve_batch_exports_model,
+)
 from products.batch_exports.backend.temporal.sql.common import get_s3_function_call
 from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
@@ -68,6 +77,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+    native_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import (
     EXPORT_TO_S3_FROM_PERSONS,
@@ -79,22 +89,32 @@ LOGGER = get_write_only_logger()
 TRACER = trace.get_tracer(__name__)
 
 
-class DataIntervalEndInFutureError(Exception):
-    """Raised when a batch export's 'data_interval_end' is after now."""
-
-    def __init__(self, data_interval_end: dt.datetime) -> None:
-        super().__init__(f"The provided 'data_interval_end' ({data_interval_end.isoformat()}) is in the future")
+class DataIntervalInFutureError(Exception):
+    def __init__(self, bound: typing.Literal["data_interval_start", "data_interval_end"], value: dt.datetime) -> None:
+        super().__init__(f"The provided '{bound}' ({value.isoformat()}) is in the future. Choose a date in the past.")
 
 
 class HogQLQueryResourceLimitExceededError(Exception):
     """A user's HogQL batch export query exceeded a per-query ClickHouse resource limit.
 
-    Raised in place of the ClickHouse error so the workflow treats it as non-retryable (see the
-    stage activity's `non_retryable_error_types`): re-running the query unchanged would fail again.
+    Raised in place of the ClickHouse error so the staging activity treats it as non-retryable
+    (see `NON_RETRYABLE_ERRORS`): re-running the query unchanged would fail again.
 
     Only raised for the `hogql` model. The fixed models keep their ClickHouse errors and stay
     retryable, since their queries are ours and any failures are our responsibility to address.
     """
+
+
+# Staging failures the user has to resolve; retrying them ourselves would achieve nothing.
+# The activity returns these as an `InternalStageResult.error` instead of raising, which fails the
+# run without failing the activity. This mirrors how the destination activities treat their own
+# non-retryable errors (see `handle_non_retryable_errors`), and prevents us being alerted on user errors.
+NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
+    DataIntervalInFutureError,
+    HogQLQueryResourceLimitExceededError,
+    InvalidFilterError,
+    UnsupportedHogQLQueryError,
+)
 
 
 def _raise_on_hogql_resource_limit_error(exc: ClickHouseError, model_name: str) -> None:
@@ -250,29 +270,32 @@ class S3StagingFolder:
     url: str
 
 
-@dataclass
+@frozen
 class InternalStageResult:
     """Result of staging a batch export run's data in the internal S3 area."""
 
     stage_folder: str
     # Total rows written to the stage (from ClickHouse's query summary), or None if unknown.
     records_total: int | None = None
+    # Set when staging failed with one of `NON_RETRYABLE_ERRORS`, in which case nothing was staged.
+    error: BatchExportError | None = None
 
 
-@dataclass
+@frozen
 class BatchExportInsertIntoInternalStageInputs:
     """Base dataclass for batch export insert inputs containing common fields."""
 
     team_id: int
     batch_export_id: str
     data_interval_start: str | None
-    data_interval_end: str
+    data_interval_end: str | None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
     is_workflows: bool = False
+    on_demand: bool = False
     # TODO: Remove after updating existing batch exports
     batch_export_schema: BatchExportSchema | None = None
     destination_default_fields: list[BatchExportField] | None = None
@@ -299,11 +322,7 @@ class BatchExportInsertIntoInternalStageInputs:
 async def insert_into_internal_stage_activity(
     inputs: BatchExportInsertIntoInternalStageInputs,
 ) -> InternalStageResult:
-    """Write record batches to our own internal S3 staging area.
-
-    Returns:
-        The S3 staging folder where the data was written to, and the total number of rows staged.
-    """
+    """Write record batches to our own internal S3 staging area."""
     bind_contextvars(
         team_id=inputs.team_id,
         batch_export_id=inputs.batch_export_id,
@@ -318,18 +337,22 @@ async def insert_into_internal_stage_activity(
         Heartbeater(),
         set_status_to_running_task(run_id=inputs.run_id),
     ):
-        _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id,
-            inputs.batch_export_model,
-            inputs.batch_export_schema,
-            inputs.batch_export_id,
-            is_backfill=inputs.backfill_details is not None,
-        )
         data_interval_start = (
-            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start is not None else None
         )
-        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
+        data_interval_end = (
+            dt.datetime.fromisoformat(inputs.data_interval_end) if inputs.data_interval_end is not None else None
+        )
         full_range = (data_interval_start, data_interval_end)
+
+        if data_interval_end is None and not inputs.on_demand:
+            raise MissingRequiredInputsError("Scheduled batch exports require data_interval_end")
+
+        staging_run_id = None
+        if inputs.on_demand and (data_interval_start is None or data_interval_end is None):
+            if inputs.run_id is None:
+                raise MissingRequiredInputsError("On-demand batch exports with missing interval bounds require run_id")
+            staging_run_id = inputs.run_id
 
         attempt_number = activity.info().attempt
         s3_staging_folder = get_s3_staging_folder(
@@ -337,60 +360,120 @@ async def insert_into_internal_stage_activity(
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
             attempt_number=attempt_number,
+            run_id=staging_run_id,
         )
 
         num_partitions = await compute_num_partitions(
             batch_export_id=inputs.batch_export_id,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            on_demand=inputs.on_demand,
         )
         logger.info("Computed staging partitions", num_partitions=num_partitions)
 
-        if record_batch_model is not None:
-            query_or_model = record_batch_model
-            query_parameters = {}
-        else:
-            query, query_parameters = await _get_query(
+        try:
+            (
+                _,
+                record_batch_model,
+                model_name,
+                fields,
+                filters,
+                extra_query_parameters,
+            ) = await database_sync_to_async(resolve_batch_exports_model)(
+                inputs.team_id,
+                inputs.batch_export_model,
+                inputs.batch_export_schema,
+                inputs.batch_export_id,
+                is_backfill=inputs.backfill_details is not None,
+            )
+            records_total = await _stage_query_results(
+                inputs,
+                record_batch_model=record_batch_model,
                 model_name=model_name,
-                backfill_details=inputs.backfill_details,
-                team_id=inputs.team_id,
-                batch_export_id=inputs.batch_export_id,
-                s3_staging_folder_url=s3_staging_folder.url,
-                full_range=full_range,
-                data_interval_start=inputs.data_interval_start,
-                data_interval_end=inputs.data_interval_end,
                 fields=fields,
                 filters=filters,
-                destination_default_fields=inputs.destination_default_fields,
-                exclude_events=inputs.exclude_events,
-                include_events=inputs.include_events,
                 extra_query_parameters=extra_query_parameters,
-                num_partitions=num_partitions,
-                is_workflows=inputs.is_workflows,
-            )
-            query_or_model = query
-
-        try:
-            records_total = await _write_batch_export_record_batches_to_internal_stage(
-                query_or_model=query_or_model,
                 full_range=full_range,
-                query_parameters=query_parameters,
-                team_id=inputs.team_id,
-                batch_export_id=inputs.batch_export_id,
-                data_interval_start=inputs.data_interval_start,
-                data_interval_end=inputs.data_interval_end,
-                s3_staging_folder_url=s3_staging_folder.url,
+                s3_staging_folder=s3_staging_folder,
                 num_partitions=num_partitions,
+                run_id=staging_run_id,
             )
-        except ClickHouseError as e:
-            _raise_on_hogql_resource_limit_error(e, model_name)
-            raise
+        except NON_RETRYABLE_ERRORS as e:
+            logger.warning("Staging data failed with a non-retryable error", error=str(e))
+            return InternalStageResult(
+                stage_folder=s3_staging_folder.folder,
+                error=BatchExportError(type=type(e).__name__, message=str(e)),
+            )
+
     logger.info("Staging data completed successfully", records_total=records_total)
     return InternalStageResult(stage_folder=s3_staging_folder.folder, records_total=records_total)
 
 
+async def _stage_query_results(
+    inputs: BatchExportInsertIntoInternalStageInputs,
+    *,
+    record_batch_model: RecordBatchModel | None,
+    model_name: str,
+    fields: list[BatchExportField] | None,
+    filters: list[dict[str, str | list[str] | None]] | None,
+    extra_query_parameters: dict[str, typing.Any] | None,
+    full_range: tuple[dt.datetime | None, dt.datetime | None],
+    s3_staging_folder: S3StagingFolder,
+    num_partitions: int,
+    run_id: str | None = None,
+) -> int | None:
+    """Build this run's query and write its results into the internal S3 staging area.
+
+    Returns the number of rows staged, or None if the count couldn't be determined.
+    """
+    if record_batch_model is not None:
+        query_or_model: str | RecordBatchModel = record_batch_model
+        query_parameters: dict[str, typing.Any] = {}
+    else:
+        if full_range[1] is None or inputs.data_interval_end is None:
+            raise MissingRequiredInputsError("Fixed batch export models require data_interval_end")
+        query_or_model, query_parameters = await _get_query(
+            model_name=model_name,
+            backfill_details=inputs.backfill_details,
+            team_id=inputs.team_id,
+            batch_export_id=inputs.batch_export_id,
+            s3_staging_folder_url=s3_staging_folder.url,
+            full_range=(full_range[0], full_range[1]),
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+            fields=fields,
+            filters=filters,
+            destination_default_fields=inputs.destination_default_fields,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            extra_query_parameters=extra_query_parameters,
+            num_partitions=num_partitions,
+            is_workflows=inputs.is_workflows,
+        )
+
+    try:
+        return await _write_batch_export_record_batches_to_internal_stage(
+            query_or_model=query_or_model,
+            full_range=full_range,
+            query_parameters=query_parameters,
+            team_id=inputs.team_id,
+            batch_export_id=inputs.batch_export_id,
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+            s3_staging_folder_url=s3_staging_folder.url,
+            num_partitions=num_partitions,
+            run_id=run_id,
+        )
+    except ClickHouseError as e:
+        _raise_on_hogql_resource_limit_error(e, model_name)
+        raise
+
+
 async def compute_num_partitions(
-    batch_export_id: str, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    batch_export_id: str,
+    data_interval_start: dt.datetime | None,
+    data_interval_end: dt.datetime | None,
+    on_demand: bool = False,
 ) -> int:
     """Choose how many staging files (partitions) to write for this run.
 
@@ -406,16 +489,19 @@ async def compute_num_partitions(
     We fall back to the static default when there is no usable estimate (first run, frequency
     change, or a run with no recorded count), if the fetch fails, or if dynamic partitioning is
     disabled entirely via BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED.
+
+    An on-demand export skips the estimate without querying. Each request creates its own
+    `BatchExportOnDemand` and runs once, so there is never an earlier run to size from.
     """
     logger = LOGGER.bind()
     static_default = settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
 
-    if not settings.BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED:
+    if not settings.BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED or on_demand:
         return static_default
 
     # Without the current interval's bounds we can't match the previous run's frequency, so don't risk
     # sizing off a differently-sized interval (e.g. an unbounded backfill) -> fall back to the default.
-    if data_interval_start is None:
+    if data_interval_start is None or data_interval_end is None:
         return static_default
     interval_duration = data_interval_end - data_interval_start
 
@@ -519,6 +605,13 @@ async def _get_query(
         else:
             parameters["include_events"] = []
 
+        if "_inserted_at" not in [field["alias"] for field in fields]:
+            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+        else:
+            control_fields = []
+
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
+
         # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
         # may not be able to handle the load from all batch exports
         if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
@@ -549,21 +642,18 @@ async def _get_query(
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
-        if "_inserted_at" not in [field["alias"] for field in fields]:
-            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+        if query_template is EXPORT_TO_S3_FROM_EVENTS_BACKFILL and await database_sync_to_async(use_new_events_schema)(
+            team_id
+        ):
+            query = native_events_export_query(query_fields, filters_str, s3_function=s3_function)
         else:
-            control_fields = []
-
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
-
-        if filters_str:
-            filters_str = f"AND {filters_str}"
-
-        query = query_template.safe_substitute(
-            fields=query_fields,
-            filters=filters_str,
-            s3_function=s3_function,
-        )
+            if filters_str:
+                filters_str = f"AND {filters_str}"
+            query = query_template.safe_substitute(
+                fields=query_fields,
+                filters=filters_str,
+                s3_function=s3_function,
+            )
 
     parameters["team_id"] = team_id
 
@@ -579,17 +669,32 @@ async def _get_query(
     return query, parameters
 
 
-def get_base_s3_staging_folder(batch_export_id: str, data_interval_start: str | None, data_interval_end: str) -> str:
+def get_base_s3_staging_folder(
+    batch_export_id: str,
+    data_interval_start: str | None,
+    data_interval_end: str | None,
+    run_id: str | None = None,
+) -> str:
     """Get the base S3 staging folder for a given batch export."""
     subfolder = "batch-exports"
+    if run_id is not None:
+        return f"{subfolder}/{batch_export_id}/runs/{run_id}"
+    if data_interval_end is None:
+        raise MissingRequiredInputsError("A staging folder requires data_interval_end or run_id")
     return f"{subfolder}/{batch_export_id}/{data_interval_start}-{data_interval_end}"
 
 
 def get_s3_staging_folder(
-    batch_export_id: str, data_interval_start: str | None, data_interval_end: str, attempt_number: int
+    batch_export_id: str,
+    data_interval_start: str | None,
+    data_interval_end: str | None,
+    attempt_number: int,
+    run_id: str | None = None,
 ) -> S3StagingFolder:
     """Get the S3 staging folder for a given batch export and attempt number."""
-    base_s3_staging_folder = get_base_s3_staging_folder(batch_export_id, data_interval_start, data_interval_end)
+    base_s3_staging_folder = get_base_s3_staging_folder(
+        batch_export_id, data_interval_start, data_interval_end, run_id=run_id
+    )
     folder = f"{base_s3_staging_folder}/attempt_{attempt_number}"
     url = _get_clickhouse_s3_staging_folder_url(folder)
     return S3StagingFolder(folder=folder, url=url)
@@ -615,14 +720,15 @@ def _get_clickhouse_s3_staging_folder_url(folder: str) -> str:
 
 async def _write_batch_export_record_batches_to_internal_stage(
     query_or_model: str | RecordBatchModel,
-    full_range: tuple[dt.datetime | None, dt.datetime],
+    full_range: tuple[dt.datetime | None, dt.datetime | None],
     query_parameters: dict[str, typing.Any],
     team_id: int,
     batch_export_id: str,
     data_interval_start: str | None,
-    data_interval_end: str,
+    data_interval_end: str | None,
     s3_staging_folder_url: str,
     num_partitions: int | None = None,
+    run_id: str | None = None,
 ) -> int | None:
     """Write record batches to our own internal S3 staging area.
 
@@ -645,11 +751,20 @@ async def _write_batch_export_record_batches_to_internal_stage(
         delta = dt.timedelta(minutes=1)
     interval_start, interval_end = full_range
 
-    if _is_local_dev_or_test() is False and interval_end > dt.datetime.now(dt.UTC):
+    if _is_local_dev_or_test() is False:
         # Some tests create data in the future, so we do not check this.
-        raise DataIntervalEndInFutureError(interval_end)
+        now = dt.datetime.now(dt.UTC)
+        if interval_start is not None and interval_start > now:
+            raise DataIntervalInFutureError("data_interval_start", interval_start)
+        if interval_end is not None and interval_end > now:
+            raise DataIntervalInFutureError("data_interval_end", interval_end)
 
-    if not isinstance(query_or_model, RecordBatchModel) or query_or_model.wait_for_data_interval_end:
+    if interval_end is None and not isinstance(query_or_model, HogQLQueryRecordBatchModel):
+        raise MissingRequiredInputsError("Fixed batch export models and raw SQL queries require data_interval_end")
+
+    if interval_end is not None and (
+        not isinstance(query_or_model, RecordBatchModel) or query_or_model.wait_for_data_interval_end
+    ):
         with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
             await wait_for_delta_past_data_interval_end(interval_end, delta)
 
@@ -673,7 +788,10 @@ async def _write_batch_export_record_batches_to_internal_stage(
         # interval into sub-intervals, running one query per sub-interval, to reduce memory usage
         if interval_start is not None:
             query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-        query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+        else:
+            query_parameters["interval_start"] = None
+        if interval_end is not None:
+            query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
         if isinstance(query_or_model, RecordBatchModel):
             query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
@@ -692,6 +810,7 @@ async def _write_batch_export_record_batches_to_internal_stage(
             batch_export_id=batch_export_id,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            run_id=run_id,
         )
         # First delete any existing files in the staging folder.
         # We technically don't need to do this, since the Temporal activity attempt number is used in the S3 key,

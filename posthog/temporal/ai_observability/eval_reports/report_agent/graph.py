@@ -1,12 +1,14 @@
 """LangGraph agent for evaluation report generation using create_react_agent."""
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 import structlog
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import create_react_agent
+from openai import APIStatusError
 
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
@@ -14,12 +16,16 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import 
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     MIN_REPORT_SECTIONS,
+    Citation,
     EvalReportContent,
     EvalReportGenerationStatus,
     EvalReportMetrics,
     ReportSection,
 )
-from posthog.temporal.ai_observability.eval_reports.report_agent.state import EvalReportAgentState
+from posthog.temporal.ai_observability.eval_reports.report_agent.state import (
+    REPORT_RUN_HANDLE_KEY,
+    EvalReportAgentState,
+)
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _ch_ts,
     _dead_backticked_ids_in_report,
@@ -27,6 +33,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _handled_ids,
     _is_retriable_ch_error,
     get_eval_report_tools,
+    strip_dead_backticked_ids,
 )
 from posthog.temporal.ai_observability.eval_reports.targets import (
     GENERATION_TARGET,
@@ -35,7 +42,7 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     get_target_descriptor,
 )
 from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput
-from posthog.temporal.ai_observability.llm_endpoint import build_langchain_callbacks, build_langchain_chat_client
+from posthog.temporal.ai_observability.llm_endpoint import build_flex_first_chat_client, build_langchain_callbacks
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +54,7 @@ def _compute_metrics(
     period_end: str,
     previous_period_start: str,
     output_type: str = "boolean",
+    true_is_failure: bool = False,
     evaluation_target: str = GENERATION_TARGET,
 ) -> EvalReportMetrics | None:
     """Compute report metrics directly via HogQL (independent of agent state).
@@ -59,7 +67,7 @@ def _compute_metrics(
         ts_start = _ch_ts(period_start)
         ts_end = _ch_ts(period_end)
         ts_prev_start = _ch_ts(previous_period_start)
-        definition = get_outcome_definition(output_type)
+        definition = get_outcome_definition(output_type, true_is_failure=true_is_failure)
 
         result_counts, total = _fetch_period_summary(
             team_id, evaluation_id, ts_start, ts_end, definition, evaluation_target
@@ -185,6 +193,26 @@ def _append_references_section(content: EvalReportContent) -> None:
     content.sections.append(ReportSection(title="References", content="\n".join(refs_lines)))
 
 
+def _unwrap_dead_ids(content: EvalReportContent, handled_ids: set[str]) -> list[str]:
+    """Take the backticks off every ID the renderers cannot link, and return those IDs.
+
+    The agent is told in the tool errors to do this itself. Doing it here too means one
+    stray identifier costs the reader a link, not the whole analysis.
+    """
+    titles = [content.title, *(section.title for section in content.sections)]
+    bodies = [section.content for section in content.sections]
+    dead = _dead_backticked_ids_in_report(titles, bodies, content.citations, handled_ids)
+    if not dead:
+        return []
+
+    no_citations: list[Citation] = []
+    content.title = strip_dead_backticked_ids(content.title, no_citations, handled_ids)
+    for section in content.sections:
+        section.title = strip_dead_backticked_ids(section.title, no_citations, handled_ids)
+        section.content = strip_dead_backticked_ids(section.content, content.citations, handled_ids)
+    return dead
+
+
 def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | None = None) -> str | None:
     """Return a reason string if content is invalid, else None.
 
@@ -197,7 +225,8 @@ def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | N
         backticked ID is a dead identifier
 
     set_title and add_section run the same dead-ID check in the loop, so the agent can
-    correct a dead ID on its next call. This is the backstop for what reaches the end.
+    correct a dead ID on its next call, and `_unwrap_dead_ids` strips whatever survives
+    that. The dead-ID check here only fires if both of those missed something.
     """
     if not content.title.strip():
         return "agent did not call set_title"
@@ -219,9 +248,27 @@ def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | N
     return None
 
 
+def _upstream_error_fields(error: Exception) -> dict[str, Any]:
+    """Return the provider's own description of a rejected call, for the agent error log.
+
+    A provider 400 says exactly which field it refused, but the exception string on its own
+    does not carry it, so a rejected call is otherwise undiagnosable after the fact.
+    """
+    if not isinstance(error, APIStatusError):
+        return {}
+    return {
+        "upstream_status": error.status_code,
+        "upstream_code": error.code,
+        "upstream_param": error.param,
+        "upstream_type": error.type,
+        "upstream_message": error.message[:1000],
+    }
+
+
 def run_eval_report_agent(
     inputs: RunEvalReportAgentInput,
     evaluation_target: str = "generation",
+    detector_evaluation_ids: Sequence[str] = (),
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
 
@@ -244,10 +291,15 @@ def run_eval_report_agent(
         inputs.period_end,
         inputs.previous_period_start,
         output_type=inputs.output_type,
+        true_is_failure=inputs.true_is_failure,
         evaluation_target=evaluation_target,
     )
 
-    from posthog.temporal.ai_observability.eval_reports.metrics import increment_errors, increment_report_generated
+    from posthog.temporal.ai_observability.eval_reports.metrics import (
+        increment_dead_ids_unwrapped,
+        increment_errors,
+        increment_report_generated,
+    )
 
     # The agent's query tools would fail under the same sustained ClickHouse load,
     # which could produce a narrative built on missing data.
@@ -269,7 +321,7 @@ def run_eval_report_agent(
         "evaluation_id": inputs.evaluation_id,
         **({"report_id": inputs.report_id} if inputs.report_id else {}),
     }
-    llm = build_langchain_chat_client(
+    llm = build_flex_first_chat_client(
         EVAL_REPORT_AGENT_MODEL,
         EVAL_REPORT_AGENT_TIMEOUT,
         ai_product="aio_eval_reports",
@@ -289,6 +341,7 @@ def run_eval_report_agent(
         period_start=inputs.period_start,
         period_end=inputs.period_end,
         report_prompt_guidance=inputs.report_prompt_guidance,
+        true_is_failure=inputs.true_is_failure,
     )
 
     agent = create_react_agent(
@@ -311,6 +364,8 @@ def run_eval_report_agent(
         "evaluation_type": inputs.evaluation_type,
         "evaluation_target": evaluation_target,
         "output_type": inputs.output_type,
+        "true_is_failure": inputs.true_is_failure,
+        "detector_evaluation_ids": list(detector_evaluation_ids),
         "period_start": inputs.period_start,
         "period_end": inputs.period_end,
         "previous_period_start": inputs.previous_period_start,
@@ -318,6 +373,7 @@ def run_eval_report_agent(
         "report": EvalReportContent(evaluation_target=evaluation_target, metrics=metrics),
         TRACE_ID_ALLOWLIST_KEY: [],
         SESSION_ID_ALLOWLIST_KEY: [],
+        REPORT_RUN_HANDLE_KEY: {},
     }
 
     callbacks = build_langchain_callbacks(
@@ -344,7 +400,20 @@ def run_eval_report_agent(
         content.evaluation_target = evaluation_target
         content.metrics = metrics
 
-        validation_error = _validate_agent_output(content, _handled_ids(result))
+        handled_ids = _handled_ids(result)
+        unwrapped = _unwrap_dead_ids(content, handled_ids)
+        if unwrapped:
+            increment_dead_ids_unwrapped(len(unwrapped))
+            logger.warning(
+                "llma_eval_reports_agent_dead_ids_unwrapped",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+                dead_id_count=len(unwrapped),
+                trace_id=resolved_trace_id,
+                session_id=resolved_session_id,
+            )
+
+        validation_error = _validate_agent_output(content, handled_ids)
         if validation_error:
             increment_report_generated("fallback_validation")
 
@@ -389,6 +458,7 @@ def run_eval_report_agent(
             evaluation_id=inputs.evaluation_id,
             trace_id=resolved_trace_id,
             session_id=resolved_session_id,
+            **_upstream_error_fields(e),
         )
         return _fallback_content(
             inputs.evaluation_name,

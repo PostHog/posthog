@@ -5,8 +5,8 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { InternalPerson, Person } from '~/types'
 
 import { PersonContext } from './person-context'
-import { PersonMergeService } from './person-merge-service'
-import { PersonMergeLimitExceededError, PersonMergeRaceConditionError } from './person-merge-types'
+import { PersonMergeService, mergeMoveLimitDroppedCounter } from './person-merge-service'
+import { PersonMergeLimitExceededError } from './person-merge-types'
 import { PersonPropertyService } from './person-property-service'
 
 /**
@@ -34,14 +34,7 @@ export class PersonEventProcessor {
             identifyOrAliasKafkaAck = mergeResult.kafkaAck
             needsPersonUpdate = mergeResult.needsPersonUpdate
         } else {
-            const errorResult = this.handleMergeError(mergeResult.error, this.context.event)
-            if (errorResult) {
-                return errorResult
-            }
-            logger.warn('Merge operation failed, continuing with normal property updates', {
-                error: mergeResult.error.message,
-                team_id: this.context.team.id,
-            })
+            return this.handleMergeError(mergeResult.error, this.context.event)
         }
 
         if (personFromMerge && needsPersonUpdate) {
@@ -69,7 +62,7 @@ export class PersonEventProcessor {
         return this.context
     }
 
-    private handleMergeError(error: unknown, event: PluginEvent): PipelineResult<Person, AsyncOutput> | null {
+    private handleMergeError(error: unknown, event: PluginEvent): PipelineResult<Person, AsyncOutput> {
         const mergeMode = this.context.mergeMode
 
         if (error instanceof PersonMergeLimitExceededError) {
@@ -96,21 +89,46 @@ export class PersonEventProcessor {
                     })
                     return dlq('Merge limit exceeded', error)
                 case 'SYNC':
-                    // SYNC mode should never hit limits - this indicates a bug
-                    logger.error('Unexpected limit exceeded in SYNC mode - this should not happen', {
+                    // Postgres moves are unbounded in SYNC mode, so only the
+                    // personhog saga's move limit produces this here. DLQ
+                    // rather than drop or throw: the payload stays replayable,
+                    // and a throw would only redeliver into the same limit.
+                    logger.error('Merge limit exceeded in SYNC mode; routing the event to the DLQ', {
                         team_id: event.team_id,
                         distinct_id: event.distinct_id,
+                        event_uuid: event.uuid,
                         mergeMode: mergeMode,
                     })
-                    throw error
+                    mergeMoveLimitDroppedCounter.labels({ path: 'sync' }).inc()
+                    return dlq(
+                        'Merge limit exceeded in SYNC mode',
+                        error,
+                        [],
+                        [
+                            {
+                                type: 'merge_move_limit_exceeded',
+                                details: {
+                                    distinctId: event.distinct_id,
+                                    eventUuid: event.uuid,
+                                    // $identify carries the source id as
+                                    // $anon_distinct_id, the alias events as
+                                    // alias; preferring one blindly would
+                                    // mislabel the warning when a stray copy
+                                    // of the other is present.
+                                    sourcePersonDistinctId: String(
+                                        (event.event === '$identify'
+                                            ? (event.properties?.['$anon_distinct_id'] ?? event.properties?.['alias'])
+                                            : (event.properties?.['alias'] ??
+                                              event.properties?.['$anon_distinct_id'])) ?? event.distinct_id
+                                    ),
+                                    targetPersonDistinctId: event.distinct_id,
+                                    eventDropped: false,
+                                },
+                                pipelineStep: 'person-merge',
+                            },
+                        ]
+                    )
             }
-        } else if (error instanceof PersonMergeRaceConditionError) {
-            logger.warn('Race condition detected, ignoring merge', {
-                error: error.message,
-                team_id: this.context.team.id,
-                distinct_id: this.context.distinctId,
-            })
-            return null // Continue with normal processing
         } else {
             // Unknown errors should be thrown - they indicate bugs or unexpected conditions
             logger.error('Unknown merge error - throwing to surface the issue', {

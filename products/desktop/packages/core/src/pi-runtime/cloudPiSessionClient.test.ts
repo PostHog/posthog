@@ -1,4 +1,5 @@
 import type { TaskService } from "@posthog/core/task-detail/taskService";
+import type { RootLogger } from "@posthog/di/logger";
 import {
   type AgentConversationEvent,
   mcpToolKey,
@@ -12,6 +13,14 @@ import {
   PiSessionController,
   type PiSessionProvider,
 } from "./piSessionController";
+
+const logger: RootLogger = {
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  scope: () => logger,
+};
 
 function createCloudTaskClient(autoStart = true) {
   const subscriptions: Array<{
@@ -360,6 +369,65 @@ describe("CloudPiSessionClient", () => {
     expect(cloud.client.sendCommand).toHaveBeenCalledOnce();
   });
 
+  it("retries a sandbox command after a resumed sandbox starts", async () => {
+    const cloud = createCloudTaskClient();
+    let liveRuntimeStarted = false;
+    vi.mocked(cloud.client.sendCommand)
+      .mockResolvedValueOnce({
+        success: false,
+        status: 400,
+        code: "sandbox_not_ready",
+        error: "No active sandbox for this task run",
+      })
+      .mockImplementationOnce(async () => {
+        if (!liveRuntimeStarted) {
+          throw new Error("Sandbox command retried before Pi started");
+        }
+        return {
+          success: true,
+          result: {
+            type: "response",
+            command: "get_state",
+            success: true,
+            data: { isStreaming: false },
+          },
+        };
+      });
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("in_progress"),
+    );
+    session.onConversationEvent(vi.fn(), vi.fn());
+
+    const state = session.client.getState();
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "snapshot",
+      status: "in_progress",
+      newEntries: [{ type: "pi_run_started" }],
+      totalEntryCount: 1,
+    });
+
+    await vi.waitFor(() =>
+      expect(cloud.client.sendCommand).toHaveBeenCalledOnce(),
+    );
+
+    liveRuntimeStarted = true;
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "logs",
+      newEntries: [{ type: "pi_run_started" }],
+      totalEntryCount: 2,
+    });
+
+    await expect(state).resolves.toMatchObject({ isStreaming: false });
+    expect(cloud.client.sendCommand).toHaveBeenCalledTimes(2);
+    const commandCalls = vi.mocked(cloud.client.sendCommand).mock.calls;
+    expect(commandCalls[1][0].id).toBe(commandCalls[0][0].id);
+  });
+
   it("does not fail while a sandbox takes longer than 30 seconds to boot", async () => {
     vi.useFakeTimers();
     try {
@@ -619,6 +687,41 @@ describe("CloudPiSessionClient", () => {
     });
   });
 
+  it("normalizes an aborted turn from a persisted cloud event", () => {
+    const cloud = createCloudTaskClient();
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("in_progress"),
+    );
+    const events: AgentConversationEvent[] = [];
+    session.onConversationEvent((event) => events.push(event), vi.fn());
+
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "snapshot",
+      status: "in_progress",
+      newEntries: [
+        {
+          type: "pi_event",
+          event: {
+            type: "turn_completed",
+            timestamp: 1,
+            stopReason: "aborted",
+          },
+        },
+      ],
+      totalEntryCount: 1,
+    });
+
+    expect(events).toContainEqual({
+      type: "turn_completed",
+      timestamp: 1,
+      stopReason: "cancelled",
+      sourceId: "run-1:log:0",
+    });
+  });
+
   it("loads terminal history from the cloud snapshot without sandbox RPC", async () => {
     const cloud = createCloudTaskClient();
     const session = new CloudPiSessionClient(
@@ -695,7 +798,11 @@ describe("CloudPiSessionClient", () => {
     const provider: PiSessionProvider = {
       get: vi.fn(async () => session),
     };
-    const controller = new PiSessionController(provider, {} as TaskService);
+    const controller = new PiSessionController(
+      provider,
+      {} as TaskService,
+      logger,
+    );
 
     const connection = controller.connect("task-1");
     await vi.waitFor(() => {

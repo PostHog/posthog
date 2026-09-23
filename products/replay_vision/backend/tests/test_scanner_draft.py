@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from google.genai.types import FinishReason
 from rest_framework import status
 
 from posthog.schema import RecordingsQuery
@@ -13,7 +14,10 @@ from posthog.rate_limit import AIBurstRateThrottle
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.backend.models.assistant import CoreMemory
+from products.replay_vision.backend.api.scanners import _goal_flow_enabled
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
 from products.replay_vision.backend.queries.scanner_volume_estimate import ScannerVolumeEstimate
@@ -32,14 +36,17 @@ from products.replay_vision.backend.scanner_draft import (
     _generate,
     _goal_entity_matches,
     _goal_terms,
+    _live_actions,
     _LlmDraft,
     _LlmDraftV2,
     _LlmEventPropertyFilter,
     _MatchedAction,
     _MatchedCohort,
+    _MatchedExperiment,
     _MatchedSurvey,
     _solve_budget,
     _v2_query,
+    draft_scanner_from_goal,
     draft_scanner_from_goal_v2,
 )
 from products.replay_vision.backend.tag_suggestions import _ProductTaxonomy
@@ -276,7 +283,12 @@ class TestFinalize:
         assert [p["value"] for p in result.query["properties"]] == [["/checkout"]]
 
     def test_dropping_proposed_filter_values_emits_a_structured_warning(self):
-        with patch("products.replay_vision.backend.scanner_draft.logger.warning") as warn:
+        # The definition fallback is stubbed out because this class takes no database; its own
+        # behavior is covered by TestGroundedEventFallback.
+        with (
+            patch("products.replay_vision.backend.scanner_draft.logger.warning") as warn,
+            patch(f"{_MODULE}._event_names_by_lower", return_value={}),
+        ):
             grounded = _finalize(
                 _draft(filter_screens=["/checkout"], filter_events=["checkout_started"]),
                 allowed_screens=["/checkout"],
@@ -310,6 +322,50 @@ class TestFinalize:
         assert result.query is not None
         assert [p["value"] for p in result.query["properties"]] == [["/alpha"]]
         assert [e["id"] for e in result.query["events"]] == ["e1", "e2"]
+
+
+class TestGroundedEventFallback(_VisionAPITestCase):
+    def _event(self, name: str, *, seen: bool = True):
+        return EventDefinition.objects.create(team=self.team, name=name, last_seen_at=timezone.now() if seen else None)
+
+    def test_a_real_event_missing_from_the_briefing_survives_with_canonical_casing(self):
+        # The regression: the goal names a real event verbatim, the model copies it, and
+        # list-membership grounding drops it because the briefing's sample missed it.
+        self._event("plan upgraded")
+
+        result = _finalize(
+            _draft(filter_events=["Plan Upgraded"]), allowed_events=["checkout_started"], team_id=self.team.id
+        )
+
+        assert result.query is not None
+        assert result.query["events"] == [
+            {"id": "plan upgraded", "name": "plan upgraded", "type": "events", "order": 0}
+        ]
+
+    def test_events_the_team_does_not_emit_still_drop(self):
+        # Invented, internal, and no-longer-firing names must not survive the definition lookup.
+        self._event("$internal_thing")
+        self._event("stale event", seen=False)
+
+        result = _finalize(
+            _draft(filter_events=["ghost event", "$internal_thing", "stale event"]),
+            allowed_events=["checkout_started"],
+            team_id=self.team.id,
+        )
+
+        assert result.query is None
+
+    def test_v2_grounding_accepts_a_real_event_the_briefing_missed(self):
+        self._event("plan upgraded")
+
+        result = _finalize_v2(
+            _draft_v2(filter_events=["plan upgraded"]), allowed_pages=[], allowed_events=[], team_id=self.team.id
+        )
+
+        assert result.query is not None
+        assert result.query["events"] == [
+            {"id": "plan upgraded", "name": "plan upgraded", "type": "events", "order": 0}
+        ]
 
 
 class TestDraftGrounding(_VisionAPITestCase):
@@ -419,7 +475,22 @@ class TestGenerate:
 
         _generate(user_content="goal", team_id=1, distinct_id="u")
 
-        assert generate.call_args.kwargs["config"].max_output_tokens == 4096
+        assert generate.call_args.kwargs["config"].max_output_tokens == 8192
+
+    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    def test_output_cut_off_by_the_token_budget_is_its_own_failure(self, mock_client_cls):
+        # Thinking shares the output budget, so a truncated draft is our cap's fault, not a bad
+        # model response — the two used to be indistinguishable as "invalid_response".
+        truncated = MagicMock(
+            text='{"scanner_type": "classifier", "name": "Chec',
+            candidates=[MagicMock(finish_reason=FinishReason.MAX_TOKENS)],
+        )
+        self._mock_client(mock_client_cls, [truncated])
+
+        with pytest.raises(DraftError) as caught:
+            _generate(user_content="goal", team_id=1, distinct_id="u")
+
+        assert caught.value.reason == "output_truncated"
 
 
 class TestDraftScannerEndpoint(_VisionAPITestCase):
@@ -468,6 +539,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             "sampling_rate": None,
             "model": None,
             "credit_limit": None,
+            "experiment_targeting": None,
             "estimated_monthly_observations": None,
         }
 
@@ -659,10 +731,90 @@ class TestEventsForGoal(_VisionAPITestCase):
 
         assert events == ["checkout_started"]
 
+    def test_a_quoted_event_name_is_looked_up_directly_and_leads_the_briefing(self):
+        # "cta hit" is invisible to the term heuristics: both words sit under the term length
+        # cutoff. Quoting it in the goal must still put it in front of the model, first, and in the
+        # team's canonical casing.
+        self._event("cta hit")
+        self._event("checkout_started")
+
+        events = _events_for_goal(self.team, 'watch what people do around "CTA Hit"')
+
+        assert events[0] == "cta hit"
+
+    def test_the_legacy_briefing_carries_events_the_goal_quotes(self):
+        # The legacy taxonomy is a recency sample with no goal matching, so the quoted lookup is
+        # the only way a named event reaches that briefing and survives grounding.
+        self._event("cta hit")
+
+        with patch(_GENERATE_PATH, return_value=_draft(filter_events=["cta hit"])) as generate:
+            draft = draft_scanner_from_goal(
+                team=self.team,
+                user=self.user,
+                goal='watch what people do around "cta hit"',
+                user_access_control=_access_control(allow=True),
+                include_business_context=False,
+            )
+
+        assert "- cta hit" in generate.call_args.kwargs["user_content"]
+        assert draft.query == {
+            "kind": "RecordingsQuery",
+            "events": [{"id": "cta hit", "name": "cta hit", "type": "events", "order": 0}],
+        }
+
+
+def _launched_experiment(team, user, name: str, *, launched: bool = True):
+    flag = FeatureFlag.objects.create(
+        team=team,
+        key=name.lower().replace(" ", "-"),
+        name=name,
+        created_by=user,
+        filters={
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            }
+        },
+    )
+    return Experiment.objects.create(
+        team=team,
+        name=name,
+        feature_flag=flag,
+        created_by=user,
+        start_date=timezone.now() if launched else None,
+        exposure_criteria={},
+    )
+
 
 class TestGoalEntityMatches(_VisionAPITestCase):
     def _survey(self, name: str):
         return Survey.objects.create(team=self.team, name=name, created_by=self.user)
+
+    def test_an_experiment_named_in_the_goal_comes_back_with_its_variants(self):
+        # Who a change was shown to is not in the taxonomy: no page or event filter separates the
+        # participants who got the new experience from everyone else who reached the same screen.
+        experiment = _launched_experiment(self.team, self.user, "Onboarding checklist")
+
+        matches = _goal_entity_matches(
+            self.team, "summarize sessions in the onboarding checklist experiment", _access_control(allow=True)
+        )
+
+        assert [(e.name, e.experiment_id, e.variants) for e in matches.experiments] == [
+            ("Onboarding checklist", experiment.id, ("control", "test"))
+        ]
+
+    def test_an_experiment_the_exposure_filter_would_refuse_never_reaches_the_briefing(self):
+        # An experiment that never launched has no exposed sessions, and targeting it fails when the
+        # scan resolves the filter — so it must not be offered as a target at all.
+        _launched_experiment(self.team, self.user, "Onboarding checklist", launched=False)
+
+        matches = _goal_entity_matches(
+            self.team, "summarize sessions in the onboarding checklist experiment", _access_control(allow=True)
+        )
+
+        assert matches.experiments == []
 
     def test_a_survey_named_in_the_goal_comes_back_with_its_id(self):
         # The filter needs the id: every survey fires the same "survey sent" event, so a name alone
@@ -769,6 +921,27 @@ class TestGoalEntityMatches(_VisionAPITestCase):
 
         assert [s.survey_id for s in by_write.surveys] == [str(survey.id)]
         assert [s.survey_id for s in by_star.surveys] == [str(survey.id)]
+
+
+class TestLiveActions(_VisionAPITestCase):
+    def test_an_action_that_fires_in_no_session_never_reaches_the_briefing(self):
+        # A name match cannot tell a live action from one whose definition stopped matching years
+        # ago. An action ANDs with every other filter, so offering a dead one drafts a scanner that
+        # matches nothing.
+        live = _MatchedAction(name="Completed checkout", action_id=1)
+        dead = _MatchedAction(name="Clicked the old button", action_id=2)
+
+        with patch(f"{_MODULE}.recent_action_sessions", return_value={1: 42, 2: 0}):
+            kept = _live_actions(self.team, [live, dead])
+
+        assert [(a.name, a.recent_sessions) for a in kept] == [("Completed checkout", 42)]
+
+    def test_a_failed_measurement_keeps_every_match(self):
+        # Losing the counts must cost the ranking hint, not the actions themselves.
+        actions = [_MatchedAction(name="Completed checkout", action_id=1)]
+
+        with patch(f"{_MODULE}.recent_action_sessions", side_effect=Exception("clickhouse down")):
+            assert _live_actions(self.team, actions) == actions
 
 
 class TestV2Query:
@@ -964,6 +1137,45 @@ class TestFinalizeV2Actions:
 
         assert draft.query is not None
         assert "actions" not in draft.query
+
+
+class TestFinalizeV2Experiments:
+    _EXPERIMENT = _MatchedExperiment(name="AI creation flow", experiment_id=11, variants=("control", "test"))
+
+    def _finalize(self, **overrides):
+        return _finalize_v2(
+            _draft_v2(**overrides),
+            allowed_pages=[],
+            allowed_events=[],
+            team_id=1,
+            allowed_experiments=[self._EXPERIMENT],
+        )
+
+    def test_a_grounded_experiment_becomes_targeting_on_the_named_variant(self):
+        # A page filter would scan everyone who reached the same screen, control group included, so
+        # the variant the goal is about has to come through as targeting.
+        draft = self._finalize(filter_experiment="AI creation flow", filter_experiment_variant="test")
+
+        assert draft.experiment_targeting == {"experiment_id": 11, "variant": "test"}
+        # Exposure never rides in the query blob; the API refuses it there.
+        assert draft.query is not None and "experiment_exposure" not in draft.query
+
+    def test_no_named_variant_watches_every_variant(self):
+        draft = self._finalize(filter_experiment="AI creation flow")
+
+        assert draft.experiment_targeting == {"experiment_id": 11, "variant": None}
+
+    def test_an_invented_experiment_name_is_dropped(self):
+        draft = self._finalize(filter_experiment="Some other test", filter_experiment_variant="test")
+
+        assert draft.experiment_targeting is None
+
+    def test_an_invented_variant_falls_back_to_every_variant(self):
+        # The exposure filter refuses a variant the experiment does not define, which would take the
+        # whole scan down; every variant still answers a wider version of the goal.
+        draft = self._finalize(filter_experiment="AI creation flow", filter_experiment_variant="treatment")
+
+        assert draft.experiment_targeting == {"experiment_id": 11, "variant": None}
 
 
 class TestFinalizeV2:
@@ -1166,6 +1378,105 @@ class TestDraftV2(_VisionAPITestCase):
         # survives — but the scanner still defaults to excluding internal users.
         assert draft.query == {"kind": "RecordingsQuery", "filter_test_accounts": True}
 
+    def _estimate_by_query(self, dead_when):
+        def estimate(*, team, query, user, sampling_mode, budget):
+            matched = 0 if dead_when(query) else 300
+            return ScannerVolumeEstimate(matched_sessions=matched, effective_window_days=30)
+
+        return estimate
+
+    def _drafted_with(self, generate, estimate):
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
+            patch(_GENERATE_PATH, return_value=generate),
+            patch(f"{_MODULE}.estimate_scanner_session_volume", side_effect=estimate),
+        ):
+            return draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal="find out where people give up in billing",
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+    def test_an_event_filter_that_matches_nothing_falls_back_to_the_pages(self):
+        # An event the product stopped emitting ANDs the whole filter to zero, so the scanner would
+        # never run. The pages come from measured traffic, so they cannot be dead the same way.
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+
+        draft = self._drafted_with(
+            _draft_v2(filter_pages=["/billing"], filter_events=["billing_limit_set"]),
+            self._estimate_by_query(lambda query: bool(query.events)),
+        )
+
+        assert draft.query is not None
+        assert "events" not in draft.query
+        assert draft.query["properties"][0]["key"] == "visited_page"
+        assert draft.estimated_monthly_observations == 300
+        # The rationale describes the filter the model picked, so it has to say the filter changed.
+        assert "scans the pages instead" in draft.rationale
+
+    def test_the_fallback_keeps_the_audience_the_goal_named(self):
+        # A cohort says who the goal is about, so it does not go stale the way an event does.
+        # Dropping it alongside the dead event would scan the pages for everybody, spending credits
+        # on sessions the goal never asked about.
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+        cohort = Cohort.objects.create(team=self.team, name="Billing power users")
+
+        draft = self._drafted_with(
+            _draft_v2(
+                filter_pages=["/billing"],
+                filter_events=["billing_limit_set"],
+                filter_cohorts=["Billing power users"],
+            ),
+            self._estimate_by_query(lambda query: bool(query.events)),
+        )
+
+        assert draft.query is not None
+        assert "events" not in draft.query
+        assert {"type": "cohort", "key": "id", "value": cohort.id, "operator": "in"} in draft.query["properties"]
+        assert any(p.get("key") == "visited_page" for p in draft.query["properties"])
+
+    def test_a_draft_with_no_pages_to_fall_back_to_is_left_alone(self):
+        # Widening to every session would scan a product the goal never asked about, which is worse
+        # than a filter the review page already refuses to save.
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+
+        draft = self._drafted_with(
+            _draft_v2(filter_events=["billing_limit_set"]),
+            self._estimate_by_query(lambda query: True),
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
+        assert draft.estimated_monthly_observations == 0
+
+    def test_the_experiment_the_goal_named_is_carried_as_targeting_and_counted(self):
+        # The whole point of the targeting: the projection has to count that experiment's
+        # participants, not every session the pages match, while the query the wizard saves stays
+        # the exposure-free blob the API accepts.
+        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+        counted: list[RecordingsQuery] = []
+
+        def estimate(*, team, query, user, sampling_mode, budget):
+            counted.append(query)
+            return ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30)
+
+        draft = self._drafted_with(
+            _draft_v2(
+                filter_pages=["/billing"],
+                filter_experiment="Billing upgrade prompt",
+                filter_experiment_variant="test",
+            ),
+            estimate,
+        )
+
+        assert draft.experiment_targeting == {"experiment_id": experiment.id, "variant": "test"}
+        assert draft.query is not None and "experiment_exposure" not in draft.query
+        assert counted[0].experiment_exposure is not None
+        assert counted[0].experiment_exposure.experiment_id == experiment.id
+        assert counted[0].experiment_exposure.variant == "test"
+
     def test_solved_dials_reach_the_draft(self):
         draft = self._run(pages=("/billing",), generate=_draft_v2(filter_pages=["/billing"]))
 
@@ -1246,6 +1557,16 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
         assert body["model"] is None
         assert body["credit_limit"] is None
         assert body["estimated_monthly_observations"] is None
+
+    def test_flag_evaluation_carries_the_person_properties_the_flag_reads(self):
+        # Server-side evaluation is local and cannot read stored person properties. Without the
+        # email, an email-based variant override falls through to the rollout hash, the server
+        # disagrees with the browser that showed the goal flow, and the request silently degrades
+        # to a legacy draft.
+        with patch(f"{_API_MODULE}.get_feature_flag_or_none", return_value="test") as flag:
+            assert _goal_flow_enabled(self.user, self.team) is True
+
+        assert flag.call_args.kwargs["person_properties"] == {"email": self.user.email}
 
     def test_no_budget_never_consults_the_flag(self):
         with (

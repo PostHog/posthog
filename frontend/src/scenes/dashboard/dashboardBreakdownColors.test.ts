@@ -1,5 +1,5 @@
 import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, InsightModel } from '~/types'
 
 import {
     BreakdownColorConfig,
@@ -18,9 +18,7 @@ import {
 } from './dashboardBreakdownColors'
 
 describe('dashboardBreakdownColors', () => {
-    const createTestTile = (
-        overrides: Partial<QueryBasedInsightModel> = {}
-    ): DashboardTile<QueryBasedInsightModel> => ({
+    const createTestTile = (overrides: Partial<InsightModel> = {}): DashboardTile => ({
         id: 1,
         layouts: {},
         color: null,
@@ -47,7 +45,7 @@ describe('dashboardBreakdownColors', () => {
         },
     })
 
-    const trendsTile = (result: any[], breakdownFilter?: Record<string, any>): DashboardTile<QueryBasedInsightModel> =>
+    const trendsTile = (result: any[], breakdownFilter?: Record<string, any>): DashboardTile =>
         createTestTile({
             result,
             query: {
@@ -246,7 +244,7 @@ describe('dashboardBreakdownColors', () => {
         })
 
         it('handles retention insights with a breakdown', () => {
-            const retentionTile = (result: any[]): DashboardTile<QueryBasedInsightModel> =>
+            const retentionTile = (result: any[]): DashboardTile =>
                 createTestTile({
                     result,
                     query: {
@@ -318,7 +316,7 @@ describe('dashboardBreakdownColors', () => {
         })
 
         it('handles cohort breakdowns, keying them all to the shared cohort property', () => {
-            const cohortTile = (values: number[][]): DashboardTile<QueryBasedInsightModel> =>
+            const cohortTile = (values: number[][]): DashboardTile =>
                 createTestTile({
                     result: values.map((breakdown_value) => ({ action: { order: 0 }, breakdown_value })),
                     query: {
@@ -1103,6 +1101,25 @@ describe('dashboardBreakdownColors', () => {
         it('returns undefined for null or undefined dataset values', () => {
             expect(findBreakdownColorConfig(configs, undefined, 'event')).toBeUndefined()
             expect(findBreakdownColorConfig(configs, null, 'event')).toBeUndefined()
+        })
+
+        // Separate configs, because giving the shared list an untyped entry would satisfy the
+        // 'breakdown type must match' case above and remove what it checks.
+        it.each([
+            ['an entry with no type matches an event series', undefined, 'event', 'preset-9'],
+            ['an entry with no type matches a series with no type', undefined, undefined, 'preset-9'],
+            ['a null type reads the same as an omitted one', null, 'event', 'preset-9'],
+            // The default is `event`, not a wildcard, so an untyped entry must not colour a person
+            // series that happens to share the value.
+            ['an entry with no type does not match a person series', undefined, 'person', undefined],
+        ] as const)('%s', (_name, configType, seriesType, expectedToken) => {
+            const untypedConfigs = [
+                { breakdownValue: 'Chrome', breakdownType: configType, colorToken: 'preset-9' },
+            ] as BreakdownColorConfig[]
+
+            expect(findBreakdownColorConfig(untypedConfigs, 'Chrome', seriesType as any)?.colorToken).toEqual(
+                expectedToken
+            )
         })
 
         it('prefers a property-scoped entry and falls back to a property-less one', () => {

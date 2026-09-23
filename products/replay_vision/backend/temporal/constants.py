@@ -254,3 +254,16 @@ def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
 def replay_vision_distinct_id(team_id: int) -> str:
     """`posthog_distinct_id` for analytics events emitted by Replay Vision when no human user is attributable."""
     return f"replay-vision:{team_id}"
+
+
+# Search suggestion refresher: hourly, bounded per run and per day so cost tracks scanners people look at.
+SEARCH_SUGGESTIONS_WORKFLOW_NAME = "replay-vision-refresh-search-suggestions"
+SEARCH_SUGGESTIONS_WORKFLOW_ID = "replay-vision-search-suggestions-refresher"
+SEARCH_SUGGESTIONS_SCHEDULE_ID = "replay-vision-search-suggestions-refresher-schedule"
+SEARCH_SUGGESTIONS_REFRESH_INTERVAL = dt.timedelta(hours=1)
+SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT = dt.timedelta(minutes=50)
+SEARCH_SUGGESTIONS_MAX_PER_RUN = 200
+SEARCH_SUGGESTIONS_MAX_PER_DAY = 2000
+SEARCH_SUGGESTIONS_CONCURRENCY = 4
+LIST_STALE_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=60)
+REFRESH_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=90)

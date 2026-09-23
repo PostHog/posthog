@@ -80,8 +80,8 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
         return (
             <LemonBanner type="warning" className="w-full">
                 <p className="mb-0">
-                    This trigger needs a Slack connection, and this project doesn't have one yet. Connect Slack, invite
-                    the bot to a channel, then come back and pick it.{' '}
+                    This trigger needs a Slack connection, and this project doesn't have one yet. Connect Slack, add the
+                    bot to the channels you want to use, then come back and select them.{' '}
                     <Link to={urls.settings('project-integrations')} className="font-semibold">
                         Connect Slack
                     </Link>
@@ -93,19 +93,20 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
     return (
         <div className="flex flex-col gap-2 w-full">
             <p className="mb-0 text-sm text-muted-alt">
-                This workflow runs once for each message posted in the channel you pick. Runs have no associated person,
+                This workflow runs once for each message posted in any selected channel. Runs have no associated person,
                 so person-dependent steps are unavailable.
             </p>
 
             <LemonField.Pure
-                label="Channel"
+                label="Channels"
                 error={validationResult?.errors?.channel}
                 info="PostHog only receives messages from channels the Slack bot has been invited to."
             >
                 <SlackChannelPicker
                     integration={integrations[0]}
-                    value={filters.channel ?? undefined}
-                    onChange={(value) => update({ channel: value })}
+                    mode="multiple"
+                    value={filters.channels}
+                    onChange={(channels) => update({ channels })}
                 />
             </LemonField.Pure>
 
@@ -192,7 +193,7 @@ registerTriggerType({
             source: 'internal-events',
             events: [{ id: '$slack_message_received', type: 'events' }],
             properties: encodeSlackFilters({
-                channel: null,
+                channels: [],
                 posterMode: 'people',
                 posterIds: [],
                 topLevelOnly: true,
@@ -205,8 +206,8 @@ registerTriggerType({
             return null
         }
         const filters = decodeSlackFilters(config.filters?.properties)
-        if (!filters.channel) {
-            return { valid: false, errors: { channel: 'Please pick a Slack channel' } }
+        if (!filters.channels.length) {
+            return { valid: false, errors: { channel: 'Select at least one Slack channel' } }
         }
         const wantsIds = filters.posterMode === 'specific_people' || filters.posterMode === 'specific_apps'
         if (wantsIds && !filters.posterIds.length) {

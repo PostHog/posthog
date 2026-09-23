@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.amplitude import (
     AmplitudeResumeConfig,
     amplitude_source,
@@ -122,13 +120,13 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AMPLITUDE,
+            name=ExternalDataSourceType.AMPLITUDE,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Amplitude",
             caption=(
                 "Connect Amplitude with your project's **API key** and **secret key**, found in Amplitude under "
                 "**Settings → Organization settings → Projects**. These authenticate the Export API (raw events), "
-                "the Cohorts API, and the Annotations API.\n\n"
+                "the Cohorts API, the Annotations API, and the Taxonomy API (event and property definitions).\n\n"
                 "The events stream uses Amplitude's Export API, which enforces a ~2 hour data latency and only "
                 "syncs the last 30 days on the initial sync."
             ),

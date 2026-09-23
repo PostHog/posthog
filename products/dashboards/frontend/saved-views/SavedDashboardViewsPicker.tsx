@@ -1,9 +1,8 @@
 import { useState } from 'react'
 
 import { IconCheck, IconChevronDown, IconPeople, IconPlus, IconUser } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Popover } from '@posthog/lemon-ui'
 
-import { SavedViewsList } from 'lib/components/SavedViews/SavedViewsList'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 import type {
@@ -30,7 +29,6 @@ export interface SavedDashboardViewsPickerProps {
     onSelectView: (view: DashboardListSavedView) => void
     onManageViews: () => void
     onLoadMore: (scope: DashboardSavedViewScope) => void
-    onOpen: () => void
     onRetryLoad: () => void
 }
 
@@ -52,7 +50,6 @@ export function SavedDashboardViewsPicker({
     onSelectView,
     onManageViews,
     onLoadMore,
-    onOpen,
     onRetryLoad,
 }: SavedDashboardViewsPickerProps): JSX.Element {
     const [scope, setScope] = useState<DashboardSavedViewScope>(activeSavedView?.scope ?? 'private')
@@ -175,15 +172,33 @@ export function SavedDashboardViewsPicker({
                                 ]}
                             />
                             <div className="max-h-64 overflow-y-auto">
-                                <SavedViewsList
-                                    views={selectedSavedViews}
-                                    activeViewId={activeSavedView?.id}
-                                    emptyMessage={emptyScopeMessage}
-                                    onSelect={(view) => {
-                                        onSelectView(view)
-                                        closePicker()
-                                    }}
-                                />
+                                {selectedSavedViews.length === 0 ? (
+                                    <div className="px-3 py-3 text-sm text-secondary">{emptyScopeMessage}</div>
+                                ) : (
+                                    selectedSavedViews.map((view) => (
+                                        <LemonButton
+                                            key={view.id}
+                                            fullWidth
+                                            size="small"
+                                            type="tertiary"
+                                            className="justify-start rounded-none px-3 hover:!bg-fill-secondary"
+                                            sideIcon={
+                                                activeSavedView?.id === view.id ? (
+                                                    <IconCheck className="text-success" />
+                                                ) : null
+                                            }
+                                            onClick={() => {
+                                                onSelectView(view)
+                                                closePicker()
+                                            }}
+                                            tooltip={
+                                                activeSavedView?.id === view.id ? 'Clear selected view' : undefined
+                                            }
+                                        >
+                                            <span className="truncate">{view.name}</span>
+                                        </LemonButton>
+                                    ))
+                                )}
                                 {hasMore && (
                                     <div className="border-t p-2">
                                         <LemonButton
@@ -233,14 +248,16 @@ export function SavedDashboardViewsPicker({
                     if (!visible && activeSavedView) {
                         setScope(activeSavedView.scope ?? 'team')
                     }
-                    if (!visible) {
-                        onOpen()
-                    }
                     setVisible(!visible)
                 }}
             >
                 <span className="flex items-center gap-1">
                     <span>{activeSavedView?.name || 'Saved views'}</span>
+                    {!activeSavedView && (
+                        <LemonTag type="highlight" size="small">
+                            New
+                        </LemonTag>
+                    )}
                     {canEdit && activeSavedViewHasUnsavedChanges && <span className="text-warning">Unsaved</span>}
                 </span>
             </LemonButton>

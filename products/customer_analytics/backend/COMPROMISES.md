@@ -42,8 +42,6 @@ Shortcuts taken to ship the first version. Revisit when they bite.
   properties the workflow references — read-side usage isn't indexed, and one filtered query per
   view is cheap. If the added request latency bites, narrow to workflow-referenced properties or
   make the step poll.
-- **v2 materialization only.** v1 `run_workflow.py` is frozen and does not dispatch the sync; v1
-  teams get it after migrating to v2.
 
 ## Account Track Rules schedule
 
@@ -140,6 +138,16 @@ once the command has run everywhere.
   per-team and owned by conversations: the bot's `auth.test` response carries the workspace `url`
   (same call `get_bot_user_id_cached` already caches a field from), so the fix is a cached lookup
   in conversations exposed through its facade, consumed here and by the frontend.
+
+## Workflow task signing key
+
+- **Account actions and task creation share a signing key.** Both use `CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET` to avoid provisioning another key for workflow task creation.
+  Task tokens retain the `posthog:customer-tasks:create` audience and project, workflow, and invocation claims.
+  Account tokens cannot call the task endpoint, and task creation still checks the workflow owner's permissions.
+- **Key access and rotation are shared.** A service with the signing key can mint tokens for either audience.
+  A key compromise therefore affects both surfaces, and rotating the key affects both.
+  Use a dedicated task signing key when these surfaces need separate service access or independent rotation.
+- **Task creation has no legacy fallback.** If the shared key is unset, task creation fails even when account actions work through the project secret API token.
 
 ## Tech debt
 

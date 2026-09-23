@@ -3,9 +3,8 @@ import { LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { CHECK_STATUS_TAG_TYPES, byStatusAttention, checkRunDisplayName } from './checksConstants'
+import { CHECK_STATUS_TAG_TYPES, byStatusAttention, checkRunDisplayName, runResultCell } from './checksConstants'
 import type { DataQualityCheckRunApi } from './generated/api.schemas'
 
 type CheckRunColumn = LemonTableColumn<DataQualityCheckRunApi, keyof DataQualityCheckRunApi | undefined>
@@ -34,14 +33,18 @@ const OUTCOME_COLUMNS: CheckRunColumn[] = [
             run.duration_ms === null ? '-' : humanFriendlyDuration(run.duration_ms / 1000, { maxUnits: 2 }),
     },
     {
-        title: 'Observed value',
+        title: 'Result',
         key: 'observed_value',
-        render: (_, run) => (run.observed_value === null ? '-' : humanFriendlyNumber(run.observed_value)),
-    },
-    {
-        title: 'Failed rows',
-        key: 'failed_row_count',
-        render: (_, run) => (run.failed_row_count === null ? '-' : humanFriendlyNumber(run.failed_row_count)),
+        render: (_, run) => {
+            const { label, tooltip } = runResultCell(run)
+            return tooltip ? (
+                <Tooltip title={tooltip}>
+                    <span>{label}</span>
+                </Tooltip>
+            ) : (
+                label
+            )
+        },
     },
     {
         title: 'Error',

@@ -2,6 +2,7 @@ import json
 import hashlib
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any, Literal
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
@@ -18,10 +19,12 @@ from products.tasks.backend.constants import (
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
+    CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
     DEV_STACK_PREVIEW_FEATURE_FLAG,
+    HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
@@ -30,6 +33,7 @@ from products.tasks.backend.constants import (
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     SANDBOX_ROTATION_FEATURE_FLAG,
+    STORE_SKILLS_STATE_KEY,
     get_vm_sandbox_flag_payload,
     is_same_run_resume_state,
     vm_sandbox_allowed_origin_products,
@@ -38,7 +42,12 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_in_rollout,
     vm_sandbox_origin_rollout_percentages,
 )
-from products.tasks.backend.exceptions import SandboxNetworkPolicyError, TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.exceptions import (
+    ProcessTaskFatalError,
+    SandboxNetworkPolicyError,
+    TaskInvalidStateError,
+    TaskRunNotReadyError,
+)
 from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.services.agentsh import (
@@ -51,11 +60,13 @@ from products.tasks.backend.logic.services.network_policy import (
     NetworkPolicyValidationError,
     compile_network_policy,
 )
+from products.tasks.backend.logic.services.sandbox import SandboxTemplate
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
 )
+from products.tasks.backend.logic.services.store_skills import resolve_store_skills
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
@@ -152,7 +163,12 @@ class TaskProcessingContext:
     # workflow start and persisted into TaskRun.state at provision time, so activities
     # and out-of-band consumers route deterministically for the run's whole life.
     sandbox_backend: str = "modal"
+    # When True (and sandbox_backend == "hogland"), provision from the pluggable-memory
+    # golden instead of the fixed-size default: the box boots small and hot-adds guest RAM
+    # up to the cap. Off by default; the pluggable golden must be baked before enabling.
+    use_hogland_hotplug_golden: bool = False
     dev_stack_preview_enabled: bool = False
+    claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
 
     @property
     def mode(self) -> str:
@@ -161,6 +177,10 @@ class TaskProcessingContext:
     @property
     def interaction_origin(self) -> str | None:
         return (self.state or {}).get("interaction_origin")
+
+    @property
+    def slack_reply_context(self) -> bool:
+        return (self.state or {}).get("slack_reply_context") is True
 
     @property
     def auto_publish(self) -> bool:
@@ -180,7 +200,11 @@ class TaskProcessingContext:
 
     @property
     def github_read_access(self) -> bool:
-        """Repo-less run that asked for a read-only GitHub token (see Task.create_and_run)."""
+        """Run that asked to be downscoped to a read-only GitHub token (see Task.create_and_run).
+
+        Independent of ``repositories``: a run that pins repos still clones them, with a token
+        that carries ``contents: read`` and nothing else.
+        """
         return (self.state or {}).get("github_read_access") is True
 
     @property
@@ -226,6 +250,14 @@ class TaskProcessingContext:
         return value if isinstance(value, str) else None
 
     @property
+    def service_tier(self) -> str | None:
+        """OpenAI service tier for a codex run ("default" | "priority" | "flex"), or None for the
+        provider default. Only the codex adapter reads it; codex drops a tier its model catalogue
+        does not advertise."""
+        value = (self.state or {}).get("service_tier")
+        return value if isinstance(value, str) else None
+
+    @property
     def context_window(self) -> str | None:
         value = (self.state or {}).get("context_window")
         return value if isinstance(value, str) else None
@@ -261,6 +293,7 @@ class TaskProcessingContext:
         return not self.origin_product or self.origin_product in (
             Task.OriginProduct.USER_CREATED.value,
             Task.OriginProduct.IMAGE_BUILDER.value,
+            Task.OriginProduct.SPACE_SETUP.value,
         )
 
     def max_run_duration(self) -> timedelta | None:
@@ -336,6 +369,7 @@ class TaskProcessingContext:
             "provider": self.provider,
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
+            "service_tier": self.service_tier,
             "initial_permission_mode": self.initial_permission_mode,
         }
 
@@ -440,6 +474,49 @@ def _is_rtk_enabled(
         return state_override
 
     return True
+
+
+def _resolve_claude_model_access(
+    *,
+    task_runtime: str,
+    distinct_id: str | None,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> Literal["posthog-gateway", "own-subscription"]:
+    if (state or {}).get("claude_model_access") != "own-subscription":
+        return "posthog-gateway"
+    if task_runtime != Task.Runtime.ACP or (state or {}).get("runtime_adapter") not in (None, "claude"):
+        raise ProcessTaskFatalError(
+            "Your Claude plan requires the Claude runtime. Select Claude and try again.",
+            {"run_id": run_id},
+            cause=ValueError("Subscription requested for a non-Claude runtime"),
+            capture=False,
+        )
+    try:
+        enabled = bool(
+            distinct_id
+            and posthoganalytics.feature_enabled(
+                CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("claude_own_subscription_flag_check_failed", run_id=run_id, error=str(e))
+        enabled = False
+    if not enabled:
+        raise ProcessTaskFatalError(
+            "Using your Claude plan for cloud tasks is unavailable. Try again later, "
+            'or open Claude subscription settings and turn off "Cloud tasks" to use PostHog credits.',
+            {"run_id": run_id},
+            cause=ValueError("Claude subscription rollout unavailable"),
+            capture=False,
+        )
+    return "own-subscription"
 
 
 def _is_benjamin_enabled(
@@ -591,6 +668,22 @@ class VmSandboxDecision:
     default_custom_image: str | None = None
 
 
+def _require_template_compatible_with_custom_image(state: dict, custom_image_name: str | None, *, run_id: str) -> None:
+    """A custom image is VM-only and a custom template is gVisor-only, so the two cannot compose.
+
+    Failing here keeps the run from booting the template without the tooling the environment's
+    image promised, which is what silently dropping the image would do.
+    """
+    requested_template = state.get("sandbox_template")
+    if custom_image_name is None or requested_template in (None, SandboxTemplate.DEFAULT_BASE.value):
+        return
+    raise TaskInvalidStateError(
+        f"Sandbox template {requested_template!r} cannot be combined with custom image {custom_image_name!r}",
+        {"run_id": run_id, "sandbox_template": requested_template, "custom_image_name": custom_image_name},
+        cause=ValueError("custom sandbox template with a custom image"),
+    )
+
+
 def _resolve_modal_vm_sandbox(
     *,
     distinct_id: str,
@@ -607,6 +700,17 @@ def _resolve_modal_vm_sandbox(
         # or rollout flags until that independent policy flag is enabled.
         log_with_activity_context(
             "modal_vm_sandbox_skipped_restricted_egress",
+            run_id=run_id,
+            use_modal_vm_sandbox=False,
+        )
+        return VmSandboxDecision(use_vm_sandbox=False)
+
+    requested_template = (state or {}).get("sandbox_template")
+    if requested_template not in (None, SandboxTemplate.DEFAULT_BASE.value):
+        # The VM image carries none of a custom template's tooling, so a rollout that names
+        # the run's origin must not move it off the template it asked for.
+        log_with_activity_context(
+            "modal_vm_sandbox_skipped_custom_template",
             run_id=run_id,
             use_modal_vm_sandbox=False,
         )
@@ -862,12 +966,13 @@ def _resolve_sandbox_backend(
 ) -> str:
     """Pick the sandbox provider for this run.
 
-    Hogland only takes plain golden-template ACP runs. A user/environment custom image
-    or the Pi runtime are hard incapabilities — hogland runs only its own golden, so
-    those force Modal even with the flag on. The Modal VM-sandbox / network-allowlist
-    flags and the org *default* image are runtime preferences, not incapabilities: a
-    run the hogland flag (or override) selects wins hogland over them, and the caller
-    forces them off so the run provisions on hogland's golden. Egress stays enforced
+    Hogland only takes plain golden-template ACP runs. A user/environment custom image,
+    the Pi runtime or a non-default sandbox template are hard incapabilities — hogland
+    runs only its own golden, so those force Modal even with the flag on. The Modal
+    VM-sandbox / network-allowlist flags and the org *default* image are runtime
+    preferences, not incapabilities: a run the hogland flag (or override) selects wins
+    hogland over them, and the caller forces them off so the run provisions on hogland's
+    golden. Egress stays enforced
     in-box by agentsh via the run's allowed_domains. Fails closed to Modal.
     """
     raw_override = (state or {}).get("sandbox_backend")
@@ -888,11 +993,15 @@ def _resolve_sandbox_backend(
     # Hogland runs in the US only; EU runs stay on Modal regardless of flag/override state.
     if getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU":
         return "modal"
-    # Hard hogland incapabilities: a user/environment custom image or the Pi runtime
-    # cannot run on hogland's golden, so keep those on Modal even when the flag is on.
-    # The org default image (default_custom_image) is NOT gated here — hogland serves
-    # its golden equivalent — nor are the Modal VM-sandbox / network-allowlist flags; a
-    # flagged run wins hogland over all of them (the caller forces them off).
+    # Hard hogland incapabilities: a user/environment custom image, the Pi runtime or a
+    # non-default sandbox template cannot run on hogland's golden, so keep those on Modal
+    # even when the flag is on. The org default image (default_custom_image) is NOT gated
+    # here — hogland serves its golden equivalent — nor are the Modal VM-sandbox /
+    # network-allowlist flags; a flagged run wins hogland over all of them (the caller
+    # forces them off).
+    requested_template = (state or {}).get("sandbox_template")
+    if requested_template not in (None, SandboxTemplate.DEFAULT_BASE.value):
+        return "modal"
     if has_user_custom_image or task_runtime == Task.Runtime.PI:
         return "modal"
 
@@ -1181,13 +1290,41 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
+    # The sandbox agent renders these into its skill roots at session start. Resolved here so the
+    # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
+    # stop the run, it only leaves the sandbox without store skills for this session.
     try:
-        TaskRun.update_state_atomic(task_run.id, updates={PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled})
+        store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
     except Exception as e:
-        log_with_activity_context("pr_loop_enabled_stamp_failed", run_id=run_id, error=str(e))
+        log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
+        store_skills = None
+    if store_skills is not None:
+        state_updates[STORE_SKILLS_STATE_KEY] = store_skills
+    try:
+        TaskRun.update_state_atomic(task_run.id, updates=state_updates)
+    except Exception as e:
+        log_with_activity_context("run_state_stamp_failed", run_id=run_id, error=str(e))
+    claude_distinct_id: str | None = distinct_id
+    if state.get("claude_model_access") == "own-subscription":
+        subscription_owner_id = state.get("claude_subscription_user_id")
+        claude_distinct_id = (
+            team.all_users_with_access().filter(id=subscription_owner_id).values_list("distinct_id", flat=True).first()
+            if isinstance(subscription_owner_id, int) and not isinstance(subscription_owner_id, bool)
+            else None
+        )
+    claude_model_access = _resolve_claude_model_access(
+        task_runtime=task.runtime,
+        distinct_id=claude_distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
-    if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):
+    if claude_model_access == "own-subscription" or (
+        pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool)
+    ):
         sandbox_event_ingest_enabled = True
     else:
         sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
@@ -1244,6 +1381,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                     cause=error,
                 ) from error
 
+    _require_template_compatible_with_custom_image(state, environment_custom_image_name, run_id=run_id)
     vm_sandbox_decision = _resolve_modal_vm_sandbox(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -1384,6 +1522,29 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"sandbox_backend: {sandbox_backend} for this task run",
     )
+    # Pluggable-memory golden: only meaningful on hogland, and org-scoped like the
+    # backend flag itself. Fails closed to the fixed-size golden on any error.
+    use_hogland_hotplug_golden = False
+    if sandbox_backend == "hogland":
+        try:
+            use_hogland_hotplug_golden = bool(
+                posthoganalytics.feature_enabled(
+                    HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
+                    distinct_id=distinct_id,
+                    groups={"organization": organization_id},
+                    group_properties={"organization": {"id": organization_id}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception as e:
+            log_with_activity_context("hogland_hotplug_golden_flag_check_failed", run_id=run_id, error=str(e))
+            use_hogland_hotplug_golden = False
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"use_hogland_hotplug_golden: {use_hogland_hotplug_golden} for this task run",
+    )
 
     dev_stack_preview_enabled = _is_dev_stack_preview_enabled(
         distinct_id=distinct_id,
@@ -1458,12 +1619,14 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
+        use_hogland_hotplug_golden=use_hogland_hotplug_golden,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
         desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,
         agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
         benjamin_enabled=benjamin_enabled,
+        claude_model_access=claude_model_access,
         continue_as_new_enabled=_is_continue_as_new_enabled(
             distinct_id=distinct_id,
             organization_id=organization_id,

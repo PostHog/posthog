@@ -1,6 +1,12 @@
 import { AttributeColumnConfig } from 'products/logs/frontend/types'
 
-import { columnsToCustomColumns, LogsColumnConfig, migrateAttributeColumns, normalizeColumns } from './columns'
+import {
+    columnLabel,
+    columnsToCustomColumns,
+    LogsColumnConfig,
+    migrateAttributeColumns,
+    normalizeColumns,
+} from './columns'
 
 describe('logs column config', () => {
     describe('columnsToCustomColumns', () => {
@@ -31,8 +37,26 @@ describe('logs column config', () => {
             ['client-side built-ins only', [{ id: 'timestamp', type: 'timestamp' }]],
             ['custom with blank expression', [{ id: 'x', type: 'custom', expression: '   ' }]],
             ['custom with no expression', [{ id: 'x', type: 'custom' }]],
+            // Person and Session resolve from the row's attribute maps in the cell, so they cost nothing on the wire
+            [
+                'person and session',
+                [
+                    { id: 'person', type: 'person' },
+                    { id: 'session', type: 'session' },
+                ],
+            ],
         ])('returns undefined (not []) for %s, keeping query payloads cache-identical', (_, columns) => {
             expect(columnsToCustomColumns(columns)).toBeUndefined()
+        })
+    })
+
+    describe('columnLabel', () => {
+        it.each<[LogsColumnConfig, string]>([
+            [{ id: 'person', type: 'person' }, 'Person'],
+            [{ id: 'session', type: 'session' }, 'Session'],
+            [{ id: 'person', type: 'person', name: 'User' }, 'User'],
+        ])('labels %j as %s', (column, expected) => {
+            expect(columnLabel(column)).toBe(expected)
         })
     })
 

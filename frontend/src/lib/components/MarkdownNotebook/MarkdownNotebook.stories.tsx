@@ -44,9 +44,9 @@ const componentCatalogNotebook = `# Component catalog
 
 <Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
 
-<Python title="Python" code="print('hello')" />
+<PythonV2 title="Python" code="print('hello')" />
 
-<DuckSQL title="SQL (DuckDB)" code="select * from events" returnVariable="duck_df" />
+<SQLV2 title="SQL" code="select * from events" returnVariable="sql_df" />
 
 <RecordingPlaylist title="Session recordings" />
 
@@ -369,6 +369,19 @@ Select part of this paragraph to format it from the inline toolbar.`,
     },
 }
 
+export const BtwSelection: Story = {
+    ...SelectionToolbarState,
+    args: { ...SelectionToolbarState.args, onBtw: fn() },
+}
+
+export const BtwSlashMenu: Story = {
+    args: {
+        value: '# BTW\n\n ',
+        initialInsertMenu: { nodeIndex: 1, query: '' },
+        onBtw: fn(),
+    },
+}
+
 export const SlashMenuAndInsertion: Story = {
     args: {
         value: '',
@@ -384,6 +397,15 @@ export const SlashMenuAndInsertion: Story = {
                 run: () => {},
             },
         ],
+    },
+}
+
+export const AskAIWithoutConsent: Story = {
+    args: {
+        value: '',
+        initialInsertMenu: { nodeIndex: 0, query: '' },
+        onAskAI: fn(),
+        askAIDisabledReason: 'Approve AI data processing in organization settings to use Ask AI.',
     },
 }
 

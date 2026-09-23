@@ -156,6 +156,38 @@ describe('useGroupList', () => {
             expect(apiGet).not.toHaveBeenCalled()
         })
 
+        it('drops the previous page when the query falls below the minimum length', async () => {
+            apiGet.mockResolvedValue({ results: [{ name: 'checkout' }], count: 1 })
+            const group = makeGroup({ endpoint: 'api/projects/1/whatever', minSearchQueryLength: 3 })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: 'checkout' },
+            })
+            await waitFor(() => expect(result.current.items).toEqual([{ name: 'checkout' }]))
+
+            rerender({ q: 'ch' })
+
+            // Nothing fetches below the minimum, so the longer query's rows must go —
+            // otherwise they read as matches for what is on screen now.
+            expect(result.current.items).toEqual([])
+            expect(result.current.needsMoreSearchCharacters).toBe(true)
+        })
+
+        it('drops the previous page when the request for the current query fails', async () => {
+            apiGet
+                .mockResolvedValueOnce({ results: [{ name: 'alpha' }], count: 1 })
+                .mockRejectedValueOnce(new Error('search unavailable'))
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: 'alpha' },
+            })
+            await waitFor(() => expect(result.current.items).toEqual([{ name: 'alpha' }]))
+
+            rerender({ q: 'beta' })
+
+            await waitFor(() => expect(result.current.items).toEqual([]))
+            expect(result.current.isLoading).toBe(false)
+        })
+
         it('refires when searchQuery changes', async () => {
             apiGet
                 .mockResolvedValueOnce({ results: [{ name: 'a' }], count: 1 })
@@ -170,20 +202,64 @@ describe('useGroupList', () => {
             expect(apiGet).toHaveBeenCalledTimes(2)
         })
 
-        it('exposes expandable state when scoped + expandedCount > count', async () => {
+        it.each(['success', 'failure'] as const)(
+            'reveals scoped results before the full count settles with %s',
+            async (outcome) => {
+                let resolveCount!: (value: { count: number }) => void
+                let rejectCount!: (error: Error) => void
+                const countRequest = new Promise((resolve, reject) => {
+                    resolveCount = resolve
+                    rejectCount = reject
+                })
+                apiGet.mockResolvedValueOnce({ results: [{ name: 's' }], count: 1 }).mockReturnValueOnce(countRequest)
+                const group = makeGroup({
+                    endpoint: 'api/projects/1/property_definitions',
+                    scopedEndpoint: 'api/projects/1/property_definitions?scoped',
+                })
+                const { result } = renderHook(() => useGroupList({ group, searchQuery: '' }))
+                await waitFor(() => expect(result.current.totalResultCount).toBe(1))
+                expect(result.current.isLoading).toBe(false)
+                expect(result.current.isFetching).toBe(false)
+                expect(result.current.isExpandable).toBe(false)
+                expect(result.current.rowCount).toBe(1)
+                const visibleItems = result.current.items
+                await act(async () => {
+                    if (outcome === 'success') {
+                        resolveCount({ count: 9 })
+                    } else {
+                        rejectCount(new Error('count unavailable'))
+                    }
+                })
+                expect(result.current.items).toEqual(visibleItems)
+                expect(result.current.isExpandable).toBe(outcome === 'success')
+                expect(result.current.rowCount).toBe(outcome === 'success' ? 2 : 1)
+            }
+        )
+
+        it('ignores a full count from an earlier search', async () => {
+            let resolveOldCount!: (value: { count: number }) => void
             apiGet
-                // primary scoped fetch
-                .mockResolvedValueOnce({ results: [{ name: 's' }], count: 1 })
-                // extra full count fetch
-                .mockResolvedValueOnce({ count: 9 })
+                .mockResolvedValueOnce({ results: [{ name: 'alpha' }], count: 1 })
+                .mockReturnValueOnce(
+                    new Promise((resolve) => {
+                        resolveOldCount = resolve
+                    })
+                )
+                .mockResolvedValueOnce({ results: [{ name: 'beta' }], count: 1 })
+                .mockResolvedValueOnce({ count: 1 })
             const group = makeGroup({
                 endpoint: 'api/projects/1/property_definitions',
                 scopedEndpoint: 'api/projects/1/property_definitions?scoped',
             })
-            const { result } = renderHook(() => useGroupList({ group, searchQuery: '' }))
-            await waitFor(() => expect(result.current.totalResultCount).toBe(1))
-            expect(result.current.isExpandable).toBe(true)
-            expect(result.current.rowCount).toBe(2) // results + expand button
+            const { result, rerender } = renderHook(({ q }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: 'alpha' },
+            })
+            await waitFor(() => expect(result.current.items).toEqual([{ name: 'alpha' }]))
+            rerender({ q: 'beta' })
+            await waitFor(() => expect(result.current.items).toEqual([{ name: 'beta' }]))
+            await act(async () => resolveOldCount({ count: 9 }))
+            expect(result.current.isExpandable).toBe(false)
+            expect(result.current.rowCount).toBe(1)
         })
 
         it('expand() switches to the unscoped endpoint and refetches', async () => {

@@ -8,7 +8,6 @@ import {
   TrashIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { useHostTRPC } from "@posthog/host-router/react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -25,6 +24,7 @@ import {
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
+import { CopyCanvasLinkButton } from "@posthog/ui/features/canvas/components/CopyCanvasLinkButton";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { SpaceHeaderRow } from "@posthog/ui/features/canvas/components/SpaceHeaderRow";
@@ -42,6 +42,7 @@ import {
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
@@ -62,10 +63,11 @@ import {
   PRIVATE_SPACE_MENTIONS_DISABLED,
 } from "@posthog/ui/features/sessions/mentionAvailability";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Flex } from "@radix-ui/themes";
-import { useIsMutating, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Outlet,
   useNavigate,
@@ -74,9 +76,8 @@ import {
 } from "@tanstack/react-router";
 import { type CSSProperties, type ReactNode, useState } from "react";
 
-// Edit toggle + autosave status for a canvas. Source is server-versioned now —
-// version browsing and revert live in the canvas view's own toolbar — so the
-// only autosave surfaced here is the author-context buffer's saveContext.
+// Edit toggle and options menu for a canvas. Source is server-versioned;
+// version browsing and revert live in the canvas view's own toolbar.
 function FreeformEditControls({
   channelId,
   dashboardId,
@@ -145,14 +146,6 @@ function FreeformEditControls({
       });
   };
 
-  // Any in-flight saveContext mutation (the side panel's context editor
-  // commits through it) drives the toolbar's autosave spinner.
-  const trpc = useHostTRPC();
-  const isSavingContext =
-    useIsMutating({
-      mutationKey: trpc.dashboards.saveContext.mutationKey(),
-    }) > 0;
-
   const queryClient = useQueryClient();
   const remountFrame = useCanvasFrameStore((s) => s.remount);
   // Fully remount the mounted canvas iframe: drop the host-side read cache so
@@ -170,14 +163,7 @@ function FreeformEditControls({
   };
 
   return (
-    <Flex align="center" gap="2" className="no-drag">
-      {editing && (
-        // Autosave status — a non-interactive button showing a spinner while a
-        // context save is in flight, "Saved" otherwise.
-        <Button variant="outline" size="sm" disabled loading={isSavingContext}>
-          Saved
-        </Button>
-      )}
+    <div className="no-drag flex items-center gap-2">
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -275,7 +261,7 @@ function FreeformEditControls({
         )}
         {editing ? "Done" : "Edit"}
       </Button>
-    </Flex>
+    </div>
   );
 }
 
@@ -327,6 +313,9 @@ function CanvasBreadcrumb({
       leafLabel={name}
       editScopeKey={dashboardId}
       onRename={(next) => void renameDashboard(dashboardId, next)}
+      leafTrailing={
+        <CopyCanvasLinkButton channelId={channelId} dashboardId={dashboardId} />
+      }
       trailing={
         <>
           {commentTaskId && (
@@ -347,6 +336,7 @@ function CanvasBreadcrumb({
 
 export function ShellLayout() {
   const spacesLayout = useChannelsLayout();
+  const workLayout = useWorkLayout();
   const pathname = useRouterState({
     select: (s) =>
       s.location.pathname.startsWith("/spaces/") ? s.location.pathname : "",
@@ -398,7 +388,7 @@ export function ShellLayout() {
   // The canvases grid (its own sub-route now that the channel index is the
   // static homepage, which carries its own header content).
   const isDashboardsGrid =
-    Boolean(channelId) && pathname === `${base}/canvases`;
+    !workLayout && Boolean(channelId) && pathname === `${base}/canvases`;
 
   // Whether the single toolbar should render: the canvases grid, or any single
   // canvas (so Edit lives here too).
@@ -418,7 +408,7 @@ export function ShellLayout() {
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
       {showToolbar && (
-        <div className="flex h-10 shrink-0 items-center border-border border-b px-3">
+        <ChromeBar inset="title">
           {isDashboardDetail && toolbarDashboardId && toolbarChannelId ? (
             <CanvasBreadcrumb
               channelName={toolbarChannelName}
@@ -439,7 +429,7 @@ export function ShellLayout() {
               trailing={<NewCanvasMenu channelId={channelId} />}
             />
           ) : null}
-        </div>
+        </ChromeBar>
       )}
       {/* The right panel lays itself over this row's right edge and pins its
           switcher to the row's top right, so the row is its positioning context

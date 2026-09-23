@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -39,6 +39,8 @@ class InternalCHQueryError(ServerException):
 class ExposedCHQueryError(InternalCHQueryError):
     """User-safe ClickHouse query error. Subclasses have user_safe=True in ErrorCodeMeta,
     which classify_query_error() uses to categorize them as USER_ERROR."""
+
+    user_safe = True
 
     def __str__(self) -> str:
         message: str = str(self.message)
@@ -1042,13 +1044,28 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
 # Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.
+# For every entry the client knows the query did not complete. Either it never reached the server, or
+# the client holds the server's own error for that query. Keep it that way: this tuple is shared with
+# write callers such as calculate_cohort_ch, whose INSERT INTO cohortpeople appends rows at a version
+# it does not delete first. An error that leaves the outcome unknown must not go in here. A repeated
+# write duplicates the membership rows of a live cohort version.
 # CHQueryErrorQueryWasCancelled (394) is deliberately absent: a deploy cancelling in-flight queries
 # and an operator or user deliberately killing one are indistinguishable at this layer, so callers
 # that want the deploy case retried opt in themselves (see COHORT_RECALCULATION_TRANSIENT_ERRORS).
+# UnknownPacketFromServerError is deliberately absent for the write reason above: it means a pooled
+# socket is out of sync, and the driver can read that unexpected packet after the server already ran
+# the query. Read-only callers opt in themselves (see FEATURE_FLAG_SYNC_TRANSIENT_ERRORS).
+# NetworkError and SocketTimeoutError are raised only while a connection is being opened (connect, or
+# the ping-then-reconnect on a stale pooled socket), before any query is sent, so nothing has run and
+# a retry is safe. Neither is a ServerException, so wrap_clickhouse_query_error passes them through
+# untouched: a bare "Code: 209. (host:9440)" is the driver's 10s connect_timeout firing, typically
+# because a node dropped out of the cluster's load balancer for a few seconds.
 CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorTableIsReadOnly,
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
+    NetworkError,
+    SocketTimeoutError,
 )

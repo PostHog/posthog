@@ -3,14 +3,15 @@ import { useEffect } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
+import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
-    Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { objectsEqual } from 'lib/utils/objects'
@@ -69,9 +70,6 @@ const errorTrackingIssueActionsMapping: Record<
         const { before, after } = change || {}
         const unassignedBefore = before === null
         const unassignedAfter = after === null
-        if (unassignedBefore && unassignedAfter) {
-            return null
-        }
         if (objectsEqual(before, after)) {
             return null
         }
@@ -82,24 +80,48 @@ const errorTrackingIssueActionsMapping: Record<
         const wasAssigned = unassignedBefore && !unassignedAfter
         const wasUnassigned = !unassignedBefore && unassignedAfter
 
-        return {
-            description: [
-                wasAssigned ? (
+        if (wasAssigned) {
+            return {
+                summary: [
+                    <>
+                        Assigned to <AssigneeRenderer assignee={after as ErrorTrackingIssueAssignee} />
+                    </>,
+                ],
+                description: [
                     <>
                         assigned {nameAndLink(logItem)} to{' '}
                         <AssigneeRenderer assignee={after as ErrorTrackingIssueAssignee} />
-                    </>
-                ) : wasUnassigned ? (
+                    </>,
+                ],
+            }
+        }
+        if (wasUnassigned) {
+            return {
+                summary: [
+                    <>
+                        Unassigned from <AssigneeRenderer assignee={before as ErrorTrackingIssueAssignee} />
+                    </>,
+                ],
+                description: [
                     <>
                         unassigned {nameAndLink(logItem)} from{' '}
                         <AssigneeRenderer assignee={before as ErrorTrackingIssueAssignee} />
-                    </>
-                ) : (
-                    <>
-                        changed assignee from <AssigneeRenderer assignee={before as ErrorTrackingIssueAssignee} /> to{' '}
-                        <AssigneeRenderer assignee={after as ErrorTrackingIssueAssignee} /> on {nameAndLink(logItem)}
-                    </>
-                ),
+                    </>,
+                ],
+            }
+        }
+        return {
+            summary: [
+                <>
+                    Changed assignee from <AssigneeRenderer assignee={before as ErrorTrackingIssueAssignee} /> to{' '}
+                    <AssigneeRenderer assignee={after as ErrorTrackingIssueAssignee} />
+                </>,
+            ],
+            description: [
+                <>
+                    changed assignee from <AssigneeRenderer assignee={before as ErrorTrackingIssueAssignee} /> to{' '}
+                    <AssigneeRenderer assignee={after as ErrorTrackingIssueAssignee} /> on {nameAndLink(logItem)}
+                </>,
             ],
         }
     },
@@ -109,6 +131,11 @@ const errorTrackingIssueActionsMapping: Record<
             return null
         }
         return {
+            summary: [
+                <>
+                    Changed status from {String(before)} to {String(after)}
+                </>,
+            ],
             description: [
                 <>
                     changed status of {nameAndLink(logItem)} from <strong>{String(before)}</strong> to{' '}
@@ -128,6 +155,62 @@ const errorTrackingIssueActionsMapping: Record<
     cohort: () => null,
 }
 
+function describeIssueMergeOrSplit(logItem: ActivityLogItem): HumanizedChange {
+    const relatedIssueIds = relatedIssueIdsForLogItem(logItem)
+    const count = relatedIssueIds.length
+    return {
+        summary: activityLogSummary(
+            logItem,
+            logItem.activity === 'merged' ? (
+                <>Merged {count === 1 ? 'an issue' : `${count} issues`} into this issue</>
+            ) : (
+                <>
+                    Split into{' '}
+                    {count > 0 ? (
+                        <SentenceList
+                            listParts={relatedIssueIds.map((issueId, index) => (
+                                <Link key={issueId} to={urls.errorTrackingIssue(issueId)}>
+                                    {count === 1 ? 'a new issue' : `new issue ${index + 1}`}
+                                </Link>
+                            ))}
+                        />
+                    ) : (
+                        'new issues'
+                    )}
+                </>
+            ),
+            nameAndLink(logItem)
+        ),
+        description: (
+            <SentenceList
+                listParts={[
+                    logItem.activity == 'merged' ? (
+                        <>
+                            merged {count === 1 ? 'an issue' : `${count} issues`} into {nameAndLink(logItem)}
+                        </>
+                    ) : (
+                        <>
+                            split {nameAndLink(logItem)} into{' '}
+                            {count > 0 ? (
+                                <SentenceList
+                                    listParts={relatedIssueIds.map((issueId, index) => (
+                                        <Link key={issueId} to={urls.errorTrackingIssue(issueId)}>
+                                            {count === 1 ? 'a new issue' : `new issue ${index + 1}`}
+                                        </Link>
+                                    ))}
+                                />
+                            ) : (
+                                'new issues'
+                            )}
+                        </>
+                    ),
+                ]}
+                prefix={<ActivityLogUserName logItem={logItem} />}
+            />
+        ),
+    }
+}
+
 export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.ERROR_TRACKING_ISSUE) {
         console.error('describer received a non-error tracking activity')
@@ -135,70 +218,13 @@ export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boo
     }
 
     if (logItem.activity == 'merged' || logItem.activity == 'split') {
-        const relatedIssueIds = relatedIssueIdsForLogItem(logItem)
-        const count = relatedIssueIds.length
-        return {
-            description: (
-                <SentenceList
-                    listParts={[
-                        logItem.activity == 'merged' ? (
-                            <>
-                                merged {count === 1 ? 'an issue' : `${count} issues`} into {nameAndLink(logItem)}
-                            </>
-                        ) : (
-                            <>
-                                split {nameAndLink(logItem)} into{' '}
-                                {count > 0 ? (
-                                    <SentenceList
-                                        listParts={relatedIssueIds.map((issueId, index) => (
-                                            <Link key={issueId} to={urls.errorTrackingIssue(issueId)}>
-                                                {count === 1 ? 'a new issue' : `new issue ${index + 1}`}
-                                            </Link>
-                                        ))}
-                                    />
-                                ) : (
-                                    'new issues'
-                                )}
-                            </>
-                        ),
-                    ]}
-                    prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
-                />
-            ),
-        }
+        return describeIssueMergeOrSplit(logItem)
     }
 
     if (logItem.activity == 'updated' || logItem.activity == 'assigned') {
-        let changes: Description[] = []
-
-        for (const change of logItem.detail.changes || []) {
-            const field = change.field as keyof ErrorTrackingRelationalIssue
-
-            if (!change?.field || !errorTrackingIssueActionsMapping[field]) {
-                continue //  not all fields are describable
-            }
-
-            const actionHandler = errorTrackingIssueActionsMapping[field]
-            const processedChange = actionHandler(change, logItem)
-            if (processedChange === null) {
-                continue // unexpected log from backend is indescribable
-            }
-
-            const { description } = processedChange
-            if (description) {
-                changes = changes.concat(description)
-            }
-        }
-
-        if (changes.length) {
-            return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
-                    />
-                ),
-            }
+        const changes = describeMappedChanges(logItem, errorTrackingIssueActionsMapping, nameAndLink(logItem), null)
+        if (changes) {
+            return changes
         }
     }
 

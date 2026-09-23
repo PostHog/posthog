@@ -39,6 +39,7 @@ from products.engineering_analytics.backend.logic.cost import (
     render_is_billable_job,
     runner_tier_descriptor,
 )
+from products.engineering_analytics.backend.logic.merge_queue import in_merge_queue_namespace_expr
 from products.engineering_analytics.backend.logic.queries._buckets import (
     Granularity,
     bucket_expr,
@@ -47,10 +48,10 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    UNPAGED_SCAN_LIMIT,
     branch_filter_clause,
+    cost_run_scope_filter_clause,
     date_to_filter_clause,
-    merge_queue_branch_predicate,
-    run_scope_filter_clause,
     run_windowed_job_created_floor_constant,
     window_pair_predicates,
 )
@@ -132,11 +133,11 @@ _EMPTY = PRCostSummary(
 # is missing, matching the legacy INNER JOIN population.
 #
 # The only two cost queries with no scan floor (see job_cost_source(created_floor=...)) are this one
-# and _LIST_COST_SELECT: both are keyed by PR number, not by a window, and a PR's created_at would
-# cost an extra round trip here (build_pr_cost is handed a number and a repo, nothing else) or be the
-# min across a whole page there — which for a page holding one old PR is no bound at all. Left
-# unfloored deliberately; if these ever get slow, thread the PR's created_at down and floor a day
-# below it rather than inventing a window.
+# and _COSTS_BY_PR_SELECT without run_from: both are keyed by PR number, not by a window, and a PR's
+# created_at would cost an extra round trip here (build_pr_cost is handed a number and a repo, nothing
+# else) or be the min across a whole page there, which for a page holding one old PR is no bound at
+# all. Left unfloored deliberately; if these ever get slow, thread the PR's created_at down and floor
+# a day below it rather than inventing a window.
 _PR_COST_SELECT = """
     SELECT
         c.workflow_name AS workflow_name,
@@ -201,37 +202,45 @@ def query_pr_cost(
 
 # Per-PR billable cost across the given PR numbers, aggregated in SQL and scoped to the visible PR
 # numbers so a team with deep CI history doesn't pay an all-time scan per page.
-_LIST_COST_SELECT = """
+_COSTS_BY_PR_SELECT = f"""
     SELECT
         c.repo_owner AS repo_owner,
         c.repo_name AS repo_name,
         c.pr_number AS pr_number,
         __COST_AGGREGATES__
     FROM __COST_SOURCE__ AS c
-    WHERE c.pr_number IN {pr_numbers}
+    WHERE c.pr_number IN {{pr_numbers}} __RUN_FROM__
     GROUP BY c.repo_owner, c.repo_name, c.pr_number
-    LIMIT 1000000
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 
-def query_pr_list_costs(
-    *, curated: CuratedGitHubSource, pr_numbers: list[int]
+def query_pr_costs(
+    *, curated: CuratedGitHubSource, pr_numbers: list[int], run_from: datetime | None = None
 ) -> dict[tuple[str, str, int], PRCostAggregate]:
     """Per-PR billable cost across the given PR numbers' runs, keyed by (repo_owner, repo_name, pr_number).
 
     Empty when the jobs source isn't synced or no PR numbers are given. One grouped pass over the cost
-    source so the PR list can show a cost/minutes column per row without a query per PR; scoped to the
-    visible PR numbers so the scan tracks the page, not the team's whole CI history.
+    source so a list can show a cost/minutes column per row without a query per PR.
+
+    A population that can be repo-wide (every PR merged in a window) passes ``run_from``: runs started
+    before it are left out, which trims the jobs scan for a population of thousands of PRs.
     """
-    cost_source = curated.job_cost_source()
+    cost_source = curated.job_cost_source(created_floor=run_from is not None)
     if cost_source is None or not pr_numbers:
         return {}
-    sql = _LIST_COST_SELECT.replace("__COST_SOURCE__", cost_source).replace("__COST_AGGREGATES__", _cost_aggregates())
-    response = curated.run(
-        sql,
-        query_type="engineering_analytics.pr_list_costs",
-        placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
+    placeholders: dict[str, ast.Expr] = {"pr_numbers": ast.Constant(value=pr_numbers)}
+    run_from_clause = ""
+    if run_from is not None:
+        placeholders["run_from"] = ast.Constant(value=run_from)
+        placeholders["job_created_floor"] = run_windowed_job_created_floor_constant(run_from)
+        run_from_clause = "AND c.run_started_at >= {run_from}"
+    sql = (
+        _COSTS_BY_PR_SELECT.replace("__COST_SOURCE__", cost_source)
+        .replace("__COST_AGGREGATES__", _cost_aggregates())
+        .replace("__RUN_FROM__", run_from_clause)
     )
+    response = curated.run(sql, query_type="engineering_analytics.pr_costs", placeholders=placeholders)
     return {
         (repo_owner, repo_name, int(pr_number)): _aggregate(*agg)
         for repo_owner, repo_name, pr_number, *agg in response.results or []
@@ -275,9 +284,7 @@ def query_workflow_window_costs(
     }
     date_to_clause = date_to_filter_clause(date_to, placeholders, column="c.run_started_at")
     branch_clause = branch_filter_clause(branch, placeholders, column="c.run_head_branch")
-    run_scope_clause = run_scope_filter_clause(
-        run_scope, branch_column="c.run_head_branch", attributed_predicate="c.pr_number IS NOT NULL"
-    )
+    run_scope_clause = cost_run_scope_filter_clause(run_scope)
     sql = (
         _WINDOW_COST_SELECT.replace("__COST_SOURCE__", cost_source)
         .replace("__COST_AGGREGATES__", _cost_aggregates())
@@ -401,11 +408,11 @@ def query_workflow_window_costs_with_prev(
     if date_to is not None:
         date_to_clause = "AND c.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
-    # The prefix predicate deliberately counts all queue-shaped spend, including branch shapes
+    # The namespace predicate deliberately counts all queue spend, including branch shapes
     # logic/merge_queue.py cannot resolve to a PR (e.g. trunk-merge/gr-*). The per-PR landing stats
     # in merge_queue_overview.py use the narrower corroborated population; the two answer different
     # questions, so don't unify them casually.
-    queue = merge_queue_branch_predicate("c.head_branch")
+    queue = in_merge_queue_namespace_expr("c.head_branch")
     queue_agg = (
         f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.current}) AS queue_billable_seconds, "
         f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.previous}) AS queue_billable_seconds_prev"
@@ -549,10 +556,8 @@ def query_cost_per_merge_series(
     return buckets
 
 
-# Per-runner-tier cost for one workflow (single-workflow page "where the spend goes" breakdown), scoped
-# to the page's run window (and optional branch) so the figure always answers "spend over [window]",
-# never an unbounded all-time. Grouped by the rendered (provider, os, vcpu) tier in SQL — the cost
-# source already classifies each job — and mapped to a display badge/label in Python.
+# Per-runner-tier cost for one workflow, scoped to the page's run window (and optional branch or run
+# scope) so the figure always answers "spend over [window]", never an unbounded all-time.
 _RUNNER_COST_SELECT = """
     SELECT
         c.provider AS provider,
@@ -562,7 +567,7 @@ _RUNNER_COST_SELECT = """
         __COST_AGGREGATES__
     FROM __COST_SOURCE__ AS c
     WHERE c.repo_owner = {repo_owner} AND c.repo_name = {repo_name} AND c.workflow_name = {workflow_name}
-        AND c.run_started_at >= {date_from} __DATE_TO__ __BRANCH__
+        AND c.run_started_at >= {date_from} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
     GROUP BY c.provider, c.os, c.vcpu
     LIMIT 1000000
 """
@@ -577,9 +582,10 @@ def query_workflow_runner_costs(
     date_from: datetime,
     date_to: datetime | None,
     branch: str | None = None,
+    run_scope: WorkflowHealthRunScope = WorkflowHealthRunScope.ALL,
 ) -> list[WorkflowRunnerCost]:
-    """A workflow's CI cost broken down by runner tier over [date_from, date_to] (optional branch),
-    highest spend first. Empty when the jobs source isn't synced. Grouped by the rendered
+    """A workflow's CI cost broken down by runner tier over [date_from, date_to] (optional branch and
+    run scope), highest spend first. Empty when the jobs source isn't synced. Grouped by the rendered
     (provider, os, vcpu) tier and mapped to its display badge/label via ``runner_tier_descriptor``."""
     cost_source = curated.job_cost_source(created_floor=True)
     if cost_source is None:
@@ -593,11 +599,13 @@ def query_workflow_runner_costs(
     }
     date_to_clause = date_to_filter_clause(date_to, placeholders, column="c.run_started_at")
     branch_clause = branch_filter_clause(branch, placeholders, column="c.run_head_branch")
+    run_scope_clause = cost_run_scope_filter_clause(run_scope)
     sql = (
         _RUNNER_COST_SELECT.replace("__COST_SOURCE__", cost_source)
         .replace("__COST_AGGREGATES__", _cost_aggregates())
         .replace("__DATE_TO__", date_to_clause)
         .replace("__BRANCH__", branch_clause)
+        .replace("__RUN_SCOPE__", run_scope_clause)
     )
     response = curated.run(
         sql,

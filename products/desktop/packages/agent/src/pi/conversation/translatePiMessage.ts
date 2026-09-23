@@ -4,15 +4,21 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
+import type {
+  McpCallDetails,
+  McpResultMeta,
+} from "@posthog/harness/extensions/mcp/tool-bridge";
 import {
   type AgentContent,
   type AgentConversationEvent,
   type AgentToolCallContent,
   type AgentToolCallStatus,
+  boundPersistedMcpResult,
   createPiToolCallRecord,
   isPiToolName,
   mcpToolKey,
   type PiToolName,
+  parsePiMcpCallDetails,
   posthogToolMeta,
 } from "@posthog/shared";
 import { z } from "zod";
@@ -25,6 +31,8 @@ import { readTranslator } from "./tools/readTranslator";
 import { writeTranslator } from "./tools/writeTranslator";
 import type { PiToolTranslator } from "./toolTranslator";
 
+const HIDDEN_PI_TOOL_NAMES = new Set(["set_current_work"]);
+
 const TRANSLATOR_BY_NAME: Record<PiToolName, PiToolTranslator> = {
   read: readTranslator,
   bash: bashTranslator,
@@ -34,6 +42,10 @@ const TRANSLATOR_BY_NAME: Record<PiToolName, PiToolTranslator> = {
   find: findTranslator,
   ls: lsTranslator,
 };
+
+function isHiddenPiTool(toolName: string): boolean {
+  return HIDDEN_PI_TOOL_NAMES.has(toolName);
+}
 
 interface PendingToolCall {
   name: string;
@@ -45,9 +57,19 @@ interface PiToolExecutionResult {
   details?: unknown;
 }
 
-const mcpToolDetailsSchema = z.object({
+const mcpResultMetaSchema: z.ZodType<McpResultMeta> = z.object({
+  structuredContent: z.record(z.string(), z.unknown()).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
+});
+
+const mcpToolDetailsSchema: z.ZodType<McpCallDetails> = z.object({
   posthog: z.object({
-    mcp: z.object({ server: z.string().min(1), tool: z.string().min(1) }),
+    mcp: z.object({
+      server: z.string().min(1),
+      tool: z.string().min(1),
+      title: z.string().min(1).optional(),
+      result: mcpResultMetaSchema.optional(),
+    }),
   }),
 });
 
@@ -109,7 +131,10 @@ function toContent(block: {
 }
 
 export interface PiMessageTranslator {
-  translate(message: Message): AgentConversationEvent[];
+  translate(
+    message: Message,
+    isInterrupted?: boolean,
+  ): AgentConversationEvent[];
   translateToolExecutionStart(
     toolCallId: string,
     toolName: string,
@@ -128,6 +153,7 @@ export interface PiMessageTranslator {
     toolName: string,
     result: PiToolExecutionResult,
     isError: boolean,
+    isInterrupted: boolean,
     timestamp: number,
   ): AgentConversationEvent[];
 }
@@ -186,6 +212,10 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       }
 
       if (block.type === "toolCall") {
+        if (isHiddenPiTool(block.name)) {
+          continue;
+        }
+
         pendingToolCalls.set(block.id, {
           name: block.name,
           arguments: block.arguments,
@@ -226,6 +256,10 @@ export function createPiMessageTranslator(): PiMessageTranslator {
     status: AgentToolCallStatus,
     timestamp: number,
   ): AgentConversationEvent[] {
+    if (isHiddenPiTool(toolName)) {
+      return [];
+    }
+
     const toolCall: Extract<
       AgentConversationEvent,
       { type: "tool_call_updated" }
@@ -239,10 +273,32 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       toolCall.details = result.details;
     }
 
+    const piMcpCallDetails = parsePiMcpCallDetails(toolName, args);
     const mcpDetails = mcpToolDetailsSchema.safeParse(result.details);
     if (mcpDetails.success) {
       const mcp = mcpDetails.data.posthog.mcp;
-      toolCall._meta = posthogToolMeta({ toolName: mcpToolKey(mcp), mcp });
+      toolCall._meta = posthogToolMeta({
+        toolName: mcpToolKey(mcp),
+        mcp,
+        ...(piMcpCallDetails ? { mcpProxy: piMcpCallDetails } : {}),
+      });
+
+      const resultMeta = mcp.result;
+      if (
+        resultMeta &&
+        (resultMeta.structuredContent !== undefined ||
+          resultMeta._meta !== undefined)
+      ) {
+        toolCall.rawOutput = boundPersistedMcpResult({
+          content: result.content,
+          ...resultMeta,
+        });
+      }
+    } else if (piMcpCallDetails) {
+      toolCall._meta = posthogToolMeta({
+        toolName,
+        mcpProxy: piMcpCallDetails,
+      });
     }
 
     const translator = isPiToolName(toolName)
@@ -278,6 +334,7 @@ export function createPiMessageTranslator(): PiMessageTranslator {
 
   function translateToolResult(
     message: ToolResultMessage,
+    isInterrupted: boolean,
   ): AgentConversationEvent[] {
     const pending = pendingToolCalls.get(message.toolCallId);
     pendingToolCalls.delete(message.toolCallId);
@@ -286,14 +343,22 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       message.toolCallId,
       message.toolName,
       pending?.arguments,
-      { content: message.content, details: message.details },
-      message.isError ? "failed" : "completed",
+      isInterrupted
+        ? { content: [], details: undefined }
+        : {
+            content: message.content,
+            details: message.details,
+          },
+      isInterrupted ? "in_progress" : message.isError ? "failed" : "completed",
       message.timestamp,
     );
   }
 
   return {
-    translate(message: Message): AgentConversationEvent[] {
+    translate(
+      message: Message,
+      isInterrupted = false,
+    ): AgentConversationEvent[] {
       if (message.role === "user") {
         return translateUser(message);
       }
@@ -302,10 +367,14 @@ export function createPiMessageTranslator(): PiMessageTranslator {
         return translateAssistant(message);
       }
 
-      return translateToolResult(message);
+      return translateToolResult(message, isInterrupted);
     },
 
     translateToolExecutionStart(toolCallId, toolName, args, timestamp) {
+      if (isHiddenPiTool(toolName)) {
+        return [];
+      }
+
       pendingToolCalls.set(toolCallId, { name: toolName, arguments: args });
 
       return [
@@ -339,6 +408,7 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       toolName,
       result,
       isError,
+      isInterrupted,
       timestamp,
     ) {
       const pending = pendingToolCalls.get(toolCallId);
@@ -348,7 +418,7 @@ export function createPiMessageTranslator(): PiMessageTranslator {
         toolName,
         pending?.arguments,
         result,
-        isError ? "failed" : "completed",
+        isInterrupted ? "in_progress" : isError ? "failed" : "completed",
         timestamp,
       );
     },

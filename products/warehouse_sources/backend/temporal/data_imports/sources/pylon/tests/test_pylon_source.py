@@ -3,12 +3,15 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import ExternalDataSourceType as SchemaExternalDataSourceType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pylon import PylonSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon import source as pylon_source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylon import (
+    PYLON_EU_BASE_URL,
+    PYLON_US_BASE_URL,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.source import PylonSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_token: str = "token") -> PylonSourceConfig:
@@ -18,7 +21,7 @@ def _config(api_token: str = "token") -> PylonSourceConfig:
 class TestPylonSourceConfig:
     def test_get_source_config_basics(self) -> None:
         config = PylonSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.PYLON
+        assert config.name == ExternalDataSourceType.PYLON
         assert config.label == "Pylon"
         # A finished-but-new source ships visible (no unreleasedSource) and labelled alpha.
         assert config.unreleasedSource is None
@@ -46,12 +49,32 @@ class TestPylonGetSchemas:
 
 
 class TestPylonValidateCredentials:
-    @parameterized.expand([("valid", True, (True, None)), ("invalid", False, (False, "Invalid Pylon API token"))])
-    def test_validate_credentials(self, _name: str, api_returns: bool, expected: tuple[bool, str | None]) -> None:
+    def test_valid_token(self) -> None:
         with pytest.MonkeyPatch().context() as mp:
-            mp.setattr(pylon_source_module, "validate_pylon_credentials", lambda token: api_returns)
-            result = PylonSource().validate_credentials(_config(), team_id=1)
-        assert result == expected
+            mp.setattr(pylon_source_module, "validate_pylon_credentials", lambda token: True)
+            assert PylonSource().validate_credentials(_config(), team_id=1) == (True, None)
+
+    @parameterized.expand(
+        [
+            ("eu_token", "pylon_api_eu_abc123", PYLON_EU_BASE_URL),
+            ("us_token", "pylon_api_abc123", PYLON_US_BASE_URL),
+        ]
+    )
+    def test_failure_names_the_host_that_was_checked(self, _name: str, api_token: str, expected_host: str) -> None:
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setattr(pylon_source_module, "validate_pylon_credentials", lambda token: False)
+            ok, message = PylonSource().validate_credentials(_config(api_token), team_id=1)
+        assert ok is False
+        assert message is not None
+        assert expected_host in message
+
+
+class TestPylonNonRetryableErrors:
+    @parameterized.expand([("us", PYLON_US_BASE_URL), ("eu", PYLON_EU_BASE_URL)])
+    def test_covers_both_regional_hosts(self, _name: str, base_url: str) -> None:
+        errors = PylonSource().get_non_retryable_errors()
+        assert f"401 Client Error: Unauthorized for url: {base_url}" in errors
+        assert f"403 Client Error: Forbidden for url: {base_url}" in errors
 
 
 class TestPylonSourceForPipeline:

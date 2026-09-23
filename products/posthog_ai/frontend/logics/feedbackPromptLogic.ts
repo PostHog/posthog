@@ -42,7 +42,8 @@ function readStream(streamKey: string): StreamSnapshot {
     const trailers = computeTurnTrailers(items)
     const lastTurn = [...trailers.values()].find((trailer) => trailer.isLastTurn)
     return {
-        traceId: stream.values.traceId,
+        // Same trailer as turnIndex, so the two can never describe different turns.
+        traceId: lastTurn?.traceId ?? null,
         turnIndex: lastTurn?.turnIndex ?? null,
         humanMessageCount: items.filter((item) => item.type === 'human_message').length,
         run: stream.cache.activeRun as RunRef | undefined,

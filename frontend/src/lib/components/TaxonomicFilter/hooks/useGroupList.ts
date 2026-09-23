@@ -277,7 +277,11 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         }
     )
 
-    const remoteItemsRaw: ListStorage = remote.data ?? EMPTY_LIST_STORAGE
+    // A previous page must not stand in for the current query: below the group's minimum
+    // search length nothing fetches, and a failed request has no rows, so `keepPreviousData`
+    // would show the earlier query's rows as matches for what is typed now. Aborts are not
+    // errors, so a keystroke still shows the previous page until the next one lands.
+    const remoteItemsRaw: ListStorage = (remoteEnabled && !remote.error ? remote.data : undefined) ?? EMPTY_LIST_STORAGE
 
     // A `clientFilterFirstPage` group can only fuse what it cached — the
     // empty-search first page. When the server holds more rows than fit on
@@ -336,6 +340,28 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         { enabled: serverSearchEnabled, staleTime: 60_000, keepPreviousData: true }
     )
 
+    // The full count only adds an expand row below the results, so it must not hold the reveal barrier.
+    const expandedCount = useTaxonomicResource<ListStorage>(
+        [...(serverSearchEnabled ? serverSearchKey : remoteKey), 'expanded-count'],
+        ({ signal }) =>
+            fetchTaxonomicListPage({
+                group,
+                searchQuery: serverSearchEnabled ? trimmedSearch : remoteSearchQuery,
+                offset: 0,
+                limit: 1,
+                isExpanded: true,
+                showNumericalPropsOnly,
+                hideBehavioralCohorts,
+                excludeStale,
+                signal,
+            }),
+        {
+            enabled: remoteEnabled && !!group.scopedEndpoint && !isExpanded,
+            staleTime: clientFilter ? 5 * 60_000 : 60_000,
+            keepPreviousData: false,
+        }
+    )
+
     // Per-fetch Fuse index over the cached first page. Built lazily on
     // first non-empty query, then re-used across keystrokes until the
     // page changes (refetch / invalidate).
@@ -358,14 +384,23 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         // Dataset bigger than one page: the server search is authoritative.
         // Show the local fuse of the cached first page until it resolves so
         // there's no blank flash, then swap in the full server result.
-        if (serverSearchEnabled && serverSearch.data) {
+        if (serverSearchEnabled && !serverSearch.error && serverSearch.data) {
             return serverSearch.data
         }
         const filtered = remoteFuse
             ? (remoteFuse.search(trimmedSearch).map((r: any) => r.item.item) as TaxonomicDefinitionTypes[])
             : []
         return { results: filtered, searchQuery, count: filtered.length }
-    }, [clientFilter, trimmedSearch, remoteItemsRaw, remoteFuse, searchQuery, serverSearchEnabled, serverSearch.data])
+    }, [
+        clientFilter,
+        trimmedSearch,
+        remoteItemsRaw,
+        remoteFuse,
+        searchQuery,
+        serverSearchEnabled,
+        serverSearch.data,
+        serverSearch.error,
+    ])
 
     // ---- Combined items + keyword shortcuts --------------------------------
     const keywordShortcuts: QuickFilterItem[] = useMemo(() => {
@@ -411,8 +446,9 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const isExpandable = !!(
         group.endpoint &&
         group.scopedEndpoint &&
-        remoteItems.expandedCount &&
-        remoteItems.expandedCount > remoteItems.count
+        !isExpanded &&
+        expandedCount.data &&
+        expandedCount.data.count > remoteItems.count
     )
     // Match legacy semantics: `count` is the API-reported total + local pool
     // size + keyword shortcuts, NOT the loaded array length. Without this,
@@ -503,6 +539,9 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         expand,
         refetch: () => {
             remote.refetch()
+            if (remoteEnabled && group.scopedEndpoint && !isExpanded) {
+                expandedCount.refetch()
+            }
         },
     }
 }

@@ -68,7 +68,7 @@ rules:
               - 'posthog/helpers/__init__.py'
               - 'products/product_analytics/backend/hogql_queries/funnels/__init__.py'
               - 'posthog/plugins/__init__.py'
-              - 'posthog/queries/properties_timeline/__init__.py'
+              - 'posthog/hogql_queries/properties_timeline/__init__.py'
               - 'products/ai_observability/backend/api/__init__.py'
               - 'products/ai_observability/backend/providers/formatters/tools_handler/__init__.py'
               - 'products/ai_observability/backend/summarization/llm/__init__.py'
@@ -103,7 +103,7 @@ rules:
               - 'tools/hogli-commands/hogli_commands/devenv/__init__.py'
               - 'tools/hogli-commands/hogli_commands/product/__init__.py'
               - 'tools/hogli-commands/hogli_commands/workflow_lint/checks/__init__.py'
-              - 'tools/owners/posthog_owners/__init__.py'
+              - 'packages/owners-yaml/owners_yaml/__init__.py'
       # Column-0 anchor: only flag eager, top-level re-exports. Indented ones (TYPE_CHECKING,
       # try/except ImportError, function-local) are already lazy and intentionally skipped.
       pattern-regex: '(?m)^from\s+\.'

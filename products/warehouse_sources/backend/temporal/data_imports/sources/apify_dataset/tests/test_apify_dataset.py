@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -11,6 +12,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apify_data
     ApifyResumeConfig,
     apify_dataset_source,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.settings import (
+    ACTOR_RUNS_ENDPOINT,
+    ACTORS_ENDPOINT,
+    DATASETS_ENDPOINT,
+    USAGE_MONTHLY_ENDPOINT,
 )
 
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -60,6 +67,30 @@ def _run(manager, responses):
         team_id=1,
         job_id="j",
         resumable_source_manager=manager,
+    )
+
+
+def _platform_response(items: Any, total: int | None = None) -> Response:
+    """Shape of every Apify platform list endpoint: rows wrapped in a data envelope."""
+    return _response({"data": {"items": items, "total": total if total is not None else len(items)}})
+
+
+def _run_platform(
+    endpoint: str,
+    manager,
+    *,
+    db_incremental_field_last_value: Any = None,
+    should_use_incremental_field: bool = False,
+):
+    return apify_dataset_source(
+        api_token="tok",
+        dataset_id="ds1",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+        should_use_incremental_field=should_use_incremental_field,
     )
 
 
@@ -143,3 +174,113 @@ class TestValidateCredentials:
         ok, msg = validate_credentials("tok", "ds1")
         assert ok is False
         assert "reach the Apify API" in (msg or "")
+
+
+class TestPlatformEndpoints:
+    @mock.patch.object(apify_dataset, "PAGE_SIZE", 2)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pages_on_envelope_total_and_checkpoints_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _platform_response([{"id": "a"}, {"id": "b"}], total=3),
+                _platform_response([{"id": "c"}], total=3),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_run_platform(ACTOR_RUNS_ENDPOINT, manager))
+
+        assert [r["id"] for r in rows] == ["a", "b", "c"]
+        assert [p["offset"] for p in params] == [0, 2]
+        assert manager.save_state.call_args.args[0] == ApifyResumeConfig(offset=2)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_sends_started_after_from_watermark(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_platform_response([])])
+
+        _rows(
+            _run_platform(
+                ACTOR_RUNS_ENDPOINT,
+                _make_manager(),
+                db_incremental_field_last_value=datetime(2026, 3, 4, 5, 6, 7, 890000, tzinfo=UTC),
+                should_use_incremental_field=True,
+            )
+        )
+
+        # Truncated to whole seconds, which only ever re-fetches the boundary row.
+        assert params[0]["startedAfter"] == "2026-03-04T05:06:07Z"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_omits_the_watermark(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_platform_response([])])
+
+        _rows(
+            _run_platform(
+                ACTOR_RUNS_ENDPOINT,
+                _make_manager(),
+                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+            )
+        )
+
+        assert "startedAfter" not in params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_datasets_asks_for_unnamed_storages(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_platform_response([])])
+
+        _rows(_run_platform(DATASETS_ENDPOINT, _make_manager()))
+
+        # Actor runs store their output in unnamed datasets, which the endpoint hides by default.
+        assert params[0]["unnamed"] == "true"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_envelope_raises_loudly(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": {"type": "insufficient-permissions"}})])
+
+        with pytest.raises(ValueError, match="matched nothing"):
+            _rows(_run_platform(ACTORS_ENDPOINT, _make_manager()))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_monthly_usage_becomes_one_row_per_day(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response(
+                    {
+                        "data": {
+                            "usageCycle": {"startAt": "2026-03-01T00:00:00.000Z", "endAt": "2026-03-31T23:59:59.999Z"},
+                            "monthlyServiceUsage": {"ACTOR_COMPUTE_UNITS": {"quantity": 3}},
+                            "dailyServiceUsages": [
+                                {"date": "2026-03-01", "serviceUsage": {}, "totalUsageCreditsUsd": 0.5},
+                                {"date": "2026-03-02", "serviceUsage": {}, "totalUsageCreditsUsd": 1.5},
+                            ],
+                            "totalUsageCreditsUsdBeforeVolumeDiscount": 2.5,
+                            "totalUsageCreditsUsdAfterVolumeDiscount": 2.0,
+                        }
+                    }
+                )
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_run_platform(USAGE_MONTHLY_ENDPOINT, manager))
+
+        assert [r["date"] for r in rows] == ["2026-03-01", "2026-03-02"]
+        assert [r["totalUsageCreditsUsd"] for r in rows] == [0.5, 1.5]
+        assert rows[0]["usageCycleStartAt"] == "2026-03-01T00:00:00.000Z"
+        assert rows[0]["usageCycleEndAt"] == "2026-03-31T23:59:59.999Z"
+        assert rows[0]["totalUsageCreditsUsdAfterVolumeDiscount"] == 2.0
+        # A single object endpoint has no cursor, so nothing is checkpointed.
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    def test_unknown_endpoint_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unknown Apify endpoint"):
+            _run_platform("not_a_table", _make_manager())

@@ -25,7 +25,6 @@ SCHEDULE_MATERIALIZATION = (
 # about the provider mechanism, not about anything specific to engineering analytics.
 KIND = DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
 
-SERVICE = "products.data_warehouse.backend.logic.data_load.saved_query_service"
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 NODE_MAT = "products.data_modeling.backend.logic.node_materialization"
@@ -123,7 +122,6 @@ class TestManagedViewSetProviders(BaseTest):
         with (
             patch.dict(_expected_views_providers, clear=True),
             patch(GET_V2_DAG_IDS, return_value=set()),
-            patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
             patch(f"{RECONCILE}.sync_connect"),
             patch(f"{RECONCILE}.async_connect", new=AsyncMock(return_value=_no_schedules())),
             patch(f"{RECONCILE}.a_create_schedule", new=AsyncMock()) as create,

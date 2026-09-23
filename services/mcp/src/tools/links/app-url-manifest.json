@@ -189,6 +189,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiTask": {
+        "template": "/ai",
+        "params": [],
+        "scope": "project"
+    },
     "alert": {
         "template": "/alerts",
         "params": [],
@@ -249,9 +254,34 @@
         "params": [],
         "scope": "project"
     },
+    "broadcast": {
+        "template": "/workflows/broadcasts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "broadcastNew": {
+        "template": "/workflows/broadcasts/new",
+        "params": [],
+        "scope": "project"
+    },
+    "broadcasts": {
+        "template": "/workflows/broadcasts",
+        "params": [],
+        "scope": "project"
+    },
     "businessKnowledge": {
         "template": "/business-knowledge",
         "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgeSettings": {
+        "template": "/business-knowledge/settings",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgeSource": {
+        "template": "/business-knowledge/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "canvas": {
@@ -277,6 +307,11 @@
     "codeChannelLink": {
         "template": "/code/channel/{channelId}",
         "params": ["channelId"],
+        "scope": "project"
+    },
+    "codeLoopLink": {
+        "template": "/code/loop/{loopId}",
+        "params": ["loopId"],
         "scope": "project"
     },
     "codeReview": {
@@ -308,16 +343,6 @@
         "template": "/feature_flags/staff/cohorts",
         "params": [],
         "scope": "global"
-    },
-    "comment": {
-        "template": "/data-management/comments/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "comments": {
-        "template": "/data-management/comments",
-        "params": [],
-        "scope": "project"
     },
     "communitySkills": {
         "template": "/skills/community",
@@ -359,6 +384,11 @@
         "params": ["accountId"],
         "scope": "project"
     },
+    "customerAnalyticsAccountByExternalId": {
+        "template": "/customer_analytics/accounts/by-external-id/{externalId}",
+        "params": ["externalId"],
+        "scope": "project"
+    },
     "customerAnalyticsAccounts": {
         "template": "/customer_analytics/accounts",
         "params": [],
@@ -396,6 +426,11 @@
     },
     "customerAnalyticsNotes": {
         "template": "/customer_analytics/notes",
+        "params": [],
+        "scope": "project"
+    },
+    "customerAnalyticsTasks": {
+        "template": "/customer_analytics/tasks",
         "params": [],
         "scope": "project"
     },
@@ -569,8 +604,8 @@
         "params": ["handle"],
         "scope": "project"
     },
-    "engineeringAnalyticsHealth": {
-        "template": "/engineering-analytics/health",
+    "engineeringAnalyticsDeploys": {
+        "template": "/engineering-analytics/deploys",
         "params": [],
         "scope": "project"
     },
@@ -594,8 +629,8 @@
         "params": [],
         "scope": "project"
     },
-    "engineeringAnalyticsTestHealth": {
-        "template": "/engineering-analytics/test-health",
+    "engineeringAnalyticsTests": {
+        "template": "/engineering-analytics/tests",
         "params": [],
         "scope": "project"
     },
@@ -641,11 +676,6 @@
     },
     "errorTrackingIssue": {
         "template": "/error_tracking/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "errorTrackingIssueFingerprints": {
-        "template": "/error_tracking/{id}/fingerprints",
         "params": ["id"],
         "scope": "project"
     },
@@ -1124,6 +1154,11 @@
         "params": ["tab"],
         "scope": "project"
     },
+    "mcpRegistry": {
+        "template": "/mcp-registry",
+        "params": [],
+        "scope": "project"
+    },
     "metrics": {
         "template": "/metrics",
         "params": [],
@@ -1234,6 +1269,11 @@
         "params": [],
         "scope": "project"
     },
+    "precomputeDebug": {
+        "template": "/debug/precompute",
+        "params": [],
+        "scope": "project"
+    },
     "preflight": {
         "template": "/preflight",
         "params": [],
@@ -1253,6 +1293,11 @@
         "template": "/organization/create-project",
         "params": [],
         "scope": "global"
+    },
+    "projectFiles": {
+        "template": "/files",
+        "params": [],
+        "scope": "project"
     },
     "projectHomepage": {
         "template": "/home",
@@ -1369,6 +1414,11 @@
         "params": ["resourceKind", "resourceId"],
         "scope": "project"
     },
+    "reusableWidget": {
+        "template": "/notebooks/widgets/{widgetId}",
+        "params": ["widgetId"],
+        "scope": "project"
+    },
     "revenueSettings": {
         "template": "/data-management/revenue",
         "params": [],
@@ -1412,6 +1462,11 @@
     "sharedDashboard": {
         "template": "/shared_dashboard/{shareToken}",
         "params": ["shareToken"],
+        "scope": "project"
+    },
+    "shipIt": {
+        "template": "/games/shipit",
+        "params": [],
         "scope": "project"
     },
     "signup": {
@@ -1579,6 +1634,11 @@
         "params": [],
         "scope": "project"
     },
+    "terminal": {
+        "template": "/terminal",
+        "params": [],
+        "scope": "project"
+    },
     "toolbarLaunch": {
         "template": "/toolbar",
         "params": [],
@@ -1684,6 +1744,11 @@
         "params": ["repoId"],
         "scope": "project"
     },
+    "warehouseDestinations": {
+        "template": "/data-management/warehouse-destinations",
+        "params": [],
+        "scope": "project"
+    },
     "warehouseProperties": {
         "template": "/data-management/warehouse-properties",
         "params": [],
@@ -1701,6 +1766,11 @@
     },
     "webAnalyticsBotAnalytics": {
         "template": "/web/bots",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsContentAutopilot": {
+        "template": "/web/content-autopilot",
         "params": [],
         "scope": "project"
     },
@@ -1749,8 +1819,8 @@
         "params": [],
         "scope": "project"
     },
-    "wizard": {
-        "template": "/wizard",
+    "wizardRuns": {
+        "template": "/wizard/runs",
         "params": [],
         "scope": "project"
     },

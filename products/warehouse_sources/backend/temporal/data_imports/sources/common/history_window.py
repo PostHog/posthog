@@ -45,7 +45,15 @@ def history_start_for_schema(
         logger.warning("history_window.unknown_source_type", source_type=schema.source.source_type)
         return None
 
-    lookback = source.history_lookback
+    # A source whose depth the user picks at setup reads it from here. Inputs that no longer parse
+    # leave the source on its declared default rather than failing every sync's history resolution.
+    config = None
+    try:
+        config = source.parse_config(schema.source.job_inputs or {})
+    except Exception:
+        logger.warning("history_window.config_unreadable", source_type=schema.source.source_type)
+
+    lookback = source.history_lookback_for_schema(schema.name, config)
     if lookback is None:
         return None
 

@@ -46,7 +46,7 @@ export interface KnowledgeSearchResultApi {
     readonly source_id: string
     /** Human label of the knowledge source this chunk belongs to. */
     readonly source_name: string
-    /** Source type (text, url, or file). */
+    /** Source type: text, URL, or file. */
     readonly source_type: string
     /** Title of the document this chunk belongs to. */
     readonly document_title: string
@@ -54,6 +54,8 @@ export interface KnowledgeSearchResultApi {
     readonly heading_path: string
     /** The chunk's text content. */
     readonly content: string
+    /** True when this chunk comes from a generated source learned from a past support ticket. */
+    readonly is_generated: boolean
 }
 
 export interface KnowledgeGapSuggestionApi {
@@ -112,6 +114,18 @@ export interface GapTopicActionResultApi {
     readonly normalized_topic: string
     /** Number of gap rows whose status changed. */
     readonly updated: number
+}
+
+export interface BusinessKnowledgeSettingsApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
+    learn_from_support_enabled: boolean
+    /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
+    readonly support_enabled: boolean
+}
+
+export interface PatchedBusinessKnowledgeSettingsUpdateApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Rejected when Support is off for this environment. */
+    learn_from_support_enabled?: boolean
 }
 
 /**
@@ -200,6 +214,8 @@ export interface KnowledgeSourceApi {
     readonly team_id: number
     readonly name: string
     readonly source_type: SourceTypeEnumApi
+    /** Whether PostHog manages this source with knowledge learned from resolved support tickets. */
+    readonly is_generated: boolean
     readonly status: SourceStatusEnumApi
     readonly error_message: string
     /** Number of documents belonging to this source. */
@@ -224,6 +240,16 @@ export interface KnowledgeSourceApi {
     readonly has_unsafe_documents: boolean
     /** Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`. */
     readonly embedding_status: EmbeddingStatusEnumApi
+    /**
+     * Support ticket number this learned source came from. Null for sources you added yourself.
+     * @nullable
+     */
+    readonly learned_from_ticket_number: number | null
+    /**
+     * App URL of the originating support ticket. Null for sources you added yourself.
+     * @nullable
+     */
+    readonly learned_from_ticket_url: string | null
     readonly crawl_mode: CrawlModeEnumApi
     readonly crawl_config: unknown
     readonly original_filename: string
@@ -270,6 +296,43 @@ export interface PatchedUpdateTextSourceApi {
     always_include?: boolean
 }
 
+/**
+ * * `unknown` - Unknown
+ * * `safe` - Safe
+ * * `unsafe` - Unsafe
+ */
+export type SafetyVerdictEnumApi = (typeof SafetyVerdictEnumApi)[keyof typeof SafetyVerdictEnumApi]
+
+export const SafetyVerdictEnumApi = {
+    Unknown: 'unknown',
+    Safe: 'safe',
+    Unsafe: 'unsafe',
+} as const
+
+export interface KnowledgeSourceDocumentApi {
+    /** Document id. */
+    readonly id: string
+    /** Fetched page URL after redirects. Empty for text and file documents. */
+    readonly url: string
+    /** Page title extracted while indexing. Falls back to empty when the page had none. */
+    readonly title: string
+    /** Content-safety verdict. Only `safe` documents are included in search. `unknown` is still waiting on classification.
+     *
+     * * `unknown` - Unknown
+     * * `safe` - Safe
+     * * `unsafe` - Unsafe */
+    readonly safety_verdict: SafetyVerdictEnumApi
+}
+
+export interface PaginatedKnowledgeSourceDocumentListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: KnowledgeSourceDocumentApi[]
+}
+
 export type BusinessKnowledgeDocumentsWindowListParams = {
     /**
      * Zero-based chunk ordinal to center the window on (from a search result).
@@ -312,6 +375,46 @@ export type BusinessKnowledgeGapSuggestionsListParams = {
 }
 
 export type BusinessKnowledgeSourcesListParams = {
+    /**
+     * Filter by who added the source: human (you added it) or learned (from a resolved support ticket).
+     */
+    added_by?: BusinessKnowledgeSourcesListAddedBy
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Case-insensitive substring match against the source name and URL.
+     */
+    search?: string
+    /**
+     * Filter to a single source type (text, url, or file).
+     */
+    source_type?: BusinessKnowledgeSourcesListSourceType
+}
+
+export type BusinessKnowledgeSourcesListAddedBy =
+    (typeof BusinessKnowledgeSourcesListAddedBy)[keyof typeof BusinessKnowledgeSourcesListAddedBy]
+
+export const BusinessKnowledgeSourcesListAddedBy = {
+    Human: 'human',
+    Learned: 'learned',
+} as const
+
+export type BusinessKnowledgeSourcesListSourceType =
+    (typeof BusinessKnowledgeSourcesListSourceType)[keyof typeof BusinessKnowledgeSourcesListSourceType]
+
+export const BusinessKnowledgeSourcesListSourceType = {
+    File: 'file',
+    Text: 'text',
+    Url: 'url',
+} as const
+
+export type BusinessKnowledgeSourcesDocumentsListParams = {
     /**
      * Number of results to return per page.
      */

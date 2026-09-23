@@ -56,6 +56,17 @@ describe('HttpImageFetcher', () => {
     })
     afterEach(() => jest.restoreAllMocks())
 
+    it('opts every image request into HTTP/2', async () => {
+        fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
+
+        await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(fetchStreamedMock).toHaveBeenCalledWith(
+            'https://cdn.example.com/a.png',
+            expect.objectContaining({ allowH2: true })
+        )
+    })
+
     it('identifies every request as PostHogImageFetcherBot', async () => {
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
 
@@ -140,6 +151,7 @@ describe('HttpImageFetcher', () => {
         ['a type that is not an image', 'text/html', PNG, 'not_image'],
         ['a type outside the raster set', 'image/svg+xml', PNG, 'not_image'],
         ['the BMP format', 'image/bmp', Buffer.from('BM'), 'not_image'],
+        ['the AVIF format', 'image/avif', Buffer.from('\x00\x00\x00\x18ftypavif', 'binary'), 'not_image'],
         ['a payload that is not the declared format', 'image/gif', PNG, 'ok'],
         ['a payload of the wrong raster format', 'image/png', GIF, 'ok'],
     ])('handles %s', async (_name, contentType, bytes, outcome) => {
