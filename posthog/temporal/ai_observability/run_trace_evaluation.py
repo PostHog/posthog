@@ -530,7 +530,7 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
     return text
 
 
-def _has_state_content(state: Any) -> bool:
+def _has_state_content(state: object) -> bool:
     """The formatter writes a state header for any truthy state, so whitespace renders as a heading
     above nothing. Strings carry content only once stripped."""
     return bool(state.strip()) if isinstance(state, str) else bool(state)
