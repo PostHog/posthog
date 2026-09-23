@@ -26,6 +26,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
@@ -173,12 +174,11 @@ _STATUS_REASON_SUBJECTS = {
 
 @temporalio.activity.defn
 async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabledEmailInputs) -> None:
-    """Email org members who have not turned this notification off when an evaluation enters the ERROR state."""
+    """Email subscribed org members who can view the evaluation when it enters the ERROR state."""
 
     def _send() -> None:
         from posthog.email import EmailMessage, is_email_available
-        from posthog.models.organization_notification_lock import notification_locks_for_users
-        from posthog.tasks.email import NotificationSetting, should_send_notification
+        from posthog.tasks.email import NotificationSetting, get_members_to_notify
 
         if not is_email_available(with_absolute_urls=True):
             logger.info(
@@ -192,6 +192,15 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
             team = Team.objects.select_related("organization").get(id=inputs.team_id)
         except Team.DoesNotExist:
             logger.warning("Team not found for evaluation disabled email", team_id=inputs.team_id)
+            return
+
+        evaluation = Evaluation.objects.filter(id=inputs.evaluation_id, team_id=team.id, deleted=False).first()
+        if evaluation is None:
+            logger.info(
+                "Evaluation not found for evaluation disabled email",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+            )
             return
 
         settings_url = f"/project/{team.pk}/settings/project-ai-observability#ai-observability-byok"
@@ -215,15 +224,9 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
             },
         )
 
-        members = list(team.organization.members.all())
-        locks_by_user = notification_locks_for_users(
-            [member.id for member in members], organization_id=team.organization_id
-        )
-        for member in members:
-            if should_send_notification(
-                member, NotificationSetting.AI_EVALUATION_DISABLED.value, locks=locks_by_user.get(member.id, {})
-            ):
-                message.add_user_recipient(member)
+        for membership in get_members_to_notify(team, NotificationSetting.AI_EVALUATION_DISABLED.value):
+            if UserAccessControl(membership.user, team).check_access_level_for_object(evaluation, "viewer"):
+                message.add_user_recipient(membership.user)
 
         if message.to:
             message.send()

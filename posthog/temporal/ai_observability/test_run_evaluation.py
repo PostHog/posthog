@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import posthoganalytics
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
 from temporalio import activity
@@ -17,10 +17,12 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.capture import CaptureInternalError
-from posthog.models import Organization, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContextWindowExceededError,
@@ -2724,29 +2726,81 @@ class TestExecuteHogEvalActivityAllowsNA:
 class TestSendEvaluationDisabledEmailActivity:
     @pytest.fixture
     def setup_data(self, db):
-        from posthog.models import Organization, Team, User
-
         organization = Organization.objects.create(name="Test Org")
-        User.objects.create_and_join(organization=organization, email="test@example.com", password="password")
+        user = User.objects.create_and_join(organization=organization, email="test@example.com", password="password")
         team = Team.objects.create(organization=organization, name="Test Team")
-        return {"team": team, "organization": organization}
+        evaluation = Evaluation.objects.create(
+            team=team,
+            name="My Eval",
+            created_by=user,
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+        )
+        return {"team": team, "organization": organization, "evaluation": evaluation}
 
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_sends_email_with_evaluation_disabled_template(self, setup_data):
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "notification_enabled,project_access,evaluation_access,object_access,should_receive",
+        [
+            pytest.param(None, None, None, None, True, id="enabled-by-default"),
+            pytest.param(True, None, "viewer", None, True, id="viewer-opted-in"),
+            pytest.param(False, None, "viewer", None, False, id="viewer-opted-out"),
+            pytest.param(None, "none", "viewer", None, False, id="no-project-access"),
+            pytest.param(None, None, "none", None, False, id="no-evaluation-access"),
+            pytest.param(None, None, "viewer", "none", False, id="evaluation-object-denied"),
+            pytest.param(None, None, "none", "viewer", True, id="evaluation-object-granted"),
+        ],
+    )
+    def test_sends_email_with_evaluation_disabled_template(
+        self,
+        setup_data,
+        notification_enabled: bool | None,
+        project_access: str | None,
+        evaluation_access: str | None,
+        object_access: str | None,
+        should_receive: bool,
+    ) -> None:
         team = setup_data["team"]
+        organization = setup_data["organization"]
+        evaluation = setup_data["evaluation"]
+        organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        organization.save()
+        member = User.objects.create_and_join(organization, "member@example.com", "password")
+        membership = OrganizationMembership.objects.get(organization=organization, user=member)
+        if notification_enabled is not None:
+            member.partial_notification_settings = {"ai_evaluation_disabled": notification_enabled}
+            member.save(update_fields=["partial_notification_settings"])
+        for resource, resource_id, access_level in [
+            ("project", str(team.id), project_access),
+            ("evaluation", None, evaluation_access),
+            ("evaluation", str(evaluation.id), object_access),
+        ]:
+            if access_level is not None:
+                AccessControl.objects.create(
+                    team=team,
+                    resource=resource,
+                    resource_id=resource_id,
+                    access_level=access_level,
+                    organization_member=membership,
+                )
 
         with (
             patch("posthog.email.is_email_available", return_value=True),
             patch("posthog.email.EmailMessage") as mock_email_class,
         ):
             mock_message = MagicMock()
+            mock_message.to = []
+            mock_message.add_user_recipient.side_effect = lambda user: mock_message.to.append(user.email)
             mock_email_class.return_value = mock_message
 
-            await send_evaluation_disabled_email_activity(
+            async_to_sync(send_evaluation_disabled_email_activity)(
                 SendEvaluationDisabledEmailInputs(
                     team_id=team.id,
-                    evaluation_id="eval-123",
+                    evaluation_id=str(evaluation.id),
                     evaluation_name="My Eval",
                     status_reason="provider_key_required",
                     human_readable_reason="Add a provider API key to run this evaluation.",
@@ -2763,23 +2817,16 @@ class TestSendEvaluationDisabledEmailActivity:
             assert "provider_key_required" in call_kwargs["campaign_key"]
             # It also includes the disable timestamp so a later same-reason disable sends a fresh email.
             assert "1782388800000000" in call_kwargs["campaign_key"]
-            # `message.to` is truthy on a MagicMock, so without this an empty recipient list still sends.
-            assert [call.args[0].email for call in mock_message.add_user_recipient.call_args_list] == [
-                "test@example.com"
-            ]
+            expected_recipients = {"test@example.com", "member@example.com"} if should_receive else {"test@example.com"}
+            assert set(mock_message.to) == expected_recipients
             mock_message.send.assert_called_once()
 
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_does_not_email_a_member_who_turned_the_notification_off(self, setup_data):
+    @pytest.mark.django_db
+    def test_does_not_email_a_member_who_turned_the_notification_off(self, setup_data) -> None:
         team = setup_data["team"]
-
-        def _opt_out() -> None:
-            user = setup_data["organization"].members.get()
-            user.partial_notification_settings = {"ai_evaluation_disabled": False}
-            user.save(update_fields=["partial_notification_settings"])
-
-        await sync_to_async(_opt_out)()
+        user = setup_data["organization"].members.get()
+        user.partial_notification_settings = {"ai_evaluation_disabled": False}
+        user.save(update_fields=["partial_notification_settings"])
 
         with (
             patch("posthog.email.is_email_available", return_value=True),
@@ -2789,10 +2836,10 @@ class TestSendEvaluationDisabledEmailActivity:
             mock_message.to = []
             mock_email_class.return_value = mock_message
 
-            await send_evaluation_disabled_email_activity(
+            async_to_sync(send_evaluation_disabled_email_activity)(
                 SendEvaluationDisabledEmailInputs(
                     team_id=team.id,
-                    evaluation_id="eval-123",
+                    evaluation_id=str(setup_data["evaluation"].id),
                     evaluation_name="My Eval",
                     status_reason="provider_key_required",
                     human_readable_reason="reason",
@@ -2802,19 +2849,48 @@ class TestSendEvaluationDisabledEmailActivity:
             mock_message.add_user_recipient.assert_not_called()
             mock_message.send.assert_not_called()
 
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_skips_when_email_not_available(self, setup_data):
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("unavailable_reason", ["deleted", "missing", "different-team"])
+    def test_skips_unavailable_evaluation(self, setup_data, unavailable_reason: str) -> None:
+        evaluation = setup_data["evaluation"]
+        evaluation_id = str(evaluation.id)
+        if unavailable_reason == "deleted":
+            evaluation.deleted = True
+            evaluation.save(update_fields=["deleted"])
+        elif unavailable_reason == "missing":
+            evaluation_id = str(uuid.uuid4())
+        else:
+            evaluation.team = Team.objects.create(organization=setup_data["organization"], name="Other project")
+            evaluation.save(update_fields=["team"])
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            async_to_sync(send_evaluation_disabled_email_activity)(
+                SendEvaluationDisabledEmailInputs(
+                    team_id=setup_data["team"].id,
+                    evaluation_id=evaluation_id,
+                    evaluation_name="My Eval",
+                    status_reason="provider_key_required",
+                    human_readable_reason="reason",
+                )
+            )
+
+            mock_email_class.assert_not_called()
+
+    @pytest.mark.django_db
+    def test_skips_when_email_not_available(self, setup_data) -> None:
         team = setup_data["team"]
 
         with (
             patch("posthog.email.is_email_available", return_value=False),
             patch("posthog.email.EmailMessage") as mock_email_class,
         ):
-            await send_evaluation_disabled_email_activity(
+            async_to_sync(send_evaluation_disabled_email_activity)(
                 SendEvaluationDisabledEmailInputs(
                     team_id=team.id,
-                    evaluation_id="eval-123",
+                    evaluation_id=str(setup_data["evaluation"].id),
                     evaluation_name="My Eval",
                     status_reason="provider_key_required",
                     human_readable_reason="reason",
