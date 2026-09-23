@@ -693,7 +693,9 @@ describe('sessionRecordingPlayerLogic', () => {
             {
                 description: 'clamps a seek into a dead zone forward to the next full snapshot',
                 firstSourceSnapshots: [inc(START), inc(START + 1000)],
-                secondSourceSnapshots: [fs(LATE_FS_TS)],
+                // the trailing event keeps playable time after the recovery point, which is what
+                // separates a clamp from the takeover
+                secondSourceSnapshots: [fs(LATE_FS_TS), inc(LATE_FS_TS + 1000)],
                 seekTo: START + 1000,
                 expectedTimestamp: LATE_FS_TS,
                 expectedError: null,
@@ -992,10 +994,26 @@ describe('sessionRecordingPlayerLogic', () => {
         it.each([
             {
                 description: 'reports the leading unplayable span when the initial full snapshot is late',
-                firstSourceSnapshots: [inc(START), inc(START + 1000)],
-                secondSourceSnapshots: [fs(LATE_FS_TS)],
+                firstSourceSnapshots: w1moves(START, START + 55000),
+                secondSourceSnapshots: [fs(LATE_FS_TS), ...w1moves(LATE_FS_TS, LATE_FS_TS + 10000)],
                 expectedLeadingUnplayableMs: LATE_FS_TS - START,
                 expectedHasLate: true,
+            },
+            {
+                // the reported disproportion: a minute of wall clock lost, but the viewer was doing
+                // almost nothing in it, and everything they did do plays
+                description: 'does not flag a lost span that holds little of the activity',
+                firstSourceSnapshots: [w1move(START), w1move(START + 2000)],
+                secondSourceSnapshots: [fs(START + 61000), ...w1moves(START + 61000, START + 121000)],
+                expectedLeadingUnplayableMs: 61000,
+                expectedHasLate: false,
+            },
+            {
+                description: 'does not flag a lost span that holds a small share of the activity',
+                firstSourceSnapshots: w1moves(START, START + 6000),
+                secondSourceSnapshots: [fs(START + 61000), ...w1moves(START + 61000, START + 300000)],
+                expectedLeadingUnplayableMs: 61000,
+                expectedHasLate: false,
             },
             {
                 description: 'reports no unplayable span when a full snapshot exists at the start',
@@ -1012,7 +1030,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 expectedHasLate: false,
             },
             {
-                description: 'measures the span but does not flag a late snapshot below the warning threshold',
+                description: 'measures the span but does not flag a late snapshot that costs no activity',
                 firstSourceSnapshots: [inc(START), fs(START + 5000)],
                 secondSourceSnapshots: [inc(LATE_FS_TS)],
                 expectedLeadingUnplayableMs: 5000,
@@ -1038,7 +1056,7 @@ describe('sessionRecordingPlayerLogic', () => {
             {
                 // rrweb emits Meta and FullSnapshot together, so Meta alone means the FullSnapshot was dropped
                 description: 'flags a lost leading snapshot when only its Meta event survives',
-                firstSourceSnapshots: [meta(START)],
+                firstSourceSnapshots: [meta(START), ...w1moves(START, START + 55000)],
                 secondSourceSnapshots: [fs(LATE_FS_TS), inc(LATE_FS_TS + 1000)],
                 expectedLeadingUnplayableMs: LATE_FS_TS - START,
                 expectedHasLate: true,
@@ -1047,8 +1065,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 description: 'flags a lost leading snapshot when the missing content is in a later window',
                 firstSourceSnapshots: [idle(START)],
                 secondSourceSnapshots: [
-                    w2inc(START + 61000),
-                    w2inc(START + 62000),
+                    ...w2moves(START + 61000, START + 121000),
                     w2fs(LATE_FS_TS),
                     w2inc(LATE_FS_TS + 1000),
                 ],
@@ -1065,26 +1082,43 @@ describe('sessionRecordingPlayerLogic', () => {
             }
         )
 
-        it.each([
-            {
-                description: 'reports at most the recording length when the start is skewed before the recording',
-                recordingDurationSeconds: 60,
-            },
-            {
-                // the clamped span fills the whole timeline here, so gating the warning on it would
-                // hide the warning exactly where every second of the recording is unplayable
-                description: 'still warns when the recording is no longer than the warning threshold',
-                recordingDurationSeconds: 15,
-            },
-        ])('$description', async ({ recordingDurationSeconds }) => {
-            // A skewed start drags `start` back but not the metadata duration the timeline is capped to,
-            // so the raw offset to the first full snapshot claims more time than the recording holds.
-            await mountWithRecordingDuration(recordingDurationSeconds)
-            seedRecording([inc(START), inc(START + 1000)], [fs(LATE_FS_TS)])
+        // A skewed start drags `start` back but not the metadata duration the timeline is capped to,
+        // so the raw offset to the first full snapshot claims more time than the recording holds.
+        it.each([{ recordingDurationSeconds: 60 }, { recordingDurationSeconds: 15 }])(
+            'takes the player over when the recovery point sits past the end of a $recordingDurationSeconds second recording',
+            async ({ recordingDurationSeconds }) => {
+                await mountWithRecordingDuration(recordingDurationSeconds)
+                seedRecording(w1moves(START, START + 10000), [fs(LATE_FS_TS)])
 
-            expect(logic.values.leadingUnplayableMs).toBe(logic.values.sessionPlayerData.durationMs)
-            expect(logic.values.leadingUnplayableMs).toBeLessThan(LATE_FS_TS - START)
+                expect(logic.values.leadingUnplayableMs).toBe(logic.values.sessionPlayerData.durationMs)
+                expect(logic.values.leadingSpanCoversRecording).toBe(true)
+                // the banner would cancel itself here, so the takeover owns the recording instead
+                expect(logic.values.hasLateFullSnapshot).toBe(false)
+
+                logic.actions.seekToTimestamp(START + 1000)
+
+                expect(logic.values.playerError).toBe('fullSnapshotAfterRecordingEnd')
+                expect(logic.values.currentTimestamp).not.toBe(LATE_FS_TS)
+            }
+        )
+
+        it('reports whether the viewer played past the recovery point', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            seedRecording(w1moves(START, START + 55000), [fs(LATE_FS_TS), ...w1moves(LATE_FS_TS, LATE_FS_TS + 10000)])
             expect(logic.values.hasLateFullSnapshot).toBe(true)
+            captureSpy.mockClear()
+
+            logic.actions.setCurrentTimestamp(LATE_FS_TS + 1000)
+            expect(
+                captureSpy.mock.calls.filter(([eventName]) => eventName === 'session played past late full snapshot')
+            ).toHaveLength(0)
+
+            logic.actions.setCurrentTimestamp(LATE_FS_TS + 6000)
+            logic.actions.setCurrentTimestamp(LATE_FS_TS + 7000)
+
+            expect(
+                captureSpy.mock.calls.filter(([eventName]) => eventName === 'session played past late full snapshot')
+            ).toHaveLength(1)
         })
 
         it.each([
