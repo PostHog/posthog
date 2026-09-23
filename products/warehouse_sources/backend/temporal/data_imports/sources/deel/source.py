@@ -54,7 +54,7 @@ class DeelSource(ResumableSource[DeelSourceConfig, DeelResumeConfig]):
             label="Deel",
             caption="""Enter your Deel API token to pull your Deel workforce and payroll data into the PostHog Data warehouse.
 
-Create an organization token in [Deel](https://app.deel.com/developer-center) under More > Developer with read scopes for the data you want to sync (e.g. `people:read`, `contracts:read`, `accounting:read`). Prefer an organization token over a personal token — personal tokens stop working when the user leaves the organization.""",
+Create an organization token in [Deel](https://app.deel.com/developer-center) under More > Developer with read scopes for the data you want to sync (`people:read`, `contracts:read`, `accounting:read`, `timesheets:read`, `time-off:read`, `legal-entity:read`, `organizations:read`). Prefer an organization token over a personal token — personal tokens stop working when the user leaves the organization.""",
             iconPath="/static/services/deel.png",
             docsUrl="https://posthog.com/docs/cdp/sources/deel",
             releaseStatus=ReleaseStatus.ALPHA,
