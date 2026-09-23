@@ -169,9 +169,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         arr.push(value);
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayPushBack() only supports arrays".to_string(),
-                    )),
+                    _ => Ok(HogLiteral::Array(vec![value]).into()),
                 }
             }),
         ),
@@ -187,9 +185,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         arr.insert(0, value);
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayPushFront() only supports arrays".to_string(),
-                    )),
+                    _ => Ok(HogLiteral::Array(vec![value]).into()),
                 }
             }),
         ),
@@ -204,9 +200,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         arr.pop();
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayPopBack() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -223,9 +218,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         }
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayPopFront() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -239,9 +233,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         let nums = collect_sorted_nums(&vm.heap, arr, "arraySort")?;
                         Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arraySort() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -256,9 +249,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         arr.reverse();
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayReverse() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -273,9 +265,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                         nums.reverse();
                         Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayReverseSort() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -286,9 +277,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let vals = args[0].deref(&vm.heap)?;
                 let sep = args[1].deref(&vm.heap)?.try_as::<str>()?;
                 let HogLiteral::Array(vals) = vals else {
-                    return Err(VmError::NativeCallFailed(
-                        "arrayStringConcat() only supports arrays".to_string(),
-                    ));
+                    return Ok(HogLiteral::from(String::new()).into());
                 };
                 let mut parts = Vec::with_capacity(vals.len());
                 for val in vals.iter() {
