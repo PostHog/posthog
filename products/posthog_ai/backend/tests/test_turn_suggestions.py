@@ -1,32 +1,27 @@
 import json
+from dataclasses import replace
 from datetime import date
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import requests
 from parameterized import parameterized
 
-from products.posthog_ai.backend.turn_suggestions.classifier import (
-    CLASSIFIER_MODEL,
-    AlertDirection,
-    AlertDraft,
-    Draft,
-    ErrorAlertDraft,
-    IncidentOutline,
-    NotebookDraft,
-    OfferKind,
-    ScoutCadence,
-    ScoutDraft,
-    ScoutMode,
-    SubscriptionDraft,
-    TurnIntent,
-    TurnVerdict,
-    classify_turn,
-    render_turn_prompt,
-)
+from posthog.egress.typesafe import ChoiceAnswer, NoulAnswer, SystemOneAnswers, TypeSafeRequestFailed
+
+from products.posthog_ai.backend.turn_suggestions.classifier import classify_turn, pick_offer
 from products.posthog_ai.backend.turn_suggestions.dispatch import enqueue_turn_suggestion
+from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL, draft_scout, render_turn_prompt
+from products.posthog_ai.backend.turn_suggestions.judgment import (
+    TurnJudgment,
+    build_judge_questions,
+    build_judge_state,
+    judge_turn,
+)
 from products.posthog_ai.backend.turn_suggestions.service import (
     TURN_SUGGESTION_METHOD,
     TurnSuggestionOutcome,
@@ -36,6 +31,23 @@ from products.posthog_ai.backend.turn_suggestions.transcript import (
     ErrorIssueRef,
     SavedInsightRef,
     build_turn_transcript,
+    redact_values,
+)
+from products.posthog_ai.backend.turn_suggestions.verdict import (
+    AlertDirection,
+    AlertDraft,
+    Draft,
+    ErrorAlertDraft,
+    IncidentOutline,
+    NotebookDraft,
+    NotebookTemplate,
+    OfferKind,
+    ScoutCadence,
+    ScoutDraft,
+    ScoutMode,
+    SubscriptionDraft,
+    TurnIntent,
+    TurnVerdict,
 )
 from products.tasks.backend.models import Task
 
@@ -174,7 +186,9 @@ _DRAFTS: dict[OfferKind, Draft] = {
 def _verdict(offer: OfferKind = OfferKind.SCOUT, intent: TurnIntent = TurnIntent.METRIC_STATE) -> TurnVerdict:
     return TurnVerdict(
         intent=intent,
-        confidence=0.92,
+        show_probability=0.92,
+        picked=offer,
+        offer_probabilities={offer.value: 0.8},
         title="Get this every week in Slack",
         description="A scout can rerun this count each week and post the result.",
         draft=_DRAFTS.get(offer),
@@ -302,19 +316,212 @@ class TestBuildTurnTranscript(SimpleTestCase):
 
         assert transcript.human_messages == ("How many users today?",)
 
-    def test_prompt_rendering_lists_offers_context_and_resolved_tools(self):
+    def test_prompt_carries_the_instruction_context_and_resolved_tools(self):
         entries = [*_saved_insight_turn(), _user_message("Break that down by country"), _agent_text("Mostly the US.")]
 
         prompt = render_turn_prompt(
-            build_turn_transcript(entries),
-            today=date(2026, 9, 16),
-            available=frozenset({OfferKind.SCOUT, OfferKind.NOTEBOOK}),
+            build_turn_transcript(entries), today=date(2026, 9, 16), instruction="Layout: incident."
         )
 
-        assert "<available_offers>\n- scout" in prompt and "alert" not in prompt.split("</available_offers>")[0]
+        assert "Layout: incident." in prompt
         assert "- Q: How many signups did we get this week? Save it." in prompt
         assert "<user_question>\nBreak that down by country\n</user_question>" in prompt
         assert "posthog_untrusted_context" not in prompt
+
+    @parameterized.expand(
+        [
+            (
+                "counts_and_percents",
+                "You had 412 signups, up 8% on last week.",
+                "You had <n> signups, up <n>% on last week.",
+            ),
+            (
+                "money_dates_and_times",
+                "Revenue was $1,234.50 on 2026-09-16 at 14:10.",
+                "Revenue was <n> on <n> at <n>.",
+            ),
+            ("identifiers_keep_their_digits", "p95 latency in v2 fell -12%.", "p95 latency in v2 fell -<n>%."),
+            (
+                "contact_details_and_ids",
+                "Ask ada@example.com about 0199c0de-1111-7000-8000-0000000000aa at https://example.com/x",
+                "Ask <email> about <id> at <url>",
+            ),
+        ]
+    )
+    def test_redact_values_masks_what_an_answer_reports(self, _name: str, text: str, expected: str):
+        assert redact_values(text) == expected
+
+
+def _judgment(**overrides: Any) -> TurnJudgment:
+    judgment = TurnJudgment(
+        model="jev-1.13.0",
+        show_probability=0.9,
+        intent=TurnIntent.METRIC_STATE,
+        offer=OfferKind.SCOUT,
+        offer_probabilities={"scout": 0.7, "none": 0.3},
+        scout_mode=ScoutMode.REPORT,
+        cadence=ScoutCadence.WEEKLY,
+        notebook_template=NotebookTemplate.CONVERSATION,
+        alert_direction=AlertDirection.DECREASE,
+        alert_change_percent=20,
+        insight=SAVED_INSIGHT,
+        error_issue=ERROR_ISSUE,
+        issue_resolved_probability=0.9,
+    )
+    return replace(judgment, **overrides)
+
+
+def _answers(nouls: dict[str, float], choices: dict[str, str]) -> SystemOneAnswers:
+    return SystemOneAnswers(
+        model="jev-1.13.0",
+        nouls={key: NoulAnswer(noul=value) for key, value in nouls.items()},
+        choices={
+            key: ChoiceAnswer(choice=value, probabilities={value: 1.0}, confidence=1.0)
+            for key, value in choices.items()
+        },
+        input_tokens=300,
+    )
+
+
+FUNNEL_INSIGHT = replace(SAVED_INSIGHT, query_kind="FunnelsQuery")
+JUDGMENT = "products.posthog_ai.backend.turn_suggestions.judgment"
+CLASSIFIER = "products.posthog_ai.backend.turn_suggestions.classifier"
+
+
+class TestJudgeTurn(SimpleTestCase):
+    @parameterized.expand(
+        [("saved_insight", _saved_insight_turn(), "abc123"), ("error_issue", _error_turn(), ERROR_ISSUE.issue_id)]
+    )
+    def test_jev_sees_the_question_and_a_masked_answer_but_no_outputs_or_ids(
+        self, _name: str, entries: list[dict], hidden_id: str
+    ):
+        transcript = build_turn_transcript(entries)
+
+        state = build_judge_state(transcript)
+        questions = build_judge_questions(transcript, ALL_OFFERS)
+
+        wire = json.dumps({"state": state, "questions": {key: q.to_json() for key, q in questions.items()}})
+        assert hidden_id not in wire
+        latest = state["latest_turn"]
+        assert isinstance(latest, dict)
+        assert latest["question"] == transcript.last_human_message
+        assert "<n>" in str(latest["answer"]) and not any(char.isdigit() for char in str(latest["answer"]))
+
+    def test_option_keys_map_back_to_the_refs_they_stand_for(self):
+        answers = _answers(
+            {"show_offer": 0.8, "issue_resolved": 0.1},
+            {
+                "intent": "metric_state",
+                "offer": "alert",
+                "scout_mode": "watch",
+                "cadence": "daily",
+                "notebook_template": "conversation",
+                "alert_direction": "increase",
+                "alert_change": "large",
+                "insight": "insight_1",
+            },
+        )
+
+        with patch(f"{JUDGMENT}.system_one", return_value=answers):
+            judgment = judge_turn(build_turn_transcript(_saved_insight_turn()), available=ALL_OFFERS)
+
+        assert judgment is not None
+        assert judgment.offer == OfferKind.ALERT
+        assert judgment.insight == SAVED_INSIGHT
+        assert judgment.alert_direction == AlertDirection.INCREASE
+        assert judgment.alert_change_percent == 50
+        assert judgment.cadence == ScoutCadence.DAILY
+        assert judgment.error_issue is None
+
+    @parameterized.expand(
+        [("typesafe_error", TypeSafeRequestFailed("HTTP 500")), ("network_error", requests.ConnectionError())]
+    )
+    def test_a_failed_request_returns_none(self, _name: str, error: Exception):
+        with patch(f"{JUDGMENT}.system_one", side_effect=error):
+            assert judge_turn(build_turn_transcript(_metric_turn()), available=ALL_OFFERS) is None
+
+
+class TestPickOffer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("offers_what_jev_picked", {}, ALL_OFFERS, OfferKind.SCOUT),
+            ("below_the_show_threshold", {"show_probability": 0.3}, ALL_OFFERS, OfferKind.NONE),
+            ("pick_the_project_cannot_act_on", {}, frozenset({OfferKind.NOTEBOOK}), OfferKind.NONE),
+            ("alert_without_an_insight", {"offer": OfferKind.ALERT, "insight": None}, ALL_OFFERS, OfferKind.NONE),
+            ("alert_on_a_funnel", {"offer": OfferKind.ALERT, "insight": FUNNEL_INSIGHT}, ALL_OFFERS, OfferKind.NONE),
+            (
+                "subscription_on_a_funnel",
+                {"offer": OfferKind.SUBSCRIPTION, "insight": FUNNEL_INSIGHT},
+                ALL_OFFERS,
+                OfferKind.SUBSCRIPTION,
+            ),
+            (
+                "error_alert_on_an_active_issue",
+                {"offer": OfferKind.ERROR_ALERT, "issue_resolved_probability": 0.2},
+                ALL_OFFERS,
+                OfferKind.NONE,
+            ),
+            ("error_alert_on_a_resolved_issue", {"offer": OfferKind.ERROR_ALERT}, ALL_OFFERS, OfferKind.ERROR_ALERT),
+        ]
+    )
+    def test_policy(self, _name: str, overrides: dict, available: frozenset[OfferKind], expected: OfferKind):
+        assert pick_offer(_judgment(**overrides), available) == expected
+
+
+class TestClassifyTurn(SimpleTestCase):
+    def _classify(self, judgment: TurnJudgment | None, scout_draft: ScoutDraft | None = None):
+        with (
+            patch(f"{CLASSIFIER}.judge_turn", return_value=judgment),
+            patch(f"{CLASSIFIER}.draft_scout", return_value=scout_draft) as draft_scout_mock,
+            patch(f"{CLASSIFIER}.draft_notebook") as draft_notebook_mock,
+        ):
+            verdict = classify_turn(
+                build_turn_transcript(_saved_insight_turn()), team_id=1, today=date(2026, 9, 16), available=ALL_OFFERS
+            )
+        return verdict, draft_scout_mock, draft_notebook_mock
+
+    def test_an_alert_is_built_from_the_judgment_without_a_language_model(self):
+        verdict, draft_scout_mock, draft_notebook_mock = self._classify(
+            _judgment(offer=OfferKind.ALERT, alert_direction=AlertDirection.INCREASE, alert_change_percent=50)
+        )
+
+        assert verdict is not None
+        assert verdict.draft == AlertDraft(insight=SAVED_INSIGHT, direction=AlertDirection.INCREASE, change_percent=50)
+        assert verdict.title == "Alert me when this rises"
+        assert verdict.description == "Get a Slack message when Signups rises by 50% or more."
+        draft_scout_mock.assert_not_called()
+        draft_notebook_mock.assert_not_called()
+
+    def test_a_scout_is_drafted_with_the_judged_mode_and_cadence(self):
+        draft = ScoutDraft(
+            mode=ScoutMode.WATCH,
+            display_name="Signups watch",
+            description="Watches signups.",
+            body="# Signups",
+            cadence=ScoutCadence.DAILY,
+        )
+
+        verdict, draft_scout_mock, _ = self._classify(
+            _judgment(scout_mode=ScoutMode.WATCH, cadence=ScoutCadence.DAILY), scout_draft=draft
+        )
+
+        assert verdict is not None and verdict.draft == draft
+        assert draft_scout_mock.call_args.kwargs["mode"] == ScoutMode.WATCH
+        assert draft_scout_mock.call_args.kwargs["cadence"] == ScoutCadence.DAILY
+        assert verdict.title == "Tell me when this changes"
+
+    def test_a_failed_draft_keeps_the_pick_but_offers_nothing(self):
+        verdict, _, _ = self._classify(_judgment(), scout_draft=None)
+
+        assert verdict is not None
+        assert verdict.picked == OfferKind.SCOUT
+        assert verdict.draft is None
+
+    def test_a_failed_judgment_returns_none(self):
+        verdict, draft_scout_mock, _ = self._classify(None)
+
+        assert verdict is None
+        draft_scout_mock.assert_not_called()
 
 
 def _gateway_reply(payload: dict) -> MagicMock:
@@ -326,136 +533,48 @@ def _gateway_reply(payload: dict) -> MagicMock:
     return client
 
 
-_REPLY = {
-    "intent": "metric_state",
-    "offer": "scout",
-    "confidence": 0.9,
-    "title": "Get this every week in Slack",
-    "description": "A scout can rerun this each week.",
-    "scout_mode": "report",
-    "scout_display_name": "Weekly signups",
-    "scout_description": "Counts signups weekly.",
-    "scout_prompt": "# Weekly signups",
-    "cadence": "weekly",
-    "notebook_template": "conversation",
-    "notebook_title": "",
-    "notebook_summary": "",
-    "incident_timeline": "",
-    "incident_cause": "",
-    "incident_fix": "",
-    "alert_insight_short_id": "",
-    "alert_direction": "decrease",
-    "alert_change_percent": 0,
-    "subscription_insight_short_id": "",
-    "subscription_cadence": "weekly",
-    "error_issue_id": "",
-}
-
-
-class TestClassifyTurn(SimpleTestCase):
-    def _classify(self, reply: dict, entries: list[dict], available: frozenset[OfferKind] = ALL_OFFERS):
-        client = _gateway_reply(reply)
-        with patch("products.posthog_ai.backend.turn_suggestions.classifier.get_llm_client", return_value=client):
-            verdict = classify_turn(
-                build_turn_transcript(entries), team_id=1, today=date(2026, 9, 16), available=available
-            )
-        return verdict, client
-
-    @parameterized.expand(
-        [
-            ("scout_report", _REPLY, _metric_turn(), OfferKind.SCOUT),
-            (
-                "incident_notebook",
-                {
-                    **_REPLY,
-                    "intent": "diagnostic",
-                    "offer": "notebook",
-                    "notebook_template": "incident",
-                    "notebook_title": "Why signups dropped",
-                    "notebook_summary": "A checkout error.",
-                    "incident_timeline": "- 14:10 release",
-                    "incident_cause": "Checkout error.",
-                    "incident_fix": "Rolled back.",
-                },
-                _metric_turn(),
-                OfferKind.NOTEBOOK,
-            ),
-            (
-                "alert_on_saved_insight",
-                {**_REPLY, "offer": "alert", "alert_insight_short_id": "abc123", "alert_change_percent": 20.4},
-                _saved_insight_turn(),
-                OfferKind.ALERT,
-            ),
-            (
-                "subscription_on_saved_insight",
-                {**_REPLY, "offer": "subscription", "subscription_insight_short_id": "abc123"},
-                _saved_insight_turn(),
-                OfferKind.SUBSCRIPTION,
-            ),
-            (
-                "error_alert",
-                {**_REPLY, "intent": "diagnostic", "offer": "error_alert", "error_issue_id": ERROR_ISSUE.issue_id},
-                _error_turn(),
-                OfferKind.ERROR_ALERT,
-            ),
-            ("none", {**_REPLY, "intent": "knowledge", "offer": "none"}, _metric_turn(), OfferKind.NONE),
-        ]
-    )
-    def test_maps_the_gateway_reply_onto_an_offer(self, _name: str, reply: dict, entries: list[dict], offer: OfferKind):
-        verdict, client = self._classify(reply, entries)
-
-        assert verdict is not None
-        assert verdict.offer == offer
-        assert verdict.offers is (offer != OfferKind.NONE)
-        request = client.chat.completions.create.call_args.kwargs
-        assert request["model"] == CLASSIFIER_MODEL
-        assert request["response_format"]["json_schema"]["strict"] is True
-
-    def test_alert_draft_rounds_the_percent_and_keeps_the_insight_reference(self):
-        verdict, _ = self._classify(
-            {**_REPLY, "offer": "alert", "alert_insight_short_id": " abc123 ", "alert_change_percent": 20.4},
-            _saved_insight_turn(),
-        )
-
-        assert verdict is not None and isinstance(verdict.draft, AlertDraft)
-        assert verdict.draft.insight == SAVED_INSIGHT
-        assert verdict.draft.change_percent == 20
-
-    @parameterized.expand(
-        [
-            ("offer_not_available", {**_REPLY, "offer": "scout"}, frozenset({OfferKind.NOTEBOOK}), "TrendsQuery"),
-            (
-                "alert_on_unknown_insight",
-                {**_REPLY, "offer": "alert", "alert_insight_short_id": "nope"},
-                ALL_OFFERS,
-                "TrendsQuery",
-            ),
-            (
-                "alert_on_a_funnel",
-                {**_REPLY, "offer": "alert", "alert_insight_short_id": "abc123"},
-                ALL_OFFERS,
-                "FunnelsQuery",
-            ),
-        ]
-    )
-    def test_a_pick_the_project_cannot_act_on_becomes_none(self, _name: str, reply: dict, available, query_kind: str):
-        verdict, _ = self._classify(reply, _saved_insight_turn(query_kind), available)
-
-        assert verdict is not None
-        assert verdict.offer == OfferKind.NONE
-        assert verdict.offers is False
-
-    @parameterized.expand([("prose", "I cannot tell."), ("invalid_shape", json.dumps({"intent": "metric_state"}))])
-    def test_unusable_replies_return_none(self, _name: str, content: str):
+class TestDraftScout(SimpleTestCase):
+    def _draft(self, content: str) -> tuple[ScoutDraft | None, MagicMock]:
         client = _gateway_reply({})
         client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content=content))])
-
-        with patch("products.posthog_ai.backend.turn_suggestions.classifier.get_llm_client", return_value=client):
-            verdict = classify_turn(
-                build_turn_transcript(_metric_turn()), team_id=1, today=date(2026, 9, 16), available=ALL_OFFERS
+        with patch("products.posthog_ai.backend.turn_suggestions.drafter.get_llm_client", return_value=client):
+            draft = draft_scout(
+                build_turn_transcript(_metric_turn()),
+                team_id=1,
+                today=date(2026, 9, 16),
+                mode=ScoutMode.WATCH,
+                cadence=ScoutCadence.DAILY,
             )
+        return draft, client
 
-        assert verdict is None
+    def test_the_reply_becomes_a_draft_with_the_mode_and_cadence_it_was_given(self):
+        draft, client = self._draft(
+            json.dumps({"display_name": " Signups watch ", "description": "Watches signups.", "prompt": "# Signups"})
+        )
+
+        assert draft == ScoutDraft(
+            mode=ScoutMode.WATCH,
+            display_name="Signups watch",
+            description="Watches signups.",
+            body="# Signups",
+            cadence=ScoutCadence.DAILY,
+        )
+        request = client.chat.completions.create.call_args.kwargs
+        assert request["model"] == DRAFT_MODEL
+        assert request["response_format"]["json_schema"]["strict"] is True
+        assert "Scout mode: watch." in request["messages"][1]["content"]
+
+    @parameterized.expand(
+        [
+            ("prose", "I cannot tell."),
+            ("invalid_shape", json.dumps({"display_name": "x"})),
+            ("empty_prompt", json.dumps({"display_name": "x", "description": "y", "prompt": " "})),
+        ]
+    )
+    def test_unusable_replies_return_none(self, _name: str, content: str):
+        draft, _ = self._draft(content)
+
+        assert draft is None
 
 
 class TestEnqueueTurnSuggestion(BaseTest):
@@ -496,6 +615,7 @@ class TestGenerateTurnSuggestion(BaseTest):
         self.classify = patch(f"{SERVICE}.classify_turn", return_value=_verdict())
         self.scouts = patch(f"{SERVICE}.scout_creation_available", return_value=True)
         self.flag = patch(f"{SERVICE}.feature_enabled_or_false", return_value=True)
+        self.judge = patch(f"{SERVICE}.judge_configured", return_value=True)
         self.capture = patch(f"{SERVICE}.ph_scoped_capture")
         self.redis = patch(
             f"{SERVICE}.get_client",
@@ -509,11 +629,21 @@ class TestGenerateTurnSuggestion(BaseTest):
                 "classify": self.classify,
                 "scouts": self.scouts,
                 "flag": self.flag,
+                "judge": self.judge,
                 "capture": self.capture,
                 "redis": self.redis,
             }.items()
         }
-        for patcher in (self.stream, self.publish, self.classify, self.scouts, self.flag, self.capture, self.redis):
+        for patcher in (
+            self.stream,
+            self.publish,
+            self.classify,
+            self.scouts,
+            self.flag,
+            self.judge,
+            self.capture,
+            self.redis,
+        ):
             self.addCleanup(patcher.stop)
 
     def _generate(self) -> TurnSuggestionOutcome:
@@ -635,6 +765,17 @@ class TestGenerateTurnSuggestion(BaseTest):
         assert capture.call_args.kwargs["properties"]["emitted"] is False
         assert capture.call_args.kwargs["properties"]["offer"] is None
 
+    def test_a_pick_whose_draft_failed_is_a_failure_and_not_published(self):
+        self.mocks["classify"].return_value = replace(_verdict(), draft=None)
+
+        outcome = self._generate()
+
+        assert outcome == TurnSuggestionOutcome(status="failed", reason="draft_failed")
+        self.mocks["publish"].assert_not_called()
+        capture = self.mocks["capture"].return_value.__enter__.return_value
+        assert capture.call_args.kwargs["properties"]["picked"] == "scout"
+        assert capture.call_args.kwargs["properties"]["draft_model"] == DRAFT_MODEL
+
     def test_follow_up_turns_are_classified_with_their_own_turn_index(self):
         self.mocks["stream"].return_value = [
             *_metric_turn(),
@@ -663,12 +804,13 @@ class TestGenerateTurnSuggestion(BaseTest):
         assert outcome.reason == "offer_budget_spent"
         self.mocks["classify"].assert_not_called()
 
-    def test_a_closed_flag_skips_before_classifying(self):
-        self.mocks["flag"].return_value = False
+    @parameterized.expand([("flag", "flag_off"), ("judge", "judge_not_configured")])
+    def test_a_closed_gate_skips_before_classifying(self, gate: str, reason: str):
+        self.mocks[gate].return_value = False
 
         outcome = self._generate()
 
-        assert outcome.reason == "flag_off"
+        assert outcome.reason == reason
         self.mocks["classify"].assert_not_called()
 
     def test_falls_back_to_the_stored_log_when_the_live_stream_is_gone(self):

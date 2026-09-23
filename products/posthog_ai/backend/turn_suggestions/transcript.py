@@ -24,6 +24,13 @@ _CONTEXT_BLOCK_RE = re.compile(
     re.DOTALL,
 )
 
+# Masks the values an answer reports while keeping its shape: "412 signups, down 8%" reads as
+# "<n> signups, down <n>%". A lookbehind skips digits inside identifiers such as `p95` or `v2`.
+_URL_RE = re.compile(r"https?://\S+")
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE)
+_NUMBER_RE = re.compile(r"(?<![\w$])[$€£]?\d(?:[\d,.:/-]*\d)?")
+
 TOOL_ARGS_PREVIEW_LIMIT = 400
 ASSISTANT_TEXT_LIMIT = 6000
 _TOOL_ARGS_PREVIEW_KEYS = ("command", "code", "query", "pattern", "url", "description", "prompt", "name", "title")
@@ -119,6 +126,14 @@ def strip_context_blocks(text: str) -> str:
         if without_block == stripped:
             return stripped.strip()
         stripped = without_block
+
+
+def redact_values(text: str) -> str:
+    """Replace the numbers, emails, links and ids in ``text`` with placeholders."""
+    text = _URL_RE.sub("<url>", text)
+    text = _EMAIL_RE.sub("<email>", text)
+    text = _UUID_RE.sub("<id>", text)
+    return _NUMBER_RE.sub("<n>", text)
 
 
 def truncate_text(value: str, limit: int, *, collapse_whitespace: bool = True) -> str:

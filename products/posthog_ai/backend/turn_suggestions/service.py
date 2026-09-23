@@ -16,13 +16,11 @@ from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false, ph_scoped_capture
 from posthog.redis import get_client
 
-from products.posthog_ai.backend.turn_suggestions.classifier import (
-    CLASSIFIER_MODEL,
-    OfferKind,
-    TurnVerdict,
-    classify_turn,
-)
+from products.posthog_ai.backend.turn_suggestions.classifier import classify_turn
+from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL
+from products.posthog_ai.backend.turn_suggestions.judgment import JUDGE_MODEL, judge_configured
 from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript, build_turn_transcript
+from products.posthog_ai.backend.turn_suggestions.verdict import OfferKind, TurnVerdict
 from products.signals.backend.facade.api import scout_creation_available
 from products.tasks.backend.facade.api import (
     parse_task_run_log_entries,
@@ -45,6 +43,9 @@ _DEDUPE_TTL_SECONDS = 24 * 60 * 60
 # turn. A second offer exists for the case where the first was superseded by the next message.
 MAX_OFFERS_PER_CONVERSATION = 2
 _OFFER_BUDGET_TTL_SECONDS = 7 * 24 * 60 * 60
+
+# The offers whose text a language model writes after the judgment picks them.
+_DRAFTED_OFFERS = frozenset({OfferKind.SCOUT, OfferKind.NOTEBOOK})
 
 OutcomeStatus = Literal["emitted", "skipped", "failed"]
 T = TypeVar("T")
@@ -151,13 +152,13 @@ def _available_offers(task_run: TaskRun, transcript: TurnTranscript) -> frozense
 
 
 def _suggestion_params(verdict: TurnVerdict, turn_index: int) -> dict | None:
-    if verdict.draft is None or not verdict.offers:
+    if verdict.draft is None:
         return None
     return {
         "turnIndex": turn_index,
         "kind": verdict.offer.value,
         "intent": verdict.intent.value,
-        "confidence": verdict.confidence,
+        "confidence": verdict.show_probability,
         "title": verdict.title,
         "description": verdict.description,
         verdict.draft.WIRE_KEY: verdict.draft.to_params(),
@@ -180,10 +181,12 @@ def _capture_classified(
                     "task_id": str(task_run.task_id),
                     "run_id": str(task_run.id),
                     "turn_index": turn_index,
-                    "model": CLASSIFIER_MODEL,
+                    "model": JUDGE_MODEL,
+                    "draft_model": DRAFT_MODEL if verdict and verdict.picked in _DRAFTED_OFFERS else None,
                     "intent": verdict.intent.value if verdict else None,
-                    "picked": verdict.offer.value if verdict else None,
-                    "confidence": verdict.confidence if verdict else None,
+                    "picked": verdict.picked.value if verdict else None,
+                    "show_probability": verdict.show_probability if verdict else None,
+                    "offer_probabilities": dict(verdict.offer_probabilities) if verdict else None,
                     "offer": offer,
                     "emitted": emitted,
                 },
@@ -206,6 +209,8 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
         return _skipped("no_user")
     if not _turn_suggestions_enabled(task_run):
         return _skipped("flag_off")
+    if not judge_configured():
+        return _skipped("judge_not_configured")
     if _offers_made(task_run) >= MAX_OFFERS_PER_CONVERSATION:
         return _skipped("offer_budget_spent")
 
@@ -235,6 +240,8 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     )
     _capture_classified(task_run, verdict, offer=offer, emitted=emitted, turn_index=turn_index)
     if params is None:
+        if verdict.picked != OfferKind.NONE:
+            return TurnSuggestionOutcome(status="failed", reason="draft_failed")
         return _skipped(f"no_offer:{verdict.intent.value}")
     if not emitted:
         return TurnSuggestionOutcome(status="failed", reason="publish_failed")
