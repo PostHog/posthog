@@ -4,6 +4,7 @@ import {
     MAX_SUMMARY_CHARS,
     MAX_TRACE_CHARS,
     PER_VALUE_CHAR_LIMIT,
+    SUMMARY_VALUE_CHAR_LIMIT,
     compactTrace,
     compactTraceResults,
 } from '@/lib/trace-compaction'
@@ -126,10 +127,18 @@ describe('compactTrace', () => {
 })
 
 describe('compactTrace summary detail', () => {
+    const secret = 'sk-live-9f3c2a7b41de'
     const trace = {
         id: 'trace-1',
         totalCost: 0.42,
-        inputState: { messages: [{ role: 'user', content: 'p'.repeat(5_000) }] },
+        distinctId: 'person-7',
+        person: {
+            uuid: 'p-uuid',
+            distinct_id: 'person-7',
+            properties: { email: 'buyer@example.com', plan: 'enterprise' },
+        },
+        inputState: { messages: [{ role: 'user', content: `here is my key ${secret}` }] },
+        outputState: { content: 'p'.repeat(5_000) },
         events: [
             {
                 id: 'e1',
@@ -140,48 +149,92 @@ describe('compactTrace summary detail', () => {
                     $ai_latency: 1.5,
                     $ai_tools_called: ['search'],
                     $ai_is_error: false,
-                    $ai_input: 'i'.repeat(5_000),
+                    $ai_input: `authenticate with ${secret}`,
                     $ai_output_choices: 'o'.repeat(5_000),
+                    $ai_tools: [{ name: 'search', description: 'd'.repeat(2_000) }],
+                    $ai_request_url: 'https://api.example.com/v1/chat',
                     custom_payload: 'c'.repeat(5_000),
                 },
             },
         ],
     }
 
-    it('keeps navigation metadata verbatim and previews everything else', () => {
+    it('returns the metadata allowlist and counts what it dropped', () => {
         const result = compactTrace(trace, MAX_SUMMARY_CHARS, 'summary') as any
 
         const properties = result.events[0].properties
-        expect(properties.$ai_model).toBe('gpt-4')
-        expect(properties.$ai_latency).toBe(1.5)
-        expect(properties.$ai_tools_called).toEqual(['search'])
-        expect(properties.$ai_is_error).toBe(false)
-        expect(properties.$ai_input).toContain('truncated')
-        expect(properties.$ai_output_choices).toContain('truncated')
-        expect(properties.custom_payload).toContain('truncated')
+        expect(properties).toEqual({
+            $ai_model: 'gpt-4',
+            $ai_latency: 1.5,
+            $ai_tools_called: ['search'],
+            $ai_is_error: false,
+            _omittedProperties: 5,
+        })
         expect(result.events[0].createdAt).toBe('2026-09-02T11:30:23Z')
+        expect(result.events[0].event).toBe('$ai_generation')
         expect(result.totalCost).toBe(0.42)
+        expect(result.distinctId).toBe('person-7')
         expect(result._detail.mode).toBe('summary')
     })
 
-    it('previews a structured prompt with readable content, not an empty shell', () => {
-        // `$ai_input` is an array of message objects, so a preview only helps if the
-        // walk's per-item allowances leave room to descend into it.
-        const messages = [
-            { role: 'system', content: 's'.repeat(2_000) },
-            { role: 'user', content: 'Why did the checkout funnel drop?' },
-        ]
+    it.each([
+        ['a prompt', '$ai_input'],
+        ['a completion', '$ai_output_choices'],
+        ['a tool definition', '$ai_tools'],
+        ['request metadata', '$ai_request_url'],
+        ['a custom property', 'custom_payload'],
+    ])('returns no trace of %s under summary detail', (_label, property) => {
+        const result = compactTrace(trace, MAX_SUMMARY_CHARS, 'summary') as any
 
+        expect(result.events[0].properties[property]).toBeUndefined()
+    })
+
+    it('leaks no secret-like value carried in prompts or trace state', () => {
+        // Previewing content rather than dropping it put the head of every prompt
+        // in the response, and customers paste credentials into prompts.
+        const serialized = JSON.stringify(compactTrace(trace, MAX_SUMMARY_CHARS, 'summary'))
+
+        expect(serialized).not.toContain(secret)
+        expect(serialized).not.toContain('sk-live')
+    })
+
+    it('drops trace state and person properties, keeping the person identifiers', () => {
+        const result = compactTrace(trace, MAX_SUMMARY_CHARS, 'summary') as any
+
+        expect(result.inputState).toBeUndefined()
+        expect(result.outputState).toBeUndefined()
+        expect(result._omittedFields).toBe(2)
+        expect(result.person).toEqual({ uuid: 'p-uuid', distinct_id: 'person-7', _omittedFields: 1 })
+    })
+
+    it('excludes a trace or event field that is not on the allowlist', () => {
+        // The allowlist is fail-closed: a field the backend adds later is absent
+        // from a summary until it is allowlisted on purpose.
         const result = compactTrace(
-            { id: 'trace-1', events: [{ id: 'e1', properties: { $ai_input: messages } }] },
+            {
+                id: 'trace-1',
+                futureTraceField: 'whatever the backend adds next',
+                events: [{ id: 'e1', futureEventField: 'and here too', properties: {} }],
+            },
             MAX_SUMMARY_CHARS,
             'summary'
         ) as any
 
-        const preview = result.events[0].properties.$ai_input
-        expect(preview[0].role).toBe('system')
-        expect(preview[0].content).toContain('sss')
-        expect(preview[0].content).toContain('truncated')
+        expect(result.futureTraceField).toBeUndefined()
+        expect(result.events[0].futureEventField).toBeUndefined()
+        expect(result.events[0].id).toBe('e1')
+    })
+
+    it('bounds an oversized allowlisted value instead of returning it whole', () => {
+        const result = compactTrace(
+            { id: 'trace-1', events: [{ id: 'e1', properties: { $ai_error: 'e'.repeat(50_000) } }] },
+            MAX_SUMMARY_CHARS,
+            'summary'
+        ) as any
+
+        const error = result.events[0].properties.$ai_error as string
+        expect(error.length).toBeLessThanOrEqual(SUMMARY_VALUE_CHAR_LIMIT + 200)
+        expect(error).toContain('truncated')
     })
 
     it('returns far less than the same trace at full detail', () => {
@@ -191,10 +244,27 @@ describe('compactTrace summary detail', () => {
         expect(summary).toBeLessThan(full / 5)
     })
 
-    it('still drops events when a summarized trace outgrows the summary cap', () => {
-        const events = Array.from({ length: 5_000 }, (_, i) => ({
+    it('keeps a content-heavy trace of many events well inside the summary cap', () => {
+        // Metadata is small and fixed per event, so a summary of a trace whose
+        // content alone runs to megabytes stays a small fraction of the cap.
+        const events = Array.from({ length: 500 }, (_, i) => ({
             id: `e${i}`,
-            properties: { $ai_input: 'y'.repeat(PER_VALUE_CHAR_LIMIT) },
+            event: '$ai_generation',
+            properties: { $ai_model: 'gpt-4', $ai_latency: 1.5, $ai_input: 'y'.repeat(PER_VALUE_CHAR_LIMIT) },
+        }))
+
+        const result = compactTrace({ id: 'trace-1', events }, MAX_SUMMARY_CHARS, 'summary') as any
+
+        expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_SUMMARY_CHARS / 2)
+        expect(result.events.length).toBe(500)
+        expect(result._truncated).toBeUndefined()
+    })
+
+    it('still drops events when a summarized trace outgrows the summary cap', () => {
+        const events = Array.from({ length: 50_000 }, (_, i) => ({
+            id: `e${i}`,
+            event: '$ai_generation',
+            properties: { $ai_model: 'gpt-4', $ai_span_id: `s${i}`, $ai_input: 'y'.repeat(PER_VALUE_CHAR_LIMIT) },
         }))
 
         const result = compactTrace({ id: 'trace-1', events }, MAX_SUMMARY_CHARS, 'summary') as any

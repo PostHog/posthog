@@ -471,8 +471,8 @@ describe('createQueryWrapper trace compaction', () => {
         expect(byDefault.results).toEqual([trace])
         expect(full.results).toEqual(byDefault.results)
         expect(summary.results[0]._detail.mode).toBe('summary')
-        expect(summary.results[0].inputState.length).toBeLessThan(1_000)
-        expect(summary.results[0].events[0].properties.custom_payload.length).toBeLessThan(1_000)
+        expect(summary.results[0].inputState).toBeUndefined()
+        expect(summary.results[0].events[0].properties.custom_payload).toBeUndefined()
     })
 
     it('strips detail from the trace query body, which the backend rejects unknown fields on', async () => {

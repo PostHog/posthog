@@ -55,9 +55,9 @@ For exact trace and session URLs, skip schema discovery for the standard `$ai_*`
 
 ### Step 2 — Browse trace summaries
 
-Explicitly set `detail: "summary"` when browsing traces. This keeps metadata and short content previews
-without spending context on full prompts and outputs. Omitting `detail` still returns full detail for
-compatibility with existing callers.
+Explicitly set `detail: "summary"` when browsing traces. This returns metadata only, without spending
+context on prompts and outputs. Omitting `detail` still returns full detail for compatibility with
+existing callers.
 
 For a trace URL, call `posthog:query-llm-trace` with:
 
@@ -85,8 +85,10 @@ Use the URL's `date_from` / `date_to` values in the session query if present.
 If the URL only has `timestamp`, calculate the absolute date range from that timestamp instead of using a relative range like `-1h`.
 Set `filterTestAccounts: false` for an exact URL so the requested trace is not hidden by account filters.
 
-The result contains trace and event metadata with previews of prompts, outputs, span states, and custom properties.
-A trace with `_detail: { "mode": "summary" }` contains previews, not the complete content.
+The result contains trace and event metadata only. Prompts, outputs, span states, person properties, and
+custom properties are removed, and `_omittedFields` and `_omittedProperties` count what was removed.
+A trace with `_detail: { "mode": "summary" }` carries no conversation content: re-read it with
+`detail: "full"` when you need to know what was said.
 
 From the result you get:
 
@@ -283,8 +285,8 @@ For more complex SQL patterns, read these references:
 ## Parsing large trace results
 
 Trace tool results are JSON. When too large to read inline, Claude Code persists them to a file.
-Use a full-detail response for content extraction and keyword searches; the scripts cannot recover
-content omitted from a summary or a truncated response.
+Use a full-detail response for content extraction and keyword searches; a summary holds no content, and
+the scripts cannot recover content omitted from a summary or a truncated response.
 
 ### Persisted file format
 

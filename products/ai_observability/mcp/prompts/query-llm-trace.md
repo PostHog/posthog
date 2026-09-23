@@ -1,6 +1,6 @@
 Fetch a single LLM trace by its trace ID for deep inspection. Returns the trace and every nested event, with model parameters, costs, tool calls, and errors. Use after finding a trace via `query-llm-traces-list` to inspect the complete event tree.
 
-By default the response returns full event properties, subject to response size limits. Set `detail` to `"summary"` for metadata and short previews when browsing a trace. Omitted `detail` preserves the existing full-detail behavior.
+By default the response returns full event properties, subject to response size limits. Set `detail` to `"summary"` for metadata only when browsing a trace: a summary never contains prompts, outputs, tool payloads, person properties, or request metadata. Omitted `detail` preserves the existing full-detail behavior.
 
 Use cases:
 
@@ -25,7 +25,7 @@ The response contains a single trace in JSON format with:
 - `inputTokens` / `outputTokens` — token counts across all generations
 - `inputCost` / `outputCost` / `totalCost` — costs in USD
 - `inputState` / `outputState` — JSON input/output state from the root `$ai_trace` event (e.g., conversation messages)
-- `events` — **all** child events in the trace at every nesting depth (not just direct children), subject to response size limits. Each event has `properties`, returned in full by default and previewed under `detail: "summary"`.
+- `events` — **all** child events in the trace at every nesting depth (not just direct children), subject to response size limits. Each event has `properties`, returned in full by default and reduced to a metadata allowlist under `detail: "summary"`.
 
 Unlike `query-llm-traces-list`, this tool does NOT return `errorCount`, `isSupportTrace`, or `tools` — those are summary fields on the list tool only.
 
@@ -84,9 +84,11 @@ If the trace is old, provide a date range to help the query find it efficiently:
 `detail` controls how much of each event you get back.
 
 - `"full"` (default) returns every property in full, bounded by the response size limit below. Existing callers that omit `detail` keep this behavior.
-- `"summary"` opts into trace fields, plus each event's `id`, `createdAt`, `event` type, and its navigation properties: `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_model`, `$ai_provider`, `$ai_latency`, token counts, costs, `$ai_tools_called`, `$ai_is_error`, `$ai_error`, `$ai_http_status`, `$ai_metric_name`, `$ai_metric_value`, and `$ai_feedback_text`. Prompts, outputs, span states, and any other property come back as short previews. A summarized trace carries `_detail: { "mode": "summary" }`.
+- `"summary"` returns a fixed metadata allowlist and nothing else. Trace level: `id`, `createdAt`, `traceName`, `aiSessionId`, `distinctId`, `isSupportTrace`, `sentiment`, `tools`, `errorCount`, token counts, costs, and `totalLatency`, plus the person identifiers `uuid`, `distinct_id`, and `created_at`. Event level: `id`, `createdAt`, `event` type, `sentiment`, and the navigation properties `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_session_id`, `$ai_agent_name`, `$ai_framework`, `$ai_model`, `$ai_provider`, `$ai_latency`, `$ai_time_to_first_token`, token counts, costs, `$ai_tools_called`, `$ai_tool_call_count`, `$ai_is_error`, `$ai_error`, `$ai_error_type`, `$ai_error_normalized`, `$ai_http_status`, `$ai_metric_name`, and `$ai_metric_value`.
 
-For an overview, explicitly request `detail: "summary"`, find the events that matter from their metadata and previews, then re-run with `detail: "full"` if you still need the content. Keep relevant date and property filters when requesting full detail.
+  Everything else is removed, not shortened: prompts, outputs, tool arguments and results, span states, person properties, request metadata, and any custom property. `_omittedFields` and `_omittedProperties` count what was removed at each level, and a summarized trace carries `_detail: { "mode": "summary" }`.
+
+For an overview, explicitly request `detail: "summary"`, find the events that matter from their metadata, then re-run with `detail: "full"` if you need to read the content. Keep relevant date and property filters when requesting full detail.
 
 # Response size
 

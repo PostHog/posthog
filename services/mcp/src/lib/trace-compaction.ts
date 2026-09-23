@@ -1,18 +1,22 @@
 /**
  * Bounds the size of LLM trace results before they are serialized toward the MCP
- * client. `query-llm-trace` returns every event in a trace at every nesting
- * depth, and each event carries its full `properties` — entire LLM prompts,
- * completions, and tool payloads. Left unbounded these responses have reached
- * tens of millions of tokens, which exhausts the calling agent's context window.
+ * client, and keeps conversation content out of summary responses.
+ * `query-llm-trace` returns every event in a trace at every nesting depth, and
+ * each event carries its full `properties` — entire LLM prompts, completions,
+ * and tool payloads. Left unbounded these responses have reached tens of
+ * millions of tokens, which exhausts the calling agent's context window, and
+ * they put raw conversation and profile content in front of an agent that only
+ * needed to navigate the trace.
  *
- * Two layers keep that in check. `summary` detail replaces event content with
- * short previews so the summary response is trace metadata plus enough of each
- * prompt and output to decide what to read next. On top of that, compaction
- * walks the result within a character budget, truncating long string values and
- * dropping content that doesn't fit, and stops traversing once the budget is
- * spent so it never materializes a full clone of a pathological trace. A final
- * pass measures the real encoded output and shrinks again if the walk's estimate
- * was wrong, so the response cannot breach the cap.
+ * Two layers keep that in check. `summary` detail applies a fixed metadata
+ * allowlist: identity, timing, model, spend, tool names, and errors survive, and
+ * every other field is dropped and counted, so prompts, completions, tool
+ * payloads, person properties, and request metadata never reach the client. On
+ * top of that, compaction walks the result within a character budget,
+ * truncating long string values and dropping content that doesn't fit, and stops
+ * traversing once the budget is spent so it never materializes a full clone of a
+ * pathological trace. A final pass measures the real encoded output and shrinks
+ * again if the walk's estimate was wrong, so the response cannot breach the cap.
  *
  * Compaction is a client-boundary safeguard only — the underlying query and the
  * PostHog UI still have the complete, untruncated trace. Everything it shortens
@@ -38,13 +42,16 @@ export const MAX_TRACE_CHARS = 500_000
  */
 export const MAX_SUMMARY_CHARS = 120_000
 
-/** How much of each previewed value a summary keeps. */
-export const SUMMARY_PREVIEW_CHARS = 600
+/**
+ * Ceiling on a single allowlisted metadata value in a summary. Every allowlisted
+ * field is short by nature, so this only binds on a malformed one.
+ */
+export const SUMMARY_VALUE_CHAR_LIMIT = 600
 
 /**
- * How much of an event's content reaches the client. `summary` keeps identity,
- * timing, model, cost, tool, and error metadata verbatim and previews everything
- * else. `full` keeps all properties, bounded by the compaction budget.
+ * How much of an event reaches the client. `summary` returns the metadata
+ * allowlist and nothing else. `full` keeps all properties, bounded by the
+ * compaction budget.
  */
 export type TraceDetail = 'summary' | 'full'
 
@@ -75,9 +82,12 @@ const MAX_FIT_PASSES = 4
 const FIT_HEADROOM = 1.2
 
 /**
- * Event properties that stay verbatim in a summary. These are the fields an
- * agent needs to navigate a trace: tree position, timing, model, spend, tool
- * calls, and failures. Everything else is content and gets previewed.
+ * The only event properties a summary returns. These are the fields an agent
+ * needs to navigate a trace: tree position, timing, model, spend, tool names,
+ * and failures. Everything else is treated as content and is dropped, so a
+ * property that carries prompts, completions, tool arguments, tool results, or
+ * request metadata cannot reach the client through a summary. A new property in
+ * the taxonomy is therefore excluded until it is added here on purpose.
  */
 const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_trace_id',
@@ -86,30 +96,69 @@ const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_parent_id',
     '$ai_span_name',
     '$ai_session_id',
+    '$ai_agent_name',
+    '$ai_framework',
     '$ai_model',
     '$ai_provider',
     '$ai_latency',
+    '$ai_time_to_first_token',
     '$ai_input_tokens',
     '$ai_output_tokens',
     '$ai_cache_read_input_tokens',
+    '$ai_cache_creation_input_tokens',
     '$ai_reasoning_tokens',
     '$ai_input_cost_usd',
     '$ai_output_cost_usd',
+    '$ai_request_cost_usd',
+    '$ai_web_search_cost_usd',
     '$ai_total_cost_usd',
     '$ai_tools_called',
+    '$ai_tool_call_count',
     '$ai_is_error',
     '$ai_error',
+    '$ai_error_type',
+    '$ai_error_normalized',
     '$ai_http_status',
     '$ai_metric_name',
     '$ai_metric_value',
-    '$ai_feedback_text',
 ])
 
-/** Trace-level fields that carry conversation content rather than metadata. */
-const SUMMARY_PREVIEWED_TRACE_FIELDS = new Set(['inputState', 'outputState'])
+/** The only event fields outside `properties` a summary returns. */
+const SUMMARY_EVENT_FIELDS = new Set(['id', 'event', 'createdAt', 'sentiment'])
+
+/**
+ * The only trace-level fields a summary returns. `inputState` and `outputState`
+ * hold the conversation the trace ran on, so they are absent by design.
+ */
+const SUMMARY_TRACE_FIELDS = new Set([
+    'id',
+    'createdAt',
+    'traceName',
+    'aiSessionId',
+    'distinctId',
+    'isSupportTrace',
+    'sentiment',
+    'tools',
+    'errorCount',
+    'inputTokens',
+    'outputTokens',
+    'inputCost',
+    'outputCost',
+    'requestCost',
+    'webSearchCost',
+    'totalCost',
+    'totalLatency',
+])
+
+/**
+ * The only person fields a summary returns. `properties` holds the profile —
+ * email, name, company, and any custom attribute the customer set — so a
+ * summary returns the identifiers and nothing else.
+ */
+const SUMMARY_PERSON_FIELDS = new Set(['uuid', 'distinct_id', 'created_at'])
 
 const SUMMARY_NOTE =
-    'Event content is previewed. Re-run this tool with detail: "full" for complete prompts, outputs, and custom properties, or open the trace in PostHog.'
+    'Metadata only. Prompts, outputs, tool payloads, person properties, and request metadata are removed, and the counts under _omittedFields and _omittedProperties say how many fields went with them. Re-run this tool with detail: "full" for the complete trace, or open the trace in PostHog.'
 
 function metaReserveFor(budget: number): number {
     return Math.min(META_RESERVE, Math.floor(Math.max(0, budget) * SMALL_BUDGET_RESERVE_RATIO))
@@ -274,47 +323,72 @@ function fitToEncodedBudget(budget: number, compact: (walkBudget: number) => unk
     return serializedLength(out) <= budget ? out : fallback
 }
 
-/** Shorten one value to a preview an agent can scan without reading it in full. */
-function previewValue(value: unknown): unknown {
-    return compactValue(value, SUMMARY_PREVIEW_CHARS).value
-}
-
-function summarizeEvent(event: unknown): unknown {
-    if (!isRecord(event)) {
-        return previewValue(event)
-    }
+/**
+ * Keep the allowlisted members of `source` and count the rest. The count is the
+ * agent's signal that a full-detail read has more, without naming a key that is
+ * itself unvetted input.
+ */
+function allowlistedFields(
+    source: Record<string, unknown>,
+    allowed: ReadonlySet<string>,
+    omittedKey: string
+): Record<string, unknown> {
     const out: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(event)) {
-        if (key !== 'properties' || !isRecord(value)) {
-            assignKey(out, key, value)
-            continue
+    let omitted = 0
+    for (const [key, value] of Object.entries(source)) {
+        if (allowed.has(key)) {
+            // Bound the value too: an allowlisted field is short by nature, but
+            // nothing stops a customer from sending a megabyte of it.
+            assignKey(out, key, compactValue(value, SUMMARY_VALUE_CHAR_LIMIT).value)
+        } else {
+            omitted++
         }
-        const properties: Record<string, unknown> = {}
-        for (const [propertyKey, propertyValue] of Object.entries(value)) {
-            assignKey(
-                properties,
-                propertyKey,
-                SUMMARY_METADATA_PROPERTIES.has(propertyKey) ? propertyValue : previewValue(propertyValue)
-            )
-        }
-        assignKey(out, 'properties', properties)
+    }
+    if (omitted > 0) {
+        assignKey(out, omittedKey, omitted)
     }
     return out
 }
 
-/** Preview the trace-level fields that carry conversation content. */
-function summarizeTraceFields(fields: Record<string, unknown>): void {
-    for (const key of SUMMARY_PREVIEWED_TRACE_FIELDS) {
-        if (key in fields) {
-            assignKey(fields, key, previewValue(fields[key]))
-        }
+function summarizeEvent(event: unknown): unknown {
+    if (!isRecord(event)) {
+        // Not the documented event shape, so nothing in it can be allowlisted.
+        return { _omittedFields: 1 }
     }
-    assignKey(fields, '_detail', { mode: 'summary', note: SUMMARY_NOTE })
+    const { properties, ...fields } = event
+    const out = allowlistedFields(fields, SUMMARY_EVENT_FIELDS, '_omittedFields')
+    if (properties !== undefined) {
+        assignKey(
+            out,
+            'properties',
+            isRecord(properties)
+                ? allowlistedFields(properties, SUMMARY_METADATA_PROPERTIES, '_omittedProperties')
+                : { _omittedProperties: 1 }
+        )
+    }
+    return out
+}
+
+/** Reduce the trace-level fields to the allowlist, person included. */
+function summarizeTraceFields(fields: Record<string, unknown>): Record<string, unknown> {
+    const { person, ...rest } = fields
+    const out = allowlistedFields(rest, SUMMARY_TRACE_FIELDS, '_omittedFields')
+    if (person !== undefined) {
+        assignKey(
+            out,
+            'person',
+            isRecord(person)
+                ? allowlistedFields(person, SUMMARY_PERSON_FIELDS, '_omittedFields')
+                : { _omittedFields: 1 }
+        )
+    }
+    assignKey(out, '_detail', { mode: 'summary', note: SUMMARY_NOTE })
+    return out
 }
 
 /**
- * Compact a single trace to fit `budget` characters, previewing event content
- * first when `detail` is `summary`. Non-event fields are
+ * Compact a single trace to fit `budget` characters, reducing it to the metadata
+ * allowlist first when `detail` is `summary`. Non-event fields are
  * budgeted first (so a huge `inputState` can't starve the events), then events
  * are filled in until the budget runs out; the first event is compacted to fit
  * rather than kept verbatim, so no single event can breach the cap. Dropped
@@ -344,13 +418,11 @@ function compactTraceWithin(trace: Record<string, unknown>, budget: number, deta
             assignKey(rest, key, val)
         }
     }
-    if (detail === 'summary') {
-        summarizeTraceFields(rest)
-    }
+    const traceFields = detail === 'summary' ? summarizeTraceFields(rest) : rest
     if (!events) {
-        return compactValue(rest, budget).value
+        return compactValue(traceFields, budget).value
     }
-    const baseCompacted = compactValue(rest, Math.max(0, budget * BASE_FIELDS_BUDGET_RATIO))
+    const baseCompacted = compactValue(traceFields, Math.max(0, budget * BASE_FIELDS_BUDGET_RATIO))
     const base = baseCompacted.value as Record<string, unknown>
 
     let remaining = budget - baseCompacted.cost - META_RESERVE
