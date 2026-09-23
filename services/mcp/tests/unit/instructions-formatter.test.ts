@@ -13,6 +13,7 @@ const realisticTools = [
     { name: 'feature-flag-create', category: 'Feature flags' },
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
+    { name: 'project-get', category: 'Core' },
     { name: 'business-knowledge-documents-search', category: 'Business knowledge' },
     { name: 'docs-search', category: 'Docs' },
     { name: 'query-trends', category: 'Query wrappers' },
@@ -23,13 +24,13 @@ const realisticQueryTools: QueryToolInfo[] = [
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
 ]
 const ENV_POINTER = 'Call `project-get` without an ID to read the active project'
+const GROUP_TYPES_POINTER = 'run `execute-sql` on `system.group_type_mappings`'
 
 const fullCtx: InstructionsContext = {
     guidelines: 'some guidelines',
     tools: realisticTools,
     queryTools: realisticQueryTools,
     renderUiEnabled: true,
-    projectGetEnabled: true,
 }
 
 describe('InstructionsFormatter', () => {
@@ -118,7 +119,7 @@ describe('InstructionsFormatter', () => {
             const result = formatter.buildExecInstructions(fullCtx)
             // query-* tools surface as the single `query` domain, not a separate catalog line
             expect(result).toContain(
-                'business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|query'
+                'business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|project|query'
             )
             expect(result).not.toContain('### PostHog knowledge sources')
             expect(result).not.toContain('query-*:')
@@ -221,6 +222,19 @@ describe('InstructionsFormatter', () => {
     })
 
     describe('buildExecCommandReference', () => {
+        it.each([
+            { name: 'both lookup tools', tools: ['project-get', 'execute-sql'], project: true, groups: true },
+            { name: 'only project-get', tools: ['project-get'], project: true, groups: false },
+            { name: 'only execute-sql', tools: ['execute-sql'], project: false, groups: true },
+            { name: 'neither lookup tool', tools: [], project: false, groups: false },
+        ])('names only the env lookup tools the roster has: $name', ({ tools, project, groups }) => {
+            const ctx = { ...fullCtx, tools: tools.map((name) => ({ name, category: 'Core' })) }
+            const result = new InstructionsFormatter().buildExecCommandReference(ctx)
+            expect(result.includes(ENV_POINTER)).toBe(project)
+            expect(result.includes(GROUP_TYPES_POINTER)).toBe(groups)
+            expect(result.includes('### Active environment')).toBe(project || groups)
+        })
+
         it('carries the CLI mechanics', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecCommandReference(fullCtx)
@@ -521,7 +535,7 @@ describe('InstructionsFormatter', () => {
             if (supportsInstructions) {
                 // queries surface in instructions only as the `query` tool domain
                 expect(instructions).toContain(
-                    'business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|query'
+                    'business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|project|query'
                 )
                 expect(instructions).not.toContain('- `query-trends` — time series')
                 expect(instructions).not.toContain(ENV_POINTER)

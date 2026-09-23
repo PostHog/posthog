@@ -352,8 +352,7 @@ export class StateManager {
             return undefined
         }
 
-        // Use the non-throwing resolver: callers like consent checks treat
-        // "no org" as "skip", not as a hard error.
+        // Non-throwing: consent checks treat "no org" as "skip", not as an error.
         const orgId = await this._resolveOrganizationId()
         if (!orgId) {
             return undefined

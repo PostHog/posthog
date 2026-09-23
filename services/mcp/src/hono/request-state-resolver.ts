@@ -140,8 +140,7 @@ export class RequestStateResolver {
         await this.applyPinnedContext(reqCtx, { organizationId, projectId })
 
         // Read the active project back from the token cache (the source every tool
-        // resolves through) rather than the request pin, so an in-session switch
-        // counts instead of the resent pin value.
+        // resolves through) rather than the request pin, so an in-session switch wins.
         const cachedProjectId = (await reqCtx.tokenCache.get('projectId')) || projectId
         if (!cachedProjectId) {
             const contextForDefault = await contextPromise

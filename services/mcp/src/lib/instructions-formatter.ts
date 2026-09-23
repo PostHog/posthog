@@ -44,6 +44,10 @@ const WHATS_NEW_WITH_DOCS_SEARCH =
     "Check what's new via the `docs-search` tool or the changelog (https://posthog.com/changelog.md)."
 const WHATS_NEW_CHANGELOG_ONLY = "Check what's new in the changelog (https://posthog.com/changelog.md)."
 
+const PROJECT_LOOKUP =
+    'Call `project-get` without an ID to read the active project: its name, id, organization, timezone, person-on-events mode, test account filter default, and enabled products. Call it before you rely on one of these, for example the timezone for a date range.'
+const GROUP_TYPES_LOOKUP = "For the project's group types, run `execute-sql` on `system.group_type_mappings`."
+
 export interface InstructionsContext {
     guidelines: string
     tools?: ToolInfo[] | undefined
@@ -61,10 +65,6 @@ export interface InstructionsContext {
      *  resolve. Carried as a field rather than derived from `tools`, which
      *  `buildExecCommandReference` drops on purpose. */
     docsSearchEnabled?: boolean | undefined
-    /** Whether `project-get` is advertised to this client. Gates the env-context
-     *  section, which points the agent at that tool. Carried as a field for the same
-     *  reason as `docsSearchEnabled`. */
-    projectGetEnabled?: boolean | undefined
 }
 
 /** Resolve the field, falling back to the advertised tool list for callers that
@@ -74,8 +74,12 @@ function docsSearchAvailable(ctx: InstructionsContext): boolean {
 }
 
 function envContextSections(ctx: InstructionsContext): string[] {
-    const projectGetEnabled = ctx.projectGetEnabled ?? ctx.tools?.some(({ name }) => name === 'project-get') ?? false
-    return projectGetEnabled ? [ENV_CONTEXT] : []
+    const available = (tool: string): boolean => ctx.tools?.some(({ name }) => name === tool) ?? false
+    const lookups = [
+        ...(available('project-get') ? [PROJECT_LOOKUP] : []),
+        ...(available('execute-sql') ? [GROUP_TYPES_LOOKUP] : []),
+    ]
+    return lookups.length > 0 ? [formatPrompt(ENV_CONTEXT, { env_lookups: lookups.join(' ') })] : []
 }
 
 /**
