@@ -1457,7 +1457,11 @@ class WatchFeedQuerySerializer(serializers.Serializer):
         default=WATCH_FEED_DEFAULT_LIMIT,
         min_value=1,
         max_value=WATCH_FEED_MAX_LIMIT,
-        help_text=f"Feed items to return, at most {WATCH_FEED_MAX_LIMIT}. The feed is bounded, not paginated.",
+        help_text=(
+            f"Ceiling on feed items to return, at most {WATCH_FEED_MAX_LIMIT}. The feed is bounded, not "
+            "paginated, and routinely returns far fewer: a window is not padded to this number with "
+            "clips that carry no finding."
+        ),
     )
 
     def validate_tags(self, value: str) -> list[str]:
@@ -1471,6 +1475,15 @@ class WatchFeedQuerySerializer(serializers.Serializer):
             return [UUID(raw_id) for raw_id in raw_ids]
         except ValueError:
             raise serializers.ValidationError("Scanner ids must be UUIDs.")
+
+
+class WatchFeedSignalSerializer(serializers.Serializer):
+    """One signal an observation raised, named rather than counted."""
+
+    problem_type = serializers.CharField(help_text="Issue type: `bug`, `crash`, `design_flaw`, or `ux_friction`.")
+    headline = serializers.CharField(
+        help_text="The finding in a few words, written by the scan. The full description lives on the signal itself."
+    )
 
 
 class WatchFeedReasonSerializer(serializers.Serializer):
@@ -1498,6 +1511,15 @@ class WatchFeedReasonSerializer(serializers.Serializer):
         help_text=(
             "Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per "
             "signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped."
+        ),
+    )
+    signals = WatchFeedSignalSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Each emitted signal in the order raised, for `signal_emitted`. Carries what the card needs to name "
+            "the findings instead of counting them. Absent on sessions scanned before this shipped, which carry "
+            "`problem_types` alone."
         ),
     )
     verdict = serializers.CharField(
@@ -1551,9 +1573,10 @@ class WatchFeedResponseSerializer(serializers.Serializer):
     results = WatchFeedItemSerializer(
         many=True,
         help_text=(
-            "Succeeded observations in the window worth watching, most interesting first: signal emitters, "
-            "then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, "
-            "then prose that reads as friction, then newest."
+            "Succeeded observations in the window worth watching, most interesting first, each carrying the "
+            "reason it ranked. Every observation that carries a finding is returned; observations that carry "
+            "none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, "
+            "so a quiet window answers with a handful of rows rather than a full page of newest clips."
         ),
     )
 

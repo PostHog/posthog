@@ -21,9 +21,38 @@ After the pull request merges to `master`, the `Release CLI` workflow:
 5. Updates `cli/Cargo.toml`, `cli/Cargo.lock`, and `cli/CHANGELOG.md`
 6. Commits the release bump to `master`
 7. Runs cargo-dist against the release bump commit
-8. Creates the `posthog-cli/vX.Y.Z` GitHub release, refreshes `posthog-cli-latest` for stable releases, and publishes the npm package
+8. Publishes the artifacts to the release bucket, then creates the `posthog-cli/vX.Y.Z` GitHub release, refreshes `posthog-cli-latest` for stable releases, and publishes the npm package
 
 Do not run `sampo publish`; cargo-dist owns publishing for `posthog-cli`.
+
+### The release bucket
+
+Artifacts are also published to `releases.posthog.com`, a shared S3 and CloudFront origin in the prod-us account, under the `posthog-cli/` prefix.
+It sits alongside the other release mirrors there, `context-mill-releases` and `desktop`.
+GitHub releases stay in place as a mirror.
+
+The upload runs before the GitHub release is created, so the objects exist before anything publishes a URL that points at them.
+Two key shapes, with different caching:
+
+| Key                                                                  | Cache-Control                 | Written              |
+| -------------------------------------------------------------------- | ----------------------------- | -------------------- |
+| `posthog-cli/vX.Y.Z/<artifact>`                                      | `max-age=31536000, immutable` | every release        |
+| `posthog-cli/install.sh`, `install.ps1`, `stable/dist-manifest.json` | `max-age=60`                  | stable releases only |
+
+The versioned keys are immutable because the version is part of the key.
+The three rolling keys are republished every release and then invalidated at the edge, so they must never carry the immutable header.
+A prerelease publishes its versioned artifacts and leaves the rolling keys alone.
+
+The step is skipped unless all three variables below are set, so a branch that predates the bucket still releases, and so a half-finished configuration cannot fail the release.
+It needs three repository variables:
+
+| Variable                         | Value                                                          |
+| -------------------------------- | -------------------------------------------------------------- |
+| `AWS_CLI_RELEASES_ROLE_ARN`      | the `github-posthog-cli-releases-publish-role` role in prod-us |
+| `AWS_CLI_RELEASES_BUCKET`        | the shared releases bucket name                                |
+| `AWS_CLI_RELEASES_CLOUDFRONT_ID` | the distribution fronting it                                   |
+
+The role is scoped to the `posthog-cli/` prefix and to invalidations on that one distribution, so the workflow cannot touch another project's artifacts.
 
 If you need to cut a release by hand, merge a CLI changeset to `master` and let `Release CLI` run from there.
 Do not push `posthog-cli/vX.Y.Z` tags manually; cargo-dist tag-push releases are disabled.

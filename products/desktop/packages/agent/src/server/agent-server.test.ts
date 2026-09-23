@@ -6811,6 +6811,7 @@ describe("AgentServer HTTP Mode", () => {
         "If the user explicitly asks you to open a pull request",
       );
       expect(prompt).not.toContain("No Repository Mode");
+      expect(prompt).not.toContain("## Summarizing a question you answered");
     });
 
     it("returns review-first prompt for existing PRs on non-Slack runs", () => {
@@ -6867,6 +6868,7 @@ describe("AgentServer HTTP Mode", () => {
         config: { repositoryPath: undefined },
         shouldContain: [
           "Cloud Task Execution — No Repository Mode",
+          "## Summarizing a question you answered",
           "call `list_repos`",
           "Call `clone_repo`",
           "It creates a shallow clone",
@@ -6908,6 +6910,7 @@ describe("AgentServer HTTP Mode", () => {
         config: { repositoryPath: undefined, createPr: false },
         shouldContain: [
           "Cloud Task Execution — No Repository Mode",
+          "## Summarizing a question you answered",
           "Call `clone_repo`",
           "You may make local edits in a repository cloned with `clone_repo`",
           "Do NOT create branches, commits, push changes, or open pull requests in this run",

@@ -431,11 +431,11 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
 
                 if (props.id === 'new') {
                     // nosemgrep: prefer-codegen-api
-                    await api.create('api/environments/@current/taggers/', payload)
+                    await api.create(`api/projects/${teamLogic.values.currentTeamId}/taggers/`, payload)
                     lemonToast.success('Tagger created')
                 } else {
                     // nosemgrep: prefer-codegen-api
-                    await api.update(`api/environments/@current/taggers/${props.id}/`, payload)
+                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/taggers/${props.id}/`, payload)
                     lemonToast.success('Tagger updated')
                 }
                 // Reload list before navigating so the new/updated tagger is visible
@@ -455,7 +455,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             try {
                 const teamId = teamLogic.values.currentTeamId
                 // nosemgrep: prefer-codegen-api
-                const response = await api.create(`/api/environments/${teamId}/taggers/test_hog/`, {
+                const response = await api.create(`/api/projects/${teamId}/taggers/test_hog/`, {
                     source,
                     sample_count: 5,
                     tags: config.tags.filter((t: { name: string }) => t.name.trim()),
@@ -529,7 +529,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             // the UI is stuck on the skeleton indefinitely on any API error.
             try {
                 // nosemgrep: prefer-codegen-api
-                const tagger = await api.get(`api/environments/@current/taggers/${props.id}/`)
+                const tagger = await api.get(`api/projects/${teamLogic.values.currentTeamId}/taggers/${props.id}/`)
                 actions.loadTaggerSuccess(tagger)
                 actions.setTaggerFormValues({
                     name: tagger.name,
@@ -550,7 +550,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                 return
             }
             // nosemgrep: prefer-codegen-api
-            await api.update(`api/environments/@current/taggers/${props.id}/`, { deleted: true })
+            await api.update(`api/projects/${teamLogic.values.currentTeamId}/taggers/${props.id}/`, { deleted: true })
             lemonToast.success('Tagger deleted')
             router.actions.push(urls.aiObservabilityTags())
         },
