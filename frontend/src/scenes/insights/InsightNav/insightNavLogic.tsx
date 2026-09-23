@@ -1,3 +1,4 @@
+import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
@@ -80,6 +81,10 @@ import {
 } from '~/types'
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
+import {
+    MIN_FUNNEL_STEPS,
+    getDefaultFunnelStep,
+} from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Node } from '../../../queries/schema/schema-general'
@@ -682,9 +687,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
             if (isDataVisualizationNode(query)) {
                 router.actions.push(urls.sqlEditor({ query: query.source.query }))
             } else if (isInsightVizNode(query)) {
-                const source = values.queryPropertyCache
-                    ? mergeCachedProperties(query.source, values.queryPropertyCache)
-                    : query.source
+                const source = seedMissingFunnelSteps(
+                    values.queryPropertyCache
+                        ? mergeCachedProperties(query.source, values.queryPropertyCache)
+                        : query.source
+                )
                 actions.setQuery({
                     ...query,
                     source: { ...source, tags: { ...source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
@@ -788,6 +795,9 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     if (caps?.series && !caps?.seriesMath && cache?.series && newCache.series) {
         newCache.series = carryForwardSeriesMath(newCache.series, cache.series)
     }
+    if (isFunnelsQuery(query) && cache?.series?.length && newCache.series) {
+        newCache.series = dropSeededFunnelSteps(newCache.series, cache.series.length)
+    }
     // Retention has no series field, so mirror its target entity into the shared series cache.
     // This keeps the configured event when switching from Retention to a series-based type.
     if (isRetentionQuery(query)) {
@@ -833,6 +843,29 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     }
 
     return newCache
+}
+
+// A funnel only calculates from two steps up, so a switch that carries a single series over lands on
+// the "Add another step!" empty state with no chart. Seed the missing steps so the switch renders a
+// funnel right away.
+const seedMissingFunnelSteps = (source: InsightQueryNode): InsightQueryNode => {
+    if (!isFunnelsQuery(source) || source.series.length >= MIN_FUNNEL_STEPS) {
+        return source
+    }
+    const seededSteps = Array.from({ length: MIN_FUNNEL_STEPS - source.series.length }, getDefaultFunnelStep)
+    return { ...source, series: [...source.series, ...seededSteps] }
+}
+
+// A seeded step is not a step the user chose, so it must not reach the shared cache. Otherwise a
+// look at the funnels tab and back would leave the previous type with an extra series. A step the
+// user edited no longer matches the default, so it survives.
+const dropSeededFunnelSteps = (series: SeriesArray, cachedLength: number): SeriesArray => {
+    const defaultStep = getDefaultFunnelStep()
+    let kept = series.length
+    while (kept > cachedLength && equal(series[kept - 1], defaultStep)) {
+        kept--
+    }
+    return kept === series.length ? series : series.slice(0, kept)
 }
 
 const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCache): InsightQueryNode => {

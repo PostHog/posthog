@@ -39,8 +39,13 @@ import {
 } from '~/types'
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
+import { isFunnelWithEnoughSteps } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 
 import { insightDataLogic } from '../insightDataLogic'
+
+// A switch to funnels seeds the steps a funnel needs to calculate, so every expectation below
+// that switches to funnels from a single series carries this second step.
+const SEEDED_FUNNEL_STEP = { kind: 'EventsNode', event: '$pageview', name: 'Pageview' }
 
 describe('insightNavLogic', () => {
     let logic: ReturnType<typeof insightNavLogic.build>
@@ -108,6 +113,7 @@ describe('insightNavLogic', () => {
                                 kind: 'EventsNode',
                                 name: 'Pageview',
                             },
+                            SEEDED_FUNNEL_STEP,
                         ],
                         tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
@@ -268,6 +274,27 @@ describe('insightNavLogic', () => {
                     },
                 },
             }
+
+            // One capability map governs every switch, so a step-count regression on any source type
+            // would leave the funnels tab on the "Add another step!" empty state with no chart.
+            it.each([InsightType.TRENDS, InsightType.STICKINESS, InsightType.LIFECYCLE, InsightType.RETENTION])(
+                'lands on a funnel that can calculate when switching from %s',
+                async (sourceView) => {
+                    await expectLogic(logic, () => {
+                        builtInsightDataLogic.actions.setQuery(trendsQuery)
+                    })
+                    await expectLogic(builtInsightDataLogic, () => {
+                        logic.actions.setActiveView(sourceView)
+                    }).toFinishAllListeners()
+
+                    await expectLogic(builtInsightDataLogic, () => {
+                        logic.actions.setActiveView(InsightType.FUNNELS)
+                    }).toFinishAllListeners()
+
+                    const funnelsSource = (builtInsightDataLogic.values.query as InsightVizNode).source as FunnelsQuery
+                    expect(isFunnelWithEnoughSteps(funnelsSource.series)).toBe(true)
+                }
+            )
 
             it('is initialized on mount', async () => {
                 await expectLogic(logic).toMatchValues({
@@ -586,7 +613,7 @@ describe('insightNavLogic', () => {
                         kind: 'InsightVizNode',
                         source: {
                             kind: 'FunnelsQuery',
-                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }, SEEDED_FUNNEL_STEP],
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
                             version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
@@ -670,7 +697,7 @@ describe('insightNavLogic', () => {
                         kind: 'InsightVizNode',
                         source: {
                             kind: 'FunnelsQuery',
-                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }, SEEDED_FUNNEL_STEP],
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
                             version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
@@ -731,7 +758,7 @@ describe('insightNavLogic', () => {
                         kind: 'InsightVizNode',
                         source: {
                             kind: 'FunnelsQuery',
-                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }, SEEDED_FUNNEL_STEP],
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
                             version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
@@ -1491,6 +1518,7 @@ describe('insightNavLogic', () => {
                                 timestamp_field: 'created_at',
                                 aggregation_target_field: 'customer_id',
                             },
+                            SEEDED_FUNNEL_STEP,
                         ],
                         funnelsFilter: { funnelVizType: FunnelVizType.Steps },
                     },
@@ -1652,6 +1680,7 @@ describe('insightNavLogic', () => {
                                 timestamp_field: 'created_at',
                                 aggregation_target_field: 'customer_id',
                             },
+                            SEEDED_FUNNEL_STEP,
                         ],
                         funnelsFilter: { funnelVizType: 'steps' },
                     },
@@ -1775,7 +1804,10 @@ describe('insightNavLogic', () => {
                 expect(builtInsightDataLogic.values.query).toMatchObject({
                     source: {
                         kind: NodeKind.FunnelsQuery,
-                        series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+                        series: [
+                            { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                            SEEDED_FUNNEL_STEP,
+                        ],
                     },
                 })
             })
