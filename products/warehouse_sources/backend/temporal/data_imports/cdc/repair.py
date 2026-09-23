@@ -103,14 +103,24 @@ def _repair_locked(source: ExternalDataSource) -> int:
     _require_broken_evidence(source, adapter, cdc_schemas)
     _cancel_running_cdc_jobs(source, cdc_schemas, log)
 
+    # Every CDC table, including those with sync off: the new slot cannot replay what the dead one
+    # lost, so a table turned back on later must re-snapshot too.
+    all_cdc_schema_ids = list(
+        ExternalDataSchema.objects.filter(
+            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC
+        )
+        .exclude(deleted=True)
+        .values_list("id", flat=True)
+    )
+
     # Reset schemas before touching the slot (same ordering as the extraction activity's
     # slot-invalidation recovery): if recreation fails below, a re-run repeats idempotently
     # and no schema keeps streaming across the gap unnoticed. Deferred runs are dropped —
     # they reference WAL from the dead slot and the re-snapshot supersedes them. The
     # `cdc_broken` markers deliberately survive this step: they are the retry gate.
-    for schema in cdc_schemas:
+    for schema_id in all_cdc_schema_ids:
         update_sync_type_config_keys(
-            schema.id,
+            schema_id,
             source.team_id,
             updates={"cdc_mode": "snapshot", "reset_pipeline": True},
             removes=["cdc_last_log_position", "cdc_deferred_runs"],
@@ -126,15 +136,7 @@ def _repair_locked(source: ExternalDataSource) -> int:
     source.status = ExternalDataSource.Status.RUNNING
     source.save(update_fields=["job_inputs", "status", "updated_at"])
 
-    # Includes CDC tables with sync off: they keep their streaming state, so turning one back on
-    # on a self-managed source consumes its buffer without a new snapshot.
-    for schema_id in (
-        ExternalDataSchema.objects.filter(
-            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC
-        )
-        .exclude(deleted=True)
-        .values_list("id", flat=True)
-    ):
+    for schema_id in all_cdc_schema_ids:
         purge_buffer_prefix(source.team_id, str(schema_id), log, strict=True)
 
     _resume_schedules(source, cdc_schemas)
@@ -142,9 +144,9 @@ def _repair_locked(source: ExternalDataSource) -> int:
     # Only now that the new slot exists and the schedules are resumed: clear the broken
     # evidence. A failure before this point leaves the markers for the retry gate; a
     # failure inside this loop leaves some markers, which also re-opens the gate.
-    for schema in cdc_schemas:
+    for schema_id in all_cdc_schema_ids:
         update_sync_type_config_keys(
-            schema.id,
+            schema_id,
             source.team_id,
             removes=["cdc_broken", "cdc_extraction_paused"],
             extra_model_fields={"latest_error": None},
