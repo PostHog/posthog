@@ -49,21 +49,6 @@ def test_codeowners_uses_root_when_github_file_is_absent():
 
 
 @pytest.mark.django_db
-def test_ownership_rollout_disabled_preserves_existing_reviewers(team):
-    with (
-        patch(
-            "products.signals.backend.report_generation.ownership_reviewers.feature_enabled_or_false",
-            return_value=False,
-        ),
-        patch(
-            "products.signals.backend.report_generation.ownership_reviewers.GitHubIntegration.first_for_team_repository"
-        ) as get_github,
-    ):
-        assert suggest_repository_owners(team.id, "example/app", ["src/app.py"], []) == []
-    get_github.assert_not_called()
-
-
-@pytest.mark.django_db
 def test_owners_yaml_precedes_a_different_codeowner(team):
     project_members = {}
     for login in ("primary", "backup", "secondary"):
@@ -77,10 +62,6 @@ def test_owners_yaml_precedes_a_different_codeowner(team):
         "logins": ["primary", "backup"] if slug == "main" else ["secondary", "outside"],
     }
     with (
-        patch(
-            "products.signals.backend.report_generation.ownership_reviewers.feature_enabled_or_false",
-            return_value=True,
-        ),
         patch(
             "products.signals.backend.report_generation.ownership_reviewers.GitHubIntegration.first_for_team_repository",
             return_value=github,
@@ -117,9 +98,6 @@ def test_only_one_reviewer_per_ownership_source_across_paths(team):
     }
     with (
         patch(
-            "products.signals.backend.report_generation.ownership_reviewers.feature_enabled_or_false", return_value=True
-        ),
-        patch(
             "products.signals.backend.report_generation.ownership_reviewers.GitHubIntegration.first_for_team_repository",
             return_value=github,
         ),
@@ -148,9 +126,6 @@ def test_codeowners_email_matches_a_project_member_with_a_github_identity(team):
     github.get_file_contents.return_value = {"content": "*.py OWNER@EXAMPLE.COM\n"}
     with (
         patch(
-            "products.signals.backend.report_generation.ownership_reviewers.feature_enabled_or_false", return_value=True
-        ),
-        patch(
             "products.signals.backend.report_generation.ownership_reviewers.GitHubIntegration.first_for_team_repository",
             return_value=github,
         ),
@@ -177,10 +152,6 @@ def test_codeowners_routes_without_owners_yaml_only_to_a_project_member(team):
     github.get_file_contents.return_value = {"content": "/src/ @example/other @external\n"}
     github.list_team_members.return_value = {"success": True, "logins": ["outside", "inside"]}
     with (
-        patch(
-            "products.signals.backend.report_generation.ownership_reviewers.feature_enabled_or_false",
-            return_value=True,
-        ),
         patch(
             "products.signals.backend.report_generation.ownership_reviewers.GitHubIntegration.first_for_team_repository",
             return_value=github,

@@ -10,7 +10,6 @@ from owners_yaml.matcher import compile_pattern, normalize_path
 
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
-from posthog.ph_client import feature_enabled_or_false
 
 from products.engineering_analytics.backend.facade.api import resolve_path_owners
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
@@ -25,7 +24,6 @@ _CODEOWNERS_LOCATIONS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
 _MAX_CODEOWNERS_BYTES = 3 * 1024 * 1024
 _MAX_PATHS = 12
 _TEAM_SLUG = re.compile(r"[A-Za-z0-9._-]+\Z")
-_OWNERSHIP_FLAG = "signals-repository-reviewer-ownership"
 
 
 @dataclass(frozen=True)
@@ -74,15 +72,6 @@ def suggest_repository_owners(
 
     try:
         team = Team.objects.get(id=team_id)
-        organization_id = str(team.organization_id)
-        if not feature_enabled_or_false(
-            _OWNERSHIP_FLAG,
-            organization_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-            send_feature_flag_events=False,
-        ):
-            return []
         github = GitHubIntegration.first_for_team_repository(team_id, repository)
         if github is None:
             return []
