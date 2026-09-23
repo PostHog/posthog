@@ -448,13 +448,23 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
         PersonalAPIKey.objects.create(
             label="pat-with-project-write",
             user=self.user,
-            scopes=["project:write", "project:read"],
+            scopes=["project:write", "project:read", "endpoint:read"],
             secure_value=hash_key_value(token),
         )
         self.token = token
 
     def _auth(self):
         return {"HTTP_AUTHORIZATION": f"Bearer {self.token}"}
+
+    def _token_with_scopes(self, scopes: list[str]) -> str:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label=f"pat-{token[-6:]}",
+            user=self.user,
+            scopes=scopes,
+            secure_value=hash_key_value(token),
+        )
+        return token
 
     def _create_key(self) -> str:
         response = self.client.post(
@@ -555,3 +565,88 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
         )
         assert response.status_code == 200, response.content
         assert ProjectSecretAPIKey.objects.get(id=key_id).label == "via-put"
+
+    @parameterized.expand(
+        [
+            ("lacks_scope", ["project:write"], ["endpoint:read"], 403),
+            ("lacks_one_of_several", ["project:write", "endpoint:read"], ["endpoint:read", "account:read"], 403),
+            ("read_does_not_cover_write", ["project:write", "loop:read"], ["loop:write"], 403),
+            ("holds_scope", ["project:write", "endpoint:read"], ["endpoint:read"], 201),
+            ("write_covers_read", ["project:write", "feature_flag:write"], ["feature_flag:read"], 201),
+            ("wildcard", ["*"], ["account:read", "loop:write"], 201),
+        ]
+    )
+    def test_create_requires_caller_to_hold_requested_scopes(
+        self, _name, caller_scopes, requested_scopes, expected_status
+    ):
+        token = self._token_with_scopes(caller_scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/",
+            data={"label": "minted", "scopes": requested_scopes},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected_status, response.content
+        assert ProjectSecretAPIKey.objects.filter(team=self.team, label="minted").exists() == (expected_status == 201)
+
+    @parameterized.expand(
+        [
+            (
+                "adds_unheld_scope",
+                ["endpoint:read"],
+                ["project:write", "endpoint:read"],
+                ["endpoint:read", "account:read"],
+                403,
+            ),
+            (
+                "keeps_and_removes_unheld_scopes",
+                ["endpoint:read", "account:read"],
+                ["project:write"],
+                ["account:read"],
+                200,
+            ),
+        ]
+    )
+    def test_update_requires_caller_to_hold_added_scopes(
+        self, _name, key_scopes, caller_scopes, new_scopes, expected_status
+    ):
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=hash_key_value(generate_random_token_secret()),
+            scopes=key_scopes,
+            created_by=self.user,
+        )
+        token = self._token_with_scopes(caller_scopes)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/",
+            data={"scopes": new_scopes},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected_status, response.content
+        key.refresh_from_db()
+        assert key.scopes == (new_scopes if expected_status == 200 else key_scopes)
+
+    def test_roll_rejected_when_caller_lacks_key_scopes(self):
+        secure_value = hash_key_value(generate_random_token_secret())
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=secure_value,
+            scopes=["endpoint:read", "account:read"],
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll/",
+            **self._auth(),
+        )
+
+        assert response.status_code == 403, response.content
+        key.refresh_from_db()
+        assert key.secure_value == secure_value
