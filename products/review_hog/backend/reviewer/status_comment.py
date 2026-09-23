@@ -12,7 +12,10 @@ tally live in a marker-delimited section spliced in by `update_resolution_status
 also creates the comment on demand for standalone resolution runs that never had a review.
 
 Every entry point here is best-effort by construction: a status comment must never fail, block, or
-retry a review, so all exceptions are swallowed after logging.
+retry a review, so exceptions are swallowed after logging. The one exception is a terminal write
+(the turn's outcome, the failure notice, the resolution stage's closing tally) hitting a transient
+GitHub condition: that re-raises, because a swallowed one leaves a finished run reading as "Step
+k/6, in progress" on the PR until a later turn overwrites it, which may never come.
 """
 
 import random
@@ -25,6 +28,8 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.review_hog.backend.models import ReviewReport
@@ -46,6 +51,7 @@ from products.review_hog.backend.reviewer.progress import (
     turn_stats,
 )
 from products.review_hog.backend.reviewer.tools.github_client import (
+    DEFAULT_PRIORITY,
     GitHubAPIError,
     github_api_get_paginated,
     github_api_request,
@@ -57,6 +63,18 @@ logger = logging.getLogger(__name__)
 # Refreshes are claimed atomically on this watermark, so the concurrent (perspective, chunk) fan-out
 # collapses to at most one GitHub edit per interval instead of one per finished unit.
 STATUS_EDIT_MIN_INTERVAL = timedelta(seconds=60)
+
+# How sheddable each kind of status-comment write is on the installation's shared GitHub budget.
+# A progress refresh is decoration, because the next refresh states the same thing later, so it
+# yields the budget first. A terminal write is the only thing that clears "in progress" from the PR,
+# and there is exactly one per run, so shedding it strands a finished run reading as live forever.
+_PROGRESS_PRIORITY = Priority.BATCH
+_TERMINAL_PRIORITY = Priority.CRITICAL
+
+# GitHub conditions that clear on their own: our egress limiter shed the call before sending it, or
+# GitHub rate-limited it. The terminal writers re-raise these so the Temporal activity retries them
+# on its spaced policy, because swallowing one leaves the PR reading as in progress forever.
+_TRANSIENT_GITHUB_ERRORS = (GitHubEgressBudgetExhausted, GitHubRateLimitError)
 
 # Mirrors the frontend's `progressLabel` step mapping — the PR comment and the UI must tell the same
 # story. Fetching folds into step 1 there too.
@@ -321,7 +339,14 @@ def _auth_from_row(team_id: int, integration_row_id: int) -> tuple[str, str | No
 
 
 def _find_marker_comment(
-    owner: str, repo: str, pr_number: int, marker: str, *, token: str, installation_id: str | None
+    owner: str,
+    repo: str,
+    pr_number: int,
+    marker: str,
+    *,
+    token: str,
+    installation_id: str | None,
+    priority: Priority = DEFAULT_PRIORITY,
 ) -> int | None:
     """The id of the PR's comment carrying `marker`, or None — recovers the handle after a crash
     between posting the comment and saving its id."""
@@ -330,6 +355,7 @@ def _find_marker_comment(
         token=token,
         installation_id=installation_id,
         endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+        priority=priority,
     ):
         # Adopt only our own app-bot's comments (`is_app_bot_author`): anyone can paste the marker
         # on a public repo, and the returned id gets PATCHed — matching a stranger's comment would
@@ -341,7 +367,15 @@ def _find_marker_comment(
     return None
 
 
-def _get_comment(owner: str, repo: str, comment_id: int, *, token: str, installation_id: str | None) -> str:
+def _get_comment(
+    owner: str,
+    repo: str,
+    comment_id: int,
+    *,
+    token: str,
+    installation_id: str | None,
+    priority: Priority = DEFAULT_PRIORITY,
+) -> str:
     """The comment's current body — the resolution splice edits around the review's own text."""
     response = github_api_request(
         "GET",
@@ -349,12 +383,20 @@ def _get_comment(owner: str, repo: str, comment_id: int, *, token: str, installa
         token=token,
         installation_id=installation_id,
         endpoint="/repos/{owner}/{repo}/issues/comments/{comment_id}",
+        priority=priority,
     )
     return response.json().get("body") or ""
 
 
 def _post_comment(
-    owner: str, repo: str, pr_number: int, body: str, *, token: str, installation_id: str | None
+    owner: str,
+    repo: str,
+    pr_number: int,
+    body: str,
+    *,
+    token: str,
+    installation_id: str | None,
+    priority: Priority = DEFAULT_PRIORITY,
 ) -> int | None:
     response = github_api_request(
         "POST",
@@ -363,12 +405,20 @@ def _post_comment(
         installation_id=installation_id,
         endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
         json={"body": body},
+        priority=priority,
     )
     return response.json().get("id")
 
 
 def _patch_comment(
-    owner: str, repo: str, comment_id: int, body: str, *, token: str, installation_id: str | None
+    owner: str,
+    repo: str,
+    comment_id: int,
+    body: str,
+    *,
+    token: str,
+    installation_id: str | None,
+    priority: Priority = DEFAULT_PRIORITY,
 ) -> None:
     github_api_request(
         "PATCH",
@@ -377,6 +427,7 @@ def _patch_comment(
         installation_id=installation_id,
         endpoint="/repos/{owner}/{repo}/issues/comments/{comment_id}",
         json={"body": body},
+        priority=priority,
     )
 
 
@@ -470,6 +521,7 @@ def maybe_refresh_status_comment(team_id: int, report_id: str, *, review_mode: s
             render_in_progress_body(report_id, progress, review_mode=review_mode),
             token=token,
             installation_id=installation_id,
+            priority=_PROGRESS_PRIORITY,
         )
     except Exception:
         logger.exception("Could not refresh the ReviewHog status comment; the review continues without it")
@@ -516,6 +568,9 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             review_mode=input.review_mode,
         )
         _edit_and_stamp(input.team_id, report, body)
+    except _TRANSIENT_GITHUB_ERRORS:
+        logger.warning("GitHub deferred the ReviewHog outcome edit; raising so the activity retries")
+        raise
     except Exception:
         logger.exception("Could not finalize the ReviewHog status comment; the review is unaffected")
 
@@ -527,12 +582,20 @@ def fail_status_comment(team_id: int, report_id: str, *, review_mode: str = REVI
         if report is None or report.status_comment_id is None or report.pr_number is None:
             return
         _edit_and_stamp(team_id, report, render_failed_body(report_id, review_mode=review_mode))
+    except _TRANSIENT_GITHUB_ERRORS:
+        logger.warning("GitHub deferred the ReviewHog failure edit; raising so the activity retries")
+        raise
     except Exception:
         logger.exception("Could not mark the ReviewHog status comment as failed")
 
 
 def update_resolution_status_comment(
-    team_id: int, report_id: str, section: str, *, integration_row_id: int | None = None
+    team_id: int,
+    report_id: str,
+    section: str,
+    *,
+    integration_row_id: int | None = None,
+    terminal: bool = False,
 ) -> None:
     """Splice the resolution stage's section into the report's status comment.
 
@@ -541,10 +604,15 @@ def update_resolution_status_comment(
     review comment, create it on demand carrying just the resolution section. Best-effort like
     every entry point here: a status edit must never fail or block a resolution run.
 
+    `terminal` marks the run's closing write (the tally, or the stopped-partway notice) rather than
+    a mid-run refresh: it takes the unsheddable lane and re-raises a transient GitHub condition, so
+    the caller can retry instead of leaving "Resolving comments: k/n" on the PR forever.
+
     A resolution run passes its pinned `integration_row_id` so the token is re-minted from that row
     (`_auth_from_row`) rather than re-running the installation-selection probe on every refresh;
     without one it falls back to the probe (`_auth`).
     """
+    priority = _TERMINAL_PRIORITY if terminal else _PROGRESS_PRIORITY
     try:
         report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
         if report is None or report.pr_number is None:
@@ -563,12 +631,14 @@ def update_resolution_status_comment(
         comment_id = report.status_comment_id
         if comment_id is None:
             comment_id = _find_marker_comment(
-                owner, repo, report.pr_number, marker, token=token, installation_id=installation_id
+                owner, repo, report.pr_number, marker, token=token, installation_id=installation_id, priority=priority
             )
         body: str | None = None
         if comment_id is not None:
             try:
-                body = _get_comment(owner, repo, comment_id, token=token, installation_id=installation_id)
+                body = _get_comment(
+                    owner, repo, comment_id, token=token, installation_id=installation_id, priority=priority
+                )
             except GitHubAPIError as e:
                 if e.status != 404:
                     raise
@@ -578,14 +648,22 @@ def update_resolution_status_comment(
         # lost status_comment_id can re-adopt the comment instead of posting a duplicate.
         new_body = _splice_resolution_section(body if body else marker, section)
         if comment_id is not None:
-            _patch_comment(owner, repo, comment_id, new_body, token=token, installation_id=installation_id)
+            _patch_comment(
+                owner, repo, comment_id, new_body, token=token, installation_id=installation_id, priority=priority
+            )
         else:
             comment_id = _post_comment(
-                owner, repo, report.pr_number, new_body, token=token, installation_id=installation_id
+                owner, repo, report.pr_number, new_body, token=token, installation_id=installation_id, priority=priority
             )
         report.status_comment_id = comment_id
         report.status_comment_edited_at = timezone.now()
         report.save(update_fields=["status_comment_id", "status_comment_edited_at", "updated_at"])
+    except _TRANSIENT_GITHUB_ERRORS:
+        if not terminal:
+            logger.warning("GitHub deferred a ReviewHog resolution progress edit; the next one catches up")
+            return
+        logger.warning("GitHub deferred the ReviewHog resolution closing edit; raising so the caller retries")
+        raise
     except Exception:
         logger.exception("Could not update the ReviewHog resolution status section; the run continues without it")
 
@@ -597,6 +675,14 @@ def _edit_and_stamp(team_id: int, report: ReviewReport, body: str) -> None:
     token, installation_id = auth
     owner, repo = _split_repository(report.repository)
     assert report.status_comment_id is not None
-    _patch_comment(owner, repo, report.status_comment_id, body, token=token, installation_id=installation_id)
+    _patch_comment(
+        owner,
+        repo,
+        report.status_comment_id,
+        body,
+        token=token,
+        installation_id=installation_id,
+        priority=_TERMINAL_PRIORITY,
+    )
     report.status_comment_edited_at = timezone.now()
     report.save(update_fields=["status_comment_edited_at", "updated_at"])
