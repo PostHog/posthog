@@ -2,6 +2,7 @@ from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import kafka_engine, kafka_num_consumers
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
+from posthog.run_mode import RunMode, run_mode
 
 from .trace_attributes import (
     TABLE_NAME as TRACE_ATTRIBUTES_TABLE_NAME,
@@ -285,6 +286,13 @@ def TRACE_SPAN_TO_SPAN_ATTRIBUTES2_MV():
     )
 
 
+def _kafka_num_consumers() -> int:
+    # EU runs this consumer group at 2 rather than the 8 US runs, tuned against its own
+    # partition count. Recreating the table re-applies whatever this returns, so a plain
+    # kafka_num_consumers(8) here would quietly raise EU to 8 and leave consumers idle.
+    return 2 if run_mode() is RunMode.CLOUD_EU else kafka_num_consumers(8)
+
+
 def KAFKA_TRACE_SPANS_AVRO_TABLE_SQL():
     return f"""
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_TABLE_NAME}
@@ -309,15 +317,19 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_TA
     `dropped_events_count` Int32,
     `links` Array(String),
     `dropped_links_count` Int32,
-    `status_code` Int32
+    `status_code` Int32,
+    `retention_days` Nullable(Int32)
 )
 ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=KAFKA_GROUP, serialization="Avro", named_collection=KAFKA_NAMED_COLLECTION)}
 SETTINGS
     kafka_skip_broken_messages = 100,
     kafka_thread_per_consumer = 1,
-    kafka_num_consumers = {kafka_num_consumers(8)},
+    kafka_num_consumers = {_kafka_num_consumers()},
     kafka_poll_timeout_ms = 3000,
-    kafka_poll_max_batch_size = 1000
+    kafka_poll_max_batch_size = 1000,
+    -- capture-logs writes `retention_days` only after its Avro schema ships, so payloads
+    -- produced before that must still decode.
+    input_format_avro_allow_missing_fields = 1
 """
 
 
@@ -351,7 +363,19 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{TABLE
     `original_expiry_timestamp` DateTime64(6)
 )
 AS SELECT
-    * EXCEPT (attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code),
+    uuid,
+    trace_id,
+    span_id,
+    parent_span_id,
+    trace_state,
+    name,
+    timestamp,
+    end_time,
+    observed_timestamp,
+    service_name,
+    instrumentation_scope,
+    events,
+    links,
     toInt8(kind) AS kind,
     toUInt32(flags) AS flags,
     toUInt32(dropped_attributes_count) AS dropped_attributes_count,
@@ -361,7 +385,7 @@ AS SELECT
     mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-    observed_timestamp + toIntervalDay(toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))) AS original_expiry_timestamp,
+    observed_timestamp + toIntervalDay(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15)))) AS original_expiry_timestamp,
     _partition,
     _topic,
     _offset,

@@ -30806,6 +30806,120 @@ export namespace Schemas {
     }
 
     /**
+     * * `noul` - Yes or no
+     * * `choice` - Multiple choice
+     * * `score` - Rating scale
+     */
+    export type DecisionQuestionTypeEnum = typeof DecisionQuestionTypeEnum[keyof typeof DecisionQuestionTypeEnum];
+
+
+    export const DecisionQuestionTypeEnum = {
+      Noul: 'noul',
+      Choice: 'choice',
+      Score: 'score',
+    } as const;
+
+    /**
+     * For a multiple choice question, the options keyed by name. For a rating question, the scale labels in order from lowest to highest, at least two. Omitted for a yes/no question.
+     */
+    export type DecisionQuestionCriteria = {[key: string]: string} | string[];
+
+    export interface DecisionQuestion {
+      /** What kind of answer to produce: a yes/no probability, one of the given options, or a rating.
+       *
+       * * `noul` - Yes or no
+       * * `choice` - Multiple choice
+       * * `score` - Rating scale */
+      type: DecisionQuestionTypeEnum;
+      /**
+         * The question to ask about the state, phrased for the model.
+         * @maxLength 2000
+         */
+      instructions: string;
+      /** For a multiple choice question, the options keyed by name. For a rating question, the scale labels in order from lowest to highest, at least two. Omitted for a yes/no question. */
+      criteria?: DecisionQuestionCriteria;
+    }
+
+    /**
+     * The questions to ask, keyed by an id of your choice, at most 32 per request. Answers come back under the same ids.
+     */
+    export type DecideRequestQuestions = {[key: string]: DecisionQuestion};
+
+    export interface DecideRequest {
+      /**
+         * The text the questions are about, for example a support ticket or a session summary.
+         * @maxLength 65536
+         */
+      state: string;
+      /** The questions to ask, keyed by an id of your choice, at most 32 per request. Answers come back under the same ids. */
+      questions: DecideRequestQuestions;
+      /**
+         * The decision model to ask, as a gateway model id.
+         * @maxLength 200
+         */
+      model?: string;
+    }
+
+    /**
+     * For multiple choice and rating questions, the probability of each option.
+     * @nullable
+     */
+    export type DecisionAnswerProbabilities = {[key: string]: number} | null;
+
+    export interface DecisionAnswer {
+      /** The question type answered.
+       *
+       * * `noul` - Yes or no
+       * * `choice` - Multiple choice
+       * * `score` - Rating scale */
+      type: DecisionQuestionTypeEnum;
+      /**
+         * For a yes/no question, the probability of yes.
+         * @nullable
+         */
+      probability: number | null;
+      /**
+         * For a multiple choice question, the option chosen.
+         * @nullable
+         */
+      choice: string | null;
+      /**
+         * For a rating question, the expected rating.
+         * @nullable
+         */
+      score: number | null;
+      /**
+         * How far the chosen option stands out from the rest, from 0 (a coin flip) to 1.
+         * @nullable
+         */
+      confidence: number | null;
+      /**
+         * For multiple choice and rating questions, the probability of each option.
+         * @nullable
+         */
+      probabilities: DecisionAnswerProbabilities;
+    }
+
+    /**
+     * One answer per question, under the ids the request used.
+     */
+    export type DecideResponseAnswers = {[key: string]: DecisionAnswer};
+
+    export interface DecideResponse {
+      /** The model that answered, as the serving host names it. */
+      model: string;
+      /** One answer per question, under the ids the request used. */
+      answers: DecideResponseAnswers;
+      /** Tokens the model read, which is what the request is billed on. */
+      input_tokens: number;
+      /**
+         * Time the model spent answering, if reported.
+         * @nullable
+         */
+      latency_ms: number | null;
+    }
+
+    /**
      * * `rule` - rule
      * * `scope` - scope
      * * `team` - team
@@ -46140,6 +46254,19 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    export interface FileSystemHomeFolder {
+      /**
+         * The user's home folder ID, or null if deleted.
+         * @nullable
+         */
+      readonly id: string | null;
+      /**
+         * The current path of the user's home folder.
+         * @nullable
+         */
+      readonly path: string | null;
+    }
+
     export interface FileSystemShortcut {
       readonly id: string;
       /** Display path of the shortcut in the sidebar. */
@@ -53703,6 +53830,18 @@ export namespace Schemas {
      */
     export type LLMPromptListConfig = { [key: string]: unknown } | null;
 
+    export interface LLMPromptResolvedReference {
+      /** Name of the referenced prompt that was spliced in. */
+      name: string;
+      /** Exact version whose content was spliced in. */
+      version: number;
+      /**
+         * Label the reference used, or null when it pinned a version directly.
+         * @nullable
+         */
+      label: string | null;
+    }
+
     export interface LLMPromptList {
       readonly id: string;
       /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
@@ -53736,6 +53875,8 @@ export namespace Schemas {
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
       readonly all_labels: readonly LLMPromptLabelSummary[];
+      /** @nullable */
+      readonly resolved_references: readonly LLMPromptResolvedReference[] | null;
     }
 
     /**
@@ -53743,18 +53884,6 @@ export namespace Schemas {
      * @nullable
      */
     export type LLMPromptPublicConfig = { [key: string]: unknown } | null;
-
-    export interface LLMPromptResolvedReference {
-      /** Name of the referenced prompt that was spliced in. */
-      name: string;
-      /** Exact version whose content was spliced in. */
-      version: number;
-      /**
-         * Label the reference used, or null when it pinned a version directly.
-         * @nullable
-         */
-      label: string | null;
-    }
 
     export interface LLMPromptPublic {
       id: string;
@@ -104510,6 +104639,10 @@ export namespace Schemas {
 
     export type BusinessKnowledgeSourcesListParams = {
     /**
+     * Filter by who added the source: human (you added it) or learned (from a resolved support ticket).
+     */
+    added_by?: BusinessKnowledgeSourcesListAddedBy;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -104526,6 +104659,14 @@ export namespace Schemas {
      */
     source_type?: BusinessKnowledgeSourcesListSourceType;
     };
+
+    export type BusinessKnowledgeSourcesListAddedBy = typeof BusinessKnowledgeSourcesListAddedBy[keyof typeof BusinessKnowledgeSourcesListAddedBy];
+
+
+    export const BusinessKnowledgeSourcesListAddedBy = {
+      Human: 'human',
+      Learned: 'learned',
+    } as const;
 
     export type BusinessKnowledgeSourcesListSourceType = typeof BusinessKnowledgeSourcesListSourceType[keyof typeof BusinessKnowledgeSourcesListSourceType];
 
@@ -110419,6 +110560,10 @@ export namespace Schemas {
      * @minLength 1
      */
     order_by?: string;
+    /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled results with full content. Set to false to get the raw text with the reference tags.
+     */
+    resolve?: boolean;
     /**
      * Optional substring filter applied to prompt names and prompt content.
      */
