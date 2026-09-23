@@ -9,6 +9,7 @@ from posthog.dataclasses import frozen
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.timing_reschedule import parse_delay_duration_seconds
+from products.workflows.backend.utils.durations import duration_minutes
 
 MINUTES_PER_DAY = 1440
 # The ceiling the matcher clamped a legacy value to, kept here because nothing else needs it now.
@@ -19,7 +20,7 @@ MAX_LEGACY_WINDOW_MINUTES = 90 * 24 * 60
 class RewrittenWindow:
     """A conversion whose window_minutes has been respelled as a duration string."""
 
-    conversion: dict
+    conversion: dict[str, Any]
     window: str
     minutes: int
 
@@ -80,9 +81,8 @@ class Command(BaseCommand):
             conversion = flow.conversion or {}
             minutes = conversion.get("window_minutes")
             # A row that already carries a usable window was written by a client that knows the new
-            # field. A non-string one is unparseable, so the legacy value is still what it measures.
-            window = conversion.get("window")
-            if isinstance(window, str) and window:
+            # field. Anything the worker cannot read leaves the legacy value as what it measures.
+            if has_usable_window(conversion):
                 continue
             if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
                 continue
@@ -330,16 +330,28 @@ def stripped_conversion(conversion: object) -> dict[str, Any] | None:
     return {k: v for k, v in conversion.items() if k != "window_minutes"}
 
 
+def has_usable_window(conversion: dict[str, Any]) -> bool:
+    """True when conversion.window holds a window the matcher can actually read.
+
+    One rule for both passes, and the matcher's own: it honors `window` only when the shared duration
+    grammar parses it to a positive value (nodejs/src/cdp/services/hogflows/conversion-watcher.ts), so
+    a missing, non-string, unparseable or non-positive one leaves the legacy value as what the row
+    measures. Treating any of those as migrated would let the strip pass delete the only readable
+    window, which is the one outcome this change must not produce."""
+    window = conversion.get("window")
+    if not isinstance(window, str):
+        return False
+    minutes = duration_minutes(window)
+    return minutes is not None and minutes > 0
+
+
 def converted_conversion(conversion: object) -> RewrittenWindow | None:
     """The same conversion with window_minutes spelled as a duration string, or None when it must not
     be touched: already migrated, no usable value, or above the ceiling where the reading is in doubt."""
     if not isinstance(conversion, dict):
         return None
     minutes = conversion.get("window_minutes")
-    # A window that is not a string is not a window: the matcher cannot parse it and already falls
-    # through to the legacy value. Treat it as absent so that value is carried across rather than lost.
-    window = conversion.get("window")
-    if isinstance(window, str) and window:
+    if has_usable_window(conversion):
         return None
     if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
         return None
