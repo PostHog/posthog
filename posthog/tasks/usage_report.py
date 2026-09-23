@@ -48,6 +48,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.ai_observability_usage_report import LLM_PROMPT_FETCHED_EVENT
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
+from posthog.usage_counters import UsageCounter, UsageCounterService
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
 from products.batch_exports.backend.billing import exclude_non_billable_runs
@@ -2912,12 +2913,31 @@ def convert_team_usage_rows_to_dict(
     return team_id_map
 
 
+def get_usage_counter_service() -> UsageCounterService:
+    return UsageCounterService(
+        {
+            UsageCounter.CDP_INVOCATIONS: get_teams_with_cdp_billable_invocations_in_period,
+            UsageCounter.FEATURE_FLAG_REQUESTS: lambda b, e: get_teams_with_feature_flag_requests_count_in_period(
+                b, e, FlagRequestType.DECIDE
+            ),
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: lambda b, e: (
+                get_teams_with_feature_flag_requests_count_in_period(b, e, FlagRequestType.LOCAL_EVALUATION)
+            ),
+            UsageCounter.WORKFLOW_EMAILS: get_teams_with_workflow_emails_sent_in_period,
+            UsageCounter.WORKFLOW_PUSH: get_teams_with_workflow_push_sent_in_period,
+            UsageCounter.WORKFLOW_SMS: get_teams_with_workflow_sms_sent_in_period,
+            UsageCounter.WORKFLOW_INVOCATIONS: get_teams_with_workflow_billable_invocations_in_period,
+        }
+    )
+
+
 def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[str, Any]:
     """
     Gets all usage data for the specified period. Clickhouse is good at counting things so
     we count across all teams rather than doing it one by one
     """
 
+    counters = get_usage_counter_service()
     all_metrics = get_all_event_metrics_in_period(period_start, period_end)
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
     logs_records_rows = get_teams_with_logs_records_in_period(period_start, period_end)
@@ -3010,11 +3030,11 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_replay_vision_observation_count_in_period": get_teams_with_replay_vision_observation_count_in_period(
             period_start, period_end
         ),
-        "teams_with_decide_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
-            period_start, period_end, FlagRequestType.DECIDE
+        "teams_with_decide_requests_count_in_period": counters.get(
+            UsageCounter.FEATURE_FLAG_REQUESTS, period_start, period_end
         ),
-        "teams_with_local_evaluation_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
-            period_start, period_end, FlagRequestType.LOCAL_EVALUATION
+        "teams_with_local_evaluation_requests_count_in_period": counters.get(
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, period_start, period_end
         ),
         "teams_with_group_types_total": count_group_type_mappings_per_team(),
         "teams_with_dashboard_count": list(
@@ -3176,8 +3196,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_hog_function_fetch_calls_in_period": get_teams_with_hog_function_fetch_calls_in_period(
             period_start, period_end
         ),
-        "teams_with_cdp_billable_invocations_in_period": get_teams_with_cdp_billable_invocations_in_period(
-            period_start, period_end
+        "teams_with_cdp_billable_invocations_in_period": counters.get(
+            UsageCounter.CDP_INVOCATIONS, period_start, period_end
         ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
         "teams_with_ai_credits_used_in_period": get_teams_with_ai_credits_used_in_period(period_start, period_end),
@@ -3193,15 +3213,13 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_task_sandbox_memory_gib_seconds_in_period": task_sandbox_usage.memory_gib_seconds,
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
-        "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
-            period_start, period_end
+        "teams_with_workflow_emails_sent_in_period": counters.get(
+            UsageCounter.WORKFLOW_EMAILS, period_start, period_end
         ),
-        "teams_with_workflow_push_sent_in_period": get_teams_with_workflow_push_sent_in_period(
-            period_start, period_end
-        ),
-        "teams_with_workflow_sms_sent_in_period": get_teams_with_workflow_sms_sent_in_period(period_start, period_end),
-        "teams_with_workflow_billable_invocations_in_period": get_teams_with_workflow_billable_invocations_in_period(
-            period_start, period_end
+        "teams_with_workflow_push_sent_in_period": counters.get(UsageCounter.WORKFLOW_PUSH, period_start, period_end),
+        "teams_with_workflow_sms_sent_in_period": counters.get(UsageCounter.WORKFLOW_SMS, period_start, period_end),
+        "teams_with_workflow_billable_invocations_in_period": counters.get(
+            UsageCounter.WORKFLOW_INVOCATIONS, period_start, period_end
         ),
         "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
         "teams_with_logs_retention_14d_bytes_in_period": logs_retention_by_tier["14d"],

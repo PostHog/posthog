@@ -3,7 +3,7 @@ import json
 import base64
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -76,8 +76,10 @@ from posthog.tasks.usage_report import (
     has_non_zero_usage,
     send_all_org_usage_reports,
 )
+from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.usage_counters import UsageCounter, UsageCounterQuery
 from posthog.utils import get_previous_day
 
 from products.batch_exports.backend.models.batch_export import (
@@ -1989,6 +1991,14 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_2_report["teams"]["5"]["local_evaluation_requests_count_in_period"] == 0
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_period"] == 0
 
+        with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
+            for counter, expected in (
+                (UsageCounter.FEATURE_FLAG_REQUESTS, {}),
+                (UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, {3: 10, 4: 1}),
+            ):
+                query = cast(UsageCounterQuery, QUERY_INDEX[counter].fn)
+                assert {int(team_id): count for team_id, count in query(period.start, period.end)} == expected
+
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_active_hog_destinations_and_transformations_per_team(
@@ -3328,6 +3338,9 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["hog_function_fetch_calls_in_period"] == 2
         assert org_1_report["teams"]["4"]["cdp_billable_invocations_in_period"] == 3
 
+        query = cast(UsageCounterQuery, QUERY_INDEX[UsageCounter.CDP_INVOCATIONS].fn)
+        assert dict(query(period.start, period.end)) == {3: 5, 4: 3}
+
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_workflow_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
@@ -3421,6 +3434,15 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["workflow_push_sent_in_period"] == 7
         assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
         assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 19  # fetch 12, push 7
+
+        for counter, expected in (
+            (UsageCounter.WORKFLOW_EMAILS, {3: 10, 4: 15}),
+            (UsageCounter.WORKFLOW_PUSH, {3: 5, 4: 7}),
+            (UsageCounter.WORKFLOW_SMS, {3: 3, 4: 2}),
+            (UsageCounter.WORKFLOW_INVOCATIONS, {3: 13, 4: 19}),
+        ):
+            query = cast(UsageCounterQuery, QUERY_INDEX[counter].fn)
+            assert dict(query(period.start, period.end)) == expected
 
     @parameterized.expand(
         [
