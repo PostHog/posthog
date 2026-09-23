@@ -682,7 +682,9 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - name: Fetch history without file contents
-              run: git fetch --no-tags --filter=blob:none --deepen=999 origin "$GITHUB_SHA"
+              # Not --deepen: it fetches nothing once GitHub has replaced the PR's merge ref and
+              # GITHUB_SHA is no longer referenced.
+              run: git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"
             - name: Verify PR merge for test selection
               id: verify-merge
               if: github.event_name == 'pull_request'
