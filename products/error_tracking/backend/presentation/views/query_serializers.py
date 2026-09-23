@@ -164,6 +164,10 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
         return validate_filter_group(value)
 
 
+class ErrorTrackingIssueNotFoundSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the issue could not be found, and what to try next.")
+
+
 class ErrorTrackingIssueQueryRequestSerializer(serializers.Serializer):
     issueId = serializers.UUIDField(help_text="Error tracking issue ID.")
     dateRange = ErrorTrackingDateRangeSerializer(

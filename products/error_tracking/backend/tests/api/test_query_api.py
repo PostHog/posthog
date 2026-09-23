@@ -502,6 +502,57 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert empty_range_response.json()["impact"] == {}
         assert empty_range_response.json()["severity"] == "high"
         assert missing_response.status_code == 404
+        assert "issues list" in missing_response.json()["detail"]
+
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_listed_issue_opens_in_both_detail_endpoints_without_a_postgres_row(self) -> None:
+        issue = self.create_issue()
+        self.create_exception_event(properties={"$session_id": "session-id-1"})
+        flush_persons_and_events()
+        # ClickHouse keeps the issue state a deleted or merged-away Postgres row no longer covers
+        issue.delete()
+        date_range = {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}
+
+        list_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={"dateRange": date_range},
+            format="json",
+        )
+        listed_id = list_response.json()["results"][0]["id"]
+        detail_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": listed_id, "dateRange": date_range},
+            format="json",
+        )
+        events_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={"issueId": listed_id, "dateRange": date_range},
+            format="json",
+        )
+
+        assert listed_id == self.issue_id
+        assert detail_response.status_code == 200
+        assert detail_response.json()["id"] == self.issue_id
+        assert events_response.status_code == 200
+        assert events_response.json()["results"][0]["properties"]["$session_id"] == "session-id-1"
+
+    def test_issues_list_omits_rows_without_an_issue_id(self) -> None:
+        def calculate_issues(_runner: object) -> FakeQueryResponse:
+            return FakeQueryResponse(
+                {"results": [{"id": "None", "name": "TypeError"}, {"id": self.issue_id, "name": "TypeError"}]}
+            )
+
+        with patch(
+            "products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate", calculate_issues
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issues",
+                data={},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert [result["id"] for result in response.json()["results"]] == [self.issue_id]
 
     def test_issue_events_returns_404_for_foreign_issue(self) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
