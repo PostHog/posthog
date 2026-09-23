@@ -155,6 +155,23 @@ describe('ResourceCatalog', () => {
             expect(list1).toBe(list2)
         })
 
+        it('lists the Visual Review artifact source in its CSP metadata', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            const listed = catalog
+                .getResourcesList()
+                .resources.find((r) => r.uri === 'ui://posthog/visual-review-snapshots.html')
+            const uiMeta = listed?._meta?.ui as { csp?: { resourceDomains?: string[] } } | undefined
+
+            expect(uiMeta?.csp?.resourceDomains).toContain(
+                'https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/'
+            )
+        })
+
         it('revalidates context-mill resources on demand', async () => {
             vi.mocked(fetchAndExtractEntries).mockResolvedValueOnce([makeEntry('old')])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
