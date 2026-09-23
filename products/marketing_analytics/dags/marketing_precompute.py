@@ -25,11 +25,10 @@ warming them before that flag is on is wasted work. The materialization INSERT i
 warmed job is byte-identical to the one a real read would create — same query hash, same job, no
 poisoning and no access-control bypass.
 
-Reads are precompute-only, so the audience is every team that has a conversion goal AND has opened
-marketing analytics recently (query_log), keeping the rolling warm set to the active population. Cold
-teams drop out and are warmed on-demand on their next visit. The `MARKETING_PRECOMPUTE_TEAM_IDS` env
-var overrides the audience (comma-separated team IDs; set it to empty to disable warming entirely);
-`MARKETING_PRECOMPUTE_ACTIVE_DAYS` tunes the activity window.
+The audience is `MARKETING_PRECOMPUTE_TEAM_IDS`: comma-separated team IDs, empty to disable warming, or
+`auto` to warm every team that has a conversion goal AND has opened marketing analytics recently
+(query_log). Unset, it falls back to `DEFAULT_ROLLOUT_TEAM_IDS` on PostHog Cloud and to no teams
+elsewhere. `MARKETING_PRECOMPUTE_ACTIVE_DAYS` tunes the `auto` activity window.
 """
 
 import os
@@ -53,6 +52,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level, sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, check_for_concurrent_runs, chunk_ranges
 from posthog.models import Team
 from posthog.models.team.team import DEFAULT_CURRENCY
@@ -106,9 +106,12 @@ COST_MATERIALIZATION_GRAINS = (
     MarketingAnalyticsDrillDownLevel.AD,
 )
 
-# Comma-separated team IDs to warm. When set, it wins (an explicit override / kill switch: set it to
-# empty to disable warming entirely). When unset, the warmer discovers teams — see get_selected_team_ids.
+# Teams warmed on PostHog Cloud when the env var is unset. Kept to the dogfood team until the fleet-wide
+# `auto` audience is validated.
+DEFAULT_ROLLOUT_TEAM_IDS = [2]
+# Comma-separated team IDs to warm, empty to disable warming, or `auto` to discover the audience.
 SELECTED_TEAM_IDS_ENV_VAR = "MARKETING_PRECOMPUTE_TEAM_IDS"
+AUTO_AUDIENCE = "auto"
 
 # Only keep teams warm while they are actually using marketing analytics. A team that has not opened it
 # within this window drops out of the rolling warm set; its next visit reads not-ready and triggers a
@@ -176,18 +179,18 @@ def _recently_active_team_ids(days: int) -> set[int] | None:
 def get_selected_team_ids() -> list[int]:
     """Resolve which teams to warm.
 
-    Reads are precompute-only, so a team that uses marketing analytics must be kept warm or its
-    conversion-goal tiles read not-ready. The default audience is every team that both has a conversion
-    goal (`TeamMarketingAnalyticsConfig`) and has opened marketing analytics recently (query_log) — this
-    keeps the rolling warm set to the active population. Cold teams are warmed on-demand on their next
-    visit instead.
+    Unset, the env var falls back to DEFAULT_ROLLOUT_TEAM_IDS on PostHog Cloud only, so self-hosted never
+    warms unrelated teams that share those IDs. Set, it wins (even when empty, as a kill switch): a
+    comma-separated list with blank or invalid entries skipped.
 
-    The env var still wins when set (even to empty): a comma-separated override / kill switch, blank or
-    invalid entries skipped. Per-team flag and eligibility checks inside the warmer still gate what is
-    actually materialized.
+    `auto` warms every team that both has a conversion goal (`TeamMarketingAnalyticsConfig`) and has
+    opened marketing analytics recently (query_log), which keeps the rolling warm set to the active
+    population. Cold teams are warmed on-demand on their next visit instead.
     """
     raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
-    if raw is not None:
+    if raw is None:
+        return list(DEFAULT_ROLLOUT_TEAM_IDS) if is_cloud() else []
+    if raw.strip().lower() != AUTO_AUDIENCE:
         return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
 
     goal_team_ids = set(
@@ -589,8 +592,8 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
     description=(
         f"Warms the marketing analytics precompute tables ({_TOUCHPOINTS_TABLE_LABEL}, "
         f"{_CONVERSIONS_TABLE_LABEL}, {_COSTS_TABLE_LABEL}) over the trailing {PRECOMPUTE_WINDOW_DAYS} "
-        f"days for every recently-active team with a conversion goal (or the {SELECTED_TEAM_IDS_ENV_VAR} "
-        f"override), warming teams in parallel and gating per table on the same precompute flags the read "
+        f"days for the teams in the {SELECTED_TEAM_IDS_ENV_VAR} audience, warming teams in parallel and "
+        f"gating per table on the same precompute flags the read "
         f"path checks, by driving the lazy-computation framework's ensure_precomputed. Re-runs only "
         f"recompute expired windows."
     ),
