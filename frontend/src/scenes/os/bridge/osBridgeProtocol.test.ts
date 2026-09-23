@@ -82,6 +82,12 @@ describe('osBridgeProtocol', () => {
         ],
         ['a full url', envelope({ type: 'navigate', path: 'https://evil.example.com/x' }), null],
         ['a script url', envelope({ type: 'navigate', path: 'javascript:alert(1)' }), null],
+        ['a page on another host behind a tab', envelope({ type: 'navigate', path: '/\t/evil.example.com/x' }), null],
+        [
+            'a page on another host behind a newline',
+            envelope({ type: 'navigate', path: '/\n/evil.example.com/x' }),
+            null,
+        ],
         ['a frame-only message', envelope({ type: 'open-window', path: '/project/1/replay' }), null],
         ['a message from another channel', { channel: 'other', version: 1, type: 'user-changed' }, null],
         ['a message from a newer protocol', { ...envelope({ type: 'user-changed' }), version: 2 }, null],

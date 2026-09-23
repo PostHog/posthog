@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -22,7 +23,7 @@ describe('osDockLogic', () => {
     let menuBar: ReturnType<typeof osMenuBarLogic.build>
 
     const windowsAt = (path: string): string[] =>
-        osWindowsLogic.values.windows.filter((w) => w.path === path).map((w) => w.id)
+        osWindowsLogic.values.windows.filter((w) => w.path === addProjectIdIfMissing(path)).map((w) => w.id)
     const windowAt = (path: string): string => {
         const [found] = windowsAt(path)
         if (!found) {
@@ -153,6 +154,19 @@ describe('osDockLogic', () => {
 
         expect(dockKeys()).toEqual([aiObservability.key])
         expect(menuBar.values.appMenu?.app.key).toEqual(aiObservability.key)
+
+        menuBar.unmount()
+        logic.unmount()
+        initKeaTests()
+        router.actions.push(`/project/${MOCK_TEAM_ID}${urls.os()}`)
+        logic = osDockLogic()
+        logic.mount()
+        menuBar = osMenuBarLogic()
+        menuBar.mount()
+
+        expect(osWindowsLogic.values.windows.map((w) => w.id)).toEqual([id])
+        expect(dockKeys()).toEqual([aiObservability.key])
+        expect(menuBar.values.appMenu?.app.key).toEqual(aiObservability.key)
     })
 
     it('gives a page an app menu lists to that app, the same as the menu bar', () => {
@@ -191,13 +205,13 @@ describe('osDockLogic', () => {
 
         logic.actions.restoreItem('Surveys')
         expect(surveys.map((id) => state(id).minimized)).toEqual([false, false])
-        expect(osWindowsLogic.values.focusedWindow?.path).toEqual(urls.surveys())
+        expect(osWindowsLogic.values.focusedWindow?.path).toEqual(addProjectIdIfMissing(urls.surveys()))
 
         logic.actions.openItemInNewWindow('Surveys')
         expect(windowsAt(urls.surveys())).toHaveLength(3)
 
         logic.actions.closeItem('Surveys')
-        expect(osWindowsLogic.values.windows.map((w) => w.path)).toEqual([urls.featureFlags()])
+        expect(osWindowsLogic.values.windows.map((w) => w.path)).toEqual([addProjectIdIfMissing(urls.featureFlags())])
     })
 
     it('opens the App Store once, then treats it like its window', () => {
@@ -232,6 +246,6 @@ describe('osDockLogic', () => {
             post('Surveys')
         }).toDispatchActions(['openStoreApp', 'openStoreApp'])
 
-        expect(osWindowsLogic.values.windows.map((w) => w.path)).toEqual([urls.surveys()])
+        expect(osWindowsLogic.values.windows.map((w) => w.path)).toEqual([addProjectIdIfMissing(urls.surveys())])
     })
 })

@@ -14,13 +14,12 @@ With the flag off, nothing here renders.
 - A page is framed when `isOsFrame(window)` is true (`bridge/osFrame.ts`).
   An OS window names its frame with `osFrameName(windowId)`, and the frame keeps that name across navigations and reloads.
   Nothing is written to localStorage, and a framed page never renders the OS shell again.
-- `/os` (`Scene.Os`, `urls.os()`) is reserved for a design-variant prototype.
+- `/os` (`Scene.Os`, `urls.os()`) is the empty desktop.
   With the flag on it shows the desktop without a window, and otherwise it shows the not-found page.
 - The backend lets the app frame itself with `frame-ancestors 'self'` in `CSPMiddleware` (`posthog/middleware.py`).
 
-## Folder ownership
+## Folders
 
-Each folder belongs to one ticket, so parallel work does not touch the same files.
 There is no shared `osLogic`: each folder owns its own logic, and `shell/OsShell.tsx` composes them.
 
 | Folder       | Owns                                                                        | Notes                                                               |
@@ -33,22 +32,22 @@ There is no shared `osLogic`: each folder owns its own logic, and `shell/OsShell
 | `bridge/`    | Messages between a framed app and the OS, and framed-mode detection         | Always build a frame `src` with `osFrameSrc`, never from raw input. |
 | `spotlight/` | The OS spotlight: the app's command menu with results that open in windows  | See "Spotlight" below.                                              |
 
-The root files (`OsScene.tsx`, `osShellMode.ts`, this README) belong to the foundation and change only when the switch itself changes.
+The root files (`OsScene.tsx`, `osShellMode.ts`, this README) hold the switch between the regular layout and the OS shell.
 
 ## Windows
 
 `windows/osWindowsLogic` owns every open window, and `windows/OsWindowLayer` renders them in the space its parent gives it.
 Other folders open and arrange windows through the logic's actions, never through the DOM:
 
-| Action                                                    | Effect                                                                                                                                                                                      |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `openWindow(path, { newWindow, title, origin, preview })` | Focuses the window that shows `path`, or opens one. `newWindow` always opens another. `origin` is the point it zooms from. `preview` marks a new window as a preview of that App Store app. |
-| `focusWindow(id)`, `restoreWindow(id)`                    | Brings a window to the front. Both also un-minimize it.                                                                                                                                     |
-| `minimizeWindow(id)`, `closeWindow(id)`                   | Hides or closes a window. Focus goes to the next window in the stack.                                                                                                                       |
-| `maximizeWindow(id)`, `unmaximizeWindow(id)`              | Fills the desktop, or goes back to the size before the last maximize or snap.                                                                                                               |
-| `snapWindow(id, 'left' \| 'right')`                       | Fills one half of the desktop.                                                                                                                                                              |
-| `tidyUpWindows()`                                         | Arranges the visible windows in a grid, in their left-to-right order.                                                                                                                       |
-| `runWindowCommand(command)`                               | Runs a keyboard command (`osWindowShortcuts.ts`) on the focused window.                                                                                                                     |
+| Action                                                    | Effect                                                                                                                                                                                                                                                                                  |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `openWindow(path, { newWindow, title, origin, preview })` | Focuses the window that shows `path`, or opens one. A path without the project id gets the current one, so it matches the window that shows it. `newWindow` always opens another. `origin` is the point it zooms from. `preview` marks a new window as a preview of that App Store app. |
+| `focusWindow(id)`, `restoreWindow(id)`                    | Brings a window to the front. Both also un-minimize it.                                                                                                                                                                                                                                 |
+| `minimizeWindow(id)`, `closeWindow(id)`                   | Hides or closes a window. Focus goes to the next window in the stack.                                                                                                                                                                                                                   |
+| `maximizeWindow(id)`, `unmaximizeWindow(id)`              | Fills the desktop, or goes back to the size before the last maximize or snap.                                                                                                                                                                                                           |
+| `snapWindow(id, 'left' \| 'right')`                       | Fills one half of the desktop.                                                                                                                                                                                                                                                          |
+| `tidyUpWindows()`                                         | Arranges the visible windows in a grid, in their left-to-right order.                                                                                                                                                                                                                   |
+| `runWindowCommand(command)`                               | Runs a keyboard command (`osWindowShortcuts.ts`) on the focused window.                                                                                                                                                                                                                 |
 
 `windows` lists every window with its `minimized` state, and `focusedWindow` is the top window that is not minimized.
 
@@ -237,5 +236,6 @@ The dock and the App Store use it. The desktop icons stay monochrome.
 
 - `size` is `small` (28px), `medium` (44px), `large` (64px), or `custom`. The radius and the glyph scale with the tile.
 - The color is the app's `iconColor`, else the color of its icon type (`osAppIconColor`). It is the light, saturated variant in both themes, because the glyph is white.
+  The tile mixes 20% black into it, so the white glyph keeps at least 3:1 contrast on the bright colors.
 - An app without a product color, or `app={null}` without `color`, gets a graphite tile.
 - The tile is `aria-hidden`, so the button or link around it carries the name.

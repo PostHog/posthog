@@ -190,9 +190,11 @@ export const osDockLogic = kea<osDockLogicType>([
                 setPinnedAppKeys: (_, { keys }) => keys,
             },
         ],
-        // The app each window showed last, so a page that several apps could claim stays with that app.
+        // The app each window showed last, so a page that several apps could claim stays with that app, also
+        // after a reload. Window ids are random, so one stored map serves every project.
         windowAppKeys: [
             {} as Record<string, string>,
+            { persist: true },
             {
                 rememberWindowApps: (_, { appKeys }) => appKeys,
             },
@@ -324,6 +326,7 @@ export const osDockLogic = kea<osDockLogicType>([
             openWindow: rememberWindowApps,
             windowNavigated: rememberWindowApps,
             restoreLayout: rememberWindowApps,
+            closeWindow: rememberWindowApps,
             openStoreApp: ({ key }) => {
                 const app = values.knownApps.find((known: OsApp) => known.key === key)
                 if (app?.href) {

@@ -759,12 +759,25 @@ export const sceneLogic = kea<sceneLogicType>([
                 params: lastParams,
             } = selectors.lastSetScenePayload(previousState)
 
+            // Under the OS shell the scene runs in a window frame with its own copy of this logic. Mounting
+            // it here as well would run every loader and side effect twice, such as a one-time OAuth code.
+            // The frame also sends the pageview and the view log, so the page skips both.
+            const osShellHostsScene =
+                !!userLogic.values.user &&
+                osShellHostsPage({
+                    osShellEnabled: !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.OS_SHELL],
+                    framed: isOsFrame(window),
+                    sceneConfig: values.sceneConfig,
+                    organizationUnavailable: !!organizationLogic.findMounted()?.values.isCurrentOrganizationUnavailable,
+                })
+
             // Do not trigger a new pageview event when only the hashParams change
             if (
-                lastSceneId !== sceneId ||
-                lastSceneKey !== sceneKey ||
-                !equal(lastParams.params, params.params) ||
-                JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
+                !osShellHostsScene &&
+                (lastSceneId !== sceneId ||
+                    lastSceneKey !== sceneKey ||
+                    !equal(lastParams.params, params.params) ||
+                    JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams)) // `equal` crashes here
             ) {
                 const productKey = values.activeSceneProductKey
                 posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)
@@ -776,17 +789,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 // restoration: #main-content is an inner scroll container the browser won't restore.
                 scrollMainContentToTop()
             }
-
-            // Under the OS shell the scene runs in a window frame with its own copy of this logic. Mounting
-            // it here as well would run every loader and side effect twice, such as a one-time OAuth code.
-            const osShellHostsScene =
-                !!userLogic.values.user &&
-                osShellHostsPage({
-                    osShellEnabled: !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.OS_SHELL],
-                    framed: isOsFrame(window),
-                    sceneConfig: values.sceneConfig,
-                    organizationUnavailable: !!organizationLogic.findMounted()?.values.isCurrentOrganizationUnavailable,
-                })
 
             let newLogicErrored = false
             if (exportedScene?.logic && !osShellHostsScene) {
@@ -842,7 +844,10 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             const lastTracked = cache.lastTrackedScene
-            if (!lastTracked || lastTracked.sceneId !== sceneId || lastTracked.sceneKey !== sceneKey) {
+            if (
+                !osShellHostsScene &&
+                (!lastTracked || lastTracked.sceneId !== sceneId || lastTracked.sceneKey !== sceneKey)
+            ) {
                 trackFileSystemLogView({ type: 'scene', ref: sceneId })
                 cache.lastTrackedScene = { sceneId, sceneKey }
             }

@@ -1,5 +1,5 @@
 import { OS_WINDOW_SHORTCUT_KEYS, OsWindowCommand } from '../windows/osWindowShortcuts'
-import { OS_FRAME_NAME_PREFIX } from './osFrame'
+import { OS_FRAME_NAME_PREFIX, osFrameSrc } from './osFrame'
 
 // pinned: a framed app and the OS page can run different builds during a deploy, so both sides must agree
 // on these two values. Bump the version for any change a reader of the old version would get wrong.
@@ -118,9 +118,12 @@ export function parseOsHostMessage(data: unknown): OsHostMessage | null {
         case 'user-changed':
             return { type: 'user-changed' }
         case 'navigate': {
-            // Only a path on this origin: `//host/x`, `/\host/x` and full URLs would leave the app.
+            // Only a path on this origin. The parse also catches `//host/x`, `/\host/x`, and a tab or newline
+            // that the URL parser strips before it reads the host.
             const path = text(raw.path)
-            return path && /^\/(?![/\\])/.test(path) ? { type: 'navigate', path } : null
+            return path?.startsWith('/') && osFrameSrc({ pathname: path, search: '', hash: '' }, window.location.origin)
+                ? { type: 'navigate', path }
+                : null
         }
         default:
             return null

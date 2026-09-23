@@ -64,6 +64,16 @@ describe('osWindowsLogic', () => {
         expect(logic.values.focusedWindow?.path).toEqual(INSIGHTS)
     })
 
+    it('opens an app link without a project id in the current project, and focuses that window the next time', () => {
+        mountAt(REPLAY)
+
+        logic.actions.openWindow('/insights')
+        logic.actions.openWindow('/insights')
+
+        expect(logic.values.windows.map((w) => w.path)).toEqual([REPLAY, INSIGHTS])
+        expect(logic.values.focusedWindow?.path).toEqual(INSIGHTS)
+    })
+
     it('focuses the newest window and keeps the browser URL on the focused window', () => {
         mountAt(INSIGHTS)
 

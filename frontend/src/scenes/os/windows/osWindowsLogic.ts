@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { router } from 'kea-router'
 import { getRouterContext } from 'kea-router/lib/router'
 
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -161,7 +161,10 @@ function replaceAddressBar(url: string): void {
 function sanitizePath(path: string): string | null {
     try {
         // The whole input goes through `osFrameSrc` unparsed, so `//host/x` resolves to another origin and is refused.
-        return osFrameSrc({ pathname: path, search: '', hash: '' }, window.location.origin)
+        const src = osFrameSrc({ pathname: path, search: '', hash: '' }, window.location.origin)
+        // The app redirects `/insights` to `/project/<id>/insights`, so an unscoped path would never match the
+        // window that shows it, and opening the app again would add a second window.
+        return src ? addProjectIdIfMissing(src) : null
     } catch {
         return null
     }

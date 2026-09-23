@@ -10,9 +10,10 @@
 
     // The fallback sits in var() rather than on the class, because an inline color that names an
     // undefined variable would otherwise drop the whole background.
+    // The 20% black mix keeps the white glyph at 3:1 or more on the bright product colors (orange, amber, cyan).
     background:
         linear-gradient(180deg, rgb(255 255 255 / 16%) 0%, rgb(255 255 255 / 0%) 45%, rgb(0 0 0 / 22%) 100%),
-        var(--os-app-icon-color, var(--color-gray-500));
+        color-mix(in sRGB, var(--os-app-icon-color, var(--color-gray-500)) 80%, black);
 
     // The macOS icon grid rounds a tile by about 22.5% of its side, so the radius scales with every size.
     border-radius: 22.5%;
