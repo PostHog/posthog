@@ -27,6 +27,7 @@ export function ConclusionComment({ comment }: { comment: string }): JSX.Element
         <>
             <p
                 ref={textRef}
+                id="experiment-conclusion-comment-text"
                 className={clsx(
                     'metric-cell font-normal m-0 mt-1 leading-relaxed whitespace-pre-wrap break-words',
                     !isExpanded && 'max-h-36 overflow-hidden'
@@ -35,7 +36,14 @@ export function ConclusionComment({ comment }: { comment: string }): JSX.Element
                 {comment}
             </p>
             {(isOverflowing || isExpanded) && (
-                <LemonButton className="mt-1" size="xsmall" type="tertiary" onClick={() => setIsExpanded(!isExpanded)}>
+                <LemonButton
+                    className="mt-1"
+                    size="xsmall"
+                    type="tertiary"
+                    aria-expanded={isExpanded}
+                    aria-controls="experiment-conclusion-comment-text"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                >
                     {isExpanded ? 'Show less' : 'Show more'}
                 </LemonButton>
             )}
