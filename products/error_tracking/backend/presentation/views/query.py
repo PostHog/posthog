@@ -279,8 +279,9 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             map_event_row(row, columns, include_stacktrace, only_app_frames, include_code_variables)
             for row in raw_results[:limit]
         ]
-        # Sampled events prove the issue exists even when the Postgres row does not.
-        if not results and not facade_api.issue_exists_by_id(self.team.id, issue_id):
+        # Sampled events prove the issue exists even when the Postgres row does not. Past the first
+        # page an empty result means the end of the events, so it says nothing about the issue.
+        if not results and offset == 0 and not facade_api.issue_exists_by_id(self.team.id, issue_id):
             return Response(ISSUE_NOT_FOUND_PAYLOAD, status=status.HTTP_404_NOT_FOUND)
         has_more, next_offset = get_page_info(data, limit, offset)
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}

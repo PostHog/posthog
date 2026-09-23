@@ -530,11 +530,19 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
+        paged_past_end_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={"issueId": listed_id, "dateRange": date_range, "offset": 5},
+            format="json",
+        )
+
         assert listed_id == self.issue_id
         assert detail_response.status_code == 200
         assert detail_response.json()["id"] == self.issue_id
         assert events_response.status_code == 200
         assert events_response.json()["results"][0]["properties"]["$session_id"] == "session-id-1"
+        assert paged_past_end_response.status_code == 200
+        assert paged_past_end_response.json()["results"] == []
 
     def test_issues_list_omits_rows_without_an_issue_id(self) -> None:
         def calculate_issues(_runner: object) -> FakeQueryResponse:
