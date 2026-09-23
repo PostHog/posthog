@@ -269,13 +269,18 @@ The Rust reader (`rust/common/hypercache`) has an opt-in variant, deliberately m
 - Uses a short TTL (`HYPERCACHE_READ_REPAIR_TTL_SECONDS`, default 600) and does not register the entry in the expiry sorted set, so the Django refresh job stays the only owner of an entry's real lifetime. The short TTL also bounds how long a resurrected entry lingers in the `HyperCacheWriter::delete` race, where a reader that read S3 just before the delete writes the key back afterwards.
 - Is detached and best-effort: a Redis failure cannot fail a request that already has its value.
 - On an etag-enabled namespace, stamps the companion `:etag` key too, hashed from the same S3 bytes the way Django hashes it (`_compute_etag`). A payload repaired alone would keep the key warm and unrevalidatable: the reader hands out no etag, so every later poll transfers the full payload and no client can ever get a 304.
-- Writes that pair as two commands rather than one pipeline: the payload with `SET NX`, then the etag only if the payload write won. The etag overwrites any value already there, because it describes the bytes this repair installed, and an orphan etag left behind by an evicted payload would otherwise answer 304 for a version the payload no longer holds. A failed etag write leaves a payload with no etag beside it until the payload expires, which the repair TTL bounds at 600 seconds by default.
+- Writes that pair as two commands rather than one pipeline: the payload with `SET NX`, then the etag, also with `SET NX`, and only if the payload write won. Both writes have to defer to a value already there. The payload write, the `await` on it and the etag write are three steps, so an unconditional etag write would let a repair replace a writer's fresh etag with one hashed from older S3 bytes, and a client revalidating against it would get a 304 for content the payload no longer holds. A failed etag write leaves a payload with no etag beside it until the payload expires, which the repair TTL bounds at 600 seconds by default.
 
-Enabled by default for the readers with no in-process cache in front of them: both `feature_flags` readers and `array/config.json` in the feature-flags service, and `surveys` and `array/config.json` in hypercache-server. `team_metadata` is excluded: a hit there is trusted as proof of a valid token with no Postgres re-check, and team deletion clears Redis before S3, so a repair landing in that gap would resurrect a deleted team in Redis for up to the repair TTL.
+Enabled by default for the readers with no in-process cache in front of them: `array/config.json` in the feature-flags service, and `surveys` and `array/config.json` in hypercache-server.
+
+`feature_flags`/`flags_with_cohorts.json`, the reader behind `/flags/definitions`, has its own gate (`FLAG_DEFINITIONS_READ_REPAIR_ENABLED`, default off) rather than riding the shared TTL env var, which is non-zero by default. The gate lets the etag repair ramp on one reader at a time.
+
+`feature_flags`/`flags.json` is excluded: `FlagDefinitionsCache` absorbs repeat reads of a cold key in process, so the S3 reads a repair would save are already collapsed to one per pod per version. `team_metadata` is excluded too: a hit there is trusted as proof of a valid token with no Postgres re-check, and team deletion clears Redis before S3, so a repair landing in that gap would resurrect a deleted team in Redis for up to the repair TTL.
 
 Operational controls:
 
 - `HYPERCACHE_READ_REPAIR_TTL_SECONDS=0` disables repair for a service without a code change. The deployment charts pass arbitrary env vars through `.Values.env`, so no chart change is needed.
+- `FLAG_DEFINITIONS_READ_REPAIR_ENABLED=true` turns on the `/flags/definitions` repair. `HYPERCACHE_READ_REPAIR_TTL_SECONDS=0` and `SKIP_WRITES` still override it.
 - In the feature-flags service, `SKIP_WRITES=true` also disables repair, keeping read-only instances read-only.
 - The `posthog_hypercache_read_repair` counter tracks repair outcomes. A sustained high repair rate means keys are repeatedly going cold (eviction, expiry outpacing the refresh job), which the S3 read rate alone no longer shows because repair suppresses it.
 
@@ -316,7 +321,7 @@ ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stal
 
 `hit`, `miss`, and `none` partition every request. The two failure labels sit on top of that partition, and do not slice it. A failed ETag read increments `redis_missing` or `redis_error`, then falls through and increments `none` or `miss` as well. So read a failure label as a ratio over `hit + miss + none`, and never as a share of a stacked total. Stacked, the total exceeds the request rate, and `none` climbs in step with `redis_missing` for the same underlying cause.
 
-Read repair result labels: `success`, `skipped` (payload key already existed, repair deferred to it), `error`. The `key` label separates the payload write (`payload`) from the companion etag write (`etag`), which only an etag-enabled namespace emits. The etag write overwrites, so it never reports `skipped`.
+Read repair result labels: `success`, `skipped` (the key already existed, repair deferred to it), `error`. The `key` label separates the payload write (`payload`) from the companion etag write (`etag`), which only an etag-enabled namespace emits. An etag write is attempted only after a payload write reported `success`, so `key="etag"` counts are a subset of the payload successes.
 
 `skipped` also covers replica lag: reads go to the replica and repairs to the primary, so a key written to the primary but not yet replicated reads as cold and its repair is correctly refused.
 
@@ -403,17 +408,23 @@ state through those polls: the 304 returns before the payload lookup, so no read
 no repair runs. Only a poll that sends no ETag, or a stale one, reaches the payload, misses, and
 rewarms both keys. A team whose polls all match therefore stays in this state with repair fully
 on, until the ETag key expires too or the writer rewrites the pair on the team's next flag change
-or TTL refresh. Repair that is off (`HYPERCACHE_READ_REPAIR_TTL_SECONDS=0` or `SKIP_WRITES`), or
-an absent S3 copy, holds a team there as well; rebuild it with `update_flag_caches`.
+or TTL refresh. Repair that is off (`FLAG_DEFINITIONS_READ_REPAIR_ENABLED` unset,
+`HYPERCACHE_READ_REPAIR_TTL_SECONDS=0` or `SKIP_WRITES`), or an absent S3 copy, holds a team
+there as well; rebuild it with `update_flag_caches`.
 
 An absent ETag beside a present payload serves a 200 with the full payload on every poll, so
 it writes no `source="s3"` record and raises no alert. `redis_missing` climbing with no matching
 rise in S3 reads is that state. It does not repair itself: the payload hit never reaches S3, so
 read repair never runs, and `verify_team_flag_definitions` compares the payload only, so the
 hourly verifier reads the team as clean and the ETag stays missing until the team's next flag
-change or its TTL refresh. An absent ETag beside an absent payload is the other reading, and
-that one does clear itself: the S3 hit repairs both keys, so the next poll carries a validator. The counter carries no `team_id`,
-so set `TEAM_IDS_TO_TRACK` to name a suspected team, or rebuild with `update_flag_caches`.
+change or its TTL refresh.
+
+An absent ETag beside an absent payload is the other reading of the same `redis_missing` rise,
+and that one clears itself once `FLAG_DEFINITIONS_READ_REPAIR_ENABLED` is on: the S3 hit repairs
+both keys, so the next poll carries a validator. With the gate off it behaves like the state
+above and holds until the writer touches the team. Separate the two readings by the S3 read
+rate, which only the absent-payload one raises. The counter carries no `team_id`, so set
+`TEAM_IDS_TO_TRACK` to name a suspected team, or rebuild with `update_flag_caches`.
 
 Absent on the replica of the cluster the reader served, and present on that cluster's primary,
 is replication lag rather than a lost entry.
@@ -425,10 +436,11 @@ mirror rather than to the writer. Absent everywhere means the entry was never bu
 aged out; rebuild it with `update_flag_caches` and look at step 3.
 
 A shared copy that is absent while the dedicated copy is present comes back only through a pod
-whose reader serves the shared endpoint. That pod misses, reads S3, and repairs the shared
-primary, so the copy returns with the repair TTL and ages out again. A pod on the dedicated
-endpoint gets a fresh hit, so no read of its reaches S3 and nothing rewarms the shared copy
-through it. The hourly verifier reads only the primary, and the refresh task selects teams by an
+whose reader serves the shared endpoint, and only with `FLAG_DEFINITIONS_READ_REPAIR_ENABLED` on.
+That pod misses, reads S3, and repairs the shared primary, so the copy returns with the repair
+TTL and ages out again. A pod on the dedicated endpoint gets a fresh hit, so no read of its
+reaches S3 and nothing rewarms the shared copy through it. With the gate off, nothing rewarms it
+at all. The hourly verifier reads only the primary, and the refresh task selects teams by an
 expiry score stamped from the primary, so a team whose dedicated entry is fresh is never
 revisited. The shared copy stays short-lived until the team's next flag change, or until the
 primary entry nears its TTL. `update_flag_caches` writes both tiers and ends it sooner.
