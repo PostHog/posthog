@@ -114,7 +114,7 @@ BUFFERED_BEFORE_KEY = "cdc_buffered_before"
 
 
 def buffered_lane_candidate(schema: ExternalDataSchema) -> bool:
-    """Whether the flip command may move this schema to the buffer: streaming, seeded, with lanes."""
+    """Streaming, seeded, and in a table mode with lanes."""
     return bool(
         schema.is_cdc
         and schema.cdc_mode == "streaming"
@@ -124,12 +124,7 @@ def buffered_lane_candidate(schema: ExternalDataSchema) -> bool:
 
 
 def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
-    """Schema-side conditions for buffered ingress; the source's `ingest_mode` is the other half.
-
-    No per-schema opt-in: a schema added to a buffered source, or one on a source created
-    buffered, has nothing that would write one, so requiring it would keep that schema's history
-    modes on the legacy lane.
-    """
+    """Schema-side conditions for buffered ingress; the source's `ingest_mode` is the other half."""
     return buffered_lane_candidate(schema)
 
 

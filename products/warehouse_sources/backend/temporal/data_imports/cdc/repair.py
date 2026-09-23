@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter
+from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import purge_buffer_prefix
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
 
 logger = structlog.get_logger(__name__)
@@ -124,6 +125,17 @@ def _repair_locked(source: ExternalDataSource) -> int:
     source.job_inputs = {**(source.job_inputs or {}), **resource_fields}
     source.status = ExternalDataSource.Status.RUNNING
     source.save(update_fields=["job_inputs", "status", "updated_at"])
+
+    # Includes CDC tables with sync off: they keep their streaming state, so turning one back on
+    # on a self-managed source consumes its buffer without a new snapshot.
+    for schema_id in (
+        ExternalDataSchema.objects.filter(
+            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC
+        )
+        .exclude(deleted=True)
+        .values_list("id", flat=True)
+    ):
+        purge_buffer_prefix(source.team_id, str(schema_id), log, strict=True)
 
     _resume_schedules(source, cdc_schemas)
 
