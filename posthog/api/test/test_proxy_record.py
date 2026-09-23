@@ -4,7 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.db import DatabaseError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -47,6 +47,7 @@ class TestProxyRecordUpdateSerializer(SimpleTestCase):
         assert "example.co.uk" in serializer.errors["root_redirect_url"][0]
 
 
+@override_settings(PROXY_BASE_CNAME="proxy.example.net")
 class TestProxyRecordAPI(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
@@ -378,6 +379,39 @@ class TestProxyRecordAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert not ProxyRecord.objects.filter(organization=self.organization, domain="fail.example.com").exists()
+
+    @override_settings(PROXY_BASE_CNAME="", CLOUDFLARE_PROXY_ENABLED=False)
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_create_refuses_when_the_proxy_infrastructure_is_not_configured(self, mock_sync_connect):
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/",
+            {"domain": "selfhosted.example.com"},
+        )
+
+        assert response.status_code == status.HTTP_501_NOT_IMPLEMENTED
+        assert "not available on this PostHog instance" in response.json()["detail"]
+        assert not ProxyRecord.objects.filter(organization=self.organization).exists()
+        mock_sync_connect.assert_not_called()
+
+    @override_settings(PROXY_BASE_CNAME="", CLOUDFLARE_PROXY_ENABLED=False)
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_retry_refuses_when_the_proxy_infrastructure_is_not_configured(self, mock_sync_connect):
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="selfhosted.example.com",
+            target_cname="abc123.proxy.example.net",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/retry/",
+        )
+
+        assert response.status_code == status.HTTP_501_NOT_IMPLEMENTED
+        record.refresh_from_db()
+        assert record.status == ProxyRecord.Status.ERRORING
+        mock_sync_connect.assert_not_called()
 
     def test_non_admin_cannot_create_proxy_record(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
