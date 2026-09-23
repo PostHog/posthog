@@ -54,7 +54,6 @@ from products.tasks.backend.logic.services.sandbox import (
     wait_for_health_check,
 )
 from products.tasks.backend.logic.services.sandbox_wedge import (
-    describe_exit_code,
     increment_sandbox_wedge_probe,
     killing_signal_name,
     probe_sandbox_wedge,
@@ -296,7 +295,7 @@ class AgentServerLaunchMixin(SandboxBase):
         raise SandboxExecutionError(
             "Failed to write required sandbox file",
             context,
-            cause=RuntimeError(f"write_file returned {describe_exit_code(result.exit_code)} during {write_stage}"),
+            cause=RuntimeError(f"write_file returned {result.exit_code} during {write_stage}"),
         )
 
     def _build_agent_server_command(

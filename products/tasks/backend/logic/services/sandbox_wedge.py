@@ -41,11 +41,6 @@ def killing_signal_name(exit_code: int) -> str | None:
         return None
 
 
-def describe_exit_code(exit_code: int) -> str:
-    signal_name = killing_signal_name(exit_code)
-    return f"{exit_code} ({signal_name})" if signal_name else str(exit_code)
-
-
 def _probe_value_as_int(probe: dict[str, str], key: str) -> int | None:
     try:
         return int(probe[key])

@@ -1,25 +1,20 @@
 import pytest
 
-from products.tasks.backend.logic.services.sandbox_wedge import (
-    describe_exit_code,
-    killing_signal_name,
-    sandbox_wedge_verdict,
-)
+from products.tasks.backend.logic.services.sandbox_wedge import killing_signal_name, sandbox_wedge_verdict
 
 
 @pytest.mark.parametrize(
-    "exit_code,expected_signal,expected_description",
+    "exit_code,expected_signal",
     [
-        (1, None, "1"),
-        (128, None, "128"),
-        (137, "SIGKILL", "137 (SIGKILL)"),
-        (143, "SIGTERM", "143 (SIGTERM)"),
-        (300, None, "300"),
+        (1, None),
+        (128, None),
+        (137, "SIGKILL"),
+        (143, "SIGTERM"),
+        (300, None),
     ],
 )
-def test_signal_classification(exit_code, expected_signal, expected_description):
+def test_signal_classification(exit_code, expected_signal):
     assert killing_signal_name(exit_code) == expected_signal
-    assert describe_exit_code(exit_code) == expected_description
 
 
 @pytest.mark.parametrize(
