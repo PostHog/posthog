@@ -23,6 +23,7 @@ import re
 import json
 import textwrap
 from datetime import date
+from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone as django_timezone
@@ -37,7 +38,10 @@ from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.labeling import build_target_condition
 from products.autoresearch.backend.inference.sandbox import _resolve_acting_user
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
-from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade import (
+    api as tasks_facade,
+    cancellation as tasks_cancellation,
+)
 from products.tasks.backend.facade.sandbox import SandboxTemplate
 
 logger = structlog.get_logger(__name__)
@@ -551,6 +555,15 @@ def build_agent_description(
     return prompt
 
 
+def _cancel_dispatched_task_run(task_run_id: UUID, task_id: UUID, *, team_id: int) -> None:
+    try:
+        tasks_cancellation.cancel_task_run(
+            task_run_id, task_id, team_id, reason="Autoresearch training launch failed", source="autoresearch"
+        )
+    except Exception:
+        logger.exception("autoresearch_training_cancel_failed", task_run_id=str(task_run_id))
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 
@@ -598,6 +611,7 @@ def run_training(
             pipeline.status = AutoresearchPipeline.Status.BOOTSTRAPPING
             pipeline.save(update_fields=["status", "updated_at"])
 
+    dispatched: tuple[UUID, UUID] | None = None
     try:
         pending_suggestions = list(
             AutoresearchSuggestion.objects.filter(
@@ -642,6 +656,7 @@ def run_training(
         task_run = task.latest_run
         if not task_run:
             raise RuntimeError("create_and_run_task() did not produce a TaskRun")
+        dispatched = (task_run.id, task.task_id)
 
         # Bind the run to its TaskRun before the state marker exists: ingestion refuses a
         # marker whose run is not bound to the finishing TaskRun, so a terminal save that
@@ -678,6 +693,10 @@ def run_training(
             error="Failed to launch training task",
         )
         training_run.refresh_from_db(fields=["status", "completed_at", "error"])
+        # A run that failed after dispatch would otherwise keep a paid sandbox working until its
+        # timeout, with every write refused because the training run is no longer RUNNING.
+        if dispatched is not None and training_run.status == AutoresearchTrainingRun.Status.FAILED:
+            _cancel_dispatched_task_run(*dispatched, team_id=pipeline.team_id)
         # The bootstrap never got off the ground — drop back to DRAFT so the pipeline
         # doesn't sit in BOOTSTRAPPING forever with no run behind it. The update is
         # conditional on the row, because a concurrent run may have promoted it since.

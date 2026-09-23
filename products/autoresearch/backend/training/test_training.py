@@ -184,6 +184,20 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
         self.pipeline.refresh_from_db()
         assert self.pipeline.status == AutoresearchPipeline.Status.DRAFT
 
+    @patch("products.autoresearch.backend.training.runner.tasks_cancellation")
+    def test_a_failure_after_dispatch_cancels_the_task_run(self, cancellation: MagicMock, facade: MagicMock) -> None:
+        self._dispatched(facade)
+        facade.task_run_is_terminal.side_effect = RuntimeError("lookup failed")
+
+        with self.assertRaises(RuntimeError):
+            run_training(self.pipeline, iteration_budget=5, user_id=self.user.id)
+
+        task_run_id = facade.create_and_run_task.return_value.latest_run.id
+        assert cancellation.cancel_task_run.call_args.args[0] == task_run_id
+        assert (
+            AutoresearchTrainingRun.objects.get(pipeline=self.pipeline).status == AutoresearchTrainingRun.Status.FAILED
+        )
+
     def test_a_run_the_completion_handler_already_finalized_keeps_its_outcome(self, facade: MagicMock) -> None:
         self._dispatched(facade)
 
