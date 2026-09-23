@@ -1635,7 +1635,6 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
 @override_settings(
     SCOUT_LIVE_TRIALS_ENABLED=True,
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
-    SCOUT_LIVE_TRIALS_GATEWAY_URL="https://gateway.example.com",
 )
 async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_scout(
     ateam: Team, aerrors_skill: LLMSkill, atrial_operator: User, runtime_drift: bool

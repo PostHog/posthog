@@ -65,33 +65,34 @@ class GatewayNotConfiguredError(ValueError):
     """
 
 
-_private_scout_gateway_url: ContextVar[str | None] = ContextVar("private_scout_gateway_url", default=None)
+_private_scout_gateway_token: ContextVar[str | None] = ContextVar("private_scout_gateway_token", default=None)
 
 
-def get_private_scout_gateway_url() -> str:
-    url = getattr(settings, "SCOUT_LIVE_TRIALS_GATEWAY_URL", "")
-    if not getattr(settings, "SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", False) or not url:
-        raise GatewayNotConfiguredError("A private capture gateway must be configured for scout trials")
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
-        raise GatewayNotConfiguredError("The private scout gateway must have an HTTP or HTTPS URL without credentials")
-    if parsed.query or parsed.fragment:
-        raise GatewayNotConfiguredError("The private scout gateway URL must not contain a query or fragment")
-    return url.rstrip("/")
+def ensure_scout_trial_capture_ready() -> None:
+    if not getattr(settings, "SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", False):
+        raise GatewayNotConfiguredError("Scout trial capture suppression must be enabled on the Python gateway")
 
 
 @contextmanager
-def private_scout_gateway() -> Iterator[None]:
-    token = _private_scout_gateway_url.set(get_private_scout_gateway_url())
+def private_scout_gateway(api_key: str) -> Iterator[None]:
+    ensure_scout_trial_capture_ready()
+    if not api_key or not settings.LLM_GATEWAY_URL:
+        raise GatewayNotConfiguredError("Scout trials require LLM_GATEWAY_URL and a trial OAuth credential")
+    token = _private_scout_gateway_token.set(api_key)
     try:
         with private_capture_context():
             yield
     finally:
-        _private_scout_gateway_url.reset(token)
+        _private_scout_gateway_token.reset(token)
 
 
-def _python_gateway_url() -> str:
-    return _private_scout_gateway_url.get() or settings.LLM_GATEWAY_URL
+def _python_gateway_api_key(product: Product, api_key: str | None = None) -> str:
+    trial_token = _private_scout_gateway_token.get()
+    if trial_token is not None:
+        if product != "signals":
+            raise GatewayNotConfiguredError("Scout trial credentials are restricted to the signals product")
+        return trial_token
+    return api_key or settings.LLM_GATEWAY_API_KEY
 
 
 def get_llm_client(
@@ -152,8 +153,8 @@ def get_llm_client(
         default_headers: Optional headers sent with every request. Product-owned headers such as
             team attribution override values supplied here.
     """
-    resolved_api_key = api_key or settings.LLM_GATEWAY_API_KEY
-    gateway_url = _python_gateway_url()
+    resolved_api_key = _python_gateway_api_key(product, api_key)
+    gateway_url = settings.LLM_GATEWAY_URL
     if not gateway_url or not resolved_api_key:
         raise GatewayNotConfiguredError("LLM_GATEWAY_URL and an API key must be configured")
 
@@ -179,8 +180,9 @@ def get_async_llm_client(
     Async variant of `get_llm_client`. See `get_llm_client` for the rationale on `team_id`
     attribution and how to attach extra per-call event properties.
     """
-    gateway_url = _python_gateway_url()
-    if not gateway_url or not settings.LLM_GATEWAY_API_KEY:
+    gateway_url = settings.LLM_GATEWAY_URL
+    resolved_api_key = _python_gateway_api_key(product)
+    if not gateway_url or not resolved_api_key:
         raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
     base_url = f"{gateway_url.rstrip('/')}/{product}/v1"
@@ -190,7 +192,7 @@ def get_async_llm_client(
 
     return AsyncOpenAI(
         base_url=base_url,
-        api_key=settings.LLM_GATEWAY_API_KEY,
+        api_key=resolved_api_key,
         default_headers=headers or None,
         http_client=httpx.AsyncClient(trust_env=False),
     )
@@ -224,8 +226,9 @@ def get_async_anthropic_gateway_client(
     returns a 5xx/429 (or its circuit breaker is open) the gateway retries the request against
     Bedrock instead of failing. Sent as the `x-posthog-use-bedrock-fallback` default header.
     """
-    gateway_url = _python_gateway_url()
-    if not gateway_url or not settings.LLM_GATEWAY_API_KEY:
+    gateway_url = settings.LLM_GATEWAY_URL
+    resolved_api_key = _python_gateway_api_key(product)
+    if not gateway_url or not resolved_api_key:
         raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
     default_headers = _team_id_header(team_id) if team_id is not None else {}
@@ -235,7 +238,7 @@ def get_async_anthropic_gateway_client(
     base_url = f"{gateway_url.rstrip('/')}/{product}"
     return AsyncAnthropic(
         base_url=base_url,
-        api_key=settings.LLM_GATEWAY_API_KEY,
+        api_key=resolved_api_key,
         default_headers=default_headers or None,
         http_client=httpx.AsyncClient(trust_env=False),
     )
@@ -248,8 +251,9 @@ def get_anthropic_gateway_client(
     default_headers: Mapping[str, str] | None = None,
 ) -> Anthropic:
     """Synchronous variant of :func:`get_async_anthropic_gateway_client`."""
-    gateway_url = _python_gateway_url()
-    if not gateway_url or not settings.LLM_GATEWAY_API_KEY:
+    gateway_url = settings.LLM_GATEWAY_URL
+    resolved_api_key = _python_gateway_api_key(product)
+    if not gateway_url or not resolved_api_key:
         raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
     headers = dict(default_headers or {})
@@ -261,7 +265,7 @@ def get_anthropic_gateway_client(
     base_url = f"{gateway_url.rstrip('/')}/{product}"
     return Anthropic(
         base_url=base_url,
-        api_key=settings.LLM_GATEWAY_API_KEY,
+        api_key=resolved_api_key,
         default_headers=headers or None,
         http_client=httpx.Client(trust_env=False),
     )
@@ -291,7 +295,7 @@ def resolve_ai_gateway_config() -> AIGatewayConfig | None:
     falls back to the current flow rather than failing the call (the fallback comes out once
     rollout completes).
     """
-    if _private_scout_gateway_url.get() is not None:
+    if _private_scout_gateway_token.get() is not None:
         return None
     url, api_key = settings.AI_GATEWAY_URL, settings.AI_GATEWAY_API_KEY
     if not (url or api_key):

@@ -25,12 +25,18 @@ The legacy SQL evaluation path in `ee/hogai/eval/offline/` has a separate report
 
 Live scout trials use the production scout harness and live project reads, with private memory changes and captured reports.
 They do not use the offline evaluation reporter or its `no_send_logs` switch.
-Launches are disabled unless `SCOUT_LIVE_TRIALS_ENABLED`, `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE`, and `SCOUT_LIVE_TRIALS_GATEWAY_URL` are configured.
-The private-capture setting attests that the selected gateway and query/task data destinations are isolated from the project the scouts inspect.
-Use a dedicated gateway with its PostHog capture token empty; also check warehouse replicas before enabling trials on a deployment.
-Use a hostname reachable from the sandbox for the gateway URL.
-The configured hostname joins the sandbox network policy; local Docker sandboxes translate localhost gateway URLs to `host.docker.internal`.
-Rate limits still apply, but shared generation events cannot supply trial costs when capture is disabled.
+Launches are disabled unless `SCOUT_LIVE_TRIALS_ENABLED` and `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE` are enabled.
+Trials use the existing Python model gateway through the normal `LLM_GATEWAY_URL` and `SANDBOX_LLM_GATEWAY_URL` settings.
+No additional gateway service or capture destination is required.
+The gateway identifies trial requests from server-minted, task-bound Signals OAuth credentials and suppresses their generation, exception, and rate-limit denial events.
+Backend report validation uses a short-lived credential with only gateway access and the experiment identity; it is revoked after the operation.
+Ordinary gateway requests keep their capture behavior, and trial requests retain cost and rate-limit checks.
+
+Deploy the gateway change before enabling trials on the backend and workers.
+`SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE` attests that the deployed gateway supports this policy and that query/task telemetry and warehouse replicas do not expose trial content to the project the scouts inspect.
+This setting does not configure or detect gateway support automatically.
+Trials keep the Python route and reject subscription credentials; the Go migration requires the same capture policy and support for the selected models.
+Shared generation events cannot supply trial costs when capture is suppressed.
 Results report unknown cost as null and retain runtime token counts when available.
 Trial credentials can upload logs and update the summary, status, and usage of their own verified run without general task-write access.
 Operator trial MCP tools also omit analytics payloads.

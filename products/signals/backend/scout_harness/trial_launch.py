@@ -131,10 +131,8 @@ def trial_capabilities(config: SignalScoutConfig) -> dict[str, JsonValue]:
 def assert_trial_environment_ready() -> None:
     if not getattr(settings, "SCOUT_LIVE_TRIALS_ENABLED", False):
         raise ScoutTrialLaunchError("Live scout trials are not enabled on this deployment.")
-    if not getattr(settings, "SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", False) or not getattr(
-        settings, "SCOUT_LIVE_TRIALS_GATEWAY_URL", ""
-    ):
-        raise ScoutTrialLaunchError("Live scout trials require a verified private model capture path.")
+    if not getattr(settings, "SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", False):
+        raise ScoutTrialLaunchError("Live scout trials require verified gateway capture suppression.")
 
 
 def load_trial_context(team_id: int, context_id: UUID | str) -> TrialContext:

@@ -41,6 +41,7 @@ from asgiref.sync import async_to_sync
 from pydantic import JsonValue, ValidationError
 
 from posthog.api.capture import capture_internal
+from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.git import extract_linked_repo
@@ -100,6 +101,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     remediation_for_skip,
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH
+from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_report import (
     INFERRED_REPOSITORY_REASON,
     MAX_REPORT_SIGNALS,
@@ -373,8 +375,13 @@ def _private_report_gateway(function: Callable[_Parameters, _Return]) -> Callabl
         run = kwargs.get("run")
         if not isinstance(run, SignalScoutRun) or _trial_store(run) is None:
             return function(*args, **kwargs)
-        with private_scout_gateway():
-            return function(*args, **kwargs)
+        with private_capture_context():
+            token = create_trial_gateway_token(run)
+            try:
+                with private_scout_gateway(token):
+                    return function(*args, **kwargs)
+            finally:
+                revoke_trial_gateway_token(token)
 
     return wrapped
 
@@ -387,8 +394,13 @@ def _private_report_gateway_async(
         run = kwargs.get("run")
         if not isinstance(run, SignalScoutRun) or _trial_store(run) is None:
             return await function(*args, **kwargs)
-        with private_scout_gateway():
-            return await function(*args, **kwargs)
+        with private_capture_context():
+            token = await database_sync_to_async(create_trial_gateway_token, thread_sensitive=False)(run)
+            try:
+                with private_scout_gateway(token):
+                    return await function(*args, **kwargs)
+            finally:
+                await database_sync_to_async(revoke_trial_gateway_token, thread_sensitive=False)(token)
 
     return wrapped
 

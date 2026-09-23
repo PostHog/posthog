@@ -5,7 +5,6 @@ from posthog.settings.utils import get_list, get_set
 
 SCOUT_LIVE_TRIALS_ENABLED = os.getenv("SCOUT_LIVE_TRIALS_ENABLED", "false").lower() == "true"
 SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE = os.getenv("SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", "false").lower() == "true"
-SCOUT_LIVE_TRIALS_GATEWAY_URL = os.getenv("SCOUT_LIVE_TRIALS_GATEWAY_URL", "")
 
 # Signs the per-delivery map of already-rendered chart assets that scout Slack delivery keeps in the
 # shared Redis, so a process able to write that Redis cannot swap in another asset id. Dedicated and

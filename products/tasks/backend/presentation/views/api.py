@@ -1680,7 +1680,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if self.action not in {"append_log", "set_summary", "update", "partial_update"}:
             return None
         scopes = get_authenticator_scopes(request.successful_authenticator) or []
-        if "scout_experiment_internal:read" in scopes and (
+        if {"task:read", "scout_experiment_internal:read"}.issubset(scopes) and (
             self.action in {"append_log", "set_summary"} or self._is_trial_lifecycle_update(request.data)
         ):
             task_id = self._task_id()
@@ -1694,7 +1694,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
 
                 if is_scout_trial_task_run(team_id=self.team_id, task_id=UUID(task_id), task_run_id=run_id):
-                    return ["scout_experiment_internal:read"]
+                    return ["task:read", "scout_experiment_internal:read"]
         return ["task:write"]
 
     def get_serializer_context(self):

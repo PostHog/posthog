@@ -9,6 +9,7 @@ from posthoganalytics import Posthog
 
 from llm_gateway.auth.models import resolve_distinct_id
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
+from llm_gateway.request_context import is_private_scout_request
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +27,8 @@ class PosthogDenialCapturer:
 
     def __call__(self, context: ThrottleContext, result: ThrottleResult, scope: str) -> None:
         auth_user = context.user
+        if is_private_scout_request(auth_user, context.product):
+            return
         distinct_id = resolve_distinct_id(auth_user, context.end_user_id)
 
         properties: dict[str, Any] = {

@@ -21,14 +21,14 @@ from products.tasks.backend.logic.services.network_policy import (
 
 @parameterized.expand(
     [
-        ("production", False, "https://private-gateway.example.com", "private-gateway.example.com", 443),
-        ("local", True, "http://localhost:13308", "host.docker.internal", 13308),
+        ("production", False, "https://gateway.example.com", "gateway.example.com", 443),
+        ("local", True, "http://localhost:3308", "host.docker.internal", 3308),
     ]
 )
-def test_configured_private_gateway_reaches_sandbox_policy(
+def test_configured_gateway_reaches_sandbox_policy(
     _name: str, debug: bool, gateway_url: str, host: str, port: int
 ) -> None:
-    with override_settings(DEBUG=debug, SCOUT_LIVE_TRIALS_GATEWAY_URL=gateway_url):
+    with override_settings(DEBUG=debug, SANDBOX_LLM_GATEWAY_URL=gateway_url):
         policy = compile_network_policy(
             [],
             infrastructure_domains=enforced_egress_domains(),

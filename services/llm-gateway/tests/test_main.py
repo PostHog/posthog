@@ -2,7 +2,7 @@ import os
 
 import pytest
 import structlog
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 from starlette.requests import ClientDisconnect
 from structlog.testing import capture_logs
@@ -158,11 +158,12 @@ class TestExportProviderCredentials:
         assert os.environ["OPENAI_BASE_URL"] == "https://eu.api.openai.com/v1"
 
 
-def _middleware_test_client() -> TestClient:
+def _middleware_test_client(private_scout: bool = False, raise_server_exceptions: bool = False) -> TestClient:
     app = FastAPI()
     app.add_middleware(RequestLoggingMiddleware)
 
-    def refuse_to_read_postgres() -> None:
+    def refuse_to_read_postgres(request: Request) -> None:
+        request.state.private_scout_capture = private_scout
         raise RuntimeError("permission denied for table posthog_team")
 
     @app.get("/ok")
@@ -180,7 +181,7 @@ def _middleware_test_client() -> TestClient:
     def disconnects() -> dict[str, bool]:
         return {"ok": True}
 
-    return TestClient(app, raise_server_exceptions=False)
+    return TestClient(app, raise_server_exceptions=raise_server_exceptions)
 
 
 class TestRequestLoggingMiddleware:
@@ -198,11 +199,17 @@ class TestRequestLoggingMiddleware:
             ("/raises", 500),
         ]
 
-    def test_unhandled_exception_is_logged_at_error_level_with_its_traceback(self) -> None:
-        client = _middleware_test_client()
+    @pytest.mark.parametrize("private_scout", [False, True])
+    def test_unhandled_exception_is_logged_at_error_level_with_its_traceback(self, private_scout: bool) -> None:
+        client = _middleware_test_client(private_scout=private_scout, raise_server_exceptions=private_scout)
 
         with capture_logs(processors=[structlog.contextvars.merge_contextvars]) as logs:
-            client.get("/raises")
+            if private_scout:
+                with pytest.raises(RuntimeError, match="^Gateway request failed$") as raised:
+                    client.get("/raises")
+                assert raised.value.__suppress_context__
+            else:
+                client.get("/raises")
 
         errors = [log for log in logs if log["event"] == "unhandled_exception"]
         assert len(errors) == 1
@@ -210,7 +217,10 @@ class TestRequestLoggingMiddleware:
         assert errors[0]["method"] == "GET"
         assert errors[0]["path"] == "/raises"
         assert errors[0]["error_type"] == "RuntimeError"
-        assert "permission denied for table posthog_team" in errors[0]["exception"]
+        if private_scout:
+            assert errors[0]["exception"] is None
+        else:
+            assert "permission denied for table posthog_team" in errors[0]["exception"]
 
         request_lines = [log for log in logs if log["event"] == "request"]
         assert errors[0]["request_id"] == request_lines[0]["request_id"]

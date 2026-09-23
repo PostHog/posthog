@@ -34,6 +34,9 @@ from llm_gateway.rate_limiting.throttles import ThrottleContext, is_usage_unlimi
 from llm_gateway.request_context import (
     extract_posthog_provider_from_headers,
     get_request_id,
+    is_private_scout_request,
+    rebuild_request_context,
+    set_auth_user,
     set_throttle_context,
 )
 from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
@@ -169,6 +172,9 @@ async def enforce_product_access(
             denial["reason"] = "product_retired"
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": denial})
 
+    rebuild_request_context(product)
+    set_auth_user(user)
+    request.state.private_scout_capture = is_private_scout_request(user, product)
     await enforce_desktop_access(request, user, product)
     return user
 

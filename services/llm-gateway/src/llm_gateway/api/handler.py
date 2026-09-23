@@ -21,6 +21,7 @@ from llm_gateway.metrics.prometheus import (
 )
 from llm_gateway.observability import capture_exception
 from llm_gateway.request_context import (
+    is_private_scout_request,
     rebuild_request_context,
     set_auth_user,
     set_effort,
@@ -436,6 +437,8 @@ async def _handle_streaming_request(
                 error_type=type(e).__name__,
                 error_message=str(e),
             )
+            if is_private_scout_request(user, product):
+                raise RuntimeError("Upstream stream failed") from None
             raise
         finally:
             duration_ms = round((time.monotonic() - start_time) * 1000, 2)

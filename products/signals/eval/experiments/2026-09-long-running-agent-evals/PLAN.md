@@ -223,8 +223,10 @@ The matching MCP tools are `scout-trial-create` and `scout-trial-get`.
 Only operators with scout write and skill editor access can use them; sandbox tokens cannot manage comparisons.
 No skill/config copies or new tables are created.
 
-Configure a dedicated existing gateway whose capture token is empty, then set `SCOUT_LIVE_TRIALS_GATEWAY_URL`, `SCOUT_LIVE_TRIALS_ENABLED=true`, and `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=true` on the backend and workers.
-The last setting is an explicit deployment check: verify model capture, task/query telemetry, and warehouse replicas before enabling it.
+Deploy the experiment capture policy to the existing Python gateway, then set `SCOUT_LIVE_TRIALS_ENABLED=true` and `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=true` on the backend and workers.
+Use the normal backend and sandbox gateway settings; no separate gateway URL or service is needed.
+The private-capture setting is an explicit deployment check: verify the gateway version, task/query telemetry, and warehouse replicas before enabling it.
+It does not automatically detect whether the gateway supports experiment capture suppression.
 Trials retain ordinary spend/rate gates; cost is null when private accounting is unavailable, while runtime token counts are retained when reported before completion.
 Do not infer zero cost from absent generation events.
 
@@ -277,13 +279,12 @@ Task content reads retain call metrics but omit payload spans and free-text inte
 - September 23: routing checks, private log/summary/lifecycle authorization tests, repository-wide Python type checks, API generation, and product dependency checks passed. Security scanning found no findings on the changed lines.
 - September 23: merged current master, regenerated API types, and passed the trial API suite and repository-wide type checks again. Revoked the local verification credential, removed temporary services and scout containers, and restored the original backend and worker with a passing app health check. Trial opt-ins are disabled on the restored stack.
 - The successful smoke checks execution and isolation. Model quality comparisons still need repeated runs and judging. An earlier local attempt was canceled for routing failures; another exposed an incomplete synthetic schema registry, which was corrected before the successful pair. Private transcripts and attempt history remain outside Git.
-- No new production comparison has been launched during implementation. Deployment still requires the private gateway and capture checks described above.
+- No new production comparison has been launched during implementation. Deployment requires the gateway and capture checks described above.
 
 ### Gateway follow-up, September 23
 
-The recommended next change removes the dedicated gateway deployment requirement.
-Reuse the existing Python gateway with a capture policy for authenticated experiment requests.
-This is a proposal from code inspection; the implementation above still requires its dedicated gateway URL.
+The initial investigation recommended replacing the dedicated gateway with a capture policy for authenticated experiment requests on the existing Python gateway.
+Implementation follows that recommendation; the points below record its scope and verification requirements.
 
 - The gateway already reads OAuth scopes and the sandbox task identity in `auth/authenticators.py`.
   Use the experiment credential minted by the backend to select the capture policy.
@@ -292,9 +293,9 @@ This is a proposal from code inspection; the implementation above still requires
   Keep the separate rate-limit and Prometheus callbacks active.
   The current `signals` product has no customer credit bucket; keep this exception limited to supported experiment traffic so other products retain their billing events.
 - Apply the policy to the scout's sandbox calls and backend report-validation calls.
-  The latter currently use a shared backend credential, so they need an authenticated experiment identity too.
+  Report validation uses a short-lived gateway-only experiment credential that is revoked when the operation finishes.
   Changing only the sandbox environment would leave this path uncovered.
-- Replace the private URL override after this behavior is supported.
+- Use the normal gateway settings in place of the private URL override.
   Keep trial transcript/result storage and the existing backend/MCP capture controls.
   Missing generation events still mean event-based dollar totals are unavailable, not zero.
 
@@ -303,3 +304,29 @@ That record still lists Python-only models available to scouts, so requiring all
 Verify normal and experiment traffic concurrently, including streaming, failures, retries, and report validation, with stubbed providers before another end-to-end scout check.
 Check that spend limits remain active and experiment content reaches neither configured capture destination.
 No service deployment or model call was performed for this investigation.
+
+### Shared gateway implementation, September 23
+
+Trials now use the existing Python gateway and its normal backend/sandbox settings.
+The dedicated trial gateway URL setting is removed.
+Capture suppression requires a task-bound OAuth credential from the allowlisted Signals application, with both internal-run and experiment scopes.
+Caller-supplied headers cannot enable it.
+Generation capture, exception capture, denial events, and content-bearing logs are suppressed; ordinary requests retain capture and both request types retain cost/rate checks.
+
+Backend report validation mints a gateway-only credential after checking the trial identity and the original operator's current access.
+The credential expires after ten minutes and is revoked when validation finishes, including failures.
+It cannot upload task logs or change run state; those operations also require the sandbox's task-read scope.
+Concurrent report calls keep distinct credentials, and the context is reset after each operation.
+
+Validation used synthetic fixtures and stubbed providers, with no model calls:
+
+- Full gateway suite: 1,718 passed; 102 provider integration cases skipped with their credentials disabled.
+- Concurrent ordinary/trial HTTP requests, streaming, failure sanitization, both capture destinations, and cost counters passed.
+- Backend client suite: 88 passed; trial routing: 10 passed; sandbox network policy: 22 passed.
+- Selected database-backed trial state, launch, report, dispatch, and task-permission checks: 77 passed after correcting the new OAuth test fixture.
+- Repository-wide Python type checks, API generation, dependency boundaries, formatting, and security checks passed; API generation produced no changes.
+- The standalone gateway strict type check has the same 42 existing errors as the pre-change source; normalized diagnostics match exactly. This is separate from the passing repository-wide type check.
+
+The running development backend still passes its health check.
+No service was restarted or deployed for this change, and trial enablement remains off.
+Deploy the gateway support before setting the backend/worker capture attestation and enabling trials.

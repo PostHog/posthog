@@ -8,8 +8,13 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.temporal.oauth import SIGNALS_APP_CLIENT_ID_DEV, SIGNALS_APP_ID_DEV
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScratchpad
 from products.signals.backend.scout_harness.tools.report import (
@@ -21,6 +26,7 @@ from products.signals.backend.scout_harness.tools.report import (
     emit_report_sync,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry
+from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_harness.trial_state import (
     SCOUT_TRIAL_STATE_KEY,
     ScoutTrialStateError,
@@ -142,13 +148,34 @@ class TestScoutTrialState(APIBaseTest):
         assert store.search_memory(key="new", content_max_chars=8)[0].content == "Checkout"
 
 
-@override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True, SCOUT_LIVE_TRIALS_GATEWAY_URL="https://example.invalid")
+@override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True, LLM_GATEWAY_URL="https://gateway.example")
 class TestScoutTrialReportCapture(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        self.scout_run = _make_run(self.team, metadata={"scout_trial": {"version": 1, "context_id": str(uuid4())}})
+        marker = {"version": 1, "context_id": str(uuid4()), "launch_id": str(uuid4())}
+        self.scout_run = _make_run(self.team, metadata={"scout_trial": marker})
+        task = self.scout_run.task_run.task
+        task.created_by = self.user
+        task.origin_key = f"scout-trial:{marker['launch_id']}"
+        task.save(update_fields=["created_by", "origin_key"])
+        self.scout_run.task_run.state = {**(self.scout_run.task_run.state or {}), "scout_trial": marker}
+        self.scout_run.task_run.save(update_fields=["state"])
+        self.signals_app, _ = OAuthApplication.objects.get_or_create(
+            client_id=SIGNALS_APP_CLIENT_ID_DEV,
+            defaults={
+                "id": SIGNALS_APP_ID_DEV,
+                "name": "Signals",
+                "algorithm": "RS256",
+                "client_type": OAuthApplication.CLIENT_PUBLIC,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "redirect_uris": "https://example.com/callback",
+            },
+        )
+        region = patch("posthog.temporal.oauth.get_instance_region", return_value=None)
+        region.start()
+        self.addCleanup(region.stop)
         self.store = ScoutTrialStore(self.scout_run, initial_memory=[])
         judge = patch(
             "products.signals.backend.scout_report.judge.judge_report_safety",
@@ -179,7 +206,43 @@ class TestScoutTrialReportCapture(APIBaseTest):
         )
         assert result.report_id is not None
         assert result.emitted
+        assert not OAuthAccessToken.objects.filter(sandbox_task_id=self.scout_run.task_run.task_id).exists()
         return result.report_id
+
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
+    def test_gateway_credential_is_narrow_and_revoked_after_safety_failure(self) -> None:
+        token = create_trial_gateway_token(self.scout_run)
+        credential = OAuthAccessToken.objects.get(token=token)
+        assert credential.application_id == self.signals_app.id
+        assert credential.user_id == self.user.id
+        assert credential.sandbox_task_id == self.scout_run.task_run.task_id
+        assert credential.scoped_teams == [self.team.id]
+        assert set(credential.scope.split()) == {
+            "llm_gateway:read",
+            "internal_run:read",
+            "scout_experiment_internal:read",
+        }
+        assert credential.expires == timezone.now() + timedelta(minutes=10)
+        revoke_trial_gateway_token(token)
+
+        self.judge.side_effect = RuntimeError("Synthetic safety failure")
+        with self.assertRaisesRegex(RuntimeError, "Synthetic safety failure"):
+            self._emit()
+        assert not OAuthAccessToken.objects.filter(sandbox_task_id=self.scout_run.task_run.task_id).exists()
+
+    @parameterized.expand(["missing_app", "untrusted_run", "revoked_actor"])
+    def test_gateway_credential_rejects_invalid_trial_identity(self, condition: str) -> None:
+        if condition == "missing_app":
+            self.signals_app.delete()
+        elif condition == "untrusted_run":
+            self.scout_run.task_run.state = {}
+            self.scout_run.task_run.save(update_fields=["state"])
+        else:
+            self.user.is_active = False
+            self.user.save(update_fields=["is_active"])
+        with self.assertRaises(GatewayNotConfiguredError):
+            create_trial_gateway_token(self.scout_run)
+        assert not OAuthAccessToken.objects.filter(sandbox_task_id=self.scout_run.task_run.task_id).exists()
 
     @parameterized.expand([True, False])
     def test_creation_retries_and_edits_remain_private(self, emit: bool) -> None:
@@ -214,6 +277,11 @@ class TestScoutTrialReportCapture(APIBaseTest):
         assert not SignalReportArtefact.objects.filter(team=self.team).exists()
         self.capture.assert_not_called()
         self.capture_internal.assert_not_called()
+        calls_before_replay = self.judge.call_count
+        self.scout_run.task_run.status = "completed"
+        self.scout_run.task_run.save(update_fields=["status"])
+        assert self._emit() == report_id
+        assert self.judge.call_count == calls_before_replay
 
     def test_editing_production_report_does_not_change_original(self) -> None:
         original = SignalReport.objects.create(

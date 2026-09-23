@@ -506,21 +506,26 @@ class TestProvisioningBoundaries:
 
     @pytest.mark.parametrize("origin_product", ["signals_scout", "user_created"])
     @pytest.mark.parametrize("origin_key", ["scout-trial:11111111-1111-1111-1111-111111111111", "ordinary"])
+    @pytest.mark.parametrize("gateway_url", ["https://gateway.example/", ""])
     @override_settings(
         SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
-        SCOUT_LIVE_TRIALS_GATEWAY_URL="https://private-gateway.example/",
     )
-    def test_private_gateway_requires_the_server_task_origin(self, origin_product: str, origin_key: str) -> None:
+    def test_private_gateway_requires_the_server_task_origin(
+        self, origin_product: str, origin_key: str, gateway_url: str
+    ) -> None:
         ctx = self._ctx()
         ctx.state["scout_trial"] = {"id": "caller-supplied"}
         task = Task(origin_product=origin_product, origin_key=origin_key)
 
-        with patch.object(utils, "ai_gateway_env_vars", return_value={}) as ordinary_route:
+        with (
+            override_settings(SANDBOX_LLM_GATEWAY_URL=gateway_url),
+            patch.object(utils, "ai_gateway_env_vars", return_value={}) as ordinary_route,
+        ):
             out = utils.run_gateway_env_vars(ctx, task)
 
         if task.is_scout_experiment:
             assert out == {
-                "LLM_GATEWAY_URL": "https://private-gateway.example",
+                **({"LLM_GATEWAY_URL": gateway_url} if gateway_url else {}),
                 "AI_GATEWAY_URL": "",
                 "AI_GATEWAY_PRODUCTS": "",
                 "AI_GATEWAY_TOKEN": "",
@@ -534,24 +539,19 @@ class TestProvisioningBoundaries:
             ordinary_route.assert_called_once()
 
     @pytest.mark.parametrize(
-        ("private_capture", "gateway_url", "model_access"),
+        ("private_capture", "model_access"),
         [
-            (False, "https://private-gateway.example", "posthog-gateway"),
-            (True, "", "posthog-gateway"),
-            (True, "https://private-gateway.example", "own-subscription"),
+            (False, "posthog-gateway"),
+            (True, "own-subscription"),
         ],
     )
-    def test_trial_cannot_fall_back_to_an_ordinary_gateway(
-        self, private_capture: bool, gateway_url: str, model_access: str
-    ) -> None:
+    def test_trial_cannot_fall_back_to_an_ordinary_gateway(self, private_capture: bool, model_access: str) -> None:
         ctx = self._ctx()
         ctx.claude_model_access = model_access
         task = Task(origin_product="signals_scout", origin_key="scout-trial:11111111-1111-1111-1111-111111111111")
 
         with (
-            override_settings(
-                SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=private_capture, SCOUT_LIVE_TRIALS_GATEWAY_URL=gateway_url
-            ),
+            override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=private_capture),
             patch.object(utils, "ai_gateway_env_vars") as ordinary_route,
         ):
             with pytest.raises(GatewayNotConfiguredError):

@@ -13,7 +13,7 @@ from django.db import transaction
 
 from pydantic import BaseModel
 
-from posthog.llm.gateway_client import GatewayNotConfiguredError, get_private_scout_gateway_url
+from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
@@ -1353,11 +1353,11 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
     if task.is_scout_experiment is True:
-        gateway_url = get_private_scout_gateway_url()
+        ensure_scout_trial_capture_ready()
         if ctx.claude_model_access == "own-subscription":
-            raise GatewayNotConfiguredError("Scout trials require the private gateway, not subscription credentials")
+            raise GatewayNotConfiguredError("Scout trials require gateway OAuth instead of subscription credentials")
         return {
-            "LLM_GATEWAY_URL": gateway_url,
+            **({"LLM_GATEWAY_URL": settings.SANDBOX_LLM_GATEWAY_URL} if settings.SANDBOX_LLM_GATEWAY_URL else {}),
             "AI_GATEWAY_URL": "",
             "AI_GATEWAY_PRODUCTS": "",
             "AI_GATEWAY_TOKEN": "",
