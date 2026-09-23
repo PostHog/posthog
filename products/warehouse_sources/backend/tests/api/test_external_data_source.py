@@ -9959,6 +9959,25 @@ class TestWebhookInfo(APIBaseTest):
         assert data["external_status"]["enabled_events"] == ["charge.created", "charge.updated"]
 
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info"
+    )
+    def test_webhook_info_surfaces_read_failure(self, mock_get_info):
+        mock_get_info.side_effect = Exception("cannot read webhook endpoint: sk_test_secret leaked here")
+
+        source = self._create_stripe_source()
+        self._create_hog_function(source)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["exists"] is True
+        assert data["external_status"] is not None
+        assert data["external_status"]["exists"] is False
+        assert data["external_status"]["error"]
+        assert "sk_test_secret" not in data["external_status"]["error"]
+
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_desired_webhook_events"
     )
     @patch(
