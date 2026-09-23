@@ -54,7 +54,7 @@ SHELL_C_RE = re.compile(
     # All three operand forms. Quoting the operand does not make the value in it
     # safe, and leaving it bare (`sh -c $FLAGS`) is if anything worse -- the
     # operand is then split before the inner shell even sees it.
-    r"\b(?:sh|bash|dash|zsh|ksh)\b\s+(?:-\S+\s+)*-c\s+"
+    r"\b(?:sh|bash|dash|zsh|ksh)\b\s+(?:-\S+\s+)*-[a-zA-Z]*c\s+"
     r"(?:\"(?P<dquoted>(?:[^\"\\]|\\.)*)\"|'(?P<squoted>[^']*)'|(?P<bare>\S+))",
 )
 VAR_REF_RE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_]\w*)[^}]*\}|(?P<plain>[A-Za-z_]\w*))")
@@ -119,8 +119,15 @@ def unparseable_actions(repo_root: Path) -> list[str]:
     # must not be invisible to the alarm that says the scan could not read one.
     for path in sorted(actions_root.rglob("action.y*ml")):
         try:
-            yaml.safe_load(path.read_text(encoding="utf-8"))
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
         except (yaml.YAMLError, OSError):
+            broken.append(path.parent.relative_to(repo_root).as_posix())
+            continue
+        # Parsing is not the bar; being usable is. An empty file, a list or a
+        # scalar parses fine and `_load_action` discards it exactly as it
+        # discards an absent action, so it would read here as an action with no
+        # hazard rather than one nothing could inspect.
+        if not isinstance(data, dict):
             broken.append(path.parent.relative_to(repo_root).as_posix())
     return broken
 

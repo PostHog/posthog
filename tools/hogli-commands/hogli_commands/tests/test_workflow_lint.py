@@ -2443,6 +2443,22 @@ class TestShellSplitActionArgsCheck:
         self._write_action(tmp_path, "bare", "sh -c $ARGS")
         assert derive_shell_split_inputs(tmp_path).get(".github/actions/bare") == frozenset({"flags"})
 
+    @pytest.mark.parametrize("invocation", ["bash -lc", "sh -lc", "bash -euxc", "sh -c"])
+    def test_derivation_reads_bundled_shell_option_letters(self, tmp_path: Path, invocation: str) -> None:
+        # `bash -lc "..."` is the same hazard as `bash -l -c "..."`; requiring a
+        # separate -c left those actions uninspected.
+        self._write_action(tmp_path, "bundled", f'{invocation} "tool $ARGS"')
+        assert derive_shell_split_inputs(tmp_path).get(".github/actions/bundled") == frozenset({"flags"}), invocation
+
+    @pytest.mark.parametrize("content", ["", "- a list\n", "just a scalar\n"])
+    def test_action_metadata_that_parses_but_is_unusable_is_reported(self, tmp_path: Path, content: str) -> None:
+        # Parsing is not the bar. These parse fine and are then discarded exactly
+        # as an absent action is, so without this they read as safe.
+        directory = tmp_path / ".github" / "actions" / "odd"
+        directory.mkdir(parents=True)
+        (directory / "action.yml").write_text(content, encoding="utf-8")
+        assert unparseable_actions(tmp_path) == [".github/actions/odd"], content
+
     def test_a_nested_action_with_unreadable_metadata_is_reported(self, tmp_path: Path) -> None:
         # The derivation scans `.github/actions/**` recursively; this alarm has to
         # reach as far, or a nested action it would have scanned goes unmentioned.
