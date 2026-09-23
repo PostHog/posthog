@@ -1,5 +1,3 @@
-import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
-import { assignKey, isRecord } from '@/lib/plain-object'
 /**
  * Bounds the size of LLM trace results before they are serialized toward the MCP
  * client. `query-llm-trace` returns every event in a trace at every nesting
@@ -24,6 +22,9 @@ import { assignKey, isRecord } from '@/lib/plain-object'
  * or drops is flagged so the agent can narrow the query or open the trace in
  * PostHog.
  */
+
+import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
+import { assignKey, isRecord } from '@/lib/plain-object'
 import { formatResponse } from '@/lib/response'
 
 /** Longest single string value kept verbatim; longer values are truncated. */
