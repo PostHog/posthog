@@ -17,11 +17,11 @@ export function NotificationGovernanceSetting(): JSX.Element {
     // PayGateMini falls through to its children when billing carries no metadata for the feature,
     // so the entitlement is checked here too. Otherwise the list below mounts and its first
     // request comes back as a payment prompt.
-    const entitled = hasAvailableFeature(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+    const entitled = hasAvailableFeature(AvailableFeature.MEMBER_NOTIFICATION_GOVERNANCE)
 
     return (
         <PayGateMini
-            feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
+            feature={AvailableFeature.MEMBER_NOTIFICATION_GOVERNANCE}
             featureDetail="organization-member-notifications"
         >
             {entitled ? <MemberNotifications /> : null}
