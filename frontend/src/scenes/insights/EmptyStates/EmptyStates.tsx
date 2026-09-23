@@ -301,20 +301,13 @@ function LoadingDetails({
     rowsRead: number
     bytesRead: number
     secondsElapsed: number
-}): JSX.Element | null {
-    const { user } = useValues(userLogic)
-    const { preflight } = useValues(preflightLogic)
-
+}): JSX.Element {
     const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
     const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
     const cpuUtilization =
         (pollResponse?.status?.query_progress?.active_cpu_time || 0) /
         (pollResponse?.status?.query_progress?.time_elapsed || 1) /
         10000
-
-    if (!hasSuperpowers(user, preflight)) {
-        return null
-    }
 
     return (
         <>
@@ -357,6 +350,10 @@ export function StatelessInsightLoadingState({
     setProgress?: (loadId: string, progress: number) => void
     progress?: number
 }): JSX.Element {
+    const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
+    const showQueryDetails = hasSuperpowers(user, preflight)
+
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
     const [secondsElapsed, setSecondsElapsed] = useState(0)
@@ -367,7 +364,7 @@ export function StatelessInsightLoadingState({
     const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
-        if (!isPageVisible) {
+        if (!isPageVisible || !showQueryDetails) {
             return
         }
 
@@ -391,7 +388,7 @@ export function StatelessInsightLoadingState({
         }, 100)
 
         return () => clearInterval(interval)
-    }, [pollResponse, isPageVisible])
+    }, [pollResponse, isPageVisible, showQueryDetails])
 
     // Toggle between loading messages every 3-5 seconds
     useEffect(() => {
@@ -454,13 +451,15 @@ export function StatelessInsightLoadingState({
             >
                 <LoadingBar loadId={queryId} progress={progress} setProgress={setProgress} />
                 {suggestions}
-                <LoadingDetails
-                    pollResponse={pollResponse}
-                    queryId={queryId}
-                    rowsRead={rowsRead}
-                    bytesRead={bytesRead}
-                    secondsElapsed={secondsElapsed}
-                />
+                {showQueryDetails && (
+                    <LoadingDetails
+                        pollResponse={pollResponse}
+                        queryId={queryId}
+                        rowsRead={rowsRead}
+                        bytesRead={bytesRead}
+                        secondsElapsed={secondsElapsed}
+                    />
+                )}
             </div>
         </div>
     )
