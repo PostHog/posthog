@@ -102,7 +102,18 @@ describe('queryScanSummary', () => {
                 precision: ScanEstimatePrecision.SizeOnly,
                 bytes: 356_515_840,
             },
-            '340.00 MB on disk, read not estimated',
+            '340.00 MB on disk',
+        ],
+        [
+            'a synced table lists its rows and bytes',
+            {
+                name: 'orders',
+                source: ScanEstimateSource.Warehouse,
+                precision: ScanEstimatePrecision.SizeOnly,
+                rows: 1_200_000,
+                bytes: 356_515_840,
+            },
+            '1.2M rows, 340.00 MB on disk',
         ],
         ['an unknown table says so', unknownTable('persons'), 'no statistics yet'],
     ])('%s', (_name, table, expected) => {

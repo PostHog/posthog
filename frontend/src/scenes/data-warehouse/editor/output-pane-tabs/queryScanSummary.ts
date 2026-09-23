@@ -72,16 +72,23 @@ export function summarizeScan(estimate: ScanEstimate): QueryScanSummary | null {
 
 /** One line for the per-table panel. */
 export function describeTableScan(table: TableScanEstimate): string {
-    if (table.rows !== undefined && table.rows !== null) {
+    const hasRows = table.rows !== undefined && table.rows !== null
+    const hasBytes = table.bytes !== undefined && table.bytes !== null
+    if (table.precision === ScanEstimatePrecision.SizeOnly && (hasRows || hasBytes)) {
+        // The whole table, as the last sync left it. The tag next to it says the read itself is not modeled.
+        const size = [
+            hasRows ? `${humanFriendlyLargeNumber(table.rows!)} rows` : null,
+            hasBytes ? humanizeBytes(table.bytes!) : null,
+        ]
+        return `${size.filter((part): part is string => part !== null).join(', ')} on disk`
+    }
+    if (hasRows) {
         const range = describeRange(table)
         const events = table.events && table.events.length > 0 ? table.events.join(', ') : null
         const detail = [range, events].filter((part): part is string => part !== null).join(', ')
         return detail
-            ? `${humanFriendlyLargeNumber(table.rows)} rows (${detail})`
-            : `${humanFriendlyLargeNumber(table.rows)} rows`
-    }
-    if (table.precision === ScanEstimatePrecision.SizeOnly && table.bytes !== undefined && table.bytes !== null) {
-        return `${humanizeBytes(table.bytes)} on disk, read not estimated`
+            ? `${humanFriendlyLargeNumber(table.rows!)} rows (${detail})`
+            : `${humanFriendlyLargeNumber(table.rows!)} rows`
     }
     return 'no statistics yet'
 }

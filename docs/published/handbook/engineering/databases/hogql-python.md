@@ -68,7 +68,7 @@ The `scan_estimate` timing measures the added planning work.
 
 The estimate has one entry per table in the FROM tree, each labeled with its source and precision.
 An `events` scan is `measured`: it has a model of what the query reads and is scored by the accuracy query.
-A warehouse table is `size_only`: the size of its files is known from the last sync, the query's read of it is not.
+A warehouse table is `size_only`: its rows and bytes are known from the last sync, the query's read of it is not.
 Any other table is `unknown` until its source gets a statistic.
 The headline `rows` sums the entries that have a number, and `upper_bound` says whether that sum is a ceiling.
 

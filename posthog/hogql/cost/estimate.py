@@ -33,7 +33,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.cost.statistics import EventVolume, StatisticsProvider
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import FunctionCallTable, Table
-from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.index_eligibility import IndexKind, eligibility_from_plan
 from posthog.hogql.property_planner import PropertyScope, plan_property_comparison
@@ -324,14 +324,17 @@ def _scan_name(join: ast.JoinExpr, ref: _TableRef) -> str:
 
 
 def _other_table_estimate(name: str, table: Table) -> TableScanEstimate:
-    if isinstance(table, S3Table):
-        # Every sync records the size of the files. There is no model of how much of them a query reads.
-        size_mib = table.table_size_mib
-        if size_mib is None:
-            return TableScanEstimate(name=name, source="warehouse", precision="unknown")
+    if isinstance(table, DataWarehouseTable) and (table.row_count is not None or table.size_in_s3_mib is not None):
+        # Every sync records the table's rows and bytes. There is no model of how much of them a query reads.
         return TableScanEstimate(
-            name=name, source="warehouse", precision="size_only", bytes=int(size_mib * 1024 * 1024)
+            name=name,
+            source="warehouse",
+            precision="size_only",
+            rows=table.row_count,
+            bytes=int(table.size_in_s3_mib * 1024 * 1024) if table.size_in_s3_mib is not None else None,
         )
+    if isinstance(table, S3Table):
+        return TableScanEstimate(name=name, source="warehouse", precision="unknown")
     if isinstance(table, DirectSQLTable):
         return TableScanEstimate(name=name, source="direct", precision="unknown")
     if isinstance(table, FunctionCallTable):

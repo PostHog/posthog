@@ -131,7 +131,7 @@ const LARGE_OPEN_SCAN: ScanEstimate = {
     ],
 }
 const MULTI_TABLE_SCAN: ScanEstimate = {
-    rows: 41_000_000,
+    rows: 42_200_000,
     upper_bound: true,
     tables: [
         {
@@ -147,6 +147,7 @@ const MULTI_TABLE_SCAN: ScanEstimate = {
             name: 'stripe_charges',
             source: ScanEstimateSource.Warehouse,
             precision: ScanEstimatePrecision.SizeOnly,
+            rows: 1_200_000,
             bytes: 356_515_840,
         },
         { name: 'persons', source: ScanEstimateSource.Clickhouse, precision: ScanEstimatePrecision.Unknown },

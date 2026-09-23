@@ -18,6 +18,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property_metadata import MaterializedColumnsByTable, PropertyMetadata
 from posthog.hogql.resolver import resolve_types
 
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
 NOW = datetime(2026, 9, 11, tzinfo=UTC)
@@ -247,6 +249,31 @@ class TestEstimateEventsScan(BaseTest):
 
     def test_a_query_with_no_table_has_no_estimate(self):
         assert self._estimate("SELECT 1") is None
+
+    def test_a_synced_warehouse_table_counts_its_rows_as_a_ceiling(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/orders/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+            row_count=1_200_000,
+            size_in_s3_mib=340.0,
+        )
+        self.context.database = Database.create_for(team=self.team)
+
+        estimate = self._estimate(
+            "SELECT count() FROM events e JOIN orders o ON o.id = e.distinct_id WHERE e.event = 'signup'"
+        )
+
+        assert estimate is not None
+        assert estimate.rows == 14_600_000 + 1_200_000
+        assert estimate.upper_bound is True
+        assert estimate.tables[1] == TableScanEstimate(
+            name="orders", source="warehouse", precision="size_only", rows=1_200_000, bytes=340 * 1024 * 1024
+        )
 
     @parameterized.expand(
         [

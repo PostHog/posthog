@@ -1068,6 +1068,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_id=str(self.id),
             external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
             source_type=self.external_data_source.source_type if self.external_data_source else None,
+            row_count=self.row_count,
+            size_in_s3_mib=self.size_in_s3_mib,
         )
 
         if self._is_csv_format():
