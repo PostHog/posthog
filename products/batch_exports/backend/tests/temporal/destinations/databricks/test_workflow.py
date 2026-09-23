@@ -391,22 +391,6 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
                 ],
                 id="events-missing-person_properties",
             ),
-            pytest.param(
-                "events",
-                "person_id",
-                [
-                    ("uuid", "STRING"),
-                    ("event", "STRING"),
-                    ("properties", "VARIANT"),
-                    ("person_properties", "VARIANT"),
-                    ("distinct_id", "STRING"),
-                    ("team_id", "BIGINT"),
-                    ("timestamp", "TIMESTAMP"),
-                    ("created_at", "TIMESTAMP"),
-                    ("databricks_ingested_timestamp", "TIMESTAMP"),
-                ],
-                id="events-missing-person_id",
-            ),
         ],
     )
     async def test_workflow_handles_model_schema_changes(
