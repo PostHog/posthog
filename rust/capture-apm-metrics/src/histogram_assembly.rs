@@ -81,13 +81,16 @@ pub fn fold_classic_histograms(
         let Some(histogram) = assemble_histogram(parts) else {
             continue;
         };
+        let Some((_, sum_index)) = parts.sum else {
+            continue;
+        };
         for (_, _, index) in &parts.buckets {
             consumed[*index] = true;
         }
         for (_, index) in [parts.count, parts.sum].into_iter().flatten() {
             consumed[index] = true;
         }
-        let sum_row = &rows[parts.sum.map(|(_, index)| index).unwrap_or(0)];
+        let sum_row = &rows[sum_index];
         let resource_attributes: HashMap<String, String> =
             key.resource_attributes.iter().cloned().collect();
         let attributes: HashMap<String, String> = key.attributes.iter().cloned().collect();
@@ -135,10 +138,10 @@ pub fn fold_classic_histograms(
             .increment(component_rows - folded_rows);
     }
 
-    let mut consumed = consumed.into_iter();
     folded.extend(
         rows.into_iter()
-            .filter(|_| !consumed.next().unwrap_or(false)),
+            .zip(consumed)
+            .filter_map(|(row, is_consumed)| (!is_consumed).then_some(row)),
     );
     folded
 }
