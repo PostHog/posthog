@@ -737,8 +737,21 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
     return JSON.stringify({ query, timestamp })
 }
 
+function isQueryNodeShape(value: unknown): value is Node<Record<string, any>> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return false
+    }
+    const node = value as Record<string, unknown>
+    if (typeof node.kind !== 'string') {
+        return false
+    }
+    // A wrapper node such as InsightVizNode must carry a nested node, never a bare kind name
+    return !('source' in node) || (!!node.source && typeof node.source === 'object')
+}
+
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
-    return parseQuery(query)
+    const parsed = parseQuery<unknown>(query)
+    return isQueryNodeShape(parsed) ? parsed : null
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {

@@ -663,7 +663,8 @@ type SanitizedQuery = Record<string, string | number | boolean | undefined>
 
 function insightQuerySource(query: Node | null): InsightQueryNode | undefined {
     if (isInsightVizNode(query)) {
-        return query.source
+        // A query read from the URL is unvalidated, so `source` can be any JSON value
+        return query.source && typeof query.source === 'object' ? query.source : undefined
     }
     return isInsightQueryNode(query) ? query : undefined
 }
@@ -776,7 +777,7 @@ export function dashboardViewedProperties(
 export function sanitizeQuery(query: Node | null): SanitizedQuery {
     const payload: SanitizedQuery = {
         query_kind: query?.kind,
-        query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
+        query_source_kind: isNodeWithSource(query) ? query.source?.kind : undefined,
         // Whether this insight/query reads from a connector-synced data warehouse source (series-level
         // detection). Raw SQL/HogQL warehouse usage is flagged from the query response in performQuery.
         uses_data_warehouse_source: queryUsesDataWarehouse(query),

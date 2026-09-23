@@ -377,6 +377,16 @@ describe('eventUsageLogic', () => {
                 },
             ],
             [
+                'an InsightVizNode whose source is a bare kind name',
+                { kind: NodeKind.InsightVizNode, source: NodeKind.FunnelsQuery },
+                { query_kind: NodeKind.InsightVizNode, uses_data_warehouse_source: false },
+            ],
+            [
+                'an InsightVizNode with a null source',
+                { kind: NodeKind.InsightVizNode, source: null },
+                { query_kind: NodeKind.InsightVizNode, uses_data_warehouse_source: false },
+            ],
+            [
                 'a non-insight query',
                 { kind: NodeKind.DataTableNode, source: { kind: NodeKind.HogQLQuery, query: 'select 1' } },
                 {
