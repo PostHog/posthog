@@ -216,7 +216,7 @@ function FeedbackModalForm({
     }
   };
 
-  const handleImageFiles = async (files: File[]) => {
+  const handleImageFiles = async (files: File[]): Promise<void> => {
     if (submitting || files.length === 0) return;
     if (imagesLoadingRef.current) {
       toast.warning("An image is still loading. Wait, then paste it again.");
