@@ -923,6 +923,19 @@ class RevokeOtherSessionsResponseSerializer(serializers.Serializer):
     revoked_count = serializers.IntegerField(help_text="Number of other login sessions that were revoked.")
 
 
+class TwoFactorStatusSerializer(serializers.Serializer):
+    is_enabled = serializers.BooleanField(help_text="Whether the user has any 2FA method enabled.")
+    backup_codes_remaining = serializers.IntegerField(
+        help_text="Number of unused backup codes. The codes themselves are only returned when they are generated."
+    )
+    method = serializers.CharField(
+        allow_null=True, help_text='The primary 2FA method: "TOTP" or "passkey". Null when 2FA is off.'
+    )
+    has_passkeys = serializers.BooleanField(help_text="Whether the user has at least one verified passkey.")
+    has_totp = serializers.BooleanField(help_text="Whether the user has an authenticator app set up.")
+    passkeys_enabled_for_2fa = serializers.BooleanField(help_text="Whether passkeys count as a 2FA method.")
+
+
 class UserGithubLoginSerializer(serializers.Serializer):
     github_login = serializers.CharField(
         allow_null=True,
@@ -1511,9 +1524,10 @@ class UserViewSet(
 
         return Response({"success": True})
 
+    @extend_schema(responses={200: TwoFactorStatusSerializer})
     @action(methods=["GET"], detail=True)
     def two_factor_status(self, request, **kwargs):
-        """Get current 2FA status including backup codes if enabled"""
+        """Get current 2FA status, including how many backup codes are left."""
         from posthog.helpers.two_factor_session import has_passkeys
 
         user = self.get_object()
@@ -1522,9 +1536,7 @@ class UserViewSet(
         user_has_passkeys = has_passkeys(user)
         passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
 
-        backup_codes = []
-        if static_device:
-            backup_codes = [token.token for token in static_device.token_set.all()]
+        backup_codes_remaining = static_device.token_set.count() if static_device else 0
 
         # Determine 2FA method
         method = None
@@ -1536,7 +1548,7 @@ class UserViewSet(
         return Response(
             {
                 "is_enabled": default_device(user) is not None or passkeys_enabled_for_2fa,
-                "backup_codes": backup_codes if totp_device else [],
+                "backup_codes_remaining": backup_codes_remaining if totp_device else 0,
                 "method": method,
                 "has_passkeys": user_has_passkeys,
                 "has_totp": totp_device is not None,

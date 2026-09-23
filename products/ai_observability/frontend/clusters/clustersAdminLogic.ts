@@ -151,7 +151,7 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
                 triggerClusteringRun: async () => {
                     // nosemgrep: prefer-codegen-api
                     const response = await api.create(
-                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_runs`,
+                        `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_runs`,
                         values.params
                     )
                     return response as ClusteringRunResponse
