@@ -3,6 +3,7 @@ import time
 import logging
 import warnings
 import subprocess
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -437,6 +438,18 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
     # be invoked once per registering conftest.
     while flush_lock_guard.reports:
         terminalreporter.write_line(f"[flush-lock-guard] {flush_lock_guard.reports.pop(0)}", yellow=True)
+    stock_flushes = {reason: count for reason, count in _teardown_outcomes.items() if reason != SELECTIVE_FLUSH}
+    if stock_flushes:
+        terminalreporter.write_line(
+            f"[selective-flush] stock flush ran for {sum(stock_flushes.values())} of "
+            f"{sum(_teardown_outcomes.values())} transactional teardowns: {stock_flushes}",
+            yellow=True,
+        )
+        for reason, examples in _stock_flush_examples.items():
+            for example in examples:
+                terminalreporter.write_line(f"[selective-flush] {reason}: {example}", yellow=True)
+    _teardown_outcomes.clear()
+    _stock_flush_examples.clear()
 
 
 def _patched_flush_handle(self, **options: Any) -> None:
@@ -471,13 +484,55 @@ _original_flush_handle = FlushCommand.handle
 FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]
 
 
-def _another_session_is_busy(db_name: str) -> bool:
+SELECTIVE_FLUSH = "selective flush"
+_STOCK_FLUSH_EXAMPLES_PER_REASON = 3
+
+# Outcome of every transactional teardown, reported at the end of the run: the stock flush costs
+# seconds per test, so a fallback that fires on every test is a silent suite-wide slowdown.
+_teardown_outcomes: Counter[str] = Counter()
+_stock_flush_examples: defaultdict[str, list[str]] = defaultdict(list)
+
+
+def _busy_sessions(db_name: str) -> list[tuple[str, str]]:
+    """Other client sessions on the database that are not idle, as (state, description) pairs."""
     with connections[db_name].cursor() as cursor:
         cursor.execute(
-            "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database()"
-            " AND pid <> pg_backend_pid() AND backend_type = 'client backend' AND state <> 'idle')"
+            """
+            SELECT state, pid, application_name, wait_event_type, wait_event,
+                   now() - backend_start, now() - xact_start, now() - state_change, left(query, 200)
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND pid <> pg_backend_pid()
+              AND backend_type = 'client backend'
+              AND state <> 'idle'
+            """
         )
-        return cursor.fetchone() == (True,)
+        return [
+            (
+                state,
+                f"pid={pid} state={state!r} app={app!r} wait_event={wait_type}/{wait_event} "
+                f"backend_age={backend_age} xact_age={xact_age} state_age={state_age} last_query={query!r}",
+            )
+            for state, pid, app, wait_type, wait_event, backend_age, xact_age, state_age, query in cursor.fetchall()
+        ]
+
+
+def _stock_flush_reason(test_case: TransactionTestCase, db_names: list[str]) -> tuple[str, str] | None:
+    if test_case.available_apps is not None:
+        return "available_apps", ""
+    if test_case.serialized_rollback:
+        return "serialized_rollback", ""
+    for db_name in db_names:
+        if busy := _busy_sessions(db_name):
+            return f"busy session ({busy[0][0]})", f"{db_name}: " + "; ".join(description for _, description in busy)
+    return None
+
+
+def _record_stock_flush(reason: str, detail: str) -> None:
+    _teardown_outcomes[reason] += 1
+    examples = _stock_flush_examples[reason]
+    if len(examples) < _STOCK_FLUSH_EXAMPLES_PER_REASON:
+        examples.append(f"{os.environ.get('PYTEST_CURRENT_TEST', '<unknown test>')} {detail}".rstrip())
 
 
 def _patched_fixture_teardown(self: TransactionTestCase) -> None:
@@ -490,15 +545,19 @@ def _patched_fixture_teardown(self: TransactionTestCase) -> None:
     commits later would leak into the next test.
     """
     db_names = cast(Any, self)._databases_names(include_mirrors=False)
-    if self.available_apps is not None or self.serialized_rollback or any(map(_another_session_is_busy, db_names)):
-        _original_fixture_teardown(self)
-        return
-    try:
-        for db_name in db_names:
-            _selective_flush(db_name, reset_sequences=False)
-    except Exception:
-        logger.exception("Selective flush failed; falling back to the stock teardown")
-        _original_fixture_teardown(self)
+    fallback = _stock_flush_reason(self, db_names)
+    if fallback is None:
+        try:
+            for db_name in db_names:
+                _selective_flush(db_name, reset_sequences=False)
+        except Exception as err:
+            logger.exception("Selective flush failed; falling back to the stock teardown")
+            fallback = f"selective flush raised {type(err).__name__}", str(err)[:300]
+        else:
+            _teardown_outcomes[SELECTIVE_FLUSH] += 1
+            return
+    _record_stock_flush(*fallback)
+    _original_fixture_teardown(self)
 
 
 _original_fixture_teardown = TransactionTestCase._fixture_teardown  # type: ignore[attr-defined]
