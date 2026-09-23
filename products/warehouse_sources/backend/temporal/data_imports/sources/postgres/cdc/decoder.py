@@ -22,9 +22,11 @@ from __future__ import annotations
 
 import json
 import time
+import shutil
 import struct
 import logging
 import tempfile
+import threading
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import (
     dataclass,
@@ -55,6 +57,69 @@ MAX_TX_SPILL_BYTES = 64 * 1024**3
 # A transaction must finish inside one capture attempt, which a timeout would retry from the start
 # forever, so decoding one that runs past this fails it as too large instead.
 MAX_TX_DECODE_SECONDS = 60 * 60
+# Every capture on a worker spills to the same scratch volume, which other warehouse activities also
+# use. Open spill files together stay under this share of the volume, so concurrent large
+# transactions cannot fill it.
+WORKER_SPILL_BUDGET_FRACTION = 0.5
+
+
+class CDCSpillBudgetExhaustedError(Exception):
+    """Other transactions on this worker hold the shared spill budget.
+
+    Retryable: the space frees when those transactions commit or fail.
+    """
+
+
+class _WorkerSpillBudget:
+    """Bytes held by open spill files across every decoder in this worker process."""
+
+    def __init__(self, limit: int | None = None) -> None:
+        self._lock = threading.Lock()
+        self._limit = limit
+        self._used = 0
+
+    @property
+    def limit(self) -> int:
+        if self._limit is None:
+            self._limit = int(shutil.disk_usage(tempfile.gettempdir()).total * WORKER_SPILL_BUDGET_FRACTION)
+        return self._limit
+
+    def reserve(self, size: int) -> bool:
+        limit = self.limit
+        with self._lock:
+            if self._used + size > limit:
+                return False
+            self._used += size
+            return True
+
+    def release(self, size: int) -> None:
+        with self._lock:
+            self._used -= size
+
+
+_worker_spill_budget = _WorkerSpillBudget()
+
+
+class _SpillFile:
+    """A transaction's spill file and its share of the worker budget, released together on close."""
+
+    def __init__(self, budget: _WorkerSpillBudget) -> None:
+        self.file: IO[bytes] = tempfile.TemporaryFile()
+        self.bytes = 0
+        self._budget = budget
+
+    def write(self, line: bytes) -> bool:
+        if not self._budget.reserve(len(line)):
+            return False
+        self.file.write(line)
+        self.bytes += len(line)
+        return True
+
+    def close(self) -> None:
+        self.file.close()
+        self._budget.release(self.bytes)
+        self.bytes = 0
+
 
 # PostgreSQL epoch: 2000-01-01 00:00:00 UTC
 # Timestamps in pgoutput are microseconds since this epoch
@@ -128,11 +193,10 @@ class PgOutputDecoder:
     def __init__(self) -> None:
         self._relations: dict[int, Relation] = {}
         self._tx_buffer: list[ChangeEvent] = []
-        self._tx_spill: IO[bytes] | None = None
-        self._tx_spill_bytes = 0
+        self._tx_spill: _SpillFile | None = None
         self._tx_started_at = 0.0
         # The spill a committed transaction is still replaying from, so close() can release it.
-        self._replay_spill: IO[bytes] | None = None
+        self._replay_spill: _SpillFile | None = None
         # Column types are shared per relation, so a spilled line stores an index into this list.
         self._tx_spill_types: list[Mapping[str, pa.DataType] | None] = []
         self._tx_event_count = 0
@@ -216,6 +280,9 @@ class PgOutputDecoder:
         self._tx_timestamp = None
         if spill is None:
             return [dataclass_replace(e, position_serialized=end_lsn) for e in tail]
+        # A caller that abandoned the previous replay would otherwise keep its budget share.
+        if self._replay_spill is not None:
+            self._replay_spill.close()
         self._replay_spill = spill
         return _replay_spilled_transaction(spill, types, tail, end_lsn)
 
@@ -235,7 +302,6 @@ class PgOutputDecoder:
         if self._tx_spill is not None:
             self._tx_spill.close()
         self._tx_spill = None
-        self._tx_spill_bytes = 0
         self._tx_spill_types = []
         self._tx_buffer = []
         self._tx_event_count = 0
@@ -463,8 +529,11 @@ class PgOutputDecoder:
         Decoded values are only bool, int, float, str or None, so JSON round-trips them exactly.
         """
         self._check_decode_time()
+        # A transaction larger than the whole worker budget can never fit, so it fails as too large
+        # instead of retrying forever.
+        spill_cap = min(MAX_TX_SPILL_BYTES, _worker_spill_budget.limit)
         if self._tx_spill is None:
-            self._tx_spill = tempfile.TemporaryFile()
+            self._tx_spill = _SpillFile(_worker_spill_budget)
         type_index = {id(types): i for i, types in enumerate(self._tx_spill_types)}
         for event in self._tx_buffer:
             key = id(event.column_types)
@@ -486,23 +555,24 @@ class PgOutputDecoder:
                 ).encode()
                 + b"\n"
             )
-            if self._tx_spill_bytes + len(line) > MAX_TX_SPILL_BYTES:
+            if self._tx_spill.bytes + len(line) > spill_cap:
                 self._reset_transaction()
-                raise CDCTransactionTooLargeError(
-                    f"Transaction spilled more than {MAX_TX_SPILL_BYTES} bytes before COMMIT"
+                raise CDCTransactionTooLargeError(f"Transaction spilled more than {spill_cap} bytes before COMMIT")
+            if not self._tx_spill.write(line):
+                self._reset_transaction()
+                raise CDCSpillBudgetExhaustedError(
+                    f"Worker spill budget of {_worker_spill_budget.limit} bytes is in use by other transactions"
                 )
-            self._tx_spill.write(line)
-            self._tx_spill_bytes += len(line)
         self._tx_buffer = []
 
 
 def _replay_spilled_transaction(
-    spill: IO[bytes], types: list[Mapping[str, pa.DataType] | None], tail: list[ChangeEvent], end_lsn: str
+    spill: _SpillFile, types: list[Mapping[str, pa.DataType] | None], tail: list[ChangeEvent], end_lsn: str
 ) -> Iterator[ChangeEvent]:
     """Yield a spilled transaction in WAL order, one change at a time: the file, then the in-memory tail."""
     try:
-        spill.seek(0)
-        for line in spill:
+        spill.file.seek(0)
+        for line in spill.file:
             operation, table_name, timestamp, columns, omitted, type_index = json.loads(line)
             yield ChangeEvent(
                 operation=operation,

@@ -18,10 +18,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     _OID_JSONB,
     _OID_TEXT,
     PG_EPOCH_OFFSET_US,
+    CDCSpillBudgetExhaustedError,
     PgOutputDecoder,
     Relation,
     RelationColumn,
     _pg_timestamp_to_datetime,
+    _WorkerSpillBudget,
 )
 
 _DECODER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.decoder"
@@ -570,8 +572,14 @@ class TestTransactionBufferGuard:
         assert spilled[0].column_types != spilled[-1].column_types
         assert [e.columns["id"] for e in follow_up] == [100]
 
-    @parameterized.expand([("change_count", "MAX_TX_BUFFER_EVENTS", 3), ("spill_bytes", "MAX_TX_SPILL_BYTES", 1)])
-    def test_raises_when_transaction_exceeds_a_cap(self, _name: str, cap: str, value: int) -> None:
+    @parameterized.expand(
+        [
+            ("change_count", "MAX_TX_BUFFER_EVENTS", 3),
+            ("spill_bytes", "MAX_TX_SPILL_BYTES", 1),
+            ("larger_than_the_worker_budget", "_worker_spill_budget", _WorkerSpillBudget(limit=1)),
+        ]
+    )
+    def test_raises_when_transaction_exceeds_a_cap(self, _name: str, cap: str, value: object) -> None:
         with patch(f"{_DECODER_MODULE}.{cap}", value), patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 4):
             decoder = self._decoder_with_relation()
             decoder.decode_message(_make_begin(), "0/1")
@@ -580,6 +588,30 @@ class TestTransactionBufferGuard:
 
             with pytest.raises(CDCTransactionTooLargeError):
                 decoder.decode_message(_make_insert(1, [("t", "99"), None, None, None]), "0/1")
+
+    def test_concurrent_transactions_share_the_worker_spill_budget(self) -> None:
+        row = _make_insert(1, [("t", "1"), None, None, None])
+        with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 1):
+            probe = io.BytesIO()
+            with patch(f"{_DECODER_MODULE}.tempfile.TemporaryFile", return_value=probe):
+                measured = self._decoder_with_relation()
+                measured.decode_message(_make_begin(), "0/1")
+                measured.decode_message(row, "0/1")
+                line = len(probe.getvalue())
+                measured.close()
+
+            with patch(f"{_DECODER_MODULE}._worker_spill_budget", _WorkerSpillBudget(limit=line * 5 // 2)):
+                first, second = self._decoder_with_relation(), self._decoder_with_relation()
+                first.decode_message(_make_begin(), "0/1")
+                first.decode_message(row, "0/1")
+                first.decode_message(row, "0/1")
+                second.decode_message(_make_begin(), "0/1")
+
+                with pytest.raises(CDCSpillBudgetExhaustedError):
+                    second.decode_message(row, "0/1")
+
+                assert len(list(first.decode_message(_make_commit(), "0/2"))) == 2
+                assert len(self._decode(second, [row, row])) == 2
 
     @parameterized.expand([("at_a_spill", 1), ("at_commit", 100)])
     def test_raises_when_decoding_a_transaction_outlasts_the_time_limit(self, _name: str, chunk: int) -> None:
