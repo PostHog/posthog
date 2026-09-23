@@ -66,3 +66,9 @@ Backfilled results use the original generation's timestamp.
 
 Removing a numeric evaluation's passing rule stops new report generation and scheduled delivery.
 Existing reports remain accessible through the Reports tab and the report list, detail, and history API endpoints.
+
+## Browser compatibility
+
+The evaluations list keeps supported rows visible if the API returns an output type the browser cannot display.
+A refresh message explains that some evaluations are omitted.
+Deploy this compatibility behavior before enabling creation of a new evaluation output type.
