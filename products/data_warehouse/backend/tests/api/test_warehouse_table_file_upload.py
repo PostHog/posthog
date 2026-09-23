@@ -198,10 +198,15 @@ class TestCreateTableFromUpload(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()["upload_id"]
 
-    def _create(self, *, exists: bool = True, **payload):
+    def _create(self, *, exists: bool = True, detected_quotes: bool | None = True, **payload):
         with (
             patch(f"{VIEW_MODULE}.get_s3_client", return_value=_FakeS3(exists_result=exists)),
             patch(f"{MODEL_MODULE}.DataWarehouseTable.get_columns", return_value=dict(FAKE_COLUMNS)),
+            # Quote detection reads the file for real, which a fake S3 object can't serve.
+            patch(
+                f"{MODEL_MODULE}.DataWarehouseTable.detect_csv_double_quotes_setting",
+                return_value=detected_quotes,
+            ),
             # Background column validation runs eagerly under test and would re-query the (faked) S3
             # table, stamping `valid` onto each column. It's out of scope for these wiring tests, so
             # keep it from mutating the columns the create endpoint just persisted.
@@ -280,6 +285,45 @@ class TestCreateTableFromUpload(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         table = DataWarehouseTable.objects.get(id=response.json()["id"])
         assert table.format == expected_format
+
+    @parameterized.expand(
+        [
+            ("rfc_4180_quoting", "csv", True, {"csv_allow_double_quotes": True}),
+            ("literal_quoting", "csv", False, {"csv_allow_double_quotes": False}),
+            ("non_csv_skips_detection", "parquet", None, {}),
+        ]
+    )
+    def test_an_upload_stores_the_detected_csv_quote_setting(
+        self, _name: str, file_format: str, detected: bool | None, expected_options: dict
+    ) -> None:
+        upload_id = self._upload(filename=f"data.{file_format}", file_format=file_format)
+
+        response = self._create(
+            upload_id=upload_id,
+            filename=f"data.{file_format}",
+            file_format=file_format,
+            table_name=f"data_{file_format}",
+            detected_quotes=detected,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        table = DataWarehouseTable.objects.get(id=response.json()["id"])
+        assert table.options == expected_options
+
+    def test_a_csv_that_parses_under_neither_quote_setting_is_rejected(self) -> None:
+        upload_id = self._upload()
+
+        response = self._create(
+            upload_id=upload_id,
+            filename="orders.csv",
+            file_format="csv",
+            table_name="orders",
+            detected_quotes=None,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert FILE_FORMAT_READ_HINTS["csv"] in response.json()["message"]
+        assert not DataWarehouseTable.objects.filter(name="orders").exists()
 
     def test_url_pattern_is_scoped_to_the_requesting_team(self) -> None:
         # The read location is always built from the caller's own team, so a client-supplied upload_id

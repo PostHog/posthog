@@ -1190,10 +1190,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             source_type=self.external_data_source.source_type if self.external_data_source else None,
         )
 
-        if self._is_csv_format():
-            effective = self.csv_allow_double_quotes if self.csv_allow_double_quotes is not None else False
+        # Must resolve an unset option the same way _describe_settings does, by sending no setting.
+        # Column detection reads the file through that method, so forcing a value here would query a
+        # table under different quoting than the columns it was created from.
+        if self._is_csv_format() and self.csv_allow_double_quotes is not None:
             table_def.top_level_settings = HogQLQuerySettings(
-                format_csv_allow_double_quotes=effective,
+                format_csv_allow_double_quotes=self.csv_allow_double_quotes,
             )
 
         return table_def
@@ -1260,6 +1262,28 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 return False
             raise
         return True
+
+    def detect_csv_double_quotes_setting(self) -> bool | None:
+        """Return the csv_allow_double_quotes setting that parses this file, or None when neither does.
+
+        RFC 4180 is tried first because almost every CSV export quotes fields that contain a comma.
+        Each probe reads a sample rather than the whole file, so a file whose quoting only varies
+        past the sample stays undisambiguated and takes the RFC 4180 answer. That is the same
+        setting ClickHouse applies to an unset option, so the sample bounds how much this method
+        can learn, not how correct its answer is. False comes back only when RFC 4180 fails.
+        """
+        tag_queries(
+            team_id=self.team.pk,
+            table_id=self.id,
+            warehouse_query=True,
+            name="detect_csv_double_quotes",
+            product=Product.WAREHOUSE,
+            feature=Feature.QUERY,
+        )
+        for allow_double_quotes in (True, False):
+            if self._csv_parses_with_double_quotes(allow_double_quotes):
+                return allow_double_quotes
+        return None
 
     def _validate_csv_double_quotes_setting(self) -> None:
         """Validate the user-chosen csv_allow_double_quotes setting by trying to parse data rows.
