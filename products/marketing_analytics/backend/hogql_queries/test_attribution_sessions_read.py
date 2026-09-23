@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from types import SimpleNamespace
 from uuid import UUID
 
 from unittest.mock import PropertyMock, patch
@@ -18,6 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.query_tagging import Feature, tags_context
@@ -47,12 +47,7 @@ class TestAttributionSessionsRead(SimpleTestCase):
                 MarketingAnalyticsAttributionQueryRunner,
                 "_shared_hogql_context",
                 new_callable=PropertyMock,
-                return_value=None,
-            )
-        )
-        self.coverage = self.enterContext(
-            patch.object(
-                attribution_sessions_read, "execute_hogql_query", return_value=SimpleNamespace(results=[], error=None)
+                return_value=HogQLContext(team_id=1),
             )
         )
         self.enterContext(patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=False))
@@ -156,11 +151,6 @@ class TestAttributionSessionsRead(SimpleTestCase):
         with (
             tags_context(trigger=REVALIDATION_TRIGGER if refreshing else "test", feature=Feature.QUERY),
             patch.object(
-                marketing_sessions_precompute,
-                "execute_hogql_query",
-                return_value=SimpleNamespace(results=[], error=None),
-            ),
-            patch.object(
                 marketing_sessions_precompute, "create_default_modifiers_for_team", return_value=runner.modifiers
             ),
             patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=flag),
@@ -180,10 +170,8 @@ class TestAttributionSessionsRead(SimpleTestCase):
                 STALE_WHILE_REVALIDATE_SECONDS if flag and not refreshing else None
             )
             assert revalidate.call_count == int(stale)
-            assert self.coverage.call_count == int(ready)
 
-    @parameterized.expand([("older_session", [[1]], None), ("unproven", [], "Coverage query failed")])
-    def test_unproven_session_coverage_falls_back(self, _name: str, rows: list[list[int]], error: str | None) -> None:
+    def test_failed_precompute_lookup_falls_back(self) -> None:
         runner = MarketingAnalyticsAttributionQueryRunner(
             team=self.team,
             modifiers=HogQLQueryModifiers(personsOnEventsMode="person_id_override_properties_on_events"),
@@ -194,12 +182,10 @@ class TestAttributionSessionsRead(SimpleTestCase):
                 dateRange=DateRange(date_from="2023-01-10", date_to="2023-01-11"),
             ),
         )
-        self.coverage.return_value.results = rows
-        self.coverage.return_value.error = error
         with patch.object(
             attribution_sessions_read,
             "ensure_marketing_sessions_precomputed",
-            return_value=LazyComputationResult(ready=True, job_ids=[UUID(int=1)]),
+            side_effect=RuntimeError("Precompute lookup failed"),
         ) as ensure:
             assert attribution_sessions_read.build_person_arrays(runner, runner.query_date_range) is None
         ensure.assert_called_once()
@@ -217,7 +203,7 @@ class TestAttributionSessionsRead(SimpleTestCase):
                     ]
                 ),
                 HogQLQueryModifiers(customChannelTypeRules=[]),
-                "custom_channel_rules",
+                "custom_channel_rules_mismatch",
             ),
         ]
     )
@@ -240,7 +226,6 @@ class TestAttributionSessionsRead(SimpleTestCase):
         with patch.object(attribution_sessions_read, "ensure_marketing_sessions_precomputed") as ensure:
             assert attribution_sessions_read.build_person_arrays(runner, runner.query_date_range) is None
         ensure.assert_not_called()
-        self.coverage.assert_not_called()
 
     @parameterized.expand(
         [
@@ -314,4 +299,3 @@ class TestAttributionSessionsRead(SimpleTestCase):
         with patch.object(attribution_sessions_read, "ensure_marketing_sessions_precomputed") as ensure:
             runner.to_query()
         ensure.assert_not_called()
-        self.coverage.assert_not_called()
