@@ -76,6 +76,7 @@ class _FetchedRows:
     rows: list
     column_names: list[str] | None
     truncated: bool
+    at_explicit_limit: bool
 
 
 def _calculate_rows_and_columns(
@@ -98,24 +99,36 @@ def _calculate_rows_and_columns(
         analytics_props={"source": EventSource.ALERT},
     )
     truncated = calculation_result.has_more is True
-    if require_complete_result and truncated:
-        # A cut result cannot be trusted: last-row evaluation scores a row that is not the real
-        # last one, and any-row evaluation can miss a breaching row past the cut. This recurs
-        # identically on every check until the query is edited, so it is a configuration error:
-        # the caller disables the alert and emails the owner rather than retrying forever at
-        # full scan cost.
-        raise AlertExtractionError(
-            "The query returns more rows than its row limit, so the result is incomplete. "
-            "Add an explicit SQL LIMIT that covers everything the alert evaluates, or aggregate the query."
-        )
     rows = calculation_result.result
     if rows is None:
         raise RuntimeError(f"No results found for insight with id = {insight.id}")
     if not isinstance(rows, list):
         raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
+    explicit_limit = _explicit_limit(insight)
+    at_explicit_limit = not truncated and explicit_limit is not None and len(rows) >= explicit_limit
+    if require_complete_result:
+        if truncated:
+            # A cut result cannot be trusted: last-row evaluation scores a row that is not the
+            # real last one, and any-row evaluation can miss a breaching row past the cut. This
+            # recurs identically on every check until the query is edited, so it is a
+            # configuration error: the caller disables the alert and emails the owner rather
+            # than retrying forever at full scan cost.
+            raise AlertExtractionError(
+                "The query returns more rows than its row limit, so the result is incomplete. "
+                "Add an explicit SQL LIMIT that covers everything the alert evaluates, or aggregate the query."
+            )
+        if at_explicit_limit:
+            # A result at exactly its author-written LIMIT is ambiguous: the data may hold
+            # exactly that many rows, or the LIMIT may have cut it. Nothing proves either way
+            # (has_more only exists under the default limit), so this stays a retryable error
+            # instead of a disable.
+            raise AlertDataUnavailableError(
+                f"The query returned exactly its LIMIT of {explicit_limit} rows, so the result may be cut. "
+                "Raise the LIMIT above what the query can return."
+            )
     columns = calculation_result.columns if isinstance(calculation_result.columns, list) else None
     column_names = [str(c) for c in columns] if columns else None
-    return _FetchedRows(rows=rows, column_names=column_names, truncated=truncated)
+    return _FetchedRows(rows=rows, column_names=column_names, truncated=truncated, at_explicit_limit=at_explicit_limit)
 
 
 def _check_row_caps(rows: list, evaluation: HogQLAlertEvaluation) -> None:
@@ -310,14 +323,18 @@ def extract_hogql_detector_series(
     # A short series cannot establish that the alert is not firing.
     min_samples = _compute_min_samples_for_detector(detector_config)
     if len(values) < min_samples:
-        explicit_limit = _explicit_limit(insight)
-        capped = fetched.truncated or (explicit_limit is not None and len(values) >= explicit_limit)
-        if capped:
-            # The history is short because the row limit cut it, not because the data is young,
-            # so waiting never heals it — same configuration-error routing as the last-row guard.
+        if fetched.truncated:
+            # The history is short because the row limit provably cut it, not because the data
+            # is young, so waiting never heals it — same configuration-error routing as the
+            # last-row guard.
             raise AlertExtractionError(
                 f"The detector needs at least {min_samples} rows, but the row limit cut the result to {len(values)}. "
                 + _TRUNCATION_FIX
+            )
+        if fetched.at_explicit_limit:
+            raise AlertDataUnavailableError(
+                f"The detector needs at least {min_samples} rows, but the query returned exactly its LIMIT of "
+                f"{len(values)}. " + _TRUNCATION_FIX
             )
         raise AlertDataUnavailableError(
             f"The SQL anomaly alert needs at least {min_samples} rows, but the query returned {len(values)}. "
