@@ -183,12 +183,12 @@ export const heatmapCaptureLogic = kea<heatmapCaptureLogicType>([
                 lemonToast.success('Heatmap saved', toastOptions)
             } else if (summary.savedWidths === 0) {
                 lemonToast.warning(
-                    'Heatmap saved at your current window width only. Try saving again for the rest.',
+                    'Heatmap saved at your current window width only. Saving again creates a new heatmap and retries all page widths.',
                     toastOptions
                 )
             } else {
                 lemonToast.warning(
-                    `Heatmap saved with ${summary.savedWidths} of ${summary.totalWidths} page widths. Try saving again for the rest.`,
+                    `Heatmap saved with ${summary.savedWidths} of ${summary.totalWidths} page widths. Saving again creates a new heatmap and retries all page widths.`,
                     toastOptions
                 )
             }

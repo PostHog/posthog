@@ -116,13 +116,15 @@ describe('heatmapCaptureLogic', () => {
             name: 'warns that a partial capture only saved some widths',
             captures: [{ width: 320, blob: jpeg() }],
             expectedToast: 'warning' as const,
-            expectedMessage: 'Heatmap saved with 1 of 3 page widths. Try saving again for the rest.',
+            expectedMessage:
+                'Heatmap saved with 1 of 3 page widths. Saving again creates a new heatmap and retries all page widths.',
         },
         {
             name: 'warns that the fallback only saved the current window width',
             captures: [] as { width: number; blob: Blob }[],
             expectedToast: 'warning' as const,
-            expectedMessage: 'Heatmap saved at your current window width only. Try saving again for the rest.',
+            expectedMessage:
+                'Heatmap saved at your current window width only. Saving again creates a new heatmap and retries all page widths.',
         },
     ])('$name', async ({ captures, expectedToast, expectedMessage }) => {
         ;(captureResponsiveScreenshots as jest.Mock).mockResolvedValue(captures)
