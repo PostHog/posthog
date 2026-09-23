@@ -565,6 +565,11 @@ export function sankeyLayout<
     }
 
     function resolveCollisions(nodeList: SankeyNode<N, L>[], alpha: number): void {
+        // A pinned column can sit between two others with nothing naturally landing in it, leaving
+        // it empty; there's nothing to space out.
+        if (nodeList.length === 0) {
+            return
+        }
         const i = nodeList.length >> 1
         const subject = nodeList[i]
         resolveCollisionsBottomToTop(nodeList, subject.y0 - py, i - 1, alpha)
