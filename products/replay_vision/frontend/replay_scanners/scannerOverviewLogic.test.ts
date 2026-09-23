@@ -111,7 +111,12 @@ describe('scannerOverviewLogic', () => {
 
         it.each([
             ['a range ending today', '-7d', null, null],
-            ['a relative range ending yesterday', '-14d', '-1d', null],
+            [
+                'a range ending yesterday',
+                '-14d',
+                '-1d',
+                'Cohorts cover the most recent days. Pick a date range that ends today to save one.',
+            ],
             [
                 'a fixed range that ended weeks ago',
                 '2020-01-01',

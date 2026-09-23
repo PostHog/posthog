@@ -390,7 +390,7 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
             (s) => [s.overviewDateTo],
             (dateTo: string | null): string | null => {
                 const end = dateTo && dateTo !== 'all' ? dateStringToDayJs(dateTo) : null
-                return end && end.endOf('day').isBefore(dayjs().subtract(1, 'day'))
+                return end && end.endOf('day').isBefore(dayjs().startOf('day'))
                     ? 'Cohorts cover the most recent days. Pick a date range that ends today to save one.'
                     : null
             },

@@ -745,8 +745,12 @@ export interface replayScannerLogicActions {
     turnOnSelfDrivingFailure: () => {
         value: true
     }
-    turnOnSelfDrivingSuccess: (scannerVersion: number) => {
+    turnOnSelfDrivingSuccess: (
+        scannerVersion: number,
+        updatedAt: string
+    ) => {
         scannerVersion: number
+        updatedAt: string
     }
     touchScannerField: (key: string) => {
         key: string
@@ -867,7 +871,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         toggleEnabledSuccess: (enabled: boolean) => ({ enabled }),
         toggleEnabledFailure: true,
         turnOnSelfDriving: true,
-        turnOnSelfDrivingSuccess: (scannerVersion: number) => ({ scannerVersion }),
+        turnOnSelfDrivingSuccess: (scannerVersion: number, updatedAt: string) => ({ scannerVersion, updatedAt }),
         turnOnSelfDrivingFailure: true,
         setObservationStatusFilter: (values: ObservationStatusValue[]) => ({ values }),
         setObservationTriggeredByFilter: (values: ObservationTriggeredByValue[]) => ({ values }),
@@ -1181,8 +1185,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 scannerSaved: (_, { scanner }) => scanner,
                 toggleEnabledSuccess: (state, { enabled }) => (state ? { ...state, enabled } : state),
                 // Self-driving changes the prompt the model gets, so the backend bumps the version with it.
-                turnOnSelfDrivingSuccess: (state, { scannerVersion }) =>
-                    state ? { ...state, emits_signals: true, scanner_version: scannerVersion } : state,
+                turnOnSelfDrivingSuccess: (state, { scannerVersion, updatedAt }) =>
+                    state
+                        ? { ...state, emits_signals: true, scanner_version: scannerVersion, updated_at: updatedAt }
+                        : state,
             },
         ],
         togglingEnabled: [
@@ -2230,7 +2236,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     })
                     actions.setScannerValue('emits_signals', true)
                     actions.setScannerValue('scanner_version', response.scanner_version)
-                    actions.turnOnSelfDrivingSuccess(response.scanner_version)
+                    actions.setScannerValue('updated_at', response.updated_at)
+                    actions.turnOnSelfDrivingSuccess(response.scanner_version, response.updated_at)
                     lemonToast.success('Self-driving turned on')
                 } catch (error: any) {
                     lemonToast.error(`Failed to turn on self-driving${error.detail ? `: ${error.detail}` : ''}`)

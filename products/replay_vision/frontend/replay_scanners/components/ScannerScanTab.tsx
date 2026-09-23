@@ -1,5 +1,8 @@
+import { useMountedLogic } from 'kea'
+
 import { LemonCollapse } from '@posthog/lemon-ui'
 
+import { backfillsLogic } from '../backfillsLogic'
 import { BackfillDateRange } from './BackfillDateRange'
 import { BatchScanRecordings } from './BatchScanRecordings'
 import { ScanSingleRecording } from './ScanSingleRecording'
@@ -16,6 +19,8 @@ function PanelHeader({ title, hint }: { title: string; hint: string }): JSX.Elem
 }
 
 export function ScannerScanTab({ scannerId }: { scannerId: string }): JSX.Element {
+    // Held for the whole tab, so reopening the backfill panel reuses the list and the default estimate.
+    useMountedLogic(backfillsLogic({ scannerId }))
     return (
         <LemonCollapse<ScanMode>
             defaultActiveKey="single"
