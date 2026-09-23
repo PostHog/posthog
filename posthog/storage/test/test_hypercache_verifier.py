@@ -8,7 +8,9 @@ Tests cover:
 - Error handling and edge cases
 """
 
+import json
 import time
+import pickle
 from functools import partial
 
 from posthog.test.base import BaseTest
@@ -18,9 +20,11 @@ from django.db import InterfaceError, OperationalError
 from django.db.models import QuerySet
 from django.test import SimpleTestCase, TestCase, override_settings
 
+import zstd
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
+from posthog.caching.zstd_compressor import ZstdCompressor
 from posthog.models.team.team import Team
 from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
@@ -32,6 +36,7 @@ from posthog.storage.hypercache_verifier import (
     _fetch_team_batch,
     _fix_and_record,
     _verify_and_fix_batch,
+    classify_failure,
     verify_and_fix_all_teams,
 )
 
@@ -1354,3 +1359,24 @@ class TestFetchTeamBatch(SimpleTestCase):
                 cache_type="test_cache",
                 chunk_size=10,
             )
+
+
+class TestClassifyFailure(SimpleTestCase):
+    def test_an_unreadable_cache_entry_is_a_data_error(self):
+        frame = zstd.compress(json.dumps({"flags": []}).encode() * 100, 0, 1)
+        # django-redis suppresses only CompressorError, and the compressor returns the stored
+        # bytes rather than raising, so an unreadable frame reaches pickle.loads whole.
+        unreadable = ZstdCompressor({}).decompress(frame[:16])
+        with self.assertRaises(Exception) as caught:
+            pickle.loads(unreadable)
+
+        assert classify_failure(caught.exception) == "data_error"
+
+    @parameterized.expand(
+        [
+            ("an_empty_stored_value", EOFError("Ran out of input"), "data_error"),
+            ("a_bug_in_the_sweep", AttributeError("'NoneType' object has no attribute 'get'"), "unknown"),
+        ]
+    )
+    def test_reason_separates_a_bad_entry_from_a_bug(self, _name, error, expected_reason):
+        assert classify_failure(error) == expected_reason

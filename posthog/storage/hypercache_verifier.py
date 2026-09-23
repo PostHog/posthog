@@ -7,6 +7,7 @@ and automatically fix issues.
 
 import gc
 import time
+import pickle
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
@@ -55,6 +56,13 @@ def classify_failure(error: Exception) -> VerifyFailureReason:
         return "dependency_unavailable"
     # json.JSONDecodeError and UnicodeDecodeError both subclass ValueError.
     if isinstance(error, ValueError):
+        return "data_error"
+    # An unreadable entry reaches the django-redis pickle serializer, because the zstd
+    # compressor returns the stored bytes instead of raising. pickle.loads then raises
+    # UnpicklingError, or EOFError for an empty value, and neither subclasses ValueError.
+    # AttributeError and ModuleNotFoundError stay unknown: a value here pickles a JSON
+    # string and references no global, so they name a bug in the sweep, not a bad entry.
+    if isinstance(error, pickle.UnpicklingError | EOFError):
         return "data_error"
     return "unknown"
 
