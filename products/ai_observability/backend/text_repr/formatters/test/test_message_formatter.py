@@ -760,6 +760,47 @@ class TestResponsesApiItems:
         assert "[INPUT_TEXT]" not in result
 
 
+class TestOtelPartsMessages:
+    @parameterized.expand(
+        [
+            (
+                "input",
+                format_input_messages,
+                [
+                    {"role": "user", "parts": [{"type": "text", "content": "What is the weather in Paris?"}]},
+                    {
+                        "role": "assistant",
+                        "parts": [
+                            {"type": "tool_call", "id": "call_1", "name": "get_weather", "arguments": {"city": "Paris"}}
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "parts": [{"type": "tool_call_response", "id": "call_1", "response": {"temp_c": 21}}],
+                    },
+                ],
+                ["What is the weather in Paris?", 'get_weather(city="Paris")', '"temp_c": 21'],
+            ),
+            (
+                "output",
+                lambda messages: format_output_messages(None, messages),
+                [
+                    {
+                        "role": "assistant",
+                        "parts": [{"type": "text", "content": "It is 21C in Paris."}],
+                        "finish_reason": "stop",
+                    }
+                ],
+                ["[1] ASSISTANT", "It is 21C in Paris."],
+            ),
+        ]
+    )
+    def test_renders_text_held_in_parts(self, _name, render, messages, expected):
+        result = "\n".join(render(messages))
+        for fragment in expected:
+            assert fragment in result
+
+
 class TestSanitizeSurrogates:
     """Test repair of unpaired UTF-16 surrogates."""
 

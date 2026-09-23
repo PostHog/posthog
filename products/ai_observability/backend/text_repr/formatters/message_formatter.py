@@ -32,6 +32,7 @@ from .constants import (
     SAMPLING_REDUCTION_FACTOR,
     SPECIAL_BLOCK_TYPES,
 )
+from .otel_parts import flatten_parts_message
 from .tool_formatter import format_tools
 
 
@@ -652,6 +653,12 @@ def _format_message_body(msg: dict[str, Any], options: FormatterOptions | None) 
     return lines
 
 
+def _flatten_parts_messages(messages: list[Any]) -> list[Any]:
+    return [
+        flattened for msg in messages for flattened in (flatten_parts_message(msg) if isinstance(msg, dict) else [msg])
+    ]
+
+
 def format_messages_array(messages: list[Any], options: FormatterOptions | None = None) -> list[str]:
     """
     Format an array of message objects without header.
@@ -667,6 +674,7 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
         List of formatted lines (no header, starts directly with messages)
     """
     lines = FormatterLines(options)
+    messages = _flatten_parts_messages(messages)
 
     for i, msg in enumerate(messages):
         if not isinstance(msg, dict):
@@ -764,7 +772,7 @@ def format_output_messages(
     if choices and isinstance(choices, list) and len(choices) > 0:
         # Extract messages from choices
         messages = []
-        for choice in choices:
+        for choice in _flatten_parts_messages(choices):
             if not isinstance(choice, dict):
                 continue
 
