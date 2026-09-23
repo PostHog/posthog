@@ -14,8 +14,8 @@ import { initKeaTests } from '~/test/init'
 import { DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from '~/types'
 
 import { NodeDetailOverview } from './NodeDetailOverview'
+import { NodeDetailQuery } from './NodeDetailQuery'
 import { NodeDetailSceneTab, nodeDetailSceneLogic } from './nodeDetailSceneLogic'
-import { NodeDetailQuery } from './tabs/NodeDetailQuery'
 
 const NODE_ID = 'node-1'
 const SAVED_QUERY_ID = 'saved-query-1'
