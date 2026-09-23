@@ -5640,7 +5640,8 @@ class HogFlowViewSet(
         self._require_self_optimising_enabled()
         instance = self.get_object()
 
-        if request.method == "GET":
+        # DRF routes HEAD to the GET handler, and the scope gate reads it as a read.
+        if request.method in ("GET", "HEAD"):
             requested_status = request.query_params.get("status")
             if requested_status and requested_status not in WorkflowProposal.Status.values:
                 raise exceptions.ValidationError(
