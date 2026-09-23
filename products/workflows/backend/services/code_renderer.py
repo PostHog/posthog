@@ -282,6 +282,12 @@ class _Renderer:
         for action in actions if isinstance(actions, list) else []:
             if isinstance(action, dict) and isinstance(action.get("id"), str):
                 self.actions.setdefault(action["id"], action)
+        self.trigger_id = next(
+            (action_id for action_id, action in self.actions.items() if action.get("type") == "trigger"), TRIGGER_ID
+        )
+        self.exit_id = next(
+            (action_id for action_id, action in self.actions.items() if action.get("type") == "exit"), EXIT_ID
+        )
         self.continue_to: dict[str, str] = {}
         self.branch_to: dict[str, dict[int, str]] = {}
         edges = definition.get("edges")
@@ -314,7 +320,7 @@ class _Renderer:
         node = start
         while node != stop:
             action = self.actions.get(node)
-            if action is None or node == EXIT_ID or node in self.visited:
+            if action is None or node == self.exit_id or node in self.visited:
                 previous = placements[-1].name if placements else start
                 self.warn(
                     node,
@@ -328,7 +334,7 @@ class _Renderer:
                     node,
                     f'"{self._name(action)}" leads nowhere. The path stops there and a push adds the exit after it.',
                 )
-                arms = self.walk_arms(action, EXIT_ID) if action.get("type") == "conditional_branch" else None
+                arms = self.walk_arms(action, self.exit_id) if action.get("type") == "conditional_branch" else None
                 placements.append(_Placement(action=action, arms=arms))
                 break
             arms = None
@@ -736,7 +742,7 @@ class _Renderer:
 
     def render_trigger(self, trigger: dict[str, Any] | None) -> Any:
         if trigger is None:
-            self.warn(TRIGGER_ID, "The workflow has no trigger step. Add `on` before you push.")
+            self.warn(self.trigger_id, "The workflow has no trigger step. Add `on` before you push.")
             return _Comment(("Add the trigger here: on: onEvent({ event: '...' }) or on: onSchedule().",))
         config = _dict(trigger.get("config"))
         kind = config.get("type")
@@ -748,27 +754,28 @@ class _Renderer:
             first = events[0]
             if len(events) > 1:
                 self.warn(
-                    TRIGGER_ID, f"Only the first of the {len(events)} trigger events is kept. onEvent takes one event."
+                    self.trigger_id,
+                    f"Only the first of the {len(events)} trigger events is kept. onEvent takes one event.",
                 )
             if filters.get("actions"):
-                self.warn(TRIGGER_ID, "The actions in the trigger are dropped. onEvent takes an event name.")
+                self.warn(self.trigger_id, "The actions in the trigger are dropped. onEvent takes an event name.")
             if filters.get("properties"):
                 self.warn(
-                    TRIGGER_ID,
+                    self.trigger_id,
                     "The trigger conditions that apply to every event are dropped. onEvent takes conditions on the event only.",
                 )
             if filters.get("filter_test_accounts"):
                 self.warn(
-                    TRIGGER_ID,
+                    self.trigger_id,
                     f"The trigger filters out test accounts. {PACKAGE} cannot set that, so a push turns it off.",
                 )
             options: dict[str, Any] = {"event": first["id"]}
             properties = []
             for entry in first.get("properties") or []:
-                condition = self.render_condition(TRIGGER_ID, entry)
+                condition = self.render_condition(self.trigger_id, entry)
                 if condition is None:
                     self.warn(
-                        TRIGGER_ID,
+                        self.trigger_id,
                         f"A condition on the trigger event is dropped. {PACKAGE} reads person, event and group properties only.",
                     )
                 else:
@@ -777,7 +784,8 @@ class _Renderer:
                 options["properties"] = properties
             return _Call(self.use("onEvent"), (options,))
         self.warn(
-            TRIGGER_ID, f'The trigger type "{kind}" has no constructor in {PACKAGE}. Add `on` by hand before you push.'
+            self.trigger_id,
+            f'The trigger type "{kind}" has no constructor in {PACKAGE}. Add `on` by hand before you push.',
         )
         return _Comment(
             ("The trigger is kept as JSON. Replace it with onEvent(...) or onSchedule():", *_json_lines(config))
@@ -806,17 +814,17 @@ class _Renderer:
         stored_key = definition.get("key")
         key = stored_key if isinstance(stored_key, str) and stored_key else _kebab(name)
 
-        start = self.continue_to.get(TRIGGER_ID)
+        start = self.continue_to.get(self.trigger_id)
         if start is None:
-            self.warn(TRIGGER_ID, "The trigger leads to no step. The workflow has no steps.")
+            self.warn(self.trigger_id, "The trigger leads to no step. The workflow has no steps.")
             placements: tuple[_Placement, ...] = ()
         else:
-            placements = self.walk(start, EXIT_ID)
+            placements = self.walk(start, self.exit_id)
         for action_id, action in self.actions.items():
-            if action_id not in self.visited and action_id not in (TRIGGER_ID, EXIT_ID):
+            if action_id not in self.visited and action_id not in (self.trigger_id, self.exit_id):
                 self.warn(action_id, f'"{self._name(action)}" is not reached from the trigger and is dropped.')
 
-        on = self.render_trigger(self.actions.get(TRIGGER_ID))
+        on = self.render_trigger(self.actions.get(self.trigger_id))
         flat = tuple(self._flatten(placements))
         for placement in flat:
             self.render_step(placement)
@@ -829,7 +837,7 @@ class _Renderer:
         exit_condition = definition.get("exit_condition") or _DEFAULT_EXIT_CONDITION
         if exit_condition not in _SDK_EXIT_CONDITIONS:
             self.warn(
-                EXIT_ID,
+                self.exit_id,
                 f'The exit condition "{exit_condition}" needs a conversion goal, which {PACKAGE} cannot declare. The workflow exits only at the end.',
             )
         elif exit_condition != _DEFAULT_EXIT_CONDITION:
@@ -842,13 +850,13 @@ class _Renderer:
         if _is_set(conversion.get("filters")) or _is_set(conversion.get("events")):
             self.warn(None, f"The conversion goal is dropped. {PACKAGE} cannot declare one.")
         if definition.get("trigger_masking"):
-            self.warn(TRIGGER_ID, f"The trigger masking is dropped. {PACKAGE} cannot declare it.")
+            self.warn(self.trigger_id, f"The trigger masking is dropped. {PACKAGE} cannot declare it.")
         options["on"] = on
 
-        exit_action = self.actions.get(EXIT_ID)
+        exit_action = self.actions.get(self.exit_id)
         reason = ((exit_action or {}).get("config") or {}).get("reason")
         if exit_action is None:
-            self.warn(EXIT_ID, "The workflow has no exit step. The exit reason is left empty.")
+            self.warn(self.exit_id, "The workflow has no exit step. The exit reason is left empty.")
 
         export_name = _camel(key, "workflow")
         self.use("workflow")
