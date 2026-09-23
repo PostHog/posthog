@@ -58,6 +58,7 @@ The Migration class still needs `atomic = False`.
 
 from django.contrib.postgres.operations import AddIndexConcurrently, RemoveIndexConcurrently
 from django.db import migrations, router
+from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 
 import structlog
 
@@ -157,7 +158,7 @@ class _ConcurrentIndexOp(migrations.RunSQL):
     using: str
     where: str
 
-    def _allow_migrate(self, app_label, schema_editor) -> bool:
+    def _allow_migrate(self, app_label: str, schema_editor: BaseDatabaseSchemaEditor) -> bool:
         # The same router check `RunSQL` makes, which the overridden apply path would skip.
         # Without it a product app routed to its own database runs this on every database.
         return router.allow_migrate(schema_editor.connection.alias, app_label, **self.hints)
