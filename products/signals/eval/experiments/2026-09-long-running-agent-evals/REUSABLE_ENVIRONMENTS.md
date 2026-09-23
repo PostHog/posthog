@@ -33,6 +33,24 @@ An existing report is a candidate answer until its evidence has been independent
 Historical data and resulting traces must stay in private storage; public files contain the case structure and implementation only.
 Synthetic cases remain useful and are already supported by the existing harness.
 
+### Saved cases and parallel live runs
+
+Use two complementary ways to compare scout configurations:
+
+- Saved cases reset the same repository, data, and initial history for repeated prompt, model, and effort comparisons.
+- Parallel live copies investigate current project data to check whether promising changes also work beyond the saved cases.
+  Live data can change during the comparison, so these runs have weaker repeatability.
+
+Iterate on saved cases, validate promising changes with parallel live runs, then decide whether to deploy.
+Live copies need the same starting history, private subsequent memory, and complete report capture without downstream delivery.
+Enforce memory isolation on both reads and writes so copies cannot influence one another or the production scout.
+The production safeguards identified in the [round-1 report](FINAL_REPORT.md) remain prerequisites for another live comparison; the isolated runner does not implement those safeguards for production copies.
+
+For bounded code and feedback investigations, retained inputs and the normal tools appear sufficient for useful comparisons without copying an entire production project.
+Treat that as a working assumption supported by the completed investigations, not a demonstrated guarantee of production performance.
+Broader coverage requires representative cases with clear issues, subtle recurring issues, existing duplicates, and valid no-report outcomes.
+The current environments establish reusable execution; they do not yet establish that coverage or a superior configuration.
+
 ## Recommended implementation
 
 Extend the existing [Signals agentic evals](../../../evals/agentic/) and [shared harness](../../../../posthog_ai/eval_harness/README.md).
@@ -107,6 +125,12 @@ Parquet can store the bounded historical dataset while the restored case still u
 It does not require replacing MCP or ClickHouse.
 ClickHouse supports [Parquet input and output](https://clickhouse.com/docs/reference/formats/Parquet/Parquet); schemas and product metadata still need explicit restoration.
 [DuckDB can query Parquet directly](https://duckdb.org/docs/current/data/parquet/overview), but that does not supply PostHog's other tool behavior.
+
+The implemented v0 stores events as compressed JSON Lines, related state as JSON, and repository contents in a Git bundle.
+A manifest records input hashes and restoration metadata.
+These formats fit the existing loaders and preserve nested event properties without introducing another conversion step.
+No format benchmark established that JSON is faster or smaller than Parquet.
+An event-reader change could add Parquet later while keeping the database restoration and MCP interfaces unchanged.
 
 Recorded tool responses cannot serve as the main environment for exploratory comparisons.
 A different model may issue a new query or inspect another filter, for which a recording has no answer.
@@ -465,3 +489,19 @@ CI follow-up uses the existing product facades for fixture access and moves the 
 The empty-project helper returns named fields, preserving the fresh-project setup behavior.
 After these fixes, 48 focused tests pass, including repeated restoration, fresh-project setup, fixture isolation, model-boundary invariants, and test-module naming.
 Repository-wide type checking, the CI import-boundary command, harness discovery, and the exact new lint rule also pass.
+
+### September 23, 2026: realism review and comparison strategy
+
+A read-only review of the retained code and feedback transcripts found substantive source investigation, data queries, history checks, and supported findings.
+Some scout comments questioned whether parts of the context were synthetic, but the scouts continued investigating.
+The transcripts contain no explicit identification of the assignment as an evaluation and do not establish deliberate test gaming.
+They also do not establish production-equivalent behavior.
+
+Observed quality failures include missed issues, shallow grouping, inaccurate counts, and source-read scope violations.
+Missing historical reports, advancing clocks, and limited ownership context remain separate environment limitations.
+The evidence does not establish that awareness of the environment caused the quality failures.
+Use the saved cases for bounded comparisons with those limitations recorded, and validate promising changes against current data before deployment.
+
+Implementation, operating instructions, decisions, and sanitized findings are versioned in this repository.
+Historical snapshots, raw transcripts, source feedback, and detailed private reviews remain outside Git on the devbox.
+A pushed branch preserves the implementation and summarized context; it does not back up those private inputs or results.
