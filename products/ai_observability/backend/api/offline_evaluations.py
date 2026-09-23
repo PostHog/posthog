@@ -1,4 +1,5 @@
 from collections import namedtuple
+from typing import TYPE_CHECKING, cast
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -20,6 +21,9 @@ from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.permissions import AccessControlPermission
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -176,6 +180,7 @@ class AIObservabilityOfflineEvaluationsViewSet(TeamAndOrgViewSetMixin, viewsets.
                     query=preflight_query,
                     placeholders={},
                     team=self.team,
+                    user=cast("User", request.user),
                     query_type="LLMOfflineEvaluationItemsResolve",
                     limit_context=LimitContext.QUERY,
                 )
@@ -213,6 +218,7 @@ class AIObservabilityOfflineEvaluationsViewSet(TeamAndOrgViewSetMixin, viewsets.
                             "ts_end": ast.Constant(value=ts_end),
                         },
                         team=self.team,
+                        user=cast("User", request.user),
                         query_type="LLMOfflineEvaluationItems",
                         fall_back_to_events=True,
                         limit_context=LimitContext.QUERY,

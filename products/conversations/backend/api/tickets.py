@@ -41,7 +41,6 @@ from posthog.api.tagged_item import (
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemSerializerMixin,
     TaggedItemViewSetMixin,
-    normalize_tag_names,
     set_tags_on_object,
 )
 from posthog.dataclasses import frozen
@@ -347,10 +346,33 @@ class TicketPersonSerializer(serializers.Serializer):
         return get_person_name(team, person)
 
 
+# An open map: the widget sends whatever it captured, and the sanitiser bounds the size and the
+# value types rather than the key set. The two keys the ticket scene reads are named so a client
+# knows they are the ones to expect, and `additionalProperties` keeps the rest honest.
+_TICKET_SESSION_CONTEXT_SCHEMA = {
+    "type": "object",
+    "description": (
+        "Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever "
+        "the widget sent, commonly current_url, replay_url, browser, os and sdk_version."
+    ),
+    "additionalProperties": True,
+    "properties": {
+        "current_url": {"type": "string", "description": "Page the reporter was on."},
+        "replay_url": {"type": "string", "description": "Replay of the session the ticket came from."},
+    },
+}
+
+
+@extend_schema_field(_TICKET_SESSION_CONTEXT_SCHEMA)
+class TicketSessionContextField(serializers.JSONField):
+    pass
+
+
 class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
+    session_context = TicketSessionContextField(read_only=True)
 
     class Meta:
         model = Ticket
@@ -1907,7 +1929,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             rich_content=data.get("rich_content"),
             distinct_id=distinct_id,
             creator_id=request.user.id if request.user and request.user.is_authenticated else None,
-            tags=normalize_tag_names(data.get("tags") or []),
         )
         assert fingerprint is not None
         guarded = reply_dedupe.create_ticket_deduplicated(fingerprint, create_ticket)
