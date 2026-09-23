@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import _create_event, flush_persons_and_events
@@ -32,7 +32,9 @@ from posthog.temporal.weekly_digest.activities import (
     NEW_ERROR_ISSUES_PER_TEAM_LIMIT,
     ActivityCancelled,
     UploadDeadlineExceeded,
+    _cut_organization_id_ranges,
     _cut_team_id_ranges,
+    _organizations_for_batch,
     _query_team_usage_trends,
     _redis_url,
     _teams_in_range,
@@ -54,13 +56,18 @@ from posthog.temporal.weekly_digest.activities import (
     send_weekly_digest_batch,
 )
 from posthog.temporal.weekly_digest.keys import TeamDataKey, UserDataKey, org_digest_key, team_data_key, user_data_key
-from posthog.temporal.weekly_digest.queries import query_team_ids_for_digest, query_teams_for_digest
+from posthog.temporal.weekly_digest.queries import (
+    query_orgs_for_digest,
+    query_team_ids_for_digest,
+    query_teams_for_digest,
+)
 from posthog.temporal.weekly_digest.types import (
     DEFAULT_PRODUCT_SUGGESTION_TEXT,
     CommonInput,
     Digest,
     GenerateDigestDataBatchInput,
     GenerateOrganizationDigestInput,
+    OrganizationIdRange,
     SendWeeklyDigestBatchInput,
     TeamIdRange,
     UsageTrends,
@@ -160,6 +167,36 @@ def test_team_id_ranges_page_every_digest_team_exactly_once(organization, digest
         ]
         assert len(team_ids) <= common.batch_size
         paged.extend(team_ids)
+
+    assert paged == expected
+
+
+@pytest.mark.django_db
+def test_organization_id_ranges_page_every_digest_organization_exactly_once(digest, common_input):
+    for index in range(5):
+        Organization.objects.create(name=f"digest org {index}")
+        if index == 2:
+            # Sits inside a batch range, so a leak here shows up as an extra paged organization.
+            Organization.objects.create(name="internal metrics", for_internal_metrics=True)
+
+    common = common_input.model_copy(update={"batch_size": 2})
+    expected = list(query_orgs_for_digest().values_list("id", flat=True))
+
+    paged: list = []
+    ranges = _cut_organization_id_ranges(list(query_orgs_for_digest().values_list("id", flat=True)), common.batch_size)
+    # Created after the ranges were cut, so it must wait for the next digest.
+    Organization.objects.create(name="late org")
+    for organization_id_range in ranges:
+        organization_ids = [
+            organization.id
+            for organization in _organizations_for_batch(
+                GenerateOrganizationDigestInput(
+                    organization_id_range=organization_id_range, digest=digest, common=common
+                )
+            )
+        ]
+        assert len(organization_ids) <= common.batch_size
+        paged.extend(organization_ids)
 
     assert paged == expected
 
@@ -437,6 +474,11 @@ def _make_team(organization: Organization, name: str) -> Team:
     return Team.objects.create(organization=organization, name=name)
 
 
+def _organization_range(*organizations: Organization) -> OrganizationIdRange:
+    ids = sorted(organization.id for organization in organizations)
+    return OrganizationIdRange(start=ids[0], end=UUID(int=ids[-1].int + 1))
+
+
 @pytest.mark.django_db
 def test_generate_user_notification_lookup_respects_settings_and_organization_locks(
     organization, team, redis_servers, common_input, digest
@@ -542,7 +584,11 @@ def test_generate_organization_digest_batch_defaults_missing_team_data(
     )
     run_sync(
         generate_organization_digest_batch,
-        GenerateOrganizationDigestInput(batch=(0, Organization.objects.count()), digest=digest, common=common_input),
+        GenerateOrganizationDigestInput(
+            organization_id_range=_organization_range(organization, broken_organization),
+            digest=digest,
+            common=common_input,
+        ),
     )
 
     # One organization's malformed value skips that organization only.
