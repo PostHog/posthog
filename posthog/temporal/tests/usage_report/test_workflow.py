@@ -40,7 +40,7 @@ from posthog.temporal.usage_report.workflow import (
     _queries_for_sandbox_compute_patch,
     build_context,
 )
-from posthog.usage_counters import UsageCounter, UsageCounterMode, UsageCounterPlan
+from posthog.usage_counters import COUNTER_FLAG_NAMES, UsageCounter, UsageCounterMode, UsageCounterPlan
 
 
 def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
@@ -240,7 +240,10 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
         expected_mode = (
             UsageCounterMode.LEGACY if report_behavior in {"disabled", "flag_failure"} else UsageCounterMode.BOTH
         )
-        assert plans[0].modes == dict.fromkeys(UsageCounter, expected_mode)
+        assert plans[0].modes == {
+            counter: expected_mode if counter in COUNTER_FLAG_NAMES else UsageCounterMode.LEGACY
+            for counter in UsageCounter
+        }
     assert aggregate_payloads[0].ctx.usage_counter_plan == (plans[0] if plans else None)
 
     # Each scheduled query activity carries its query name as the Temporal

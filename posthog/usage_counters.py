@@ -39,6 +39,15 @@ class UsageCounter(StrEnum):
     WORKFLOW_PUSH = "teams_with_workflow_push_sent_in_period"
     WORKFLOW_SMS = "teams_with_workflow_sms_sent_in_period"
     WORKFLOW_INVOCATIONS = "teams_with_workflow_billable_invocations_in_period"
+    ROWS_SYNCED = "teams_with_rows_synced_in_period"
+    FREE_HISTORICAL_ROWS_SYNCED = "teams_with_free_historical_rows_synced_in_period"
+    ROWS_EXPORTED = "teams_with_rows_exported_in_period"
+    LOGS_BYTES = "teams_with_logs_bytes_in_period"
+    LOGS_RETENTION_30D_BYTES = "teams_with_logs_retention_30d_bytes_in_period"
+    AI_CREDITS = "teams_with_ai_credits_used_in_period"
+    SIGNALS_CREDITS = "teams_with_signals_credits_used_in_period"
+    POSTHOG_CODE_CREDITS = "teams_with_posthog_code_credits_used_in_period"
+    REPLAY_VISION_CREDITS = "teams_with_replay_vision_credits_used_in_period"
 
 
 UsageCounterQuery = Callable[[datetime, datetime], list[tuple[int, int]]]
@@ -118,9 +127,11 @@ class UsageCounterPlan:
 
     @property
     def query_names(self) -> set[str]:
-        return {
-            "exceptions_captured" if counter == UsageCounter.EXCEPTIONS else counter.value for counter in self.modes
+        bundles = {
+            UsageCounter.EXCEPTIONS: "exceptions_captured",
+            UsageCounter.LOGS_RETENTION_30D_BYTES: "logs_retention_bytes",
         }
+        return {bundles.get(counter, counter.value) for counter in self.modes}
 
 
 @frozen
@@ -215,9 +226,19 @@ class UsageCounterService:
             UsageCounter.WORKFLOW_PUSH: usage_report.get_teams_with_workflow_push_sent_in_period,
             UsageCounter.WORKFLOW_SMS: usage_report.get_teams_with_workflow_sms_sent_in_period,
             UsageCounter.WORKFLOW_INVOCATIONS: usage_report.get_teams_with_workflow_billable_invocations_in_period,
+            UsageCounter.ROWS_SYNCED: usage_report.get_teams_with_rows_synced_in_period,
+            UsageCounter.FREE_HISTORICAL_ROWS_SYNCED: usage_report.get_teams_with_free_historical_rows_synced_in_period,
+            UsageCounter.ROWS_EXPORTED: usage_report.get_teams_with_rows_exported_in_period,
+            UsageCounter.LOGS_BYTES: usage_report.get_teams_with_logs_bytes_in_period,
+            UsageCounter.LOGS_RETENTION_30D_BYTES: lambda begin, end: self._logs_retention_query(begin, end)["30d"],
+            UsageCounter.AI_CREDITS: usage_report.get_teams_with_ai_credits_used_in_period,
+            UsageCounter.SIGNALS_CREDITS: usage_report.get_teams_with_signals_credits_used_in_period,
+            UsageCounter.POSTHOG_CODE_CREDITS: usage_report.get_teams_with_posthog_code_credits_used_in_period,
+            UsageCounter.REPLAY_VISION_CREDITS: usage_report.get_teams_with_replay_vision_credits_used_in_period,
         }
         self._quota_events_query = usage_report.get_teams_with_billable_event_count_in_period
         self._exceptions_query = usage_report.get_teams_with_exceptions_captured_in_period
+        self._logs_retention_query = usage_report.get_teams_with_logs_retention_bytes_in_period
         self._records_query = usage_report.get_usage_records_in_period
 
     def resolve_plan(
@@ -253,6 +274,13 @@ class UsageCounterService:
                 )
                 if mode != UsageCounterMode.REALTIME:
                     counts[counter.value] = [(team_id, count) for team_id, count in totals]
+            elif counter == UsageCounter.LOGS_RETENTION_30D_BYTES:
+                counts.update(
+                    {
+                        f"teams_with_logs_retention_{tier}_bytes_in_period": rows
+                        for tier, rows in self._logs_retention_query(plan.period.start, plan.period.end).items()
+                    }
+                )
             elif mode != UsageCounterMode.REALTIME:
                 counts[counter.value] = self.get_legacy(counter, plan.period.start, plan.period.end, caller=plan.caller)
         return counts

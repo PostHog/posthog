@@ -29,15 +29,8 @@ from posthog.tasks.usage_report import (
     convert_team_usage_rows_to_dict,
     get_self_driving_credits_used_in_period_for_org,
     get_signals_credited_refund_credits_for_org,
-    get_teams_with_ai_credits_used_in_period,
     get_teams_with_api_queries_metrics,
     get_teams_with_billable_sandbox_compute_usage_in_period,
-    get_teams_with_logs_bytes_in_period,
-    get_teams_with_posthog_code_credits_used_in_period,
-    get_teams_with_replay_vision_credits_used_in_period,
-    get_teams_with_rows_exported_in_period,
-    get_teams_with_rows_synced_in_period,
-    get_teams_with_signals_credits_used_in_period,
 )
 from posthog.usage_counters import UsageCounter, UsageCounterService
 from posthog.utils import get_current_day
@@ -1118,6 +1111,13 @@ def update_all_orgs_billing_quotas(
             UsageCounter.WORKFLOW_EMAILS,
             UsageCounter.WORKFLOW_PUSH,
             UsageCounter.WORKFLOW_INVOCATIONS,
+            UsageCounter.ROWS_SYNCED,
+            UsageCounter.ROWS_EXPORTED,
+            UsageCounter.LOGS_BYTES,
+            UsageCounter.AI_CREDITS,
+            UsageCounter.SIGNALS_CREDITS,
+            UsageCounter.POSTHOG_CODE_CREDITS,
+            UsageCounter.REPLAY_VISION_CREDITS,
         ),
     )
 
@@ -1129,14 +1129,7 @@ def update_all_orgs_billing_quotas(
     api_queries_usage = _timed_query(
         "api_queries_metrics", get_teams_with_api_queries_metrics, period.start, period.end
     )
-    token_credits = convert_team_usage_rows_to_dict(
-        _timed_query(
-            "posthog_code_token_credits",
-            get_teams_with_posthog_code_credits_used_in_period,
-            period.start,
-            period.end,
-        )
-    )
+    token_credits = dict(counter_report.counts[UsageCounter.POSTHOG_CODE_CREDITS])
     sandbox_compute_usage = _timed_query(
         "sandbox_compute", get_teams_with_billable_sandbox_compute_usage_in_period, period.start, period.end
     )
@@ -1147,26 +1140,18 @@ def update_all_orgs_billing_quotas(
         "teams_with_event_count_in_period": dict(counter_report.counts[UsageCounter.EVENTS]),
         "teams_with_exceptions_captured_in_period": dict(counter_report.counts[UsageCounter.EXCEPTIONS]),
         "teams_with_recording_count_in_period": dict(counter_report.counts[UsageCounter.RECORDINGS]),
-        "teams_with_rows_synced_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("rows_synced", get_teams_with_rows_synced_in_period, period.start, period.end)
-        ),
+        "teams_with_rows_synced_in_period": dict(counter_report.counts[UsageCounter.ROWS_SYNCED]),
         "teams_with_decide_requests_count": dict(counter_report.counts[UsageCounter.FEATURE_FLAG_REQUESTS]),
         "teams_with_local_evaluation_requests_count": dict(
             counter_report.counts[UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS]
         ),
         "teams_with_api_queries_read_bytes": convert_team_usage_rows_to_dict(api_queries_usage["read_bytes"]),
         "teams_with_cdp_trigger_events_metrics": dict(counter_report.counts[UsageCounter.CDP_INVOCATIONS]),
-        "teams_with_rows_exported_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("rows_exported", get_teams_with_rows_exported_in_period, period.start, period.end)
-        ),
+        "teams_with_rows_exported_in_period": dict(counter_report.counts[UsageCounter.ROWS_EXPORTED]),
         "teams_with_survey_responses_count_in_period": dict(counter_report.counts[UsageCounter.SURVEY_RESPONSES]),
         "teams_with_ai_event_count_in_period": dict(counter_report.counts[UsageCounter.AI_EVENTS]),
-        "teams_with_ai_credits_used_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("ai_credits", get_teams_with_ai_credits_used_in_period, period.start, period.end)
-        ),
-        "teams_with_signals_credits_used_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("signals_credits", get_teams_with_signals_credits_used_in_period, period.start, period.end)
-        ),
+        "teams_with_ai_credits_used_in_period": dict(counter_report.counts[UsageCounter.AI_CREDITS]),
+        "teams_with_signals_credits_used_in_period": dict(counter_report.counts[UsageCounter.SIGNALS_CREDITS]),
         "teams_with_posthog_code_credits_used_in_period": {
             team_id: combine_posthog_code_credits(token_credits.get(team_id, 0), compute_credits.get(team_id, 0))
             for team_id in token_credits.keys() | compute_credits.keys()
@@ -1182,19 +1167,12 @@ def update_all_orgs_billing_quotas(
         "teams_with_workflow_emails_sent_in_period": dict(counter_report.counts[UsageCounter.WORKFLOW_EMAILS]),
         "teams_with_workflow_push_sent_in_period": dict(counter_report.counts[UsageCounter.WORKFLOW_PUSH]),
         "teams_with_workflow_destinations_in_period": dict(counter_report.counts[UsageCounter.WORKFLOW_INVOCATIONS]),
-        "teams_with_replay_vision_credits_used_in_period": convert_team_usage_rows_to_dict(
-            _timed_query(
-                "replay_vision_credits",
-                get_teams_with_replay_vision_credits_used_in_period,
-                period.start,
-                period.end,
-            )
+        "teams_with_replay_vision_credits_used_in_period": dict(
+            counter_report.counts[UsageCounter.REPLAY_VISION_CREDITS]
         ),
         "teams_with_logs_mb_in_period": {
             team_id: int(bytes_val // 1_000_000)
-            for team_id, bytes_val in convert_team_usage_rows_to_dict(
-                _timed_query("logs_bytes", get_teams_with_logs_bytes_in_period, period.start, period.end)
-            ).items()
+            for team_id, bytes_val in counter_report.counts[UsageCounter.LOGS_BYTES]
         },
     }
 

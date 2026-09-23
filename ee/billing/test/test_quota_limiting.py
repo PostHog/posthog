@@ -3183,7 +3183,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         )
         with (
             patch(
-                "ee.billing.quota_limiting.get_teams_with_signals_credits_used_in_period",
+                "posthog.tasks.usage_report.get_teams_with_signals_credits_used_in_period",
                 return_value=[(self.team.id, 100)],
             ),
             patch(
@@ -3233,7 +3233,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
 
         with (
             patch("ee.billing.quota_limiting.list_limited_team_attributes", side_effect=snapshot) as snapshot_mock,
-            patch("ee.billing.quota_limiting.get_teams_with_signals_credits_used_in_period", return_value=[]),
+            patch("posthog.tasks.usage_report.get_teams_with_signals_credits_used_in_period", return_value=[]),
             patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=0),
         ):
             update_all_orgs_billing_quotas()

@@ -2967,13 +2967,11 @@ def _get_all_usage_data(
     sdk_logs_by_suffix = get_teams_with_sdk_logs_records_in_period(
         period_start, period_end, team_ids_with_logs=team_ids_with_logs
     )
-    logs_retention_by_tier = get_teams_with_logs_retention_bytes_in_period(period_start, period_end)
     logs_retention_byte_days_rows = get_teams_with_logs_retention_byte_days_in_period(period_start, period_end)
     apm_tracing_usage = get_teams_with_apm_tracing_usage_in_period(period_start, period_end)
     metrics_usage = get_teams_with_metrics_usage_in_period(period_start, period_end)
     task_sandbox_usage = get_teams_with_task_sandbox_usage_in_period(period_start, period_end)
     sandbox_compute_usage = get_teams_with_billable_sandbox_compute_usage_in_period(period_start, period_end)
-    token_credits = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
 
     return {
         **counter_report.counts,
@@ -3028,9 +3026,6 @@ def _get_all_usage_data(
         ),
         "teams_with_mobile_recording_bytes_in_period": get_teams_with_recording_bytes_in_period(
             period_start, period_end, snapshot_source="mobile"
-        ),
-        "teams_with_replay_vision_credits_used_in_period": get_teams_with_replay_vision_credits_used_in_period(
-            period_start, period_end
         ),
         "teams_with_replay_vision_observation_count_in_period": get_teams_with_replay_vision_observation_count_in_period(
             period_start, period_end
@@ -3163,11 +3158,6 @@ def _get_all_usage_data(
             query_types=["EventsQuery"],
             access_method="personal_api_key",
         ),
-        "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
-        "teams_with_free_historical_rows_synced_in_period": get_teams_with_free_historical_rows_synced_in_period(
-            period_start, period_end
-        ),
-        "teams_with_rows_exported_in_period": get_teams_with_rows_exported_in_period(period_start, period_end),
         "teams_with_active_external_data_schemas_in_period": get_teams_with_active_external_data_schemas_in_period(),
         "teams_with_active_batch_exports_in_period": get_teams_with_active_batch_exports_in_period(),
         "teams_with_dwh_tables_storage_in_s3_in_mib": get_teams_with_dwh_tables_storage_in_s3(),
@@ -3179,11 +3169,6 @@ def _get_all_usage_data(
         "teams_with_hog_function_fetch_calls_in_period": get_teams_with_hog_function_fetch_calls_in_period(
             period_start, period_end
         ),
-        "teams_with_ai_credits_used_in_period": get_teams_with_ai_credits_used_in_period(period_start, period_end),
-        "teams_with_signals_credits_used_in_period": get_teams_with_signals_credits_used_in_period(
-            period_start, period_end
-        ),
-        "teams_with_posthog_code_credits_used_in_period": token_credits,
         "teams_with_sandbox_compute_credits_used_in_period": sandbox_compute_usage.credits,
         "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": sandbox_compute_usage.cpu_millicore_seconds,
         "teams_with_sandbox_compute_memory_mib_seconds_in_period": sandbox_compute_usage.memory_mib_seconds,
@@ -3192,10 +3177,6 @@ def _get_all_usage_data(
         "teams_with_task_sandbox_memory_gib_seconds_in_period": task_sandbox_usage.memory_gib_seconds,
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
-        "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
-        "teams_with_logs_retention_14d_bytes_in_period": logs_retention_by_tier["14d"],
-        "teams_with_logs_retention_30d_bytes_in_period": logs_retention_by_tier["30d"],
-        "teams_with_logs_retention_90d_bytes_in_period": logs_retention_by_tier["90d"],
         "teams_with_logs_retention_byte_days_in_period": logs_retention_byte_days_rows,
         "teams_with_logs_records_in_period": logs_records_rows,
         "teams_with_web_logs_records_in_period": sdk_logs_by_suffix["web"],
