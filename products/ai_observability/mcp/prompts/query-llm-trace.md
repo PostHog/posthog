@@ -84,14 +84,14 @@ If the trace is old, provide a date range to help the query find it efficiently:
 `detail` controls how much of each event you get back.
 
 - `"full"` (default) returns every retained property in full, bounded by the response size limit below.
-- `"summary"` opts into trace fields, plus each event's `id`, `createdAt`, `event` type, and its navigation properties: `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_model`, `$ai_provider`, `$ai_latency`, token counts, costs, `$ai_tools_called`, `$ai_is_error`, `$ai_http_status`, `$ai_metric_name`, and `$ai_metric_value`. Everything else is left out, not shortened: their names are listed in `_summaryOmittedKeys` beside the bag. A summarized trace carries `_detail: { "mode": "summary" }`.
+- `"summary"` opts into trace fields, plus each event's `id`, `createdAt`, `event` type, and every property whose value is a number, a short label, or an identifier. That is tree position (`$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`), the model (`$ai_model`, `$ai_provider`), timing (`$ai_latency`, `$ai_time_to_first_token`), the whole spend breakdown (every token count, per-token price, and per-modality cost), tool calls, metric and score values, and failure status (`$ai_is_error`, `$ai_http_status`, `$ai_error_type`, `$ai_status`, `$ai_stop_reason`). Everything else is left out, not shortened: their names are listed in `_summaryOmittedKeys` beside the bag. A summarized trace carries `_detail: { "mode": "summary" }`.
 - A summary carries no free text at all. Prompts, outputs, span states, `inputState` / `outputState`, `$ai_error`, and `$ai_feedback_text` all need `detail: "full"`. Use `$ai_is_error` and `$ai_http_status` to find the failed events in a summary, then read their messages at full detail.
 
 For a cost or latency survey, request `detail: "summary"` — it carries no conversation content at all. Find the events that matter from their metadata, then re-run with `detail: "full"` when you need the text. Keep relevant date and property filters when requesting full detail.
 
 # Withheld properties
 
-Only `$ai_*` properties PostHog's taxonomy defines, plus `$ai_generation_id`, `$session_id`, `$lib`, and `$lib_version`, reach you. Every other event property, and every person property, is withheld whichever `detail` you ask for, and its name is listed in `_redactedKeys` beside the bag. `$ai_base_url` and `$ai_request_url` arrive without their query string.
+Only `$ai_*` properties PostHog's taxonomy defines, plus the ones first-party code writes without describing (`$ai_generation_id`, `$ai_cache_read_cost_usd`, `$ai_cache_creation_cost_usd`, `$ai_effort`) and `$session_id`, `$lib`, and `$lib_version`, reach you. Every other event property, and every person property, is withheld whichever `detail` you ask for, and its name is listed in `_redactedKeys` beside the bag. `$ai_base_url` and `$ai_request_url` arrive without their query string.
 
 A withheld property is unchanged in PostHog: it still works as a filter here, and you can read its value in the PostHog UI or with `execute-sql`.
 

@@ -79,12 +79,18 @@ const FIT_HEADROOM = 1.2
  * to navigate a trace: tree position, timing, model, spend, tool calls, and
  * failures. Everything else is content and is omitted, name only.
  *
- * `$ai_error` and `$ai_feedback_text` are deliberately absent, though they are
- * metadata by position. Both are free text a person or a provider wrote, and a
- * provider error routinely quotes the prompt back, so keeping them would put
- * conversation content in the mode that promises none. `$ai_is_error` and
- * `$ai_http_status` stay, so a survey can still find the failures and then read
- * them at `full` detail.
+ * A name belongs here when its value is a number, a boolean, a short label, or
+ * an identifier — never free text and never a document. That is why the cost,
+ * token and timing fields are listed one by one rather than taken from the
+ * redaction allowlist wholesale: the allowlist is what a trace may return at
+ * all, and most of it is the conversation.
+ *
+ * `$ai_error` and `$ai_feedback_text` are deliberately absent, though they read
+ * as metadata. Both are free text a person or a provider wrote, and a provider
+ * error routinely quotes the prompt back, so keeping them would put
+ * conversation content in the mode that promises none. `$ai_is_error`,
+ * `$ai_http_status`, `$ai_error_type` and `$ai_status` stay, so a survey can
+ * still find the failures and then read them at `full` detail.
  */
 const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_trace_id',
@@ -104,10 +110,61 @@ const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_output_cost_usd',
     '$ai_total_cost_usd',
     '$ai_tools_called',
+    '$ai_tool_call_count',
     '$ai_is_error',
     '$ai_http_status',
+    '$ai_error_type',
+    '$ai_status',
+    '$ai_stop_reason',
+    '$ai_time_to_first_token',
     '$ai_metric_name',
     '$ai_metric_value',
+    '$ai_score',
+    '$ai_score_max',
+    '$ai_score_min',
+    '$ai_span_type',
+    // Spend. A cost or latency survey is what summary detail is for, so the
+    // whole breakdown stays: every token count, every per-token price, and the
+    // per-modality costs the total is made of.
+    '$ai_max_tokens',
+    '$ai_total_tokens',
+    '$ai_total_input_tokens',
+    '$ai_total_output_tokens',
+    '$ai_text_input_tokens',
+    '$ai_text_output_tokens',
+    '$ai_audio_input_tokens',
+    '$ai_audio_output_tokens',
+    '$ai_image_input_tokens',
+    '$ai_image_output_tokens',
+    '$ai_video_input_tokens',
+    '$ai_video_output_tokens',
+    '$ai_cache_creation_input_tokens',
+    '$ai_cache_creation_1h_input_tokens',
+    '$ai_cache_creation_5m_input_tokens',
+    '$ai_cache_read_audio_tokens',
+    '$ai_audio_cost_usd',
+    '$ai_image_cost_usd',
+    '$ai_video_cost_usd',
+    '$ai_web_search_cost_usd',
+    '$ai_web_search_count',
+    '$ai_web_search_price',
+    '$ai_request_cost_usd',
+    '$ai_request_count',
+    '$ai_request_price',
+    '$ai_input_token_price',
+    '$ai_output_token_price',
+    '$ai_cache_read_token_price',
+    '$ai_cache_write_token_price',
+    '$ai_cache_write_1h_token_price',
+    '$ai_cache_read_cost_usd',
+    '$ai_cache_creation_cost_usd',
+    '$ai_billable',
+    '$ai_cost_passthrough',
+    '$ai_cost_model_source',
+    '$ai_cost_model_provider',
+    '$ai_model_cost_used',
+    '$ai_cache_reporting_exclusive',
+    '$ai_tokens_source',
 ])
 
 /** Trace-level fields that carry conversation content rather than metadata. */

@@ -20,12 +20,22 @@ import { AI_TAXONOMY_EVENT_PROPERTIES } from '@/lib/trace-property-allowlist.gen
 const RETAINED_AI_PROPERTIES = new Set<string>(AI_TAXONOMY_EVENT_PROPERTIES)
 
 /**
- * Properties kept so a trace stays navigable and attributable, on top of the
- * generated list. `$ai_generation_id` is the identifier of a generation node,
- * which both tool descriptions promise, but `taxonomy.py` does not describe it,
- * so the generator cannot emit it.
+ * `$ai_*` names first-party code writes that `taxonomy.py` does not describe, so
+ * the generator cannot emit them. `$ai_generation_id` identifies a generation
+ * node, which both tool descriptions promise. The LLM gateway writes the other
+ * three onto generation events, and the personal-spend report reads the two
+ * cache costs back, so withholding them would hide part of a trace's spend while
+ * `$ai_total_cost_usd` still arrived. Each is a scalar or a short label.
  */
-const RETAINED_NAVIGATION_PROPERTIES = new Set(['$ai_generation_id', '$session_id', '$lib', '$lib_version'])
+const RETAINED_UNDESCRIBED_AI_PROPERTIES = new Set([
+    '$ai_generation_id',
+    '$ai_cache_read_cost_usd',
+    '$ai_cache_creation_cost_usd',
+    '$ai_effort',
+])
+
+/** Non-`$ai_*` properties kept so a trace stays navigable and attributable. */
+const RETAINED_NAVIGATION_PROPERTIES = new Set(['$session_id', '$lib', '$lib_version'])
 
 /**
  * Endpoint properties kept without their query string. A provider URL routinely
@@ -57,7 +67,11 @@ function sanitizeUrl(value: unknown): string | undefined {
 }
 
 function isRetained(key: string): boolean {
-    return RETAINED_AI_PROPERTIES.has(key) || RETAINED_NAVIGATION_PROPERTIES.has(key)
+    return (
+        RETAINED_AI_PROPERTIES.has(key) ||
+        RETAINED_UNDESCRIBED_AI_PROPERTIES.has(key) ||
+        RETAINED_NAVIGATION_PROPERTIES.has(key)
+    )
 }
 
 /**

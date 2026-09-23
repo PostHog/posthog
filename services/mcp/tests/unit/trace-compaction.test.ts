@@ -138,6 +138,10 @@ describe('compactTrace summary detail', () => {
                 properties: {
                     $ai_model: 'gpt-4',
                     $ai_latency: 1.5,
+                    $ai_time_to_first_token: 0.3,
+                    $ai_request_cost_usd: 0.02,
+                    $ai_total_tokens: 1_200,
+                    $ai_stop_reason: 'end_turn',
                     $ai_tools_called: ['search'],
                     $ai_is_error: true,
                     $ai_http_status: 429,
@@ -157,6 +161,12 @@ describe('compactTrace summary detail', () => {
         const properties = result.events[0].properties
         expect(properties.$ai_model).toBe('gpt-4')
         expect(properties.$ai_latency).toBe(1.5)
+        // Cost and latency are what a summary survey is for, so the scalars it
+        // reads stay whole rather than being omitted as content.
+        expect(properties.$ai_time_to_first_token).toBe(0.3)
+        expect(properties.$ai_request_cost_usd).toBe(0.02)
+        expect(properties.$ai_total_tokens).toBe(1_200)
+        expect(properties.$ai_stop_reason).toBe('end_turn')
         expect(properties.$ai_tools_called).toEqual(['search'])
         expect(properties.$ai_is_error).toBe(true)
         expect(properties.$ai_http_status).toBe(429)

@@ -44,6 +44,7 @@ function traceWithSecrets(): Record<string, unknown> {
                     $ai_generation_id: 'generation-1',
                     $ai_model: 'gpt-4',
                     $ai_total_cost_usd: 0.42,
+                    $ai_cache_read_cost_usd: 0.01,
                     $ai_input: [{ role: 'user', content: 'Why did checkout drop?' }],
                     $ai_output_choices: [{ role: 'assistant', content: 'Payments timed out.' }],
                     $session_id: 'session-1',
@@ -75,6 +76,9 @@ describe('trace redaction', () => {
 
         expect(properties.$ai_model).toBe('gpt-4')
         expect(properties.$ai_total_cost_usd).toBe(0.42)
+        // The gateway writes this one and `taxonomy.py` does not describe it, so
+        // the generated allowlist alone would withhold part of the trace's spend.
+        expect(properties.$ai_cache_read_cost_usd).toBe(0.01)
         expect(properties.$ai_input).toEqual([{ role: 'user', content: 'Why did checkout drop?' }])
         expect(properties.$ai_output_choices).toEqual([{ role: 'assistant', content: 'Payments timed out.' }])
         expect(properties.$session_id).toBe('session-1')
