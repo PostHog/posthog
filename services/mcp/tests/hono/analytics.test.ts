@@ -134,6 +134,9 @@ describe('Hono MCP analytics contexts', () => {
         await trackInitEvent(makeState())
 
         expect(mockCaptureInitialize).toHaveBeenCalledTimes(1)
+        // Stamping `$mcp_conversation_id` in `properties` too would overwrite the SDK's own
+        // mapping, because it applies caller properties last.
+        expect(mockCaptureInitialize.mock.calls[0]![0].conversationId).toBe('conversation-request')
         expect(mockCaptureInitialize.mock.calls[0]![0].properties).toMatchObject({
             $mcp_client_name: 'Claude Desktop',
             $mcp_client_version: '2.0',
@@ -141,7 +144,6 @@ describe('Hono MCP analytics contexts', () => {
             $mcp_protocol_version: '2025-03-26',
             $mcp_transport: 'streamable-http',
             $mcp_session_id: 'mcp-session-request',
-            $mcp_conversation_id: 'conversation-request',
             $mcp_consumer: 'request-consumer',
             $mcp_mode: 'cli',
             $mcp_region: 'us',

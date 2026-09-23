@@ -63,7 +63,6 @@ function buildBaseProperties(
         $mcp_protocol_version: clientIdentity.mcpProtocolVersion,
         $mcp_transport: requestContext.transport,
         $mcp_session_id: requestContext.mcpSessionId,
-        $mcp_conversation_id: requestContext.mcpConversationId,
         $mcp_consumer: clientIdentity.mcpConsumer,
         $mcp_mode: requestContext.mode,
         $mcp_region: requestContext.region,
@@ -105,6 +104,7 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
             groups,
             durationMs: initDurationMs ?? 0,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
             properties: {
                 ...properties,
                 $mcp_is_error: false,
@@ -193,6 +193,7 @@ export async function trackToolCall(
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            ...(requestContext.mcpConversationId ? { conversationId: requestContext.mcpConversationId } : {}),
             ...(analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
             ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
             ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),

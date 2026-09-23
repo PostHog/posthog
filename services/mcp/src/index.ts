@@ -198,11 +198,9 @@ const handleRequest = async (
     // initialize call itself. Distinct from `sessionId` (above), which is the
     // wrapper-app-provided analytics correlation id.
     const mcpSessionId = sanitizeHeaderValue(request.headers.get('mcp-session-id') || undefined)
-    // Agent-echoed conversation id from `@posthog/mcp-analytics` PR #14.
-    // Caller-supplied for now (wrapper apps can pass it via the header even
-    // before the SDK lands). Once the SDK is bumped with `enableConversationId`,
-    // the same value will also flow in from tool args — both sources land on
-    // the same `requestProperties.mcpConversationId` slot.
+    // Agent-echoed conversation id, for wrapper apps that hold one already. Direct clients
+    // carry it in the `conversation_id` tool argument instead, which the SDK reads in
+    // `prepareToolCall`. Both land on the same `requestProperties.mcpConversationId` slot.
     const mcpConversationId = sanitizeHeaderValue(request.headers.get('mcp-conversation-id') || undefined)
 
     // Anthropic-set per-request identifier for the inner upstream client (e.g.

@@ -156,15 +156,17 @@ export class RequestContext {
     }
 
     /**
-     * Resolves the UUID emitted as `$session_id`. Prefers the explicit
-     * `?sessionId=` param and falls back to the MCP protocol session id, so
-     * sessions are still attributed for clients that don't pass an explicit
-     * session id. Without the fallback `$session_id` is absent on most events
-     * and the MCP analytics dashboard — which aggregates sessions on
-     * `$session_id` — counts zero.
+     * Resolves the UUID emitted as `$session_id` from the first id the request
+     * carried. The agent's `conversation_id` wins because MCP 2026-07-28 removed
+     * `initialize` and the `Mcp-Session-Id` header, so for those clients the other
+     * two are absent and every tool call would ship with no `$session_id` at all.
+     * Every id here is caller-supplied, so `SessionManager` maps it to a UUID this
+     * server minted instead of emitting it.
      */
     async getEffectiveSessionUuid(requestContext: MCPRequestContext): Promise<string | undefined> {
-        return this.getSessionUuid(requestContext.sessionId ?? requestContext.mcpSessionId)
+        return this.getSessionUuid(
+            requestContext.mcpConversationId ?? requestContext.sessionId ?? requestContext.mcpSessionId
+        )
     }
 
     getDistinctId(): Promise<string> {

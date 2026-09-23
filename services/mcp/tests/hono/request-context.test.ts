@@ -311,14 +311,22 @@ describe('RequestContext', () => {
 
     describe('getEffectiveSessionUuid', () => {
         it.each([
-            { sessionId: 'sess-1', mcpSessionId: 'mcp-1', expectedKey: 'sess-1' },
-            { sessionId: undefined, mcpSessionId: 'mcp-1', expectedKey: 'mcp-1' },
-            { sessionId: undefined, mcpSessionId: undefined, expectedKey: undefined },
+            { mcpConversationId: undefined, sessionId: 'sess-1', mcpSessionId: 'mcp-1', expectedKey: 'sess-1' },
+            { mcpConversationId: undefined, sessionId: undefined, mcpSessionId: 'mcp-1', expectedKey: 'mcp-1' },
+            { mcpConversationId: undefined, sessionId: undefined, mcpSessionId: undefined, expectedKey: undefined },
+            { mcpConversationId: 'conv-1', sessionId: 'sess-1', mcpSessionId: 'mcp-1', expectedKey: 'conv-1' },
+            // MCP 2026-07-28 sends neither of the other two, so without the handle these events
+            // ship with no `$session_id`.
+            { mcpConversationId: 'conv-1', sessionId: undefined, mcpSessionId: undefined, expectedKey: 'conv-1' },
         ])(
-            'sessionId=$sessionId mcpSessionId=$mcpSessionId → resolves via expectedKey=$expectedKey',
-            async ({ sessionId, mcpSessionId, expectedKey }) => {
+            'conversationId=$mcpConversationId sessionId=$sessionId mcpSessionId=$mcpSessionId → resolves via expectedKey=$expectedKey',
+            async ({ mcpConversationId, sessionId, mcpSessionId, expectedKey }) => {
                 const ctx = new RequestContext(fakeRedis(), env, makeProps())
-                const effective = await ctx.getEffectiveSessionUuid({ sessionId, mcpSessionId } as any)
+                const effective = await ctx.getEffectiveSessionUuid({
+                    mcpConversationId,
+                    sessionId,
+                    mcpSessionId,
+                } as any)
 
                 expect(effective).toBe(expectedKey ? await ctx.getSessionUuid(expectedKey) : undefined)
                 if (expectedKey) {
