@@ -2412,6 +2412,9 @@ class TestShellSplitActionArgsCheck:
             ("sh -c 'tool --flag \"${ARGS}\" --other'", False),
             # quoted somewhere, bare somewhere else: still a hazard
             ("sh -c 'tool \"$OTHER\" $ARGS'", True),
+            # single quotes protect an interpolated expression just as well
+            ("sh -c \"tool '${{ inputs.flags }}'\"", False),
+            ('sh -c "tool ${{ inputs.flags }}"', True),
         ],
     )
     def test_derivation_ignores_a_reference_the_inner_shell_cannot_split(

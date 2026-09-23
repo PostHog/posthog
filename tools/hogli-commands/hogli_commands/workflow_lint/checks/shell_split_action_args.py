@@ -147,23 +147,38 @@ def _composite_steps(data: dict[str, object]) -> Iterator[dict[str, object]]:
             yield step
 
 
-def _double_quoted_spans(script: str) -> list[tuple[int, int]]:
-    """Index ranges inside double quotes. `"$VAR"` is ONE argument: the inner shell
-    expands it without splitting it, so a `#` in it cannot start a comment."""
+def _quoted_spans(script: str) -> list[tuple[int, int]]:
+    """Index ranges the inner shell would treat as quoted.
+
+    A quoted reference is ONE argument: the shell expands it without splitting
+    it, so a `#` inside cannot start a comment and nothing after it is dropped.
+    Both quotings count -- `"$ARGS"` and `'${{ inputs.flags }}'` are each safe --
+    and a quote of one kind makes the other literal until it closes, which is why
+    this tracks them together rather than one pass each.
+    """
     spans: list[tuple[int, int]] = []
-    start: int | None = None
     index = 0
-    while index < len(script):
+    length = len(script)
+    while index < length:
         char = script[index]
         if char == "\\":
             index += 2
             continue
-        if char == '"':
-            if start is None:
-                start = index + 1
-            else:
-                spans.append((start, index))
-                start = None
+        if char in "\"'":
+            quote = char
+            start = index + 1
+            cursor = start
+            while cursor < length:
+                # a backslash escapes only inside double quotes, never inside single
+                if quote == '"' and script[cursor] == "\\":
+                    cursor += 2
+                    continue
+                if script[cursor] == quote:
+                    break
+                cursor += 1
+            spans.append((start, min(cursor, length)))
+            index = cursor + 1
+            continue
         index += 1
     return spans
 
@@ -184,7 +199,7 @@ def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
                 by_var[str(var)] = _input_name(match)
     for shell_c in SHELL_C_RE.finditer(run):
         script = shell_c.group("dquoted") or shell_c.group("squoted") or ""
-        quoted = _double_quoted_spans(script)
+        quoted = _quoted_spans(script)
         for ref in VAR_REF_RE.finditer(script):
             if any(lo <= ref.start() < hi for lo, hi in quoted):
                 continue
