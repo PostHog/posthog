@@ -1073,7 +1073,13 @@ export function MenuFilterCombobox({
                 keepHighlight
                 openOnInputClick={false}
                 itemToStringValue={(entry: MenuFilterEntry) => entry.name}
-                onItemHighlighted={(entry) => setHighlightedEntry((entry as MenuFilterEntry | undefined) ?? null)}
+                // The preview pane describes a definition PostHog holds. A name we have not
+                // captured has none, and its Pin button would save a row that resolves to
+                // nothing, so that row leaves the pane empty.
+                onItemHighlighted={(entry) => {
+                    const next = (entry as MenuFilterEntry | undefined) ?? null
+                    setHighlightedEntry(next && isNonCapturedEventItem(next.item) ? null : next)
+                }}
             >
                 {searchFieldRow}
                 {/* Flex layout: list flexes, separator is 1px, preview is a
