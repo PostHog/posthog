@@ -6,10 +6,10 @@ import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
+import * as stopPng from '@posthog/brand/hoggies/png/stop'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { WarningHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -40,6 +40,7 @@ import {
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
+const HedgehogStop = pngHoggie(stopPng)
 
 export interface PurePlayerProps {
     noMeta?: boolean
@@ -138,7 +139,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             if (isRecentAndInvalid) {
                 posthog.capture('session loaded recent and invalid', {
                     viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
+                    recordingStartTime: sessionPlayerData?.start?.toISOString(),
                 })
             }
         },
@@ -151,7 +152,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             if (isOldAndInvalid) {
                 posthog.capture('session loaded old and invalid', {
                     viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
+                    recordingStartTime: sessionPlayerData?.start?.toISOString(),
                 })
             }
         },
@@ -159,18 +160,27 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         [isOldAndInvalid]
     )
 
+    // `durationMs` only applies the metadata cap once the recording is fully loaded, so the span and
+    // the duration it is measured against are both final only then. `fullyLoaded` also drops back
+    // while the inspector fetches full event data, so remember which recording was reported to keep
+    // this one event per view.
+    const reportedLateFullSnapshotFor = useRef<string | null>(null)
+
     useEffect(
         () => {
-            if (hasLateFullSnapshot) {
-                posthog.capture('session loaded with late full snapshot', {
-                    viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
-                    leadingUnplayableMs,
-                })
+            if (!hasLateFullSnapshot || !fullyLoaded || reportedLateFullSnapshotFor.current === sessionRecordingId) {
+                return
             }
+            reportedLateFullSnapshotFor.current = sessionRecordingId
+            posthog.capture('session loaded with late full snapshot', {
+                viewedSessionRecording: sessionRecordingId,
+                recordingStartTime: sessionPlayerData?.start?.toISOString(),
+                recordingDurationMs: sessionPlayerData?.durationMs,
+                leadingUnplayableMs,
+            })
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [hasLateFullSnapshot]
+        [hasLateFullSnapshot, fullyLoaded, sessionRecordingId]
     )
 
     // An unrenderable span keeps growing while sources arrive, so the duration is only final once
@@ -190,7 +200,8 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             reportedUnrenderableWindowFor.current = sessionRecordingId
             posthog.capture('session loaded with unrenderable window', {
                 viewedSessionRecording: sessionRecordingId,
-                recordingStartTime: sessionPlayerData?.start,
+                recordingStartTime: sessionPlayerData?.start?.toISOString(),
+                recordingDurationMs: sessionPlayerData?.durationMs,
                 unrenderableWindowMs,
             })
         },
@@ -352,7 +363,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                 <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
                                     {isOldAndInvalid && !isRecentAndInvalid ? (
                                         <>
-                                            <WarningHog height={200} width={200} />
+                                            <HedgehogStop height={200} width={200} />
                                             <h1>This recording can't be played</h1>
                                             <p className="max-w-120">
                                                 The snapshot of the screen taken when this recording started never

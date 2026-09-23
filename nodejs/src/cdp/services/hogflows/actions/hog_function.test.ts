@@ -481,7 +481,6 @@ describe('HogFunctionHandler', () => {
     it.each([
         ['fetch', 'workflow_billable_invocations'],
         ['email', 'workflow_emails_sent'],
-        ['push', 'workflow_push_sent'],
         ['sms', 'workflow_sms_sent'],
     ] as const)(
         'emits a single billable_invocation with %s kind matching the handler billing type',
@@ -523,6 +522,49 @@ describe('HogFunctionHandler', () => {
             )
         }
     )
+
+    // A push with no device token finishes unskipped, so only the send knows nobody was reached.
+    it.each([
+        ['reached a device', true, true],
+        ['found no device token', false, false],
+    ] as const)('bills a push step only when the send %s', async (_label, delivered, shouldBill) => {
+        const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
+            reportBillableInvocation: jest.fn(),
+        }
+        const handler = new HogFunctionHandler(
+            mockHogFlowFunctionsService,
+            mockRecipientPreferencesService,
+            mockEmailValidationService,
+            'push',
+            usageReporter
+        )
+
+        const executeWithAsyncFunctions =
+            mockHogFlowFunctionsService.executeWithAsyncFunctions.bind(mockHogFlowFunctionsService)
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+            async (hogFunctionInvocation, options) => {
+                const functionResult = await executeWithAsyncFunctions(hogFunctionInvocation, options)
+                functionResult.deliveredToRecipient = delivered
+                return functionResult
+            }
+        )
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await handler.execute({ invocation, action, result: invocationResult })
+
+        expect(invocationResult.metrics.some((metric) => metric.metric_name === 'billable_invocation')).toBe(shouldBill)
+        if (shouldBill) {
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
+                expect.objectContaining({ teamId: team.id, usageKey: 'workflow_push_sent' })
+            )
+        } else {
+            expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
+        }
+    })
 
     // Live edits reach runs already in flight, so a run that entered on one version can send its
     // message under a newer one. The conversion belongs to the version whose message the person
@@ -783,6 +825,7 @@ describe('HogFunctionHandler', () => {
                 deadlineAt: handlerResult.scheduledAt!.toISO(),
                 dispatch: { id: 't1', run_id: 'r1' },
                 label: 'task',
+                parkedAt: expect.any(String),
             })
             expect(invocationResult.metrics.map((m) => m.metric_name)).toContain('billable_invocation')
             expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
@@ -861,6 +904,7 @@ describe('HogFunctionHandler', () => {
                     deadlineAt,
                     dispatch: { id: 't1', run_id: 'r1' },
                     label: 'task',
+                    parkedAt: DateTime.now().minus({ minutes: 5 }).toISO()!,
                 }
             })
 
@@ -912,6 +956,13 @@ describe('HogFunctionHandler', () => {
                 expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
                 expect(invocationResult.invocation.state.currentAction?.resumeResult).toBeUndefined()
                 expect(await finishedCount('completed')).toBe(1)
+                const waited = await register.getSingleMetric('cdp_hogflow_awaited_step_wait_seconds')!.get()
+                // prom-client types histogram values without metricName, but the runtime sets it.
+                const sum = waited.values.find(
+                    (v) =>
+                        (v as { metricName?: string }).metricName?.endsWith('_sum') && v.labels.outcome === 'completed'
+                )
+                expect(sum?.value).toBeGreaterThanOrEqual(300)
             })
 
             it.each([4000, 4700])('fits the resumed result with %s bytes of existing variables', async (usedBytes) => {

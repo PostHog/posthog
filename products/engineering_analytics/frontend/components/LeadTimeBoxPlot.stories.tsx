@@ -78,3 +78,16 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
+
+export const HorizontalLogScale: Story = {
+    args: {
+        buckets: [
+            bucket('This author', 12, [900, 2700, 7200, 21000, 18000, 259200]),
+            bucket('Repo', 340, [600, 3600, 14400, 36000, 43200, 604800]),
+        ],
+        horizontal: true,
+        logScale: true,
+        excludeOutliers: true,
+        className: 'h-28',
+    },
+}

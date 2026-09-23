@@ -10,12 +10,13 @@ import { findContinueAction, findNextAction, isEvaluableCondition } from '../hog
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
-const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
+// A wait is woken by the matcher on a matching signal, so its re-check only has to reconcile a wake
+// lost between the condition being evaluated and the job being persisted.
+const WAIT_RECHECK_SECONDS = 60 * 60
 
-// Increments only when the 10-minute polling re-check advances a wait_until_condition that the
-// subscription matcher did NOT wake (and not an evaluate-on-entry match). This is the decisive
-// signal for removing the poll: while it sits at ~0 across teams for a sustained window, the
-// person/event/internal streams cover every wake and polling is provably redundant.
+// Increments only when the periodic re-check advances a wait_until_condition that the subscription
+// matcher did NOT wake (and not an evaluate-on-entry match). It measures how often the backstop is
+// the only thing that moved a run, which is the rate of wakes the streams lost.
 // Labelled by team and flow so a non-zero reading names the workflow still leaning on the poll; a
 // series only exists for flows that actually poll-advance, so cardinality tracks incidence.
 export const counterHogflowWaitPollOnlyAdvance = new Counter({
@@ -75,7 +76,7 @@ export class ConditionalBranchHandler implements ActionHandler {
         // The person the worker read at dequeue can predate a write this wait is waiting for, and a
         // wait that parks on that read is stuck: the write already happened, so no person message
         // follows to wake it. Re-read before the first evaluation of each wait — including a wait
-        // reached later in the same dequeue. Re-checks of a wait that already parked run 10 minutes
+        // reached later in the same dequeue. Re-checks of a wait that already parked run an hour
         // apart, by when the cache has expired, so they keep the cheaper read.
         if (action.type === 'wait_until_condition' && !invocation.state?.currentAction?.pollReparked) {
             const refreshed = await invocation.refreshPerson?.()
@@ -103,14 +104,16 @@ export class ConditionalBranchHandler implements ActionHandler {
                           // entry and fire the wait immediately. Only honor a condition with a real
                           // compiled filter; otherwise the wait relies on its events / the timeout.
                           conditions: isEvaluableCondition(action.config.condition) ? [action.config.condition] : [],
-                          delay_duration: action.config.max_wait_duration,
                       },
                   }
 
         const conditionResult = await checkConditions(
             invocation,
             conditionalAction,
-            this.createMemberCohortIdsLoader(invocation)
+            this.createMemberCohortIdsLoader(invocation),
+            action.type === 'wait_until_condition' && action.config.max_wait_duration
+                ? { maxWaitDuration: action.config.max_wait_duration, recheckSeconds: WAIT_RECHECK_SECONDS }
+                : undefined
         )
 
         const isWait = action.type === 'wait_until_condition'
@@ -184,7 +187,10 @@ function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
     action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
-    loadMemberCohortIds?: () => Promise<number[]>
+    loadMemberCohortIds?: () => Promise<number[]>,
+    // Only a wait re-parks; a conditional_branch routes on the spot. A wait is normalised into a
+    // branch before it gets here, so the caller passes its ceiling rather than the type carrying it.
+    repark?: { maxWaitDuration: string; recheckSeconds: number }
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
@@ -202,6 +208,7 @@ export async function checkConditions(
 
         // TODO(team-workflows): Figure out error handling here - do we throw or just move on to other conditions?
         const filterResults = await filterFunctionInstrumented({
+            caller: 'hogflow_conditional_branch',
             fn: invocation.hogFlow,
             filters: condition.filters,
             filterGlobals: {
@@ -218,14 +225,13 @@ export async function checkConditions(
         }
     }
 
-    if (action.config.delay_duration) {
-        // Re-park on the 10-minute cap so the condition is re-checked by polling. The subscription
-        // matcher also wakes the job early on a matching signal, but polling is kept as the backstop
-        // for now; removing it is a follow-up once the matcher streams are proven in production.
+    if (repark) {
+        // A wake arriving between this evaluation and the job being persisted finds no available row
+        // and is never replayed, so a wait cannot rely on the matcher alone.
         const scheduledAt = calculatedScheduledAt(
-            action.config.delay_duration,
+            repark.maxWaitDuration,
             invocation.state.currentAction?.startedAtTimestamp,
-            DEFAULT_WAIT_DURATION_SECONDS
+            repark.recheckSeconds
         )
 
         if (scheduledAt) {

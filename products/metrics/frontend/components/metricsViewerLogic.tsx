@@ -29,7 +29,7 @@ import {
     MetricsYAxisSettings,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 import { PropertyFilterType, PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import {
@@ -54,6 +54,7 @@ import type { _MetricPickerNameApi } from '../generated/api.schemas'
 import { type MetricTopMoverRow, topMoverRows } from '../metricsAnomaly'
 import { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY } from '../metricsAttributes'
 import { correlationServiceNames } from '../metricsLinks'
+import { METRICS_PANELS } from '../panels/registry'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
@@ -351,7 +352,7 @@ export interface metricsViewerLogicValues {
     attributeKeyOptions: {
         key: string
         label: string
-        seriesCount: number
+        valueCount: number
     }[]
     attributeKeyOptionsLoading: boolean
     chartSeries: MetricsChartSeries[]
@@ -384,7 +385,7 @@ export interface metricsViewerLogicValues {
     queryResults: MetricsViewerSeries[]
     queryResultsLoading: boolean
     queryState: MetricsViewerQueryState
-    savedInsight: QueryBasedInsightModel | null
+    savedInsight: InsightModel | null
     savedInsightLoading: boolean
     selectedMetricType: OtelMetricTypeEnumApi | null
     selectedServices: string[]
@@ -501,14 +502,14 @@ export interface metricsViewerLogicActions {
         attributeKeyOptions: {
             key: string
             label: string
-            seriesCount: number
+            valueCount: number
         }[],
         payload?: any
     ) => {
         attributeKeyOptions: {
             key: string
             label: string
-            seriesCount: number
+            valueCount: number
         }[]
         payload?: any
     }
@@ -533,10 +534,10 @@ export interface metricsViewerLogicActions {
         errorObject?: any
     }
     saveAsInsightSuccess: (
-        savedInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null,
+        savedInsight: InsightModel<Node<Record<string, any>>> | null,
         payload?: any
     ) => {
-        savedInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null
+        savedInsight: InsightModel<Node<Record<string, any>>> | null
         payload?: any
     }
     setActiveClauseIndex: (index: number) => {
@@ -966,6 +967,18 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             }
         }
         return {
+            // A panel whose registry entry needs grouped data cannot stay selected once nothing
+            // is grouped anymore — fall back rather than render it against a result shape it
+            // does not support.
+            setGroupByKeys: ({ groupByKeys }) => {
+                if (
+                    groupByKeys.length === 0 &&
+                    !values.viewerClauses.some((clause) => clause.groupByKeys.length > 0) &&
+                    METRICS_PANELS[values.displayType]?.needsGroupBy
+                ) {
+                    actions.setDisplayType(DEFAULT_DISPLAY_TYPE)
+                }
+            },
             // `setFilterGroup` changes the active clause's chips; the clause-navigation
             // actions change which clause's chips are the scope.
             setFilterGroup: syncPickerServices,
@@ -1097,7 +1110,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // viewer window so choices match the data the clause can actually group; debounce to
         // match the chart fetch cadence.
         attributeKeyOptions: [
-            [] as { key: string; label: string; seriesCount: number }[],
+            [] as { key: string; label: string; valueCount: number }[],
             {
                 loadAttributeKeyOptions: async (_, breakpoint) => {
                     if (!canViewMetrics()) {
@@ -1117,7 +1130,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     return response.results.map((result) => ({
                         key: result.name,
                         label: result.name,
-                        seriesCount: result.series_count,
+                        valueCount: result.value_count,
                     }))
                 },
             },
@@ -1159,7 +1172,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             },
         ],
         savedInsight: [
-            null as QueryBasedInsightModel | null,
+            null as InsightModel | null,
             {
                 saveAsInsight: async () => {
                     if (!canCreateMetricsInsight()) {

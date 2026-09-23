@@ -164,14 +164,36 @@ class Migration(migrations.Migration):
 
 - Safe to leave unused tables temporarily, but long-term they can clutter schema introspection and slow migrations
 - Ensure no other models reference this table via foreign keys before dropping (Django won't cascade automatically)
-- `DROP TABLE` takes `ACCESS EXCLUSIVE` on every table its own foreign keys reference. Never `SET lock_timeout = 0` on a drop that reaches a hot parent: the point is to fail fast and let `bin/migrate` retry rather than queue that lock, because queries arriving while the request queues wait behind it. Migrations already run under `MIGRATE_LOCK_TIMEOUT` (`posthog/settings/data_stores.py`), which is 20 seconds by default. That is long enough that a drop reaching a hot parent still queues a 20-second `ACCESS EXCLUSIVE` request, so set a shorter `SET LOCAL lock_timeout` for that case
-- If you must drop it, use `RunSQL` with raw SQL (see example below)
+- Drop it with `SafeDropTable` from `posthog.migration_helpers`, not with a hand-written `RunSQL`. See [the lock order hazard](#drop-table-lock-order) below for what it protects against
 - In the PR description, reference the model removal PR (e.g., "Model removed in #12345, deployed X days ago") so reviewers can verify the safety window
+
+### DROP TABLE lock order
+
+`DROP TABLE` takes `ACCESS EXCLUSIVE` on the dropped table and on every table its own foreign keys reference, one relation at a time while the statement runs. An application query takes `AccessShare` on the tables it reads, also one at a time, in whatever order its plan picks. When the retired table holds keys into `posthog_team`, `posthog_organization` or `posthog_user`, the two orders cross and the two sessions form a real deadlock cycle.
+
+A short `lock_timeout` does not save the application query, because a cycle is resolved by the deadlock detector rather than by the lock timeout. Each waiting backend runs the detector after it has waited for `deadlock_timeout`, and the backend that finds the cycle aborts itself. The application query enters the wait first, so it is the one Postgres kills, and the user sees a 500 on a screen unrelated to the deploy.
+
+`SafeDropTable` removes the cycle from the migration side. It reads the referenced parents out of `pg_constraint`, takes `ACCESS EXCLUSIVE` on every one of them in a single `LOCK TABLE`, and only then runs the drop, so the drop needs no new lock. The lock phase runs under a `lock_timeout` and a `statement_timeout` derived from the server's `deadlock_timeout`, so the migration always abandons its wait before any peer has waited long enough to run the detector. The migration loses the race, `bin/migrate` retries it, and no application query is ever the victim.
+
+```python
+from posthog.migration_helpers import SafeDropTable
+
+
+class Migration(migrations.Migration):
+    operations = [
+        SafeDropTable(["posthog_oldfeature", "posthog_oldfeaturerun"]),
+    ]
+```
+
+Pass every table of one retirement to a single operation. They are locked and dropped together, so a key between two of them needs no ordering at the call site. The operation is idempotent, so a `bin/migrate` retry is free, and it tracks no Django state, so step 1 above is still required.
+
+Never `SET lock_timeout = 0` on a drop that reaches a hot parent. Migrations already run under `MIGRATE_LOCK_TIMEOUT` (`posthog/settings/data_stores.py`), which is 20 seconds by default, and that is long enough that a raw drop still queues a 20-second `ACCESS EXCLUSIVE` request with every later query behind it.
 
 **Important notes:**
 
 - Drop operations are irreversible - once data is deleted, it's gone and any rollback will fail without the table
-- Use `RunSQL(DROP TABLE IF EXISTS)` for explicit control and idempotency
+- A retry after a lost lock race runs the drop again, because the lock phase failed before the drop. `DROP TABLE IF EXISTS` makes a retry a no-op only after the drop completed
+- A partitioned table, or a table in an inheritance hierarchy, is refused with an error rather than dropped. The lock list covers the named tables and their foreign-key parents, and the members of the hierarchy never enter it. Retire one of those with a migration that locks the hierarchy itself
 
 ### Example
 
@@ -207,10 +229,7 @@ class Migration(migrations.Migration):
     dependencies = []
 
     operations = [
-        migrations.RunSQL(
-            sql="DROP TABLE IF EXISTS posthog_oldfeature",
-            reverse_sql=migrations.RunSQL.noop,
-        ),
+        SafeDropTable("posthog_oldfeature"),
     ]
 ```
 
@@ -227,7 +246,7 @@ Removing a product (`products/<name>/`) is the phased table drop above — once 
 
 Safe order:
 
-1. Strip all usage and the model classes, and drop the tables via the [phased approach](#dropping-tables) (state-only `DeleteModel`, wait a deploy cycle, then `DROP TABLE`). Keep the app in `INSTALLED_APPS` so its migrations still run.
+1. Strip all usage and the model classes, and drop the tables via the [phased approach](#dropping-tables) (state-only `DeleteModel`, wait a deploy cycle, then `SafeDropTable`). Keep the app in `INSTALLED_APPS` so its migrations still run.
 2. Only after the drop migration has deployed everywhere, remove the app from `INSTALLED_APPS` and delete the `products/<name>/` folder.
 3. Optionally `DELETE FROM django_migrations WHERE app = '<app_label>'` to clear the orphan rows.
 

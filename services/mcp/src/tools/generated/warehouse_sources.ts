@@ -461,7 +461,7 @@ const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = () =>
 
 const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
     ReturnType<typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema>,
-    unknown
+    Schemas.CdcPrerequisitesResponse
 > => ({
     name: 'external-data-sources-check-cdc-prerequisites-create',
     schema: ExternalDataSourcesCheckCdcPrerequisitesCreateSchema(),
@@ -474,7 +474,7 @@ const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
         if (params.source_type !== undefined) {
             body['source_type'] = params.source_type
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.CdcPrerequisitesResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/check_cdc_prerequisites/`,
             body,
@@ -562,7 +562,7 @@ const ExternalDataSourcesCreateWebhookCreateSchema = () => {
 
 const externalDataSourcesCreateWebhookCreate = (): ToolBase<
     ReturnType<typeof ExternalDataSourcesCreateWebhookCreateSchema>,
-    unknown
+    Schemas.CreateWebhookResponse
 > => ({
     name: 'external-data-sources-create-webhook-create',
     schema: ExternalDataSourcesCreateWebhookCreateSchema(),
@@ -599,7 +599,7 @@ const externalDataSourcesCreateWebhookCreate = (): ToolBase<
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.CreateWebhookResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/create_webhook/`,
             body,
@@ -618,7 +618,7 @@ const ExternalDataSourcesDeleteWebhookCreateSchema = () => {
 
 const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
     ReturnType<typeof ExternalDataSourcesDeleteWebhookCreateSchema>,
-    unknown
+    Schemas.DeleteWebhookResponse
 > => ({
     name: 'external-data-sources-delete-webhook-create',
     schema: ExternalDataSourcesDeleteWebhookCreateSchema(),
@@ -655,7 +655,7 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.DeleteWebhookResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/delete_webhook/`,
             body,
@@ -916,7 +916,7 @@ const ExternalDataSourcesUpdateWebhookInputsCreateSchema = () => {
 
 const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
     ReturnType<typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema>,
-    unknown
+    Schemas.UpdateWebhookInputsResponse
 > => ({
     name: 'external-data-sources-update-webhook-inputs-create',
     schema: ExternalDataSourcesUpdateWebhookInputsCreateSchema(),
@@ -953,7 +953,7 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.UpdateWebhookInputsResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/update_webhook_inputs/`,
             body,
@@ -969,7 +969,7 @@ const ExternalDataSourcesWebhookInfoRetrieveSchema = () => {
 
 const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
     ReturnType<typeof ExternalDataSourcesWebhookInfoRetrieveSchema>,
-    unknown
+    Schemas.WebhookInfoResponse
 > => ({
     name: 'external-data-sources-webhook-info-retrieve',
     schema: ExternalDataSourcesWebhookInfoRetrieveSchema(),
@@ -978,7 +978,7 @@ const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
         params: z.infer<ReturnType<typeof ExternalDataSourcesWebhookInfoRetrieveSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.WebhookInfoResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/webhook_info/`,
         })
@@ -999,12 +999,15 @@ const ExternalDataSourcesWizardSchema = () => {
     })
 }
 
-const externalDataSourcesWizard = (): ToolBase<ReturnType<typeof ExternalDataSourcesWizardSchema>, unknown> => ({
+const externalDataSourcesWizard = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesWizardSchema>,
+    Schemas.SourceConfigMapResponse
+> => ({
     name: 'external-data-sources-wizard',
     schema: ExternalDataSourcesWizardSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesWizardSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.SourceConfigMapResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/wizard/`,
             query: {

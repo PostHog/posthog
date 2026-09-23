@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -30,6 +30,7 @@ import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsi
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
+import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardZoomControl } from './DashboardZoomControl'
@@ -43,7 +44,7 @@ function DashboardSubscribeNudgeTrigger({ dashboardId }: { dashboardId: number }
 
 interface DashboardProps {
     id?: string
-    dashboard?: DashboardType<QueryBasedInsightModel>
+    dashboard?: DashboardType
     placement?: DashboardPlacement
     themes?: DataColorThemeModel[]
     /** When set, the "Edit dashboard" menu item links to the dashboard editor with a back button pointing here. */
@@ -188,6 +189,7 @@ function DashboardScene({
                     })}
                 >
                     <DashboardRetentionBanner />
+                    <DashboardQueryScanBanner />
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />
