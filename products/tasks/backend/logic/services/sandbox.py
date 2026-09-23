@@ -70,6 +70,7 @@ class SandboxTemplate(str, Enum):
     DEFAULT_BASE = "default_base"
     NOTEBOOK_BASE = "notebook_base"
     PI_BASE = "pi_base"
+    AUTORESEARCH_BASE = "autoresearch_base"
     VM_BASE = "vm_base"
 
     STREAMLIT_BASE = "streamlit_base"
@@ -78,6 +79,28 @@ class SandboxTemplate(str, Enum):
     # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
     SLIM_BASE = "slim_base"
     CANVAS_BUILD = "canvas_build"
+
+
+# Templates whose image hosts the task agent server, so a task can ask for them. The
+# notebook, streamlit, slim and canvas images omit the server on purpose, pi has no Modal
+# image, and VM_BASE bakes in Docker and forces the VM runtime, which only the server-side
+# VM routing gate may select.
+TASK_AGENT_TEMPLATES: frozenset[SandboxTemplate] = frozenset(
+    {SandboxTemplate.DEFAULT_BASE, SandboxTemplate.AUTORESEARCH_BASE}
+)
+
+
+def parse_requested_sandbox_template(value: str | None) -> SandboxTemplate:
+    """Resolve a template a caller asked for on a task; anything outside ``TASK_AGENT_TEMPLATES`` is refused."""
+    if value is None:
+        return SandboxTemplate.DEFAULT_BASE
+    try:
+        template = SandboxTemplate(value)
+    except ValueError:
+        raise ValueError(f"Unknown sandbox template: {value!r}")
+    if template not in TASK_AGENT_TEMPLATES:
+        raise ValueError(f"Sandbox template {value!r} cannot be requested per task")
+    return template
 
 
 class SandboxWorkload(str, Enum):

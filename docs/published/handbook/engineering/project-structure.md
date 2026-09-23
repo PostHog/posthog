@@ -48,6 +48,8 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 - `src/toolbar` – Code for the [PostHog Toolbar](https://posthog.com/docs/user-guides/toolbar)
 
 The app-level Files scene lives in `src/scenes/project-files` and reuses the project tree from `src/layout/panel-layout/ProjectTree`.
+The Apps sidebar shows descriptive tooltips with concrete examples in `navbar/tabs/NavAppTooltip.tsx`.
+These reuse scene descriptions where available, with additional copy for the main apps and a fallback for custom group types.
 Open `/project/<project_id>/files` to browse the project, or add `?folder=Research` to start in a folder.
 Starred folders in the sidebar use the same "New..." menu and "Empty folder" state as project folders.
 With `simple-sidepanel` enabled, each user gets a public `Users/<name>` home folder in each project, starred on creation.
@@ -61,6 +63,21 @@ The file filter and options buttons stay beside the filter field; alphabetical a
 App tooltips reuse the product descriptions from the scene configuration.
 Opening Apps or Files from the collapsed sidebar temporarily expands the navigation over the page without changing the saved collapsed setting.
 Selecting a destination, clicking outside, or pressing Escape closes the temporary navigation.
+
+The app-level terminal lives in `src/scenes/terminal` and opens with Ctrl+backtick when enabled.
+It starts without fetching the project tree.
+Browsing `/posthog/files` loads and caches each folder's immediate children; `/posthog/api` loads objects by type.
+Loading another folder leaves cached folders untouched, and API type directories can be opened directly even if they are not listed yet.
+Notebook format detection waits until notebooks are browsed, and object contents load only when opened.
+`ph refresh` reloads the directories already visited, rebuilds the cached tree once, and reloads the connected tool catalog.
+Running `node`, `nodejs`, or `pi` installs the tool on first use; `pi` also installs Node.js.
+Optional tools come from commit-pinned archives in [PostHog/terminal-assets](https://github.com/PostHog/terminal-assets), separate from the boot assets.
+The browser verifies each archive's SHA-256 and size before making it available to the VM, and caches verified downloads when browser storage is available.
+Failed installations can be retried by running the command again.
+The VM uses 512 MiB of memory and a separate 256 MiB temporary filesystem for installed tools.
+Stopping the terminal discards the installed tools and local files; verified downloads can be reused from the browser cache.
+The VM has no network bridge, so pi can run locally but cannot call models, log in, or download packages.
+Add future tools to `terminal-packages.json` with pinned archive metadata, dependencies, and command entrypoints, and publish their reproducible build recipes in the assets repository.
 
 ### `posthog`
 

@@ -191,7 +191,7 @@ export const terminalLogic = kea<terminalLogicType>([
                 actions.stop()
             }
         },
-        start: async (_, breakpoint) => {
+        start: async () => {
             const projectId = values.currentTeamId
             if (!values.terminalEnabled || !projectId || ['loading', 'booting', 'ready'].includes(values.status)) {
                 return
@@ -226,11 +226,6 @@ export const terminalLogic = kea<terminalLogicType>([
             actions.setStatus('loading')
             try {
                 const filesystem = new PosthogFilesystem(String(projectId), controller.signal)
-                await filesystem.load()
-                breakpoint()
-                if (controller.signal.aborted) {
-                    return
-                }
                 cache.filesystem = filesystem
                 new PosthogCommands(String(projectId), controller.signal, filesystem)
                 actions.setStatus('booting')
