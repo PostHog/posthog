@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from clickhouse_connect.driver.exceptions import ClickHouseError, DatabaseError, OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -17,9 +18,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     BypassEnvProxy,
@@ -87,11 +85,17 @@ _REDIRECTED = (
     "ClickHouse HTTP interface directly rather than at a proxy or load balancer in front of it."
 )
 
+# Matches the wording the other database sources use for a rejected login, so the same
+# problem reads the same way across Postgres, MySQL and ClickHouse.
+_INVALID_CREDENTIALS = (
+    "The database rejected the username or password. Check the user and password for this source and try again."
+)
+
 # Error message → user-friendly translation. Matched as a substring of the
 # exception string. Patterns are lowercase-matched.
 ClickHouseErrors: dict[str, str] = {
-    "authentication failed": "Invalid user or password",
-    "code: 516": "Invalid user or password",  # AUTHENTICATION_FAILED
+    "authentication failed": _INVALID_CREDENTIALS,
+    "code: 516": _INVALID_CREDENTIALS,  # AUTHENTICATION_FAILED
     "code: 81": "Database does not exist. Check the database name is correct.",  # UNKNOWN_DATABASE
     "code: 60": "Table does not exist",  # UNKNOWN_TABLE
     "code: 192": "Permission denied on the requested database or table",  # UNKNOWN_USER
@@ -110,18 +114,25 @@ ClickHouseErrors: dict[str, str] = {
     # The host answered but isn't serving the ClickHouse HTTP interface on this
     # host/port (wrong port, a proxy, or a native-protocol port). Same wording
     # as the sync-time non-retryable handling.
-    "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    "received http status 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    # clickhouse-connect's `_error_handler` only produces this wording ("received HTTP status
+    # N" rather than "Received ClickHouse exception, code: N") when the response carries no
+    # `X-ClickHouse-Exception-Code` header — a genuine ClickHouse query error always sets
+    # that header, so a bare 400 means something in front of ClickHouse (a proxy, WAF, or
+    # tunnel) rejected the request before it reached the server. Same cause as 404, different
+    # status code some proxies use instead.
+    "received http status 400": "We reached your ClickHouse host but it returned a 400, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
     # `_get_client` raises this when the host answers 2xx with a body that isn't a
     # ClickHouse response (a proxy/LB page, or a different service on the host/port).
     "did not return a valid clickhouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
-    "returned response code 301": _REDIRECTED,
-    "returned response code 302": _REDIRECTED,
-    "returned response code 307": _REDIRECTED,
-    "returned response code 308": _REDIRECTED,
-    "returned response code 429": _TEMPORARILY_UNAVAILABLE,
-    "returned response code 502": _TEMPORARILY_UNAVAILABLE,
-    "returned response code 503": _TEMPORARILY_UNAVAILABLE,
-    "returned response code 504": _TEMPORARILY_UNAVAILABLE,
+    "received http status 301": _REDIRECTED,
+    "received http status 302": _REDIRECTED,
+    "received http status 307": _REDIRECTED,
+    "received http status 308": _REDIRECTED,
+    "received http status 429": _TEMPORARILY_UNAVAILABLE,
+    "received http status 502": _TEMPORARILY_UNAVAILABLE,
+    "received http status 503": _TEMPORARILY_UNAVAILABLE,
+    "received http status 504": _TEMPORARILY_UNAVAILABLE,
 }
 
 
@@ -130,6 +141,9 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     # Lets users pick which columns to sync (and, in the wizard, surfaces the
     # row-filter editor that shares the same column-selection modal).
     supports_column_selection: bool = True
+    # Discovery reads the merge key off the table's sorting key, so a table without one has
+    # nothing to merge on and is asked for a key like any SQL source.
+    detects_primary_keys: bool = True
     supports_row_filters: bool = True
 
     api_docs_url = "https://clickhouse.com/docs"
@@ -161,7 +175,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLICK_HOUSE,
+            name=ExternalDataSourceType.CLICKHOUSE,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["sql"],
             releaseStatus=ReleaseStatus.GA,
@@ -276,13 +290,19 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "certificate verify failed": None,
             "SSL: WRONG_VERSION_NUMBER": None,
             # clickhouse-connect's HTTP driver got a 404 back while opening the
-            # connection ("HTTPDriver for <url> returned response code 404").
+            # connection ("HTTP driver received HTTP status 404 (for url <url>)").
             # The host responded but isn't serving the ClickHouse HTTP interface
             # on that path — typically a tunnel/proxy pointing at the wrong
             # service or an offline endpoint. A real ClickHouse server never
             # answers queries with 404, so retrying can't recover. We match only
             # 404, not transient gateway codes (502/503/504), which stay retryable.
-            "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            "received HTTP status 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            # Same cause as the 404 above: clickhouse-connect only wraps a response as "received
+            # HTTP status N" (rather than "Received ClickHouse exception, code: N") when it carries no
+            # `X-ClickHouse-Exception-Code` header, which a genuine ClickHouse query error always
+            # sets. A bare 400 means a proxy, WAF, or tunnel in front of ClickHouse rejected the
+            # request before it reached the server, so retrying replays the identical failure.
+            "received HTTP status 400": "We reached your ClickHouse host but it returned a 400, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
             # `_get_client` wraps the driver's construction-time probe failure ("too many
             # values to unpack") into this message when the host answers 2xx with a body that
             # isn't a ClickHouse response. The endpoint isn't serving the ClickHouse HTTP
@@ -341,13 +361,10 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
             "Connection aborted",
-            "Tunnel connection failed: 502",
-            "Tunnel connection failed: 503",
-            "Tunnel connection failed: 504",
-            "returned response code 429",
-            "returned response code 502",
-            "returned response code 503",
-            "returned response code 504",
+            "received HTTP status 429",
+            "received HTTP status 502",
+            "received HTTP status 503",
+            "received HTTP status 504",
             # urllib3 raises this when the source drops the connection mid-transfer while
             # `get_rows` is iterating `query_arrow_stream` — the byte count varies, but the
             # "Connection broken: IncompleteRead" wording is stable. Unlike the connect-time
@@ -355,6 +372,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # `_get_client`'s in-process retry never sees it; Temporal's activity retry
             # reopens a fresh tunnel + client and resumes from the last committed cursor.
             "Connection broken: IncompleteRead",
+            # pyarrow raises this `OSError` from its own IPC framing (not urllib3) when the
+            # connection carrying `query_arrow_stream` closes mid-message: the Arrow message
+            # header already promised a body length, and the stream delivered fewer bytes
+            # than that before ending. Same mid-transfer connection drop as
+            # "Connection broken: IncompleteRead" above, just detected one layer up, in
+            # pyarrow's message reader instead of urllib3. The byte counts vary; the
+            # "bytes for message body, got" wording is stable.
+            "bytes for message body, got",
             # requests/urllib3 raises this when the server accepts the connection but never
             # answers within our timeout — typically ClickHouse Cloud still cold-resuming an
             # idle service past our `METADATA_QUERY_TIMEOUT_SECONDS` allowance. Not in
@@ -368,10 +393,6 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # entry covers the case where the server stays saturated past all in-process
             # attempts, so Temporal's own retry — with a fresh backoff budget — isn't noise.
             "TOO_MANY_SIMULTANEOUS_QUERIES",
-            # `_get_client` already retries this in-process (see `_TRANSIENT_CONNECT_DROP_SUBSTRINGS`
-            # in clickhouse.py); this entry covers the case where our own egress proxy stays
-            # unreachable past all in-process attempts, so Temporal's retry isn't noise.
-            "Cannot connect to proxy.', TimeoutError('timed out')",
         }
 
     @contextmanager

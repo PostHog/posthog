@@ -1,3 +1,9 @@
+import asyncio
+from collections.abc import Callable, Mapping
+from typing import cast
+
+from pydantic import BaseModel
+
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
@@ -5,11 +11,11 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     resolve_effective_dashboard_filters,
 )
 from posthog.models import Team, User
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.product_analytics.backend.facade.models import Insight
 
-from ee.hogai.context.insight.query_executor import execute_and_format_query
+from ee.hogai.context.insight.query_executor import QueryExecutionHandle, execute_and_format_query
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.prompt import format_prompt_string
@@ -17,6 +23,23 @@ from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
 
 from .prompts import INSIGHT_RESULT_TEMPLATE
+
+type _ResponseExclusions = (
+    set[int] | set[str] | Mapping[int, bool | _ResponseExclusions] | Mapping[str, bool | _ResponseExclusions]
+)
+
+
+def _response_exclusions(value: object) -> _ResponseExclusions:
+    if isinstance(value, BaseModel):
+        return {
+            name: True if name == "response" else _response_exclusions(getattr(value, name))
+            for name in type(value).model_fields
+        }
+    if isinstance(value, (list, tuple)):
+        return {index: _response_exclusions(item) for index, item in enumerate(value)}
+    if isinstance(value, dict):
+        return {key: _response_exclusions(item) for key, item in value.items() if isinstance(key, str)}
+    return {}
 
 
 class InsightContext:
@@ -46,10 +69,12 @@ class InsightContext:
         filters_override: dict | None = None,
         variables_override: dict | None = None,
         event_source: EventSource = EventSource.POSTHOG_AI,
+        use_db_pool: bool = False,
     ):
         self.team = team
         self.user = user
         self.event_source = event_source
+        self._use_db_pool = use_db_pool
         self.query = query
         self.name = name
         self.description = description
@@ -59,6 +84,8 @@ class InsightContext:
         self.dashboard_filters = dashboard_filters
         self.filters_override = filters_override
         self.variables_override = variables_override
+        self._effective_query: BaseModel | None = None
+        self._effective_query_lock = asyncio.Lock()
 
     @property
     def insight_url(self) -> str | None:
@@ -87,10 +114,12 @@ class InsightContext:
         return_exceptions: bool = False,
         truncate_results: bool = True,
         include_prompt_framing: bool = True,
+        query_id: str | None = None,
+        on_query_handle: Callable[[QueryExecutionHandle], None] | None = None,
     ) -> str:
         """Execute query and format results."""
         effective_query = await self._get_effective_query()
-        query_schema = effective_query.model_dump_json(exclude_none=True)
+        query_schema = effective_query.model_dump_json(exclude_none=True, exclude=_response_exclusions(effective_query))
 
         try:
             results = await execute_and_format_query(
@@ -101,6 +130,8 @@ class InsightContext:
                 user=self.user,
                 include_prompt_framing=include_prompt_framing,
                 event_source=self.event_source,
+                query_id=query_id,
+                on_query_handle=on_query_handle,
             )
         except Exception as e:
             error_message = f"Error executing query: {str(e)}"
@@ -122,7 +153,7 @@ class InsightContext:
     async def format_schema(self, prompt_template: str = INSIGHT_RESULT_TEMPLATE) -> str:
         """Format insight as schema-only (no execution)."""
         effective_query = await self._get_effective_query()
-        query_schema = effective_query.model_dump_json(exclude_none=True)
+        query_schema = effective_query.model_dump_json(exclude_none=True, exclude=_response_exclusions(effective_query))
         return format_prompt_string(
             prompt_template,
             insight_name=self.name,
@@ -132,24 +163,30 @@ class InsightContext:
             insight_url=self.insight_url,
         )
 
-    async def _get_effective_query(self):
+    async def _get_effective_query(self) -> BaseModel:
         """Apply dashboard filters/overrides if provided."""
         if not (self.dashboard_filters or self.filters_override or self.variables_override):
             return self.query
 
-        query_dict = self.query.model_dump(mode="json")
+        async with self._effective_query_lock:
+            if self._effective_query is not None:
+                return self._effective_query
 
-        if self.dashboard_filters or self.filters_override:
-            effective = resolve_effective_dashboard_filters(
-                query_dict,
-                self.dashboard_filters,
-                self.filters_override,
-            )
-            query_dict = await database_sync_to_async(apply_dashboard_filters_to_dict)(
-                effective.query, effective.filters, self.team
-            )
+            query_dict = self.query.model_dump(mode="json")
 
-        if self.variables_override:
-            query_dict = apply_dashboard_variables_to_dict(query_dict, self.variables_override, self.team)
+            if self.dashboard_filters or self.filters_override:
+                effective = resolve_effective_dashboard_filters(
+                    query_dict,
+                    self.dashboard_filters,
+                    self.filters_override,
+                )
+                sync_adapter = database_sync_to_async_pool if self._use_db_pool else database_sync_to_async
+                query_dict = await sync_adapter(apply_dashboard_filters_to_dict)(
+                    effective.query, effective.filters, self.team
+                )
 
-        return validate_assistant_query(query_dict)
+            if self.variables_override:
+                query_dict = apply_dashboard_variables_to_dict(query_dict, self.variables_override, self.team)
+
+            self._effective_query = cast(BaseModel, validate_assistant_query(query_dict))
+            return self._effective_query

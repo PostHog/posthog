@@ -75,7 +75,14 @@ which unlocks flexibility in data retrieval, search, and manipulation.
 Additionally, the consumer has access to a skill that provides schema references and example patterns,
 giving it richer context about PostHog's data model.
 
+Here, "SQL-first" describes entity retrieval, not a preference for every analytics task.
+Choose typed queries or SQL from the required calculation and output, as described in [query selection guidance](./writing-skills.md#query-selection-guidance).
+
 Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Code).
+
+### Knowledge source checks
+
+When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
 ## Claude web and desktop exec schema budget
 
@@ -102,6 +109,8 @@ A missing flag evaluates as off. Development `FEATURE_FLAG_OVERRIDES` do not ena
 
 Verify the published skills archive loads, then start a new MCP session and sandbox task for an enabled user.
 Exercise `learn -s`, a qualified skill read, and a product call, and check that a disabled user retains the prior behavior.
+Skill use is advisory: a product `call` is never rejected for skipping `learn`, so stateless and session-holding clients behave the same.
+Unknown learning topics and empty search queries return recovery instructions.
 The `plugin` and `posthog-code` consumers remain excluded regardless of the flag.
 Monitor archive validation errors, catalog size, MCP memory, and task failures before expanding the release condition.
 
@@ -134,6 +143,12 @@ For proxy endpoints that can fail because of either user permissions or request 
 return distinct API-visible error details. Agents should stop on true authorization
 failures, but they can often recover from a bad project/team filter if the response says
 the requested scope is unavailable.
+
+The billing usage/spend proxy also returns recognized field-validation failures as
+standard DRF validation errors (`type`, `code`, `attr`, `detail`). It keeps known
+codes and public request fields, replaces upstream messages with controlled text,
+and masks unrecognized failures. The shared MCP client handles these errors without
+a billing-specific tool wrapper.
 
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
@@ -315,6 +330,11 @@ Product teams own their definitions and control which operations are exposed as 
    ```
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
+
+   For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
+   `detail_args` keys against the tool's input schema snapshot, so a wrong argument
+   name fails generation instead of silently dropping the argument at runtime.
+   See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
 
    #### Custom input schemas
 

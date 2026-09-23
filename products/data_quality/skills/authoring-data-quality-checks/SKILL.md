@@ -2,8 +2,9 @@
 name: authoring-data-quality-checks
 description: >
   Adds and runs data quality checks (dbt-test style assertions) on a project's warehouse tables and
-  saved-query views: not-null, uniqueness, accepted values, referential integrity, row-count bounds,
-  freshness, and custom HogQL. Use when asked to test a model, validate a view, check for nulls or
+  saved-query views, and HogQL catalog metrics: not-null, uniqueness, accepted values, referential
+  integrity, row-count bounds, freshness, and custom HogQL. Metrics support custom SQL checks only.
+  Use when asked to test a model, validate a view, check for nulls or
   duplicates, add data quality checks, find out why a number looks wrong, or judge whether a warehouse
   table is trustworthy before using it in an analysis. To describe what data *means* (metrics,
   certifications, joins), see setting-up-data-catalog instead. Trigger terms: data quality, data test,
@@ -13,8 +14,8 @@ description: >
 
 # Authoring data quality checks
 
-A check is one assertion about one warehouse table or view. It compiles to a count-only HogQL query
-and **passes when it finds zero failing rows** — the same semantics as `dbt test`. Failing rows are
+A check is one assertion about one warehouse table, view, or HogQL catalog metric. It compiles to a
+count-only HogQL query and **passes when it finds zero failing rows**, like `dbt test`. Failing rows are
 never stored; only counts and the compiled query are, so to see the offending rows you re-run the
 stored query yourself.
 
@@ -45,9 +46,8 @@ WHERE table_name = 'orders'
 Re-creating a byte-identical check is a harmless no-op — checks are keyed by a fingerprint of the
 subject, type, column, and config, so an identical create upserts. A _near_-duplicate is not
 harmless: it doubles the noise for whoever reads the results. If an existing check's assertion is
-close but wrong, create the corrected check and delete the old one — the assertion (type, column,
-config) is immutable and the subject is fixed by the URL, so an update that tries to change them is
-rejected. Update is only for metadata, severity, and ownership.
+close but wrong, edit the existing check. Updates preserve its identity and history; the subject
+stays fixed by the URL. An edit that duplicates another check's assertion is rejected.
 
 ## Choosing checks
 
@@ -70,8 +70,61 @@ Reach for these first, in roughly this order:
 
 Call `posthog:data-quality-check-types` for each type's exact config schema rather than guessing.
 
-Checks live on the subject they audit: create them with `data-quality-check-create-on-view`
-(`saved_query_id` path parameter) or `data-quality-check-create-on-table` (`table_id`).
+One tool set covers every kind of subject. Call `posthog:data-quality-subjects` for the tables,
+views and metrics you can read, then pass the `subject_type` and `id` it gives you as
+`subject_type` and `subject_uuid` in `posthog:data-quality-check-create`. Only a subject marked
+`editable` can carry a check; the others can still be the target of a relationships check. After that a check is
+addressed by its own id: `-update`, `-delete`, `-run` and `-results` take no subject.
+
+## Checks on PostHog tables
+
+`events`, `persons` and `groups` take checks like any other subject: pass
+`subject_type: "posthog_table"` with the id `posthog:data-quality-subjects` gives you. Every check
+type works on them, and `relationships` can point at one as its target too.
+
+These tables are large, so consider `lookback_hours` before you author a check on one. It bounds
+the rows the check reads by the table's own time column: `timestamp` on `events`, and `created_at`
+on `persons` and `groups`, which is when each was first seen rather than when it last changed.
+Without it the check reads the whole table, which is allowed and sometimes what you want -- an
+unbounded `unique` on `events.uuid` says something a windowed one cannot. A check that runs out of
+ClickHouse's execution budget reports `errored` with the message; adding a window is usually the fix.
+
+On a `relationships` check, `lookback_hours` bounds the rows it checks and `to_lookback_hours`
+bounds the rows it looks for a match among. Set the second one carefully: a narrow target window
+makes rows fail for being old rather than for being wrong.
+
+`custom_sql` takes no `lookback_hours`. Put the time filter in the query yourself, or it reads the
+whole table.
+
+Nothing triggers these tables the way a sync triggers a source table, so their checks run on a
+schedule, daily by default. Change it with `posthog:data-quality-check-schedule`.
+
+## Checks on catalog metrics
+
+Only metrics with a saved `HogQLQuery` definition support checks. Markdown, Trends, Funnels, event
+series, and metrics without definitions do not. A metric can return any number of rows and columns.
+
+Create a `custom_sql` check with an empty `column_name`. Include `{metric}` exactly once as a relation:
+
+```sql
+SELECT *
+FROM {metric}
+WHERE orders < 100
+```
+
+The check queries the owning metric's current saved output. The example assumes that output has an
+`orders` column. Every returned row is a failure; zero rows passes. Query `{metric}` directly or
+through a subquery. Metric check SQL cannot define CTEs, including nested CTEs and scalar `WITH`
+bindings. CTEs and saved parameters inside the metric definition remain supported. Other placeholders
+are not accepted in the check.
+
+Use the metric's Tests tab, or `posthog:data-quality-check-create` with `subject_type: "metric"`.
+The catalog addresses a metric by name, but a check names it by UUID. Pass `subject_type=metric` to
+`posthog:data-quality-check-types` and it offers only Custom SQL.
+
+Saving validates SQL composition without executing it. Run the check to verify column names and
+results. Every run reloads the saved metric: if an edit removes a column used by the check, the next
+run errors. Fix the check SQL or restore the expected metric output.
 
 ## Severity and triggers
 
@@ -80,26 +133,36 @@ means downstream numbers should not be trusted — those failures mark the subje
 notify. Use `warn` for things worth surfacing that nobody would act on today. When unsure, `warn` is
 the safer default: an `error` check that cries wolf gets everything ignored.
 
-**Triggers** — there is nothing to schedule. A check runs when its subject's data changes: a
+**Table and view triggers:** A check runs when its subject's data changes: a
 materialized view's checks run as part of its refresh (and, when the team turns the gate on, a
 refresh whose error-severity checks fail is not published), a source table's checks run after each
 completed sync, and a plain view's checks run when its DAG runs. Checks on a view outside any DAG
 only run on demand.
 
+**Subject schedules:** A metric and a PostHog table have no data-change event to run on, so their
+checks run on a schedule instead. The first saved check creates an enabled daily schedule for all
+checks on that subject. The Tests tab lets you change the interval or turn automatic runs off. Manual runs remain
+available. Scheduled checks use the latest definition author's access, falling back to the creator;
+manual runs use the initiating user's access. Underlying and additional tables must be readable.
+
+Temporal owns each metric's cadence and pause state. Paused schedules have no next execution time.
+Reload after an unavailable schedule response before retrying an edit; the edit may have succeeded.
+Automatic runs skip overlaps and catch up missed occurrences only within 15 minutes.
+Disabling or deleting every check preserves the schedule preferences. Deleting the metric removes its schedule.
+
 ## Verify what you wrote
 
 Author, run once, read the result. A check nobody has run is a guess.
 
-1. `posthog:data-quality-check-create-on-view` (or `-on-table`)
-2. `posthog:data-quality-check-run-on-view` (or `-on-table`) — returns a suite run
+1. `posthog:data-quality-check-create`
+2. `posthog:data-quality-check-run` — returns a suite run
 3. Poll `system.information_schema.data_quality_check_runs` (or
-   `posthog:data-quality-check-results-on-view`/`-on-table`) for the outcome
+   `posthog:data-quality-check-results`) for the outcome
 
 A `failed` result on the first run is the interesting case: either you found real bad data, or the
 assertion is wrong. Take the `compiled_query` off the run, execute it with `posthog:execute-sql`, and
 look at what it actually matched before reporting anything. That `compiled_query` comes from
-`posthog:data-quality-check-results-on-view`/`-on-table`; the information_schema poll in step 3 does
-not return it. An `errored` result is never a data
+`posthog:data-quality-check-results`; the information_schema poll in step 3 does not return it. An `errored` result is never a data
 problem — the query could not run at all, usually a column name typo or a subject that no longer
 exists.
 
@@ -119,8 +182,9 @@ FROM system.information_schema.data_quality_health
 - `unknown` / absent — no checks, or none have run. Absence of failures is not evidence of health.
 
 For the history behind a verdict, `system.information_schema.data_quality_check_runs` carries recent
-executions with `observed_value` recorded on passes too, so you can see when a number started
-drifting rather than just that it is wrong now.
+executions with status, failing-row count, and errors. For metric checks, the failing-row count
+describes the assertion result, not a scalar metric value. Open the failing-row query from the
+Tests tab to inspect the current rows that violate the check.
 
 ## Related
 

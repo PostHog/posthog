@@ -40,7 +40,7 @@ Before scaffolding YAML, verify:
    Missing descriptions = agents guessing at parameters.
    Use `ListField(child=serializers.CharField())` instead of bare `ListField()`,
    and `@extend_schema_field(PydanticModel)` on `JSONField` subclasses to get typed Zod output
-   (see `products/alerts/backend/api/alert.py` for the pattern).
+   (see `products/alerts/backend/presentation/views/alert.py` for the pattern).
 2. **Plain `ViewSet` methods have `@extend_schema(request=...)`** —
    without it, drf-spectacular can't discover the request body
    and the generated tool gets `z.object({})` (zero parameters).
@@ -184,6 +184,21 @@ Add `feature_flag` to any tool (standard or query wrapper) to gate its exposure 
 Reusing the same flag key with both behaviors performs an atomic swap: flag on → new tool visible, old tool hidden; flag off → old tool visible, new tool hidden. Useful for A/B testing tool variations.
 
 Flags are evaluated in parallel at init via `evaluateFeatureFlags`. If a flag can't be evaluated (service error, missing flag), `enable`-gated tools are excluded and `disable`-gated tools are included — fail-closed for new tools, fail-open for existing ones.
+
+### Enabling or renaming a tool
+
+The MCP server and Django deploy separately.
+A tool that reaches clients before its route lands returns 404 on every call until the Django deploy catches up.
+That hits a whole agent fleet at once.
+
+- **Land the route first.** Ship the endpoint, then enable the tool in a later change. A tool with
+  `enabled: true` in the same commit as a brand-new route is live in clients as soon as the MCP
+  server deploys.
+- **Or gate it.** Add `feature_flag` with `feature_flag_behavior: enable` and turn the flag on once
+  the route is serving.
+- **Keep the old name on a rename.** Leave the previous tool name in the YAML, pointing at the same
+  operation, until the new name has deployed everywhere. Sunset it with
+  `feature_flag_behavior: disable` on the same flag key, which swaps the two atomically.
 
 ### Syncing after endpoint changes
 

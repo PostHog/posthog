@@ -19,7 +19,6 @@ import dlt.extract.incremental.transform
 from clickhouse_driver.errors import ServerException
 from structlog.types import FilteringBoundLogger
 
-from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import retry_on_db_connection_drop
@@ -31,6 +30,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -58,17 +58,21 @@ def merge_columns(
 ) -> dict[str, Any]:
     """Build column metadata, preserving StringJSONDatabaseField from prior runs.
 
+    db_columns comes from ClickHouse introspection of the published files, so it is the
+    authority on which columns exist and what each one holds. table_schema_dict only refines
+    that typing: ClickHouse reports a plain string column and a JSON string column both as
+    String, and the Arrow schema of the written data is the only place that distinction
+    survives. A column the Arrow schema never carried is therefore still a real column, so it
+    takes its type from ClickHouse. Do not skip such a column, because skipping it removes it
+    from the table metadata, and so from HogQL, on every sync.
+
     Columns present in existing_columns but absent from db_columns are preserved
     to avoid losing schema information when get_columns() returns incomplete
     results during a sync (e.g., transient S3/ClickHouse introspection failures).
     """
     columns: dict[str, Any] = {}
     for column_name, db_column_type in db_columns.items():
-        hogql_type = table_schema_dict.get(column_name)
-
-        if hogql_type is None:
-            capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
-            continue
+        hogql_type = table_schema_dict.get(column_name) or hogql_type_name_for_clickhouse_type(db_column_type)
 
         existing_column = existing_columns.get(column_name)
         existing_hogql_type = existing_column.get("hogql") if isinstance(existing_column, dict) else None
@@ -186,7 +190,6 @@ async def validate_schema_and_update_table(
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     primary_keys: Optional[list[str]] = None,
-    published_file_count: Optional[int] = None,
 ) -> None:
     """
     Async version of validate_schema_and_update_table_sync.
@@ -201,7 +204,6 @@ async def validate_schema_and_update_table(
         row_count: The count of synced rows
         table_format: The format of the table
         table_schema_dict: The schema of the table
-        published_file_count: Files the publish step just made queryable, when the caller knows.
     """
     logger = LOGGER.bind(team_id=team_id)
 
@@ -263,7 +265,7 @@ async def validate_schema_and_update_table(
             # A reported row_count of 0 does not always mean the run wrote nothing: the v3 consumer
             # can read 0 on a redelivered final batch, and a resumed run counts only its own attempt.
             # A publish step with nothing to make queryable is what an empty first sync looks like.
-            if row_count == 0 and table_created is None and not published_file_count:
+            if row_count == 0 and table_created is None:
                 logger.warning("Skipping table creation: row_count is 0 and no table exists yet")
                 return
 

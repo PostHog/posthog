@@ -57,10 +57,11 @@ export function SourceConnectScene(): JSX.Element {
             <div className="max-w-200">
                 {storedCredential ? (
                     <LemonBanner type="success">
-                        <p className="font-semibold mb-1">{sourceLabel} credentials saved — you can close this tab.</p>
+                        <p className="font-semibold mb-1">{sourceLabel} credentials saved. You can close this tab.</p>
                         <p className="m-0 text-sm">
-                            Return to your chat and let the assistant know you're done; it will finish setting up the
-                            source. Credential id: <code>{storedCredential.credential_id}</code>.
+                            The source doesn't exist yet, so it won't show in your sources list. Return to your chat and
+                            let the assistant know you're done, and it will finish the setup. Credential id:{' '}
+                            <code>{storedCredential.credential_id}</code>.
                         </p>
                     </LemonBanner>
                 ) : (

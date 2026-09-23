@@ -3,8 +3,7 @@ from unittest import mock
 
 import requests
 
-from posthog.schema import SourceFieldSelectConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
@@ -339,6 +338,23 @@ def test_validate_credentials_rejects_unknown_site():
     assert "is not visible to the connected Google account" in (message or "")
 
 
+def test_validate_credentials_says_to_reconnect_when_account_owns_no_property():
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            return_value=[],
+        ),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "can't read any Search Console property" in (message or "")
+    assert "is not visible to the connected Google account" not in (message or "")
+
+
 def test_validate_credentials_suggests_registered_property_for_bare_hostname():
     # User entered a bare hostname; the account has the URL-prefix property. Point them
     # at the exact string to paste rather than the dead-end "not visible" message.
@@ -484,3 +500,51 @@ def test_validate_credentials_unexpected_list_sites_error_stays_generic(error, s
     assert ok is False
     assert "couldn't reach Google Search Console" in (message or "")
     assert secret not in (message or "")
+
+
+@pytest.mark.parametrize(
+    "site_url",
+    [
+        "https://search.google.com/search-console/",
+        "https://search.google.com/search-console/performance/search-analytics",
+        "HTTPS://Search.Google.com/search-console",
+    ],
+)
+def test_validate_credentials_rejects_the_search_console_dashboard_url(site_url):
+    config = GoogleSearchConsoleSourceConfig(site_url=site_url, google_search_console_integration_id=1)
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites"
+    ) as list_sites:
+        ok, message = GoogleSearchConsoleSource().validate_credentials(config, team_id=1)
+
+    assert ok is False
+    assert "Search Console dashboard" in (message or "")
+    assert "is not visible to the connected Google account" not in (message or "")
+    list_sites.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "site_url",
+    [
+        "https://search.google.com/search-console?resource_id=sc-domain%3Aexample.com",
+        "HTTPS://Search.Google.com/search-console?resource_id=sc-domain%3Aexample.com",
+    ],
+)
+def test_validate_credentials_still_reads_a_property_out_of_a_dashboard_url(site_url):
+    config = GoogleSearchConsoleSourceConfig(
+        site_url=site_url,
+        google_search_console_integration_id=1,
+    )
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            return_value=[{"siteUrl": "sc-domain:example.com", "permissionLevel": "siteOwner"}],
+        ),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(config, team_id=1)
+
+    assert ok is True
+    assert message is None

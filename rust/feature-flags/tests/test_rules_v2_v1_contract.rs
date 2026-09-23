@@ -22,8 +22,9 @@ use feature_flags::flags::cache_builder::compute_flag_dependencies;
 use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_matching::FeatureFlagMatcher;
 use feature_flags::flags::flag_matching_utils::calculate_hash;
-use feature_flags::flags::flag_models::{FeatureFlag, FeatureFlagList};
+use feature_flags::flags::flag_models::{FeatureFlag, FeatureFlagList, MultivariateFlagVariant};
 use feature_flags::flags::flag_request::FlagRequest;
+use feature_flags::flags::v1_bucketing::{is_in_rollout, select_variant};
 use feature_flags::utils::test_utils::{mock_group_type_cache, TestContext};
 use regex::Regex;
 use serde_json::{json, Value};
@@ -31,29 +32,6 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 const CORPUS_DIR: &str = "tests/fixtures/rules_v2_contract/1.2.0";
-
-/// Corpus rows that supply a precomputed `hash01` instead of hash inputs. The evaluator
-/// computes its hash internally and exposes no seam that accepts one, so these rows stay
-/// unsupported until the shared hashing primitives are extracted behind such a seam.
-const UNSUPPORTED_CASE_IDS: &[&str] = &[
-    "threshold.equal_is_included",
-    "threshold.next_binary64_above_is_excluded",
-    "threshold.zero_percent_zero_hash",
-    "threshold.zero_percent_smallest_hash",
-    "threshold.hundred_percent_short_circuit",
-    "threshold.two_decimal_division_equal",
-    "threshold.two_decimal_division_excluded",
-    "threshold.two_decimal_division_included_below_quotient",
-    "variant.zero_hash_first_variant",
-    "variant.boundary_is_exclusive",
-    "variant.just_below_boundary",
-    "variant.accumulated_boundary_left_to_right",
-    "variant.accumulated_boundary_third",
-    "variant.two_decimal_weights_boundary",
-    "variant.hash_one_off_the_end",
-    "variant.sum_below_one_off_the_end",
-    "parity.final_variant_fallback_divergent",
-];
 
 /// A dependency target absent from the fixture definitions maps to an id no fixture flag
 /// uses, so the target is missing from the flag list entirely. That is the only way the
@@ -121,27 +99,12 @@ async fn corpus_matches_production_evaluator_and_projections() {
     covered.extend(run_v1_corpus(&db, team_id).await);
     covered.extend(run_projection_corpus());
 
-    let unsupported: HashSet<String> = UNSUPPORTED_CASE_IDS.iter().map(|s| s.to_string()).collect();
     let declared: HashSet<String> = corpus_artifacts(&manifest)
         .flat_map(|artifact| artifact["case_ids"].as_array().unwrap().iter())
         .map(|id| id.as_str().unwrap().to_string())
         .collect();
-    let both: BTreeSet<_> = covered.intersection(&unsupported).collect();
-    assert!(
-        both.is_empty(),
-        "cases both run and listed as unsupported: {both:?}"
-    );
-    let accounted: HashSet<String> = covered.union(&unsupported).cloned().collect();
-    let missing: BTreeSet<_> = declared.difference(&accounted).collect();
-    assert!(
-        missing.is_empty(),
-        "manifest cases neither run nor listed as unsupported: {missing:?}"
-    );
-    let unknown: BTreeSet<_> = accounted.difference(&declared).collect();
-    assert!(
-        unknown.is_empty(),
-        "cases run or listed that the manifest does not declare: {unknown:?}"
-    );
+    assert!(!declared.is_empty(), "the manifest declares no cases");
+    assert_eq!(covered, declared, "every manifest case must execute");
 }
 
 async fn run_hash_corpus(db: &TestContext, team_id: i32) -> HashSet<String> {
@@ -258,13 +221,53 @@ async fn run_hash_corpus(db: &TestContext, team_id: i32) -> HashSet<String> {
         covered.insert(id.to_string());
     }
 
+    for vector in corpus["threshold_vectors"].as_array().unwrap() {
+        let id = str_field(vector, "id");
+        assert_eq!(
+            json!(
+                is_in_rollout(vector["rollout_percentage"].as_f64().unwrap(), || Ok(
+                    prescribed_hash(vector)
+                ),)
+                .unwrap()
+            ),
+            vector["included"],
+            "{id}: rollout inclusion"
+        );
+        covered.insert(id.to_string());
+    }
+    for vector in corpus["variant_vectors"].as_array().unwrap() {
+        let id = str_field(vector, "id");
+        let variants: Vec<MultivariateFlagVariant> =
+            serde_json::from_value(vector["variants"].clone()).unwrap();
+        assert_eq!(
+            json!(select_variant(prescribed_hash(vector), &variants)),
+            vector["selected"],
+            "{id}: v1 variant selection"
+        );
+        covered.insert(id.to_string());
+    }
+
     // Parity rows pin that the v1 input and the converted v2 input hash identically.
     // `identical_outcome` and `divergence` describe version 2 semantics, which nothing in
     // this crate implements yet, so they are not asserted here.
     for parity in corpus["seed_parity"].as_array().unwrap() {
         let id = str_field(parity, "id");
         let Some(v2) = parity.get("v2") else {
-            continue; // white-box row, listed in UNSUPPORTED_CASE_IDS
+            // The corpus links this white-box row to its v1 vector only through `note`.
+            assert_eq!(id, "parity.final_variant_fallback_divergent");
+            let linked = corpus["variant_vectors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|vector| str_field(vector, "id") == "variant.hash_one_off_the_end")
+                .expect("linked v1 variant vector");
+            let variants: Vec<MultivariateFlagVariant> =
+                serde_json::from_value(linked["variants"].clone()).unwrap();
+            let hash = prescribed_hash(parity);
+            assert_eq!(hash, prescribed_hash(linked), "{id}: linked v1 hash");
+            assert_eq!(select_variant(hash, &variants), None, "{id}: v1 selection");
+            covered.insert(id.to_string());
+            continue;
         };
         let v1_input = str_field(parity, "v1_input");
         let v1_hash = hash_of_input(v1_input);
@@ -629,6 +632,10 @@ async fn evaluate(
 /// Hashes a corpus row that supplies the whole concatenated input instead of its parts.
 fn hash_of_input(input: &str) -> f64 {
     calculate_hash(input, "", "").unwrap()
+}
+
+fn prescribed_hash(case: &Value) -> f64 {
+    str_field(case, "hash01").parse::<f64>().unwrap()
 }
 
 fn assert_hash01(id: &str, actual: f64, expected: &Value) {

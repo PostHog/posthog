@@ -1,5 +1,5 @@
+import { LOCAL_TOOLS_MCP_NAME } from "@posthog/harness/extensions/local-tools";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LOCAL_TOOLS_MCP_NAME } from "../local-tools";
 import { buildLocalToolsServer } from "./local-tools-mcp";
 
 // The dist asset isn't on the walk-up path in unit tests, so make existsSync

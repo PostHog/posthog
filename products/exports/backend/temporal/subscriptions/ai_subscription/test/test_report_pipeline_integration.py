@@ -54,7 +54,7 @@ class _WindowPipelineHelpers:
         captured: dict[str, str] = {}
 
         def _invoke(messages: list) -> MagicMock:
-            captured["human"] = messages[1][1]
+            captured["human"] = messages[1].content
             return MagicMock(content=report)
 
         mock_chat.return_value.invoke.side_effect = _invoke

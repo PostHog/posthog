@@ -70,6 +70,10 @@ Each access-controlled system table declares an `access_scope` (e.g. `system.das
 
 At schema build time, `_compute_system_table_access_decision()` checks `UserAccessControl.access_level_for_resource(access_scope)` for each scoped table and removes denied ones from the schema (`Database._apply_system_table_access()`).
 
+`system.data_deletion_requests` uses the dedicated `data_deletion` resource.
+The resource defaults to no access for project members, while organization admins retain their standard highest access.
+Admins can delegate resource-level access, but the table does not support per-request access rules.
+
 Removed tables are tracked in `Database._denied_tables`, so referencing one raises a clear error instead of pretending the table doesn't exist — that way the user knows the table is there and can request access from an admin if they need it:
 
 ```text
@@ -184,6 +188,10 @@ They're masked when the query is printed to ClickHouse SQL, so a restricted read
 
 Group restrictions retain their group type index, so a same-named property on another group type stays readable. The masking also applies to the Postgres-backed `system.groups.group_properties` field.
 
+Native event JSON keeps parsing diagnostics in `$unparseable_properties`, which can embed raw property values as a string. If an event or person property is restricted, the shared restriction resolver also restricts that class's diagnostic marker. Blob reads omit it, and direct or JSON-extraction reads cannot retrieve it. Unrestricted readers retain diagnostic access.
+
+Native reads of a parent containing restricted children use the masked JSON document instead of a raw subcolumn. This also covers multi-key `JSONHas` calls with computed keys. Unrestricted siblings remain readable.
+
 The restriction set is loaded once per query in `prepare_ast_for_printing()` and cached per `(team_id, user_id)` for the request lifetime.
 
 ### Coverage is per table, not per column name
@@ -231,9 +239,12 @@ The cache key is derived from `get_cache_payload()`:
 Two things keep cache hit rates high:
 
 1. **Feature gate:** if the organization doesn't have `AvailableFeature.ACCESS_CONTROL`, no resource/object restrictions exist, so nothing is added and the cache isn't partitioned by user at all.
-2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads, so warehouse scopes are added to the payload only when the query references warehouse tables or views — a plain **events or persons query shares one cache entry across all users**
+2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads. Tables whose visibility depends on another scoped table add that dependency too. For example, `system.customer_tasks` adds `account` because its row predicate reads `system.accounts`. A plain **events or persons query shares one cache entry across all users**.
 
 When a run has no user but does read access-controlled resources, the fingerprint uses `restricted_resources: ["*"]` so it can never collide with a real user's cache, and synthetic principals partition on their readable scopes so a narrow token can't reuse a broader token's cached rows.
+
+Hidden backing tables also contribute their parent scopes through `_TRANSITIVE_SYSTEM_TABLE_SCOPES`, even when they have no `access_scope` of their own.
+Their parent predicates enforce row permissions, including creator exemptions; see [HogQL system table cache permissions](../../docs/internal/hogql-system-table-cache.md) before adding a separate junction-table guard.
 
 ## One preloaded `UserAccessControl` everywhere
 

@@ -83,7 +83,7 @@ class ExperimentSavedMetricService:
         description: str | None = None,
     ) -> ExperimentSavedMetric:
         """Create a saved metric with full business-logic validation."""
-        normalized_query = self._normalize_query_for_write(query)
+        normalized_query = self.normalize_query_for_write(query)
         enforce_warehouse_metric_access([normalized_query], team=self.team, user=self.user)
 
         return ExperimentSavedMetric.objects.create(
@@ -102,7 +102,7 @@ class ExperimentSavedMetricService:
 
         if "query" in update_data:
             existing_uuid = saved_metric.query.get("uuid") if saved_metric.query else None
-            update_data["query"] = self._normalize_query_for_write(update_data["query"], existing_uuid=existing_uuid)
+            update_data["query"] = self.normalize_query_for_write(update_data["query"], existing_uuid=existing_uuid)
             enforce_warehouse_metric_access([update_data["query"]], team=self.team, user=self.user)
 
         for attr, value in update_data.items():
@@ -124,7 +124,7 @@ class ExperimentSavedMetricService:
             raise ValidationError("Saved metric does not exist or does not belong to this project")
 
     @classmethod
-    def _normalize_query_for_write(cls, query: dict, *, existing_uuid: str | None = None) -> dict:
+    def normalize_query_for_write(cls, query: dict, *, existing_uuid: str | None = None) -> dict:
         cls.validate_query(query)
 
         normalized_query = dict(query)

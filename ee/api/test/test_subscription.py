@@ -50,6 +50,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.facade.models import Insight
 
+from ee.api.subscription import MAX_AI_SUBSCRIPTION_CONTEXTS
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
@@ -57,6 +58,16 @@ from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
+GALLERY_ON_PROMPT_ERROR = (
+    "post_all_insights_in_main_message only applies to insight and dashboard subscriptions. This "
+    "subscription has resource_type 'ai_prompt', so remove it from delivery_config. A prompt report "
+    "already posts all its chart images in the main message."
+)
+GALLERY_FILES_WRITE_ERROR = (
+    "post_all_insights_in_main_message requires the Slack files:write permission. Reconnect Slack to "
+    "grant it, or remove the option from delivery_config to save the subscription now. Each delivery "
+    "then posts the first image in the main message and the rest as threaded replies."
+)
 VALID_AI_QUERY_PLAN = {
     "overall_intent": "Count events",
     "steps": [
@@ -220,16 +231,55 @@ class TestSubscriptionTemporal(APILicensedTest):
         else:
             self.mock_temporal_client.start_workflow.assert_not_called()
 
-    def test_update_send_test_now_skips_duplicate_in_flight_delivery(self):
+    @parameterized.expand(
+        [
+            ("a delivery is already in flight", "start_workflow"),
+            ("the workflow cannot be started", "start_workflow_raises"),
+            ("temporal cannot be reached", "connect_raises"),
+            ("reporting the failure also fails", "capture_raises"),
+        ]
+    )
+    def test_update_survives_a_confirmation_delivery_it_cannot_start(self, _name, failure):
         sub_id = self._create_subscription().json()["id"]
         self.mock_temporal_client.start_workflow.reset_mock()
-        self.mock_temporal_client.start_workflow.side_effect = WorkflowAlreadyStartedError(
-            f"send-test-now-subscription-{sub_id}", "handle-subscription-value-change"
+        if failure == "capture_raises":
+            self.mock_sync.side_effect = RuntimeError("Failed client connect: Connection refused")
+            capture_patcher = patch("ee.api.subscription.capture_exception", side_effect=RuntimeError("capture down"))
+            capture_patcher.start()
+            self.addCleanup(capture_patcher.stop)
+        elif failure == "start_workflow":
+            self.mock_temporal_client.start_workflow.side_effect = WorkflowAlreadyStartedError(
+                f"send-test-now-subscription-{sub_id}", "handle-subscription-value-change"
+            )
+        elif failure == "start_workflow_raises":
+            self.mock_temporal_client.start_workflow.side_effect = RuntimeError("workflow rejected")
+        else:
+            self.mock_sync.side_effect = RuntimeError("Failed client connect: Connection refused")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"send_test_now": True, "title": "Renamed"},
         )
 
-        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"send_test_now": True})
-        # A delivery already in flight must not fail the update or fan out a second send
         assert response.status_code == status.HTTP_200_OK, response.content
+        assert Subscription.objects.get(id=sub_id).title == "Renamed"
+
+    @parameterized.expand(
+        [
+            ("the workflow cannot be started", "start_workflow_raises"),
+            ("temporal cannot be reached", "connect_raises"),
+        ]
+    )
+    def test_create_survives_a_confirmation_delivery_it_cannot_start(self, _name, failure):
+        if failure == "start_workflow_raises":
+            self.mock_temporal_client.start_workflow.side_effect = RuntimeError("workflow rejected")
+        else:
+            self.mock_sync.side_effect = RuntimeError("Failed client connect: Connection refused")
+
+        response = self._create_subscription(title="Made anyway")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert Subscription.objects.get(id=response.json()["id"]).title == "Made anyway"
 
     def test_update_inferred_deliveries_get_unique_workflow_ids(self):
         # Only explicit send_test_now dedupes: two legitimate consecutive recipient edits must
@@ -740,7 +790,10 @@ class TestSubscriptionTemporal(APILicensedTest):
     def test_cannot_set_post_all_insights_in_main_message_on_email_subscription(self):
         response = self._create_subscription(delivery_config={"post_all_insights_in_main_message": True})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "only supported for Slack subscriptions" in response.json()["detail"]
+        assert response.json()["detail"] == (
+            "post_all_insights_in_main_message only applies to Slack subscriptions. "
+            "This subscription delivers to email, so remove it from delivery_config."
+        )
 
     def test_can_patch_delivery_config_on_slack_subscription(self):
         integration = Integration.objects.create(
@@ -795,7 +848,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             },
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert "files:write" in str(res.json())
+        assert res.json()["detail"] == GALLERY_FILES_WRITE_ERROR
 
     def test_patch_post_all_in_main_requires_files_write_scope(self):
         integration = Integration.objects.create(
@@ -811,7 +864,8 @@ class TestSubscriptionTemporal(APILicensedTest):
             {"delivery_config": {"post_all_insights_in_main_message": True}},
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert "files:write" in str(res.json())
+        # Exact text: an update must not be told to "create" the subscription.
+        assert res.json()["detail"] == GALLERY_FILES_WRITE_ERROR
 
     def test_patch_to_integration_without_files_write_rejects_persisted_gallery_flag(self):
         # Effective-config validation: moving an existing post_all_insights_in_main_message sub to an
@@ -833,7 +887,15 @@ class TestSubscriptionTemporal(APILicensedTest):
             {"integration_id": without_scope.id},
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert "files:write" in str(res.json())
+        assert res.json()["detail"] == GALLERY_FILES_WRITE_ERROR
+
+    def test_stored_ai_display_option_does_not_block_insight_edits(self):
+        subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
+        Subscription.objects.filter(id=subscription.id).update(delivery_config={"include_images": False})
+
+        res = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"enabled": False})
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
 
     def test_patch_slack_to_email_rejects_persisted_gallery_flag(self):
         # Effective-config validation across target_type: a Slack sub with the gallery flag PATCHed to
@@ -852,7 +914,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             {"target_type": "email", "target_value": "a@b.com"},
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert "only supported for Slack" in str(res.json())
+        assert "post_all_insights_in_main_message only applies to Slack subscriptions" in str(res.json())
 
     def test_post_all_in_main_allowed_with_files_write(self):
         integration = Integration.objects.create(
@@ -1650,6 +1712,42 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert desc_res.status_code == status.HTTP_200_OK
         desc_ids = [row["id"] for row in desc_res.json()["results"]]
         assert desc_ids.index(first_id) < desc_ids.index(second_id)
+
+    @parameterized.expand(
+        [
+            (None, "DESC"),
+            ("created_at", "ASC"),
+            ("-created_at", "DESC"),
+            ("title", "ASC"),
+            ("-title", "DESC"),
+            ("next_delivery_date", "ASC"),
+            ("-created_by__email", "DESC"),
+        ]
+    )
+    def test_list_subscriptions_break_sort_ties_on_id(self, ordering, expected_direction):
+        first = self._create_subscription(title="Tied subscription")
+        second = self._create_subscription(title="Tied subscription")
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        first_id = first.json()["id"]
+        second_id = second.json()["id"]
+        tied_at = datetime(2030, 1, 1, tzinfo=UTC)
+        Subscription.objects.filter(id__in=[first_id, second_id]).update(
+            created_at=tied_at,
+            next_delivery_date=tied_at,
+        )
+
+        params = {"limit": 1}
+        if ordering:
+            params["ordering"] = ordering
+        first_page = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", params)
+        second_page = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {**params, "offset": 1})
+        assert first_page.status_code == status.HTTP_200_OK
+        assert second_page.status_code == status.HTTP_200_OK
+
+        page_ids = [first_page.json()["results"][0]["id"], second_page.json()["results"][0]["id"]]
+        expected_ids = [first_id, second_id] if expected_direction == "ASC" else [second_id, first_id]
+        assert page_ids == expected_ids
 
     @parameterized.expand(
         [
@@ -3379,9 +3477,10 @@ class TestAISubscriptionAPI(APILicensedTest):
     @parameterized.expand(
         [
             (
-                "more_than_three",
+                "more_than_the_selection_cap",
                 lambda self: [
-                    {"dashboard_id": Dashboard.objects.create(team=self.team, name=str(index)).id} for index in range(4)
+                    {"dashboard_id": Dashboard.objects.create(team=self.team, name=str(index)).id}
+                    for index in range(MAX_AI_SUBSCRIPTION_CONTEXTS + 1)
                 ],
             ),
             ("duplicate", lambda self: [{"dashboard_id": self._context_dashboard().id}] * 2),
@@ -3412,6 +3511,22 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"].split("__", 1)[0] == "contexts"
 
+    def test_accepts_contexts_at_the_selection_cap(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        contexts = [
+            {"dashboard_id": Dashboard.objects.create(team=self.team, name=str(index)).id}
+            for index in range(MAX_AI_SUBSCRIPTION_CONTEXTS)
+        ]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(contexts=contexts),
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert len(response.json()["contexts"]) == MAX_AI_SUBSCRIPTION_CONTEXTS
+
     def _context_dashboard(self, **kwargs) -> Dashboard:
         return Dashboard.objects.create(team=self.team, name="Context dashboard", created_by=self.user, **kwargs)
 
@@ -3431,6 +3546,19 @@ class TestAISubscriptionAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "contexts"
+
+    def test_accepts_an_empty_contexts_list_on_a_traditional_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        created = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._insight_payload())
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"title": "Renamed", "contexts": [], "send_test_now": False},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["title"] == "Renamed"
 
     def test_context_replacement_rolls_back_subscription_and_rows(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
@@ -3812,7 +3940,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             return not (access_control._user == original_creator and resource == "query" and required_level == "viewer")
 
         with patch(
-            "ee.api.subscription.UserAccessControl.check_access_level_for_resource",
+            "products.exports.backend.facade.auth.UserAccessControl.check_access_level_for_resource",
             autospec=True,
             side_effect=has_query_access,
         ):
@@ -3823,6 +3951,65 @@ class TestAISubscriptionAPI(APILicensedTest):
 
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "query access" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    def test_re_enabling_ai_sub_without_original_creator_project_access_is_rejected(
+        self, mock_is_cloud: MagicMock, mock_flag: MagicMock, mock_sync: MagicMock
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        original_creator = self._create_user("project-revoked-creator@posthog.com")
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(enabled=False, created_by=original_creator)
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        membership = original_creator.organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=membership,
+            access_level="none",
+        )
+        cache.clear()
+
+        patch_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"enabled": True},
+        )
+
+        assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
+        assert "project access" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    def test_re_enabling_ai_sub_without_ai_processing_approval_is_rejected(
+        self, mock_is_cloud: MagicMock, mock_flag: MagicMock, mock_sync: MagicMock
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(enabled=False)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        patch_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"enabled": True},
+        )
+
+        assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
+        assert "has not approved AI data processing" in str(patch_resp.json())
 
     @parameterized.expand(
         [
@@ -3983,14 +4170,20 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert patch_response.json()["delivery_config"] == expected_config
         assert Subscription.objects.get(id=subscription_id).delivery_config == expected_config
 
-    def test_patch_validates_the_merged_delivery_config(self, mock_is_cloud, mock_flag, mock_sync):
+    @parameterized.expand(
+        [
+            ("unrelated_field", "files:write", {"enabled": False}),
+            ("delivery_config_without_the_option", "files:write", {"delivery_config": {"include_images": False}}),
+            ("slack_without_files_write", "channels:read", {"enabled": False}),
+        ]
+    )
+    def test_stored_gallery_option_does_not_block_other_prompt_edits(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, extra_scope, patch_body
+    ):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         integration = Integration.objects.create(
-            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
-        )
-        without_files_write = Integration.objects.create(
-            team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
+            team=self.team, kind="slack", config={"scope": f"chat:write,{extra_scope}"}
         )
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
@@ -3998,33 +4191,115 @@ class TestAISubscriptionAPI(APILicensedTest):
                 target_type="slack",
                 target_value="C1234|#general",
                 integration_id=integration.id,
-                delivery_config={"post_all_insights_in_main_message": True},
+            ),
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        subscription_id = create_response.json()["id"]
+        # Seeded directly because create rejects the option. Rows like this predate the rule, and
+        # validating the stored value would leave them impossible to edit or even to disable.
+        Subscription.objects.filter(id=subscription_id).update(
+            delivery_config={"post_all_insights_in_main_message": True}
+        )
+
+        patch_response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription_id}", patch_body)
+
+        assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
+
+    @parameterized.expand(
+        [
+            ("email", "email", "ai@posthog.com"),
+            ("slack", "slack", "C1234|#general"),
+        ]
+    )
+    def test_gallery_option_is_rejected_on_prompt_create(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, target_type, target_value
+    ):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        overrides: dict = {"target_type": target_type, "target_value": target_value}
+        if target_type == "slack":
+            # files:write present, so the permission rule cannot be what rejects the request.
+            overrides["integration_id"] = Integration.objects.create(
+                team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+            ).id
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(delivery_config={"post_all_insights_in_main_message": True}, **overrides),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == GALLERY_ON_PROMPT_ERROR
+
+    def test_gallery_option_is_rejected_on_prompt_patch(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(
+                target_type="slack",
+                target_value="C1234|#general",
+                integration_id=integration.id,
             ),
         )
         assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
 
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{create_response.json()['id']}",
-            {
-                "integration_id": without_files_write.id,
-                "delivery_config": {"include_images": False},
-            },
+            {"delivery_config": {"post_all_insights_in_main_message": True}},
         )
 
         assert patch_response.status_code == status.HTTP_400_BAD_REQUEST, patch_response.json()
-        assert "files:write" in str(patch_response.json())
+        assert patch_response.json()["detail"] == GALLERY_ON_PROMPT_ERROR
 
+    def test_gallery_option_is_accepted_as_false_on_a_prompt_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(delivery_config={"post_all_insights_in_main_message": False}),
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            (
+                "single",
+                {"include_images": False},
+                "include_images only applies to prompt subscriptions. This subscription has "
+                "resource_type 'insight', so remove it from delivery_config.",
+            ),
+            (
+                "several",
+                {"include_images": False, "include_feedback": True},
+                "include_feedback and include_images only apply to prompt subscriptions. This "
+                "subscription has resource_type 'insight', so remove them from delivery_config.",
+            ),
+            (
+                "alongside_a_valid_option",
+                {"include_manage_link": True, "post_all_insights_in_main_message": False},
+                "include_manage_link only applies to prompt subscriptions. This subscription has "
+                "resource_type 'insight', so remove it from delivery_config.",
+            ),
+        ]
+    )
     def test_ai_delivery_display_flags_are_rejected_for_insight_subscriptions(
-        self, mock_is_cloud, mock_flag, mock_sync
+        self, mock_is_cloud, mock_flag, mock_sync, _name, delivery_config, expected_detail
     ):
         self._mock_temporal(mock_sync)
         payload = self._insight_payload()
-        payload["delivery_config"] = {"include_images": False}
+        payload["delivery_config"] = delivery_config
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "only supported for prompt subscriptions" in str(response.json())
+        # The valid option in the same delivery_config must not be named as the offender.
+        assert response.json()["detail"] == expected_detail
 
 
 class TestSubscriptionObjectAccessControl(APILicensedTest):

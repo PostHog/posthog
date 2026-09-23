@@ -10,24 +10,27 @@ from products.exports.backend.models.subscription import AIQueryPlanStatus, Subs
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
     DiagnosticCounts,
     _load_snapshot,
-    _parse_context_refs,
-    _ParsedContextRefs,
     _persist_ai_report,
     _report_diagnostic_counts,
     _snapshot_diagnostic_counts,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import RenderedChart
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+from products.exports.backend.temporal.subscriptions.ai_subscription.context_tools import (
     AiReportContext,
     AiReportContexts,
     AiReportDashboardContext,
     AiReportInsightContext,
+    ParsedContextRefs,
+    parse_context_refs,
+)
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     QueryStepDiagnostic,
 )
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_HAS_USABLE_CONTEXT_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -74,15 +77,15 @@ def _context_refs(delivery_id) -> list[str]:
         (
             "valid",
             ["dashboard:123", "insight:456"],
-            _ParsedContextRefs(dashboard_ids=[123], insight_ids=[456]),
+            ParsedContextRefs(dashboard_ids=[123], insight_ids=[456]),
         ),
         ("unknown kind", ["replay:123"], None),
         ("invalid id", ["insight:not-an-id"], None),
         ("missing separator", ["insight123"], None),
     ]
 )
-async def test_parse_context_refs(_name, context_refs, expected) -> None:
-    assert _parse_context_refs(context_refs) == expected
+async def testparse_context_refs(_name, context_refs, expected) -> None:
+    assert parse_context_refs(context_refs) == expected
 
 
 async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(team, user) -> None:
@@ -105,6 +108,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
                 ),
             ),
             query_plan_status=AIQueryPlanStatus.FROZEN,
+            has_usable_context=True,
         ),
         prompt="weekly adoption + reliability report",
     )
@@ -112,6 +116,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     snapshot = await _snapshot(delivery.id)
     assert snapshot[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
     assert snapshot[AI_REPORT_QUERY_PLAN_STATUS_KEY] == AIQueryPlanStatus.FROZEN.value
+    assert snapshot[AI_REPORT_HAS_USABLE_CONTEXT_KEY] is True
     assert snapshot[AI_REPORT_DIAGNOSTICS_KEY] == [
         {
             "description": "adoption",
@@ -137,7 +142,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     assert snapshot[AI_REPORT_CHARTS_KEY] == []
 
 
-async def test_persist_ai_report_writes_only_compact_context_provenance(team, user) -> None:
+async def test_persist_ai_report_writes_only_compact_context_statuses(team, user) -> None:
     delivery = await _create_delivery(team, user)
     result = AiReportResult(
         markdown="# Weekly report",

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -43,7 +41,7 @@ class DataForSEOSource(ResumableSource[DataForSEOSourceConfig, DataForSEOResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DATA_FOR_SEO,
+            name=ExternalDataSourceType.DATAFORSEO,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="DataForSEO",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -52,7 +50,7 @@ class DataForSEOSource(ResumableSource[DataForSEOSourceConfig, DataForSEOResumeC
 
 Find your API login and password on the [DataForSEO API access page](https://app.dataforseo.com/api-access).
 
-Note: DataForSEO bills per API request, so every sync consumes account credits. The backlinks summary table also requires an active Backlinks API subscription.""",
+Note: DataForSEO bills per API request, so syncing these tables consumes account credits. The location and category lookup tables are free. The backlinks tables also need an active Backlinks API subscription.""",
             iconPath="/static/services/dataforseo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/dataforseo",
             fields=cast(

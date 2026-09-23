@@ -119,8 +119,6 @@
         /* The check indicator is absolutely positioned (start-2) and must anchor
            to the item, not the scrolling popup. */
         position: relative;
-        width: 100%;
-        font-weight: 400;
     }
 
     /*
@@ -179,7 +177,7 @@
         min-height: 2rem;
         padding-block: 0.75;
         padding-inline: 0.75rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--text-ui, 0.8125rem);
         line-height: 1.625;
         background-color: color-mix(in oklab, var(--input) 20%, transparent);
         background-clip: padding-box;

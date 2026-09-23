@@ -11,7 +11,7 @@ import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
 import {
-    SubscriptionAIContextLimit,
+    SubscriptionAIContextSelectionLimit,
     SubscriptionAIPromptMaxLength,
     SubscriptionFreeTierLimit,
 } from '~/queries/schema/schema-general'
@@ -26,7 +26,7 @@ import {
 } from 'products/subscriptions/frontend/generated/api.schemas'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
-export const MAX_CONTEXTS = SubscriptionAIContextLimit.COUNT
+export const MAX_CONTEXTS = SubscriptionAIContextSelectionLimit.COUNT
 
 const AI_DISPLAY_CONFIG_FIELDS = [
     'include_images',
@@ -337,6 +337,11 @@ export function coerceDeliveryConfigForScope(
     const deliveryConfig = dropAiDisplayConfigForNonAi(subscription)
     if (!deliveryConfig?.post_all_insights_in_main_message) {
         return deliveryConfig
+    }
+    // A prompt report always posts its charts in the main message, so the API rejects this option
+    // and the form hides its toggle. Without this the stored flag has no control that can clear it.
+    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt) {
+        return { ...deliveryConfig, post_all_insights_in_main_message: false }
     }
     if (subscription.target_type !== 'slack') {
         return { ...deliveryConfig, post_all_insights_in_main_message: false }

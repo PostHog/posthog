@@ -27,7 +27,7 @@ jest.mock('../logics/runStreamLogic', () => ({
 jest.mock('../logics/taskLogic', () => ({ taskLogic: jest.fn(() => ({ __mock: 'taskLogic' })) }))
 
 jest.mock('./ThreadView', () => ({ ThreadView: () => <div data-attr="thread" /> }))
-jest.mock('./ContextUsageBar', () => ({ ContextUsageBar: () => <div data-attr="context" /> }))
+jest.mock('./ContextUsageChip', () => ({ ContextUsageChip: () => <div data-attr="context" /> }))
 jest.mock('./PermissionInput', () => ({ PermissionInput: () => <div data-attr="permission" /> }))
 jest.mock('./QuestionInput', () => ({ QuestionInput: () => <div data-attr="question" /> }))
 jest.mock('./RunLogSkeleton', () => ({ RunLogSkeleton: () => <div data-attr="run-log-skeleton" /> }))
@@ -306,5 +306,22 @@ describe('RunSurface', () => {
                 expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
             }
         )
+
+        it('keeps an optimistic provisioning thread visible while task metadata loads', () => {
+            setValues({ bootstrapLoading: true, threadItems: [], task: null })
+            render(
+                <RunSurface.Root
+                    taskId="task-1"
+                    runId="run-1"
+                    streamKey="report-implementation-client-stream"
+                    interaction="live"
+                >
+                    <RunSurface.Thread />
+                </RunSurface.Root>
+            )
+
+            expect(screen.getByTestId('thread')).toBeInTheDocument()
+            expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
+        })
     })
 })

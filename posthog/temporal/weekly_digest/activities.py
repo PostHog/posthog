@@ -106,10 +106,12 @@ async def _load_playlist_counts_from_django_cache(r: redis.Redis, filters: Filte
 LOGGER = get_write_only_logger()
 
 
-def _teams_in_range(input: GenerateDigestDataBatchInput) -> QuerySet:
+def _teams_in_range(input: GenerateDigestDataBatchInput, *, with_organization: bool = False) -> QuerySet:
     # An id predicate lets Postgres seek to the first row of the batch on the primary key.
     # LIMIT/OFFSET made it build and discard every row before the batch instead.
-    return query_teams_for_digest().filter(id__gte=input.team_id_range.start, id__lt=input.team_id_range.end)
+    return query_teams_for_digest(with_organization=with_organization).filter(
+        id__gte=input.team_id_range.start, id__lt=input.team_id_range.end
+    )
 
 
 async def generate_digest_data_lookup(
@@ -502,7 +504,7 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
         user_count = 0
 
         async with redis.from_url(_redis_url(input.common)) as r:
-            async for team in _teams_in_range(input):
+            async for team in _teams_in_range(input, with_organization=True):
                 try:
                     async for user in await database_sync_to_async(team.all_users_with_access)():
                         if should_send_notification(user, NotificationSetting.WEEKLY_PROJECT_DIGEST.value, team.id):
@@ -548,7 +550,7 @@ async def generate_product_suggestion_lookup(input: GenerateDigestDataBatchInput
         campaigns_by_org: dict[str, list[dict]] = {}
 
         async with redis.from_url(_redis_url(input.common)) as r:
-            async for team in _teams_in_range(input):
+            async for team in _teams_in_range(input, with_organization=True):
                 try:
                     organization_id = str(team.organization_id)
                     if organization_id not in campaigns_by_org:

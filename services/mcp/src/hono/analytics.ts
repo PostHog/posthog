@@ -43,6 +43,7 @@ function buildBaseProperties(
 
     const properties: Record<string, unknown> = {
         $ai_product: 'mcp',
+        is_impersonated: state.isImpersonated === true,
         // The same property `posthog/event_usage.py` stamps on product events, so an MCP call
         // and the API work it causes land in one breakdown. Distinct from `$mcp_source`, which
         // names the emitting SDK rather than the surface.
@@ -119,6 +120,21 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
     }
 }
 
+type ModelMissingReason = 'missing' | 'unknown' | 'invalid' | 'not_captured' | 'capture_error'
+
+export function getModelMissingReason(modelArgument: unknown): ModelMissingReason {
+    if (modelArgument === undefined) {
+        return 'missing'
+    }
+    if (typeof modelArgument !== 'string' || !modelArgument.trim()) {
+        return 'invalid'
+    }
+    if (modelArgument.trim().toLowerCase() === 'unknown') {
+        return 'unknown'
+    }
+    return 'not_captured'
+}
+
 export interface ToolCallAnalyticsMeta {
     /** The agent's stated intent (the injected `context` arg) → `$mcp_intent`. */
     intent?: string
@@ -128,6 +144,7 @@ export interface ToolCallAnalyticsMeta {
     llmModel?: string
     /** Where the model identifier came from -> `$mcp_llm_model_source`. */
     llmModelSource?: MCPAnalyticsModelSource
+    llmModelMissingReason?: ModelMissingReason
 }
 
 export async function trackToolCall(
@@ -183,12 +200,16 @@ export async function trackToolCall(
             properties: {
                 ...properties,
                 tool_name: toolName,
+                ...(!analyticsMeta?.llmModel && analyticsMeta?.llmModelMissingReason
+                    ? { $mcp_llm_model_missing_reason: analyticsMeta.llmModelMissingReason }
+                    : {}),
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
                 ...(toolDescription ? { $mcp_tool_description: toolDescription } : {}),
                 // Which vendor ran the tool, so "who do people actually call" is a
                 // breakdown rather than a string split over `tool_name` in HogQL.
                 ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
                 ...extraProperties,
+                is_impersonated: state.isImpersonated === true,
             },
         })
     } catch {

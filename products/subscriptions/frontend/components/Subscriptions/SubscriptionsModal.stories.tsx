@@ -15,8 +15,9 @@ import { DashboardType, InsightShortId, Realm, SubscriptionType } from '~/types'
 import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
 
 type StoryArgs = SubscriptionsModalProps & {
-    formScenario?: 'default' | 'ai-summary-limit' | 'free-tier-limit'
+    formScenario?: 'default' | 'ai-summary-limit' | 'free-tier-limit' | 'long-ai-prompt'
     narrow?: boolean
+    openAsModal?: boolean
 }
 
 const DASHBOARD = {
@@ -201,6 +202,19 @@ const AI_REPORT_MAX_CONTEXT = {
 
 const AI_REPORT_CONTEXT_STORIES = [AI_REPORT_NO_CONTEXT, AI_REPORT_MIXED_CONTEXT, AI_REPORT_MAX_CONTEXT]
 
+const LONG_AI_PROMPT_SUBSCRIPTION = createMockSubscription({
+    id: 21,
+    resource_type: 'ai_prompt',
+    title: 'Weekly product health report',
+    prompt: Array.from(
+        { length: 18 },
+        () => 'Compare activation, retention, and revenue with the previous week. Explain each important change.'
+    ).join('\n\n'),
+    target_type: 'email',
+    target_value: 'reports@example.com',
+    created_by: mockBasicUser,
+})
+
 const AI_PROMPT_PARAMETERS = {
     featureFlags: {
         [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
@@ -219,17 +233,17 @@ const meta: Meta<StoryArgs> = {
     argTypes: {
         formScenario: {
             control: 'select',
-            options: ['default', 'ai-summary-limit', 'free-tier-limit'],
+            options: ['default', 'ai-summary-limit', 'free-tier-limit', 'long-ai-prompt'],
         },
     },
     render: (args) => {
-        const { formScenario = 'default', narrow = false, ...props } = args
+        const { formScenario = 'default', narrow = false, openAsModal = false, ...props } = args
         const aiSummaryAtLimit = formScenario === 'ai-summary-limit'
         const freeTierSubscriptionCount = formScenario === 'free-tier-limit' ? 5 : undefined
         const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
         // Dashboard-context stories must not also pass an insight, or the modal renders the insight flow.
         const insightShortId = props.dashboard ? undefined : insightShortIdRef.current
-        const [modalOpen, setModalOpen] = useState(false)
+        const [modalOpen, setModalOpen] = useState(openAsModal)
         const contextualSubscriptions: SubscriptionType[] = props.dashboard
             ? DASHBOARD_SUBSCRIPTIONS
             : INSIGHT_SUBSCRIPTIONS
@@ -237,6 +251,19 @@ const meta: Meta<StoryArgs> = {
         const selectedSubscription =
             AI_REPORT_CONTEXT_STORIES.find((subscription) => subscription.id === props.subscriptionId) ??
             createMockSubscription()
+
+        const listSubscriptions = ({ request }: { request: Request }): Record<string, any> => {
+            const searchParams = new URL(request.url).searchParams
+            let results = contextualSubscriptions
+
+            if (searchParams.get('resource_type') === 'ai_prompt') {
+                results = AI_PROMPT_SUBSCRIPTIONS
+            } else if (searchParams.has('dashboard_tiles')) {
+                results = dashboardInsightSubscriptions
+            }
+
+            return { count: results.length, results }
+        }
 
         useStorybookMocks({
             get: {
@@ -251,22 +278,17 @@ const meta: Meta<StoryArgs> = {
                     ...MOCK_DEFAULT_ORGANIZATION,
                     is_ai_data_processing_approved: true,
                 },
-                '/api/environments/:id/subscriptions': ({ request }) => {
-                    const searchParams = new URL(request.url).searchParams
-                    let results = contextualSubscriptions
-
-                    if (searchParams.get('resource_type') === 'ai_prompt') {
-                        results = AI_PROMPT_SUBSCRIPTIONS
-                    } else if (searchParams.has('dashboard_tiles')) {
-                        results = dashboardInsightSubscriptions
-                    }
-
-                    return { count: results.length, results }
-                },
-                '/api/projects/:id/subscriptions/': {
-                    count: freeTierSubscriptionCount ?? 0,
-                    results: [],
-                },
+                '/api/environments/:id/subscriptions': listSubscriptions,
+                '/api/environments/:id/subscriptions/:subId':
+                    formScenario === 'long-ai-prompt' ? LONG_AI_PROMPT_SUBSCRIPTION : selectedSubscription,
+                '/api/projects/:id/subscriptions/:subId/deliveries': { results: [] },
+                // The modal's list and subscriptionCountLogic both read this path. Only the count
+                // call passes limit=1, and it drives the free-tier gate, so it answers with the
+                // scenario's count while every other call gets the contextual list.
+                '/api/projects/:id/subscriptions/': (info) =>
+                    new URL(info.request.url).searchParams.get('limit') === '1'
+                        ? { count: freeTierSubscriptionCount ?? 0, results: [] }
+                        : listSubscriptions(info),
                 '/api/projects/:id/subscriptions/summary_quota': aiSummaryAtLimit
                     ? { active_count: 10, limit: 10, at_limit: true }
                     : { active_count: 0, limit: 10, at_limit: false },
@@ -313,16 +335,18 @@ export default meta
 type Story = StoryObj<StoryArgs>
 
 export const SubscriptionsNew: Story = {
-    args: { isCreating: true, formScenario: 'default' },
+    args: { formScenario: 'default' },
 }
 
-export const SubscriptionWizardNew: Story = {
+export const LongAiPrompt: Story = {
     parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.SUBSCRIPTION_CREATION_WIZARD]: 'test',
+        ...AI_PROMPT_PARAMETERS,
+        pageUrl: '/subscriptions/21/edit',
+        testOptions: {
+            viewport: { width: 1032, height: 900 },
         },
     },
-    args: { isCreating: true, formScenario: 'default' },
+    args: { subscriptionId: 21, formScenario: 'long-ai-prompt', openAsModal: true },
 }
 
 // Tabbed overview, dashboard context: This dashboard / Insights / AI prompt reports tabs.

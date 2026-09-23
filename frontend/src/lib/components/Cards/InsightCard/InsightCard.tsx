@@ -14,6 +14,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import {
     InsightErrorState,
@@ -40,7 +41,7 @@ import {
     InsightColor,
     InsightLogicProps,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
@@ -63,7 +64,7 @@ export function shouldRenderInsightCardViz({
     placement: DashboardPlacement | 'SavedInsightGrid'
     inView: boolean
     isPageVisible: boolean
-    query: QueryBasedInsightModel['query']
+    query: InsightModel['query']
 }): boolean {
     if (isStorybook || placement === DashboardPlacement.Export) {
         return true
@@ -76,7 +77,7 @@ export function shouldRenderInsightCardViz({
     return isPageVisible || !queryVizDefinitelyRendersToCanvas(query)
 }
 
-const LazyEditAlertModal = React.lazy(() =>
+const LazyEditAlertModal = lazyWithRetry(() =>
     import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
 )
 
@@ -154,9 +155,10 @@ type AlertModalState = {
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
-    insight: QueryBasedInsightModel
+    insight: InsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
+    canEditDashboard?: boolean
     /** Whether the insight has been called to load. */
     loadingQueued?: boolean
     /** Whether the insight is loading. */
@@ -173,7 +175,7 @@ export interface InsightCardProps extends Resizeable {
     timedOut?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
-    refreshAfterDisplayOptionsChange?: (insight: QueryBasedInsightModel) => void
+    refreshAfterDisplayOptionsChange?: (insight: InsightModel) => void
     /** While this tile is being resized: throttle canvas chart redraws instead of repainting on every frame. */
     isResizing?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
@@ -209,7 +211,7 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
-    tile?: DashboardTile<QueryBasedInsightModel>
+    tile?: DashboardTile
     /** survey opportunity for this insight */
     surveyOpportunity?: boolean
     /** Show a direct action for creating an anomaly detection alert for this saved insight. */
@@ -227,6 +229,7 @@ function InsightCardInternal(
         tile,
         insight,
         dashboardId,
+        canEditDashboard,
         ribbonColor,
         loadingQueued,
         loading,
@@ -297,7 +300,7 @@ function InsightCardInternal(
     const canPersistDisplayOptions = !!dashboardId && canEditInsight
     const refreshAfterDisplayOptionsChangeRef = useRef(refreshAfterDisplayOptionsChange)
     refreshAfterDisplayOptionsChangeRef.current = refreshAfterDisplayOptionsChange
-    const handleRefreshAfterDisplayOptionsChange = useCallback((updatedInsight: QueryBasedInsightModel): void => {
+    const handleRefreshAfterDisplayOptionsChange = useCallback((updatedInsight: InsightModel): void => {
         refreshAfterDisplayOptionsChangeRef.current?.(updatedInsight)
     }, [])
 
@@ -461,6 +464,7 @@ function InsightCardInternal(
                         insight={insight}
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
+                        canEditDashboard={canEditDashboard}
                         persistDisplayOptions={canPersistDisplayOptions ? persistDisplayOptions : undefined}
                         refreshAfterDisplayOptionsChange={handleRefreshAfterDisplayOptionsChange}
                         updateColor={updateColor}

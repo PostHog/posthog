@@ -2,7 +2,6 @@ import uuid
 import asyncio
 import datetime as dt
 import dataclasses
-from collections.abc import Collection
 from datetime import datetime
 
 from django.utils import timezone as tz
@@ -19,6 +18,10 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.temporal.subscriptions.ai_subscription.context_tools import (
+    creator_can_access_report_context,
+    parse_context_refs,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     QueryAccessRevokedError,
     build_ai_subscription_report,
@@ -27,9 +30,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
-)
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
-    creator_can_access_report_context,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
@@ -43,6 +43,7 @@ from products.exports.backend.temporal.subscriptions.delivery_webhook import del
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_HAS_USABLE_CONTEXT_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -86,34 +87,12 @@ async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
     return await _read()
 
 
-@frozen
-class _ParsedContextRefs:
-    dashboard_ids: list[int]
-    insight_ids: list[int]
-
-
-def _parse_context_refs(context_refs: Collection[str]) -> _ParsedContextRefs | None:
-    dashboard_ids: list[int] = []
-    insight_ids: list[int] = []
-    targets = {"dashboard": dashboard_ids, "insight": insight_ids}
-    for context_ref in context_refs:
-        kind, separator, raw_id = context_ref.partition(":")
-        try:
-            context_id = int(raw_id)
-        except ValueError:
-            return None
-        if separator != ":" or kind not in targets or context_id < 1:
-            return None
-        targets[kind].append(context_id)
-    return _ParsedContextRefs(dashboard_ids=dashboard_ids, insight_ids=insight_ids)
-
-
 def _creator_can_access_delivery_context(subscription: Subscription, delivery_id: uuid.UUID) -> bool:
     try:
         context_refs = SubscriptionDelivery.objects.values_list("context_refs", flat=True).get(pk=delivery_id)
     except SubscriptionDelivery.DoesNotExist:
         return False
-    parsed_refs = _parse_context_refs(context_refs)
+    parsed_refs = parse_context_refs(context_refs)
     if parsed_refs is None:
         return False
     return creator_can_access_report_context(
@@ -126,6 +105,10 @@ def _creator_can_access_delivery_context(subscription: Subscription, delivery_id
 def _snapshot_report(snapshot: dict | None) -> str | None:
     report = snapshot.get(AI_REPORT_SNAPSHOT_KEY) if snapshot else None
     return report if isinstance(report, str) and report else None
+
+
+def _snapshot_has_usable_context(snapshot: dict | None) -> bool:
+    return snapshot is not None and snapshot.get(AI_REPORT_HAS_USABLE_CONTEXT_KEY) is True
 
 
 @frozen
@@ -210,6 +193,7 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
             AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
             AI_REPORT_CONTEXT_KEY: strip_null_bytes(dataclasses.asdict(result.context)),
+            AI_REPORT_HAS_USABLE_CONTEXT_KEY: result.has_usable_context,
             AI_REPORT_QUERY_PLAN_STATUS_KEY: result.query_plan_status.value,
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
@@ -321,6 +305,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             aborted=False,
             failed_step_count=counts.failed_step_count,
             total_step_count=counts.total_step_count,
+            has_usable_context=_snapshot_has_usable_context(snapshot),
             query_errors=counts.query_errors,
             target_type=subscription.target_type,
         )
@@ -410,6 +395,17 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         return GenerateAIReportResult(
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
         )
+    except TimeoutError as exc:
+        LOGGER.warning(
+            "generate_ai_subscription_report.timed_out",
+            subscription_id=subscription.id,
+            timeout_seconds=AI_REPORT_GENERATION_TIMEOUT_SECONDS,
+        )
+        raise ApplicationError(
+            f"AI report generation timed out for subscription {subscription.id}",
+            type="AIReportGenerationTimeout",
+            non_retryable=False,
+        ) from exc
 
     await _persist_ai_report(inputs.delivery_id, report_result, report_result.prompt)
     counts = _report_diagnostic_counts(report_result)
@@ -417,6 +413,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         aborted=False,
         failed_step_count=counts.failed_step_count,
         total_step_count=counts.total_step_count,
+        has_usable_context=report_result.has_usable_context,
         query_errors=counts.query_errors,
         target_type=subscription.target_type,
     )

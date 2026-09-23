@@ -17,26 +17,21 @@ from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
-from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.api import get_delivery_image_url
+from products.exports.backend.facade.auth import creator_can_query
 from products.exports.backend.models.subscription import (
     AIQueryPlanStatus,
     Subscription,
     SubscriptionDelivery,
     get_unsubscribe_token,
 )
-from products.exports.backend.models.subscription_context import SubscriptionContext
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
-    MAX_REPORT_CONTEXTS,
-    ReportContextSelection,
-    resolve_report_context,
-)
+from products.exports.backend.models.subscription_context import ReportContextSelection, SubscriptionContext
+from products.exports.backend.temporal.subscriptions.ai_subscription.context_tools import ContextToolRuntime
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     generate_ai_report,
@@ -47,6 +42,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     compute_report_window,
 )
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
+from products.slack_app.backend.facade.api import slack_followup_invite
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     UTM_TAGS_BASE,
@@ -208,23 +204,7 @@ def _resolve_subscription_context(subscription: Subscription) -> SubscriptionRep
             .select_related("team", "created_by")
             .get(id=subscription.id, team_id=subscription.team_id)
         )
-        context_rows = list(
-            SubscriptionContext.objects.for_team(current.team_id)
-            .filter(subscription_id=current.id)
-            .order_by("created_at", "id")
-            .values_list("dashboard_id", "insight_id")[: MAX_REPORT_CONTEXTS + 1]
-        )
-        selection = ReportContextSelection(
-            dashboard_ids=tuple(
-                sorted(
-                    dashboard_id for dashboard_id, _ in context_rows[:MAX_REPORT_CONTEXTS] if dashboard_id is not None
-                )
-            ),
-            insight_ids=tuple(
-                sorted(insight_id for _, insight_id in context_rows[:MAX_REPORT_CONTEXTS] if insight_id is not None)
-            ),
-            over_limit=len(context_rows) > MAX_REPORT_CONTEXTS,
-        )
+        selection = SubscriptionContext.report_selection(team_id=current.team_id, subscription_id=current.id)
         last_scheduled_cutoff = (
             _last_scheduled_report_cutoff(current)
             if current.ai_window_mode == Subscription.AIWindowMode.SINCE_LAST_SENT
@@ -246,12 +226,7 @@ def _resolve_subscription_context(subscription: Subscription) -> SubscriptionRep
             window=window,
             ai_query_plan=current.ai_query_plan,
             context_selection=selection,
-            creator_can_query=(
-                current.created_by is not None
-                and UserAccessControl(user=current.created_by, team=current.team).check_access_level_for_resource(
-                    "query", "viewer"
-                )
-            ),
+            creator_can_query=creator_can_query(user=current.created_by, team=current.team),
         )
 
 
@@ -283,9 +258,26 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     if context.user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
     if not context.creator_can_query:
-        raise QueryAccessRevokedError("AI subscription creator no longer has query access; cannot deliver.")
+        raise QueryAccessRevokedError(
+            "AI subscription creator is unavailable or no longer has required project or query access; cannot deliver."
+        )
 
-    report_context = await resolve_report_context(subscription, context.context_selection)
+    context_tools = ContextToolRuntime(
+        subscription_id=subscription.id,
+        team=context.team,
+        user=context.user,
+        selection=context.context_selection,
+    )
+    if context_tools.has_selection:
+        await context_tools.ensure_loaded()
+
+    creator_still_can_query = await database_sync_to_async(creator_can_query, thread_sensitive=False)(
+        user=context.user, team=context.team
+    )
+    if not creator_still_can_query:
+        raise QueryAccessRevokedError(
+            "AI subscription creator is unavailable or no longer has required project or query access; cannot deliver."
+        )
 
     include_images = subscription.includes_delivery_part("include_images")
     result = await generate_ai_report(
@@ -294,7 +286,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         prompt=context.prompt,
         window=context.window,
         ai_query_plan=context.ai_query_plan,
-        report_context=report_context,
+        context_tools=context_tools,
         trace_correlation_id=subscription.id,
         include_charts=include_images,
         include_manage_link=subscription.includes_delivery_part("include_manage_link"),
@@ -503,7 +495,7 @@ def _build_ai_slack_message(
         )
     # AI consent is enforced before report generation, so this renderer only applies the delivery option.
     if subscription.includes_delivery_part("include_posthog_hint"):
-        if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=True):
+        if explore_hint := slack_followup_invite(integration, utm_tags=utm_tags, ai_enabled=True):
             footer_blocks.append(explore_hint)
     if footer_blocks:
         blocks.append({"type": "divider"})

@@ -26,7 +26,7 @@ from posthog.hogql.errors import QueryError
 
 from posthog.email import EmailDeliveryError
 from posthog.errors import CHQueryErrorS3Error
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
@@ -2591,6 +2591,22 @@ async def test_generate_ai_report_query_access_revoked_uses_distinct_disable_rea
         recipient.error and recipient.error.get("type") == AI_QUERY_ACCESS_REVOKED_DISABLE_REASON.key
         for recipient in result.recipient_results
     )
+
+
+async def test_generate_ai_report_timeout_raises_named_retryable_error(team: Team, user: User) -> None:
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub)
+
+    with patch(_GENERATE_REPORT, side_effect=TimeoutError):
+        with pytest.raises(ApplicationError) as exc_info:
+            await ActivityEnvironment().run(
+                generate_ai_subscription_report,
+                GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id),
+            )
+
+    assert exc_info.value.type == "AIReportGenerationTimeout"
+    assert exc_info.value.non_retryable is False
 
 
 async def test_generate_ai_report_persists_report_for_delivery(team, user):

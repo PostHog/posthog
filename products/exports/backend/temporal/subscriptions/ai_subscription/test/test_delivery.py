@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -11,15 +12,15 @@ from django.template.loader import render_to_string
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
-
 from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription_context import ReportContextSelection
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _deliver_ai_subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
     TEAMS_REPORT_BLOCK_COUNT,
     TEAMS_TEXT_BLOCK_LIMIT,
+    QueryAccessRevokedError,
     SubscriptionReportContext,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
@@ -32,10 +33,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     render_ai_email_html,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
-)
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
-    ReportContextEvidence,
-    ReportContextSelection,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
@@ -50,6 +47,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionResult,
     SubscriptionTriggerType,
 )
+from products.slack_app.backend.facade.testing import REQUIRED_SLACK_SCOPES
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
 from ee.tasks.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET
@@ -885,6 +883,11 @@ class TestFreezePlanPersistence:
     These guard the freeze contract without touching the DB — the conditional persist write itself is
     exercised by the integration/activity suites."""
 
+    @pytest.fixture(autouse=True)
+    def _allow_query_access_at_generation(self) -> Iterator[None]:
+        with patch(f"{_DELIVERY}.creator_can_query", return_value=True):
+            yield
+
     def _subscription(self, ai_query_plan: dict | None) -> Subscription:
         return Subscription(
             id=42,
@@ -899,7 +902,7 @@ class TestFreezePlanPersistence:
             start_date=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-    def _context(self, sub: MagicMock, *, creator_can_query: bool = True) -> SubscriptionReportContext:
+    def _context(self, sub: Subscription, *, creator_can_query: bool = True) -> SubscriptionReportContext:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
         return SubscriptionReportContext(
@@ -913,8 +916,11 @@ class TestFreezePlanPersistence:
         )
 
     @staticmethod
-    def _empty_evidence() -> ReportContextEvidence:
-        return ReportContextEvidence(dashboards=(), insights=())
+    def _stub_context_tools() -> MagicMock:
+        # build_ai_subscription_report only reads `has_selection` off the runtime it constructs
+        # before deciding whether to call `ensure_loaded()`; generation itself is mocked in these
+        # tests, so a bare selection-less stub is all the freeze-persistence contract needs.
+        return MagicMock(has_selection=False)
 
     @parameterized.expand(
         [
@@ -933,7 +939,7 @@ class TestFreezePlanPersistence:
         }
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
-            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=self._empty_evidence())),
+            patch(f"{_DELIVERY}.ContextToolRuntime", return_value=self._stub_context_tools()),
             patch(
                 f"{_DELIVERY}.generate_ai_report",
                 new=AsyncMock(
@@ -973,7 +979,7 @@ class TestFreezePlanPersistence:
         )
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
-            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=self._empty_evidence())),
+            patch(f"{_DELIVERY}.ContextToolRuntime", return_value=self._stub_context_tools()),
             patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(return_value=result)),
             patch(f"{_DELIVERY}._persist_ai_query_plan", side_effect=Exception("db blip")),
             patch(f"{_DELIVERY}.capture_exception") as mock_capture,
@@ -1008,7 +1014,7 @@ class TestFreezePlanPersistence:
         sub = self._subscription(ai_query_plan=frozen)
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)) as mock_ctx,
-            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=self._empty_evidence())),
+            patch(f"{_DELIVERY}.ContextToolRuntime", return_value=self._stub_context_tools()),
             patch(
                 f"{_DELIVERY}.generate_ai_report",
                 new=AsyncMock(
@@ -1033,6 +1039,34 @@ class TestFreezePlanPersistence:
         mock_ctx.assert_called_once()
         assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
 
+    async def test_ensure_loaded_awaited_before_generation_when_context_is_selected(self) -> None:
+        # A selected context must be loaded before generation runs, or a load-time-unavailable ref
+        # (deleted insight, revoked access) would never surface in the delivered report's statuses.
+        sub = self._subscription(ai_query_plan=None)
+        call_order: list[str] = []
+
+        async def _ensure_loaded() -> None:
+            call_order.append("ensure_loaded")
+
+        async def _generate(**_kwargs: object) -> AiReportResult:
+            call_order.append("generate_ai_report")
+            return AiReportResult(
+                markdown="# R", diagnostics=(), window_end_utc="2026-06-29T16:00:00+00:00", plan_to_persist=None
+            )
+
+        runtime_stub = MagicMock(has_selection=True)
+        runtime_stub.ensure_loaded = AsyncMock(side_effect=_ensure_loaded)
+
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.ContextToolRuntime", return_value=runtime_stub),
+            patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(side_effect=_generate)),
+        ):
+            await build_ai_subscription_report(sub)
+
+        runtime_stub.ensure_loaded.assert_awaited_once()
+        assert call_order == ["ensure_loaded", "generate_ai_report"]
+
     async def test_query_access_is_rejected_before_context_or_planner_work(self) -> None:
         sub = self._subscription(ai_query_plan=None)
         with (
@@ -1040,13 +1074,36 @@ class TestFreezePlanPersistence:
                 f"{_DELIVERY}._resolve_subscription_context",
                 return_value=self._context(sub, creator_can_query=False),
             ),
-            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock()) as resolve_context,
+            patch(f"{_DELIVERY}.ContextToolRuntime") as mock_runtime_cls,
             patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock()) as generate,
             pytest.raises(PromptRejectedError, match="query access"),
         ):
             await build_ai_subscription_report(sub)
 
-        resolve_context.assert_not_awaited()
+        mock_runtime_cls.assert_not_called()
+        generate.assert_not_awaited()
+
+    async def test_query_access_revoked_after_context_resolution_blocks_planner_work(self) -> None:
+        sub = self._subscription(ai_query_plan=None)
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.ContextToolRuntime", return_value=self._stub_context_tools()),
+            patch(f"{_DELIVERY}.creator_can_query", return_value=False),
+            patch(
+                f"{_DELIVERY}.generate_ai_report",
+                new=AsyncMock(
+                    return_value=AiReportResult(
+                        markdown="# R",
+                        diagnostics=(),
+                        window_end_utc="2026-06-29T16:00:00+00:00",
+                        plan_to_persist=None,
+                    )
+                ),
+            ) as generate,
+            pytest.raises(QueryAccessRevokedError, match="query access"),
+        ):
+            await build_ai_subscription_report(sub)
+
         generate.assert_not_awaited()
 
     @parameterized.expand(

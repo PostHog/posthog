@@ -3,9 +3,11 @@ from typing import Optional, cast
 import requests
 from google.auth.exceptions import RefreshError
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
@@ -13,10 +15,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
-from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     _is_quota_error,
     google_search_console_session,
     google_search_console_source,
+    is_search_console_ui_url,
     list_sites,
     normalize_site_url,
     suggest_registered_site,
@@ -73,6 +72,13 @@ _PROPERTY_LIST_ACCESS_ERROR = (
 )
 _PROPERTY_LIST_CREDENTIALS_ERROR = (
     "Google rejected the credentials for this connection. Reconnect your Google account, then pick a property."
+)
+# Search Console's own address is what sits in the browser bar while people hunt for the value to
+# paste, so it gets pasted. It is no account's property, and the "not visible to the connected
+# account" wording sends them off to check permissions instead of the field they filled in.
+_SEARCH_CONSOLE_UI_ERROR = (
+    "That's the address of the Search Console dashboard, not one of your properties. Enter the "
+    "property as 'https://example.com/' or 'sc-domain:example.com'."
 )
 
 
@@ -258,6 +264,10 @@ class GoogleSearchConsoleSource(
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        site_url = normalize_site_url(config.site_url)
+        if is_search_console_ui_url(site_url):
+            return False, _SEARCH_CONSOLE_UI_ERROR
+
         try:
             session = google_search_console_session(config.google_search_console_integration_id, team_id)
         except Integration.DoesNotExist:
@@ -298,7 +308,11 @@ class GoogleSearchConsoleSource(
             return False, _LIST_SITES_ERROR
 
         normalized = {url: site.get("permissionLevel") for site in sites if (url := site.get("siteUrl")) is not None}
-        site_url = normalize_site_url(config.site_url)
+        if not normalized:
+            # The account owns no property at all, so no value can ever validate. The "not visible"
+            # message below sends the user back to re-checking the URL format they got right, which
+            # is the loop we keep seeing. Same failure the 403 listing path names, so same wording.
+            return False, _PROPERTY_LIST_ACCESS_ERROR
         if site_url not in normalized:
             suggestion = suggest_registered_site(site_url, normalized.keys())
             if suggestion is not None:
@@ -325,7 +339,7 @@ class GoogleSearchConsoleSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GOOGLE_SEARCH_CONSOLE,
+            name=ExternalDataSourceType.GOOGLESEARCHCONSOLE,
             category=DataWarehouseSourceCategory.ANALYTICS,
             keywords=["gsc", "seo", "search analytics", "organic search"],
             label="Google Search Console",

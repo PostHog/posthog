@@ -63,7 +63,7 @@ import { SubscriptionCreationGate, SubscriptionFormSkeleton } from './views/Edit
 interface SubscriptionWizardProps {
     insightShortId?: InsightShortId
     insightName?: string
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     onCancel: () => void
 }
 
@@ -116,6 +116,7 @@ export function SubscriptionWizard({
         subscriptionInitialized,
         isSubscriptionSubmitting,
         subscriptionChanged,
+        subscriptionValidationErrors,
     } = useValues(subscriptionFormLogic)
     const { generatePreview, resetSubscription } = useActions(subscriptionFormLogic)
     const { preflight } = useValues(preflightLogic)
@@ -155,9 +156,11 @@ export function SubscriptionWizard({
         contentDisabledReason = 'Select at least one insight'
     }
     const emailAvailable = subscription.target_type !== 'email' || Boolean(preflight?.email_service_available)
+    const targetValueValidationError = subscriptionValidationErrors.target_value
     const destinationReady = Boolean(
         emailAvailable &&
         subscription.target_value &&
+        !targetValueValidationError &&
         (subscription.target_type !== 'slack' || subscription.integration_id)
     )
     const requiresDeliveryDays = shouldShowDayPicker(subscription.frequency, subscription.interval)
@@ -169,9 +172,11 @@ export function SubscriptionWizard({
     )
     let destinationDisabledReason: string | undefined
     if (!destinationReady) {
-        destinationDisabledReason = emailAvailable
-            ? 'Choose a destination and recipient'
-            : 'Email delivery is not configured for this PostHog instance'
+        destinationDisabledReason = !emailAvailable
+            ? 'Email delivery is not configured for this PostHog instance'
+            : typeof targetValueValidationError === 'string'
+              ? targetValueValidationError
+              : 'Choose a destination and recipient'
     }
     const currentStepIndex = steps.findIndex((step) => step.key === currentStep)
     const goToStep = (step: SubscriptionWizardStep): void => {
@@ -432,6 +437,39 @@ function SubscriptionDeliveryStep({
                     </>
                 )
             ) : null}
+            {subscription.target_type === 'teams' ? (
+                <LemonField
+                    name="target_value"
+                    label="Microsoft Teams webhook URL"
+                    help={
+                        <div>
+                            <p className="m-0 mb-2">
+                                In Teams, open the channel's Workflows menu. Create a workflow that posts when a webhook
+                                request is received.
+                            </p>
+                            <p className="m-0 mb-2">
+                                Paste the URL it gives you here. It usually starts with{' '}
+                                <code>https://...logic.azure.com/...</code>.{' '}
+                                <Link
+                                    to="https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook"
+                                    target="_blank"
+                                    targetBlankIcon
+                                >
+                                    Learn how to create a Teams webhook
+                                </Link>
+                                .
+                            </p>
+                            <p className="m-0">Keep this URL private. Anyone with it can post to the channel.</p>
+                        </div>
+                    }
+                >
+                    <LemonInput
+                        placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
+                        autoComplete="off"
+                        data-attr="subscription-teams-webhook-url"
+                    />
+                </LemonField>
+            ) : null}
         </div>
     )
 }
@@ -445,7 +483,7 @@ function SubscriptionContentStep({
     aiContextsEnabled,
 }: {
     logicProps: SubscriptionLogicProps
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     insightName?: string
     subscription: SubscriptionFormType
     aiSubscriptionBlocked: boolean
@@ -696,7 +734,7 @@ function SubscriptionReviewStep({
 }: {
     logicProps: SubscriptionLogicProps
     subscription: SubscriptionFormType
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     insightShortId?: InsightShortId
     contextsEnabled: boolean
 }): JSX.Element {
@@ -744,7 +782,13 @@ function SubscriptionReviewStep({
                   },
               ]
             : []),
-        { label: 'Sends to', value: subscription.target_value },
+        {
+            label: 'Sends to',
+            value:
+                subscription.target_type === 'teams'
+                    ? 'Microsoft Teams webhook URL (not shown)'
+                    : subscription.target_value,
+        },
         { label: 'Runs', value: formatSubscriptionSchedule(subscription) },
         ...(dashboard
             ? [

@@ -1,43 +1,44 @@
 """Harmonic egress telemetry.
 
-Every Harmonic call funnels through these recorders so request volume and Harmonic's own
-rate-limit headers land on one metric set, attributed by the ``source`` label — the same generic
-:class:`EgressObservability` mechanism every other domain (github, logo.dev, Firecrawl, Vapi,
-Google Workspace, Slack) uses. Harmonic's client is aiohttp-based
-(``ee/billing/salesforce_enrichment/harmonic_client.py``), but ``record_response`` takes status
-code, headers and request method/url as plain primitives, so it's transport-agnostic — Harmonic's
-``HarmonicClient._record_response`` unpacks an ``aiohttp.ClientResponse`` itself and calls
-``record_harmonic_api_response(response.status, response.headers, ...)``.
-
-Harmonic bills one account-wide rate limit rather than a per-installation one, so ``_SCOPE`` (the
-metric scope label) and ``_RATE_LIMIT_RESOURCE`` (the rate-limit resource) are two distinct
-constants that happen to both be singletons for this domain today.
+Every Harmonic call records through ``harmonic_egress``, attributed by the ``source`` label.
 
 Harmonic's API reference documents ``X-Ratelimit-Limit-Second`` and ``X-Ratelimit-Remaining-Second``
-on every response. The parser below reads those plus the GitHub-style ``X-RateLimit-*`` names, and
-returns None for anything absent or unparseable rather than raising: telemetry must never break the
-request it is recording.
+on every response, so the parser reads only those. It documents no reset header, so this domain
+declares no reset gauge. Production has recorded no value on either gauge yet; see the domain README.
 """
 
 from collections.abc import Mapping
 
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.egress.limiter.policies import Priority
 from posthog.egress.observability.observability import (
     EgressMetrics,
     EgressObservability,
     RateLimitSnapshot,
-    register_egress_observability,
+    float_header,
 )
-
-HARMONIC_DOMAIN = "harmonic"
-
-# Harmonic bills one account-wide limit, not a per-installation one, so every call shares this scope.
-_SCOPE = "default"
 
 # Harmonic rate-limits the whole account rather than per endpoint, so every observed header
 # describes the same one resource.
 _RATE_LIMIT_RESOURCE = "account"
+_METRIC_SOURCES = frozenset(
+    {"harmonic_client", "salesforce_enrichment_bulk", "salesforce_enrichment_debug", "growth_enrichment_provider"}
+)
+_METRIC_ENDPOINTS = frozenset({"/graphql", "/companies/{id}", "/enrichment_status"})
+
+_request_duration = Histogram(
+    "harmonic_api_request_duration_seconds",
+    "Time spent waiting for a Harmonic HTTP response, excluding local rate-limit admission waits.",
+    labelnames=["source", "priority", "endpoint", "outcome"],
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60),
+)
+_admission_wait = Histogram(
+    "harmonic_api_admission_wait_seconds",
+    "Time a Harmonic caller waits before attempting a rate-limited request.",
+    labelnames=["source", "priority"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+)
 
 _metrics = EgressMetrics(
     request_counter=Counter(
@@ -55,60 +56,31 @@ _metrics = EgressMetrics(
         "Most recently observed Harmonic rate limit.",
         labelnames=["scope", "resource"],
     ),
-    reset_gauge=Gauge(
-        "harmonic_api_rate_limit_reset_timestamp_seconds",
-        "Most recently observed Harmonic rate limit reset timestamp.",
-        labelnames=["scope", "resource"],
-    ),
 )
-
-# Preferred first: the per-second variant matches the window this domain's policy actually gates.
-# Falls back to the GitHub-style name in case Harmonic serves only that one.
-_REMAINING_HEADERS = ("X-Ratelimit-Remaining-Second", "X-RateLimit-Remaining")
-_LIMIT_HEADERS = ("X-Ratelimit-Limit-Second", "X-RateLimit-Limit")
-_RESET_HEADERS = ("X-RateLimit-Reset",)
-
-
-def _first_float_header(headers: Mapping[str, str], names: tuple[str, ...]) -> float | None:
-    for name in names:
-        raw = headers.get(name)
-        if raw is None:
-            continue
-        try:
-            return float(raw)
-        except (TypeError, ValueError):
-            continue
-    return None
 
 
 def _parse_harmonic_rate_limit(headers: Mapping[str, str] | None, _url: str | None) -> RateLimitSnapshot:
-    headers = headers or {}
     return RateLimitSnapshot(
         resource=_RATE_LIMIT_RESOURCE,
-        remaining=_first_float_header(headers, _REMAINING_HEADERS),
-        limit=_first_float_header(headers, _LIMIT_HEADERS),
-        reset_at=_first_float_header(headers, _RESET_HEADERS),
+        remaining=float_header(headers, "X-Ratelimit-Remaining-Second"),
+        limit=float_header(headers, "X-Ratelimit-Limit-Second"),
     )
 
 
-harmonic_egress = EgressObservability(HARMONIC_DOMAIN, _metrics, _parse_harmonic_rate_limit)
-register_egress_observability(harmonic_egress)
+harmonic_egress = EgressObservability(_metrics, _parse_harmonic_rate_limit)
 
 
-def record_harmonic_api_response(
-    status: int,
-    headers: Mapping[str, str] | None,
-    *,
-    source: str,
-    method: str,
-    endpoint: str | None = None,
+def _metric_source(source: str) -> str:
+    return source if source in _METRIC_SOURCES else "other"
+
+
+def record_harmonic_request_duration(
+    seconds: float, *, source: str, priority: Priority, endpoint: str | None, outcome: str
 ) -> None:
-    """Record one Harmonic API response. ``method``/``endpoint`` are the caller's curated labels —
-    Harmonic's few endpoints (``/graphql``, ``/companies/{id}``, ``/enrichment_status``) are cheap
-    to pass explicitly, so there is no URL-derived endpoint normaliser here."""
-    harmonic_egress.record_response(status, headers, source=source, scope=_SCOPE, method=method, endpoint=endpoint)
+    endpoint_label = endpoint if endpoint in _METRIC_ENDPOINTS else "other"
+    outcome_label = "response" if outcome == "response" else "exception"
+    _request_duration.labels(_metric_source(source), priority.value, endpoint_label, outcome_label).observe(seconds)
 
 
-def record_harmonic_api_exception(*, source: str, method: str, endpoint: str | None = None) -> None:
-    """Record a request that raised before a response (timeout, connection error)."""
-    harmonic_egress.record_exception(source=source, scope=_SCOPE, method=method, endpoint=endpoint)
+def record_harmonic_admission_wait(seconds: float, *, source: str, priority: Priority) -> None:
+    _admission_wait.labels(_metric_source(source), priority.value).observe(seconds)

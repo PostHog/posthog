@@ -22,6 +22,7 @@ from products.customer_analytics.backend.logic.account_property_sync import (
     _iter_parquet_row_batches,
     _mark_completed_and_maybe_cleanup,
     _matching_account_ids,
+    _source_values,
     _value_hash,
     run_account_property_segment_sync,
 )
@@ -216,6 +217,27 @@ class _S3ClientContext:
 
     async def __aexit__(self, *args) -> bool:
         return False
+
+
+@pytest.mark.parametrize(
+    "rows, expected",
+    [
+        ([{"external_id": "org-1", "plan": None}], {"org-1": None}),
+        ([{"external_id": "org-1", "plan": 0}], {"org-1": 0}),
+        ([{"external_id": "org-1", "plan": False}], {"org-1": False}),
+        ([{"external_id": "org-1", "plan": ""}], {"org-1": ""}),
+        ([{"external_id": "org-1"}], {}),
+        ([{"plan": None}], {}),
+        ([{"external_id": None, "plan": None}], {}),
+        ([], {}),
+        (
+            [{"external_id": "org-1", "plan": "silver"}, {"external_id": "org-1", "plan": None}],
+            {"org-1": None},
+        ),
+    ],
+)
+def test_source_values_preserve_explicit_nulls_but_skip_missing_columns(rows, expected) -> None:
+    assert _source_values(rows, "external_id", "plan") == expected
 
 
 @pytest.mark.asyncio

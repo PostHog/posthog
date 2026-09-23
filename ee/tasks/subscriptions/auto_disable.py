@@ -66,8 +66,11 @@ AI_PROMPT_INVALID_DISABLE_REASON = DisableReason(
 )
 AI_QUERY_ACCESS_REVOKED_DISABLE_REASON = DisableReason(
     key="ai_query_access_revoked",
-    description="AI subscription creator no longer has query access",
-    user_message="Cannot re-enable AI subscription: restore query access for the original creator, then try again.",
+    description="AI subscription creator is unavailable or no longer has required access",
+    user_message=(
+        "Cannot re-enable AI subscription: restore the original creator's active organization membership, project "
+        "access, and query access, or recreate the subscription with an active creator."
+    ),
 )
 AI_CONSENT_REVOKED_DISABLE_REASON = DisableReason(
     key="ai_consent_revoked",

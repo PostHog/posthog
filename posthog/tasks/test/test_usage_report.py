@@ -1732,28 +1732,6 @@ class TestQueryUsageReportSQL:
     @patch("posthog.tasks.usage_report.events_read_table", return_value="events")
     @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
     @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
-    @patch("posthog.tasks.usage_report.sync_execute", return_value=[])
-    def test_get_teams_with_ai_event_count_excludes_conversations_loaded(
-        self,
-        mock_sync_execute: MagicMock,
-        _mock_use_new_events_schema: MagicMock,
-        _mock_get_property_string_expr: MagicMock,
-        _mock_events_read_table: MagicMock,
-    ) -> None:
-        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
-
-        begin = datetime(2026, 6, 15, tzinfo=tzutc())
-        end = begin + timedelta(days=1)
-
-        get_teams_with_ai_event_count_in_period(begin, end)
-
-        params = mock_sync_execute.call_args.args[1]
-        assert "$conversations_loaded" not in params["ai_events"]
-        assert "$conversations_widget_loaded" not in params["ai_events"]
-
-    @patch("posthog.tasks.usage_report.events_read_table", return_value="events")
-    @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
-    @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
     @patch("posthog.tasks.usage_report.sync_execute")
     def test_get_teams_with_ai_event_count_skips_sponsorship_query_without_verified_relays(
         self,
@@ -2846,6 +2824,34 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 records_completed=100 * (i + 1),  # 100, 200, 300
             )
 
+        # The HogQL model is free while it is in closed beta, so its rows are not counted.
+        hogql_batch_export = BatchExport.objects.create(
+            team_id=3,
+            name="Test HogQL export",
+            destination=batch_export_destination,
+            paused=False,
+            model=BatchExport.Model.HOGQL,
+        )
+        with team_scope(team_id=3, canonical=True):
+            hogql_batch_export_on_demand = BatchExportOnDemand.objects.create(
+                team_id=3,
+                destination=batch_export_on_demand_destination,
+                model=BatchExportOnDemand.Model.HOGQL,
+            )
+
+        for hogql_export_kwargs in (
+            {"batch_export": hogql_batch_export},
+            {"batch_export_on_demand": hogql_batch_export_on_demand},
+        ):
+            BatchExportRun.objects.create(
+                data_interval_end=now(),
+                data_interval_start=now() - timedelta(hours=1),
+                finished_at=now(),
+                status=BatchExportRun.Status.COMPLETED,
+                records_completed=5000,
+                **hogql_export_kwargs,
+            )
+
         period = get_previous_day(at=now() + relativedelta(days=1))
         all_reports = _get_all_org_reports(period=period)
 
@@ -3395,23 +3401,25 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         assert org_1_report["organization_name"] == "Org 1"
 
-        # Test org-level workflow metrics (sum of both teams)
+        # Test org-level workflow metrics (sum of both teams).
+        # Push bills as a destination for now, so it counts toward workflow_billable_invocations
+        # while still reporting separately under workflow_push_sent.
         assert org_1_report["workflow_emails_sent_in_period"] == 25  # 10 + 15
         assert org_1_report["workflow_push_sent_in_period"] == 12  # 5 + 7
         assert org_1_report["workflow_sms_sent_in_period"] == 5  # 3 + 2
-        assert org_1_report["workflow_billable_invocations_in_period"] == 20  # 8 + 12
+        assert org_1_report["workflow_billable_invocations_in_period"] == 32  # fetch 8 + 12, push 5 + 7
 
         # Test team 1 workflow metrics
         assert org_1_report["teams"]["3"]["workflow_emails_sent_in_period"] == 10
         assert org_1_report["teams"]["3"]["workflow_push_sent_in_period"] == 5
         assert org_1_report["teams"]["3"]["workflow_sms_sent_in_period"] == 3
-        assert org_1_report["teams"]["3"]["workflow_billable_invocations_in_period"] == 8
+        assert org_1_report["teams"]["3"]["workflow_billable_invocations_in_period"] == 13  # fetch 8, push 5
 
         # Test team 2 workflow metrics
         assert org_1_report["teams"]["4"]["workflow_emails_sent_in_period"] == 15
         assert org_1_report["teams"]["4"]["workflow_push_sent_in_period"] == 7
         assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
-        assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 12
+        assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 19  # fetch 12, push 7
 
     @parameterized.expand(
         [
@@ -6298,6 +6306,19 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # AI count should include original 10 + 5 new = 15
         self.assertEqual(ai_result[0][1], 15)
 
+        # An `$ai_*` name outside the hard-coded enum is still an AI event on both meters.
+        for i in range(2):
+            _create_event(
+                event="$ai_custom_step",
+                team=self.team,
+                distinct_id=f"custom_ai_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 10),
+            )
+        flush_persons_and_events()
+
+        self.assertEqual(get_teams_with_billable_event_count_in_period(self.begin, self.end)[0][1], baseline_count)
+        self.assertEqual(get_teams_with_ai_event_count_in_period(self.begin, self.end)[0][1], 17)
+
         _create_event(
             event="$conversations_loaded",
             team=self.team,
@@ -6310,7 +6331,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         ai_result_with_conversations = get_teams_with_ai_event_count_in_period(self.begin, self.end)
 
         self.assertEqual(billable_result_with_conversations[0][1], baseline_count)
-        self.assertEqual(ai_result_with_conversations[0][1], 15)
+        self.assertEqual(ai_result_with_conversations[0][1], 17)
 
         # Now add a regular event and verify it DOES increase billable count
         _create_event(

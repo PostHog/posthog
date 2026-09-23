@@ -78,16 +78,24 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.alerts.backend.facade.temporal import create_alerts_product_tick_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
-from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
+from products.business_knowledge.backend.temporal.schedule import (
+    create_business_knowledge_learning_coordinator_schedule,
+    create_business_knowledge_refresh_coordinator_schedule,
+)
 from products.context_layer.backend.temporal.schedule import create_context_layer_dream_schedule
 from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
 from products.customer_analytics.backend.facade.temporal import (
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
+    create_ownership_claims_coordinator_schedule,
 )
-from products.data_quality.backend.facade.temporal import create_cleanup_data_quality_check_runs_schedule
+from products.data_quality.backend.facade.temporal import (
+    create_cleanup_data_quality_check_runs_schedule,
+    create_reconcile_metric_schedules_schedule,
+)
 from products.engineering_analytics.backend.facade.temporal import (
     create_ci_signals_coordinator_schedule,
     create_github_job_logs_coordinator_schedule,
@@ -114,11 +122,13 @@ from products.replay_vision.backend.temporal.estimates import create_replay_visi
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
+from products.replay_vision.backend.temporal.media_backfill import create_replay_vision_media_backfill_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
+from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
@@ -918,12 +928,14 @@ schedules = [
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,
     create_conversations_signals_coordinator_schedule,
+    create_business_knowledge_learning_coordinator_schedule,
     create_business_knowledge_refresh_coordinator_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
+    create_alerts_product_tick_schedule,
     create_logs_alert_check_schedule,
     create_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
@@ -935,6 +947,7 @@ schedules = [
     create_channel_summary_coordinator_schedule,
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
+    create_ownership_claims_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
     create_replay_vision_search_suggestions_schedule,
@@ -944,6 +957,8 @@ schedules = [
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
+    create_reconcile_metric_schedules_schedule,
+    create_sync_access_rules_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in
@@ -960,6 +975,7 @@ if settings.CLOUD_DEPLOYMENT:
     # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this
     # deployment's own Redis index, so per-deployment scoping is inherent.
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
+    schedules.append(create_replay_vision_media_backfill_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)
     if should_register_checkpoint_compaction_schedule():

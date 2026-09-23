@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db.models import Count, OuterRef, QuerySet, Subquery
+from django.db.models import OuterRef, QuerySet, Subquery
 from django.utils.timezone import now
 
 from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
@@ -107,38 +107,6 @@ def recent_viewers_by_insight(
     return viewers_by_insight
 
 
-def recent_unique_viewer_counts_by_insight(
-    *, team_id: int, insight_ids: Collection[int], since: datetime
-) -> dict[int, int]:
-    return dict(
-        InsightViewed.objects.filter(
-            team_id=team_id,
-            insight_id__in=insight_ids,
-            last_viewed_at__gte=since,
-            user_id__isnull=False,
-        )
-        .values("insight_id")
-        .annotate(viewer_count=Count("user_id", distinct=True))
-        .values_list("insight_id", "viewer_count")
-    )
-
-
-def recent_unique_viewer_counts_by_insight_for_project(
-    *, project_id: int, insight_ids: Collection[int], since: datetime
-) -> dict[int, int]:
-    return dict(
-        InsightViewed.objects.filter(
-            team__project_id=project_id,
-            insight_id__in=insight_ids,
-            last_viewed_at__gte=since,
-            user_id__isnull=False,
-        )
-        .values("insight_id")
-        .annotate(viewer_count=Count("user_id", distinct=True))
-        .values_list("insight_id", "viewer_count")
-    )
-
-
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:
     # Keep the variables in an insight up to date based on variable code names that exist
     current_variables = stale_variables
@@ -188,3 +156,23 @@ def get_query_specific_instructions(kind: str) -> str:
         return "Focus on the balance between new, returning, resurrecting, and dormant users. Identify which group is dominating the total count."
 
     return "Focus on the most significant patterns and anomalies in the data."
+
+
+def get_or_create_saved_insight(
+    *,
+    team_id: int,
+    user_id: int,
+    short_id: str,
+    name: str | None,
+    description: str | None,
+    query: dict[str, object] | None,
+) -> tuple[int, bool]:
+    insight, created = Insight.objects_including_soft_deleted.get_or_create(
+        team_id=team_id,
+        short_id=short_id,
+        defaults={"created_by_id": user_id, "name": name, "description": description, "query": query, "saved": True},
+    )
+    if insight.deleted:
+        insight.deleted = False
+        insight.save(update_fields=["deleted"])
+    return insight.id, created
