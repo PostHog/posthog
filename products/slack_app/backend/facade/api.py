@@ -4,21 +4,38 @@ The ONLY module other products are allowed to import. Keep the surface narrow:
 every function here lives behind a tach contract check, so each addition has a
 cost in cross-product coupling.
 
-Today the facade exists for two jobs: letting core's OAuth callback invalidate
-the per-integration auth-state cache when a Slack install is reconnected, and
-answering whether a channel has been approved for PostHog to speak in. Both are
-stable re-exports so the implementations can move around inside slack_app
-without breaking their callers.
+Today the facade exists for three jobs: letting core's OAuth callback invalidate
+the per-integration auth-state cache when a Slack install is reconnected,
+answering whether a channel has been approved for PostHog to speak in, and
+telling a product that posts a report whether the bot can answer a follow-up.
+All are stable re-exports so the implementations can move around inside
+slack_app without breaking their callers.
+
+This module's import graph must not reach ``products.signals``. That product now imports this
+facade, and ``products.slack_app`` imports signals' facade in turn, so a module-level edge from
+here back into signals closes the loop and breaks Django startup. Reach signals from a function
+body instead, the way the handlers under ``backend/`` already do.
 """
 
 from __future__ import annotations
 
-from posthog.helpers.slack_scopes import has_scopes
+from typing import Any
+
 from posthog.models.integration import Integration
 
 from products.slack_app.backend.models import SlackChannel
+from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
+from products.slack_app.backend.services.slack_scopes import has_scopes
 from products.slack_app.backend.services.slack_user_info import invalidate_workspace_bot_user_id
+
+__all__ = [
+    "invalidate_slack_integration_auth_state",
+    "slack_artifact_delivery_state_updates",
+    "slack_channel_is_approved",
+    "slack_followup_invite",
+    "slack_followup_invite_text",
+]
 
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({"canvases:write", "files:write"})
 
@@ -60,3 +77,21 @@ def slack_artifact_delivery_state_updates(integration: Integration) -> dict[str,
     """State that tells a task agent which Slack artifact adapters can deliver."""
     mode = "canvas_file" if has_scopes(integration, _SLACK_CANVAS_FILE_ADAPTER_SCOPES) else "message"
     return {"slack_artifact_delivery": mode, "slack_chart_delivery": True}
+
+
+def slack_followup_invite_text(integration: Integration | None, *, utm_tags: str, ai_enabled: bool) -> str | None:
+    """The mrkdwn line inviting a reader to ask the bot a follow-up about this message.
+
+    Returns ``None`` when there is nothing to invite: no Slack install, or an organization that has
+    not approved AI data processing. A workspace whose bot cannot answer a mention gets the setup
+    link instead, so a caller never has to check the install itself.
+
+    ``utm_tags`` attributes an install that starts from the setup link, so each caller passes its
+    own campaign.
+    """
+    return build_followup_invite_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled)
+
+
+def slack_followup_invite(integration: Integration | None, *, utm_tags: str, ai_enabled: bool) -> dict[str, Any] | None:
+    """``slack_followup_invite_text`` as a Slack context block, for a caller that appends blocks."""
+    return build_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled)

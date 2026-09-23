@@ -240,6 +240,7 @@ class BaseAgentRunner(ABC):
                     region,
                     flush_at=1,
                     before_send=ai_event_truncator,
+                    capture_trace_context=True,
                 )
 
             # Local deployment or hobby
@@ -494,6 +495,8 @@ class BaseAgentRunner(ABC):
                 interrupt_messages: list[Any] = []
                 should_not_update_state = False
                 for task in state.tasks:
+                    if task.result is not None:
+                        continue
                     for interrupt in task.interrupts:
                         if interrupt.value is None:
                             continue  # Skip None interrupts
@@ -586,6 +589,24 @@ class BaseAgentRunner(ABC):
                 if message.id is not None:
                     self._stream_processor.mark_id_as_streamed(message.id)
 
+            resume_value = self._resume_payload
+            if self._resume_payload and self._resume_payload.get("action") in ("approve", "reject"):
+                proposal_id = self._resume_payload.get("proposal_id")
+                approval_interrupt = next(
+                    (
+                        pending
+                        for task in snapshot.tasks
+                        if task.result is None
+                        for pending in task.interrupts
+                        if isinstance(pending.value, ApprovalRequest) and pending.value.proposal_id == proposal_id
+                    ),
+                    None,
+                )
+                if approval_interrupt is None:
+                    raise ValueError("Approval does not match a pending operation")
+                # A scalar resume targets the next interrupt, which may belong to a different approval card.
+                resume_value = {approval_interrupt.interrupt_id: self._resume_payload}
+
             # If there are pending nodes (snapshot.next is non-empty), we need to resume.
             # This happens when:
             # 1. A tool called interrupt() for approval - snapshot.next will have pending nodes
@@ -602,8 +623,8 @@ class BaseAgentRunner(ABC):
                     # If there's a new message alongside the resume (user sent message while approval pending),
                     # include it in the state update so the agent sees it as a proper HumanMessage
                     if self._latest_message:
-                        return Command(resume=self._resume_payload, update={"messages": [self._latest_message]})
-                    return Command(resume=self._resume_payload)
+                        return Command(resume=resume_value, update={"messages": [self._latest_message]})
+                    return Command(resume=resume_value)
                 elif saved_state.graph_status == "interrupted":
                     # NodeInterrupt without approval flow - add the new message and resume
                     if self._latest_message:

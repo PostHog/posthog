@@ -2972,7 +2972,17 @@ class ExperimentService:
                     .first()
                 )
                 if metric_result and metric_result.result:
-                    completed_metadata["significant"] = metric_result.result.get("significant", False)
+                    # Significance lives on each variant. The top-level `significant` is a legacy
+                    # field that stored results leave null. A variant's value is null when
+                    # validation stopped the analysis, so only computed values decide.
+                    variant_results = metric_result.result.get("variant_results") or []
+                    computed = [
+                        variant["significant"]
+                        for variant in variant_results
+                        if isinstance(variant, dict) and isinstance(variant.get("significant"), bool)
+                    ]
+                    if computed:
+                        completed_metadata["significant"] = any(computed)
         except Exception:
             logger.exception(
                 "Failed to look up metric significance",
@@ -4084,7 +4094,10 @@ class ExperimentService:
             if disallowed_fields:
                 raise ValidationError(
                     f"This experiment uses legacy metric formats and can only have its name, description, or end_date updated. "
-                    f"Cannot update: {', '.join(sorted(disallowed_fields))}"
+                    f"Cannot update: {', '.join(sorted(disallowed_fields))}. "
+                    f"To change these, migrate the experiment to the new experiments engine first: "
+                    f"POST /api/projects/{experiment.team_id}/experiments/{experiment.id}/migrate "
+                    f"(the experiment-migrate tool). It keeps this experiment and its results, and returns a new one."
                 )
 
             # Validate end_date if present

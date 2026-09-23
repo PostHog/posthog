@@ -118,6 +118,7 @@ PRODUCTS_APPS = [
     "products.pulse.backend.apps.PulseConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
     "products.data_quality.backend.apps.DataQualityConfig",
+    "products.security.backend.apps.SecurityConfig",
 ]
 
 INSTALLED_APPS = [
@@ -609,11 +610,18 @@ SPECTACULAR_SETTINGS = {
             "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+            # The subset a client may write. Shared by the single-issue and bulk write serializers,
+            # and `status` is too generic a field name for drf-spectacular to name a third set on it.
+            "ErrorTrackingIssueWritableStatusEnum": ["active", "resolved", "suppressed"],
             # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
             # class carries them. The lists are derived from those literals.
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
+            # signals maps a warehouse import's status down to these three. Same values as the
+            # warehouse's own SyncStatus, but that class carries different labels, so the two are
+            # distinct choice sets and this one needs its own name.
+            "SignalSourceSyncStatusEnum": ["running", "completed", "failed"],
             "RunSourceEnum": ["manual", "signal_report", "agent"],
             "TaskBootstrapRunSourceEnum": ["manual", "signal_report"],
             #
@@ -1325,6 +1333,8 @@ try:
     )
 except ValueError:
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
+
+MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS = get_list(get_from_env("MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS", ""))
 
 # AEO citation-tracking POC (products/aeo). The scheduled runner only covers
 # teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.

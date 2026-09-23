@@ -401,6 +401,7 @@ async def test_signal_timestamps_use_recording_duration(
     )
     signal = SignalFinding(
         problem_type="bug",
+        headline="Blank dialog blocks the editor",
         start_time=0,
         end_time=0,
         url="https://example.com/editor",

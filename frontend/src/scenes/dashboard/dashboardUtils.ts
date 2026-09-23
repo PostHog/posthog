@@ -28,13 +28,12 @@ import {
     DashboardWidgetType,
     InsightFilterOverrideContext,
     InsightModel,
-    QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
 
-export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
+export function getInsightQueryError(insight: InsightModel): ApiError | null {
     const queryStatus = insight.query_status
     if (!queryStatus?.error) {
         return null
@@ -50,7 +49,7 @@ export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError 
 
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
-    dashboard: DashboardType<InsightModel> | null | undefined
+    dashboard: DashboardType | null | undefined
 ): DashboardTemplateEditorType | undefined {
     if (!dashboard) {
         return undefined
@@ -113,7 +112,7 @@ export function dashboardToSaveableTemplate(
     }
 }
 
-export function getDashboardTileDisplayName(tile: DashboardTile<QueryBasedInsightModel>): string {
+export function getDashboardTileDisplayName(tile: DashboardTile): string {
     if (tile.insight) {
         return tile.insight.name || tile.insight.derived_name || 'Unnamed insight'
     }
@@ -137,7 +136,7 @@ export function getDashboardTileDisplayName(tile: DashboardTile<QueryBasedInsigh
 
 /** Which widget payload is set on a dashboard tile row. Add a branch per `DashboardWidgetType` when new tile kinds ship. */
 export function getDashboardWidgetType(
-    tile: Pick<DashboardTile<InsightModel | QueryBasedInsightModel>, 'insight' | 'text' | 'button_tile' | 'widget'>
+    tile: Pick<DashboardTile, 'insight' | 'text' | 'button_tile' | 'widget'>
 ): DashboardWidgetType {
     if (tile.insight) {
         return 'insight'
@@ -186,7 +185,7 @@ const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
 // insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
 // the tile's existing data and render as an empty insight instead of an error.
-export function isRefreshRejectionStub(insight: QueryBasedInsightModel): boolean {
+export function isRefreshRejectionStub(insight: InsightModel): boolean {
     return !!insight.query_status?.error && insight.result == null
 }
 
@@ -274,7 +273,7 @@ export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record
  */
 export async function getInsightWithRetry(
     currentTeamId: number | null,
-    insight: QueryBasedInsightModel,
+    insight: InsightModel,
     dashboardId: number,
     queryId: string,
     refresh: 'force_blocking' | 'blocking',
@@ -284,7 +283,7 @@ export async function getInsightWithRetry(
     tileFiltersOverride?: TileFilters,
     maxAttempts: number = 5,
     initialDelay: number = 1200
-): Promise<QueryBasedInsightModel | null> {
+): Promise<InsightModel | null> {
     // Check if user has access to this insight before making API calls
     const canViewInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
@@ -299,7 +298,7 @@ export async function getInsightWithRetry(
 
     while (attempt < maxAttempts) {
         try {
-            const apiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+            const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                 refresh,
                 from_dashboard: dashboardId, // needed to load insight in correct context
                 client_query_id: queryId,
@@ -318,7 +317,7 @@ export async function getInsightWithRetry(
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
                     try {
-                        const asyncApiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+                        const asyncApiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                             refresh: 'force_async',
                             from_dashboard: dashboardId,
                             client_query_id: queryId,
@@ -333,7 +332,7 @@ export async function getInsightWithRetry(
                         if (insightResponse?.query_status?.id) {
                             const finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
                             if (finalStatus.complete && !finalStatus.error) {
-                                const cacheUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+                                const cacheUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                                     refresh: 'force_cache',
                                     from_dashboard: dashboardId,
                                     client_query_id: queryId,

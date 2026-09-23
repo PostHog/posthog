@@ -91,6 +91,8 @@ from products.tasks.backend.facade.temporal import (
     TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
     TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
     TASKS_RUN_TURNS_HISTOGRAM_METRICS,
+    TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS,
+    TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
 )
 
 logger = get_write_only_logger()
@@ -372,6 +374,13 @@ async def create_worker(
             zip(
                 DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+    if task_queue == settings.TASKS_TASK_QUEUE:
+        histogram_bucket_overrides |= dict(
+            zip(
+                TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
 
