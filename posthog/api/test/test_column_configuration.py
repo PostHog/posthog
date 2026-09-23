@@ -1,11 +1,14 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.column_configuration import ColumnConfigurationSerializer
 from posthog.models import ColumnConfiguration, User
+from posthog.uuidt import uuid7
 
 
 class TestColumnConfigurationAPI(APIBaseTest):
@@ -319,6 +322,25 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["context_key"] == "survey:123"
+
+    def test_pages_do_not_repeat_or_drop_views_with_equal_created_at(self):
+        row_ids = sorted(uuid7() for _ in range(5))
+        for index, row_id in enumerate(row_ids):
+            ColumnConfiguration.objects.create(
+                id=row_id, team=self.team, context_key="people-list", name=f"View {index}", columns=["*", "person"]
+            )
+        ColumnConfiguration.objects.filter(pk__in=row_ids).update(created_at=timezone.now())
+
+        paged_ids: list[str] = []
+        for offset in range(0, len(row_ids), 2):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/column_configurations/",
+                {"context_key": "people-list", "limit": "2", "offset": str(offset)},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            paged_ids.extend(result["id"] for result in response.json()["results"])
+
+        assert paged_ids == [str(row_id) for row_id in reversed(row_ids)]
 
     def test_get_empty_filters(self):
         column_config = ColumnConfiguration.objects.create(

@@ -122,6 +122,20 @@ describe('Hog Inputs', () => {
             expect(result.body.value.event).toBe('{event}')
         })
 
+        it('names a missing global in the error and keeps every other VM message out', async () => {
+            const globals = createHogExecutionGlobals({ inputs: {} } as any) as any
+            // {distinct_id}: GET_GLOBAL on a name the globals do not have.
+            const missingGlobal = ['_H', 1, 32, 'distinct_id', 1, 1]
+            await expect(formatHogInput(missingGlobal, globals, 'field')).rejects.toThrow(
+                'Could not execute bytecode for input field: field: Global variable not found: distinct_id'
+            )
+            // dateDiff('bogus', 1, 1): the VM quotes its argument, which can be a secret input.
+            const quotesArgument = ['_H', 1, 32, 'bogus', 33, 1, 33, 1, 2, 'dateDiff', 3]
+            await expect(formatHogInput(quotesArgument, globals, 'field')).rejects.toThrow(
+                /^Could not execute bytecode for input field: field$/
+            )
+        })
+
         it('can handle deep null and undefined values', async () => {
             const globals = {
                 ...createHogExecutionGlobals({
@@ -277,6 +291,21 @@ describe('Hog Inputs', () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
             expect(inputs.oauth).toMatchInlineSnapshot(`null`)
+        })
+
+        it('should not load a posthog connection', async () => {
+            const connectionId = team.id + 2
+            await insertIntegration(hub.postgres, team.id, {
+                id: connectionId,
+                kind: 'posthog',
+                sensitive_config: { access_token: hub.encryptedFields.encrypt('connection-token') },
+            })
+            hogFunction.inputs = { connection: { value: connectionId } }
+            hogFunction.inputs_schema = [{ key: 'connection', type: 'integration', required: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.connection).toBeNull()
         })
 
         it('should add unsubscribe url if email input is present', async () => {

@@ -1,4 +1,7 @@
-import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
+import {
+  activityCanvasId,
+  type TaskActivityItem,
+} from "@posthog/core/canvas/taskActivity";
 import { formatShortDayLabel, getLocalDayKey } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
 
@@ -51,8 +54,11 @@ export function deriveActivityFeedContent({
   // Unreads stay whole: this is also what "Mark all as read" acts on, and an
   // archived task's unread update still counts against the badge.
   const unreadItems = getUnreadActivityItems(taskItems);
+  // A canvas row outlives its generating task: the canvas is still there to
+  // open, and the backend keeps counting the row as unread.
   const shownItems = taskItems.filter(
-    (item) => !archivedTaskIds.has(item.taskId),
+    (item) =>
+      activityCanvasId(item) !== null || !archivedTaskIds.has(item.taskId),
   );
   const visibleReports = unreadsOnly ? [] : reports;
   const visibleTaskItems = mentionsIncluded

@@ -207,12 +207,12 @@ class OrganizationSerializer(
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "has_signed_baa",
-            "default_experiment_stats_method",
             "default_anonymize_ips",
             "default_role_id",
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
+            "uses_most_specific_access_resolution",
         ]
         read_only_fields = [
             "id",
@@ -233,6 +233,7 @@ class OrganizationSerializer(
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "has_signed_baa",
+            "uses_most_specific_access_resolution",
         ]
         extra_kwargs = {
             "slug": {

@@ -6,7 +6,6 @@ import {
   createRuntimeMcpServers,
   type PiRpcClient,
 } from "@posthog/agent/pi/rpc-client";
-import type { TaskContext } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
@@ -15,6 +14,7 @@ import {
   type McpServerConnection,
 } from "@posthog/shared";
 import { buildPosthogScopedPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
+import type { TaskContext } from "@posthog/shared/task-context";
 import { prepareContextWiki } from "@posthog/workspace-server/services/agent/context-wiki";
 import {
   AGENT_AUTH,

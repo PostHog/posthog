@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -26,6 +27,7 @@ import type {
 } from '../generated/api.schemas'
 import { jobCacheKey } from '../lib/jobs'
 import { type CostSummary, type HealthSummary, computeHealthSummary, workflowHealthSummary } from '../lib/runHealth'
+import { withScope } from '../lib/scope'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { RunScopeParams } from './engineeringAnalyticsFiltersLogic'
 
@@ -70,6 +72,7 @@ export interface workflowRunsLogicValues {
     expandedRunKeys: string[]
     healthSummary: HealthSummary
     jobAggregates: WorkflowJobAggregateApi[]
+    jobAggregatesFailed: boolean
     jobAggregatesLoading: boolean
     loadFailed: boolean
     masterConclusion: string | null
@@ -77,11 +80,13 @@ export interface workflowRunsLogicValues {
     repoName: string
     repoOwner: string
     runActivity: WorkflowRunActivityApi
+    runActivityFailed: boolean
     runActivityLoading: boolean
     runJobs: Record<string, WorkflowJobApi[]>
     runJobsLoading: boolean
     runRows: WorkflowRunRow[]
     runnerCosts: WorkflowRunnerCostApi[]
+    runnerCostsFailed: boolean
     runnerCostsLoading: boolean
     runs: WorkflowRunDetailApi[]
     runsLoading: boolean
@@ -223,7 +228,13 @@ export interface workflowRunsLogicMeta {
         queueP50Seconds: (jobAggregates: WorkflowJobAggregateApi[]) => number | null
         runsTruncated: (runRows: WorkflowRunRow[]) => boolean
         costSummary: (runnerCosts: WorkflowRunnerCostApi[]) => CostSummary | null
-        breadcrumbs: (repoOwner: string, repoName: string, workflowName: string) => Breadcrumb[]
+        breadcrumbs: (
+            repoOwner: string,
+            repoName: string,
+            workflowName: string,
+            sourceId: string | null,
+            searchParams: Record<string, any>
+        ) => Breadcrumb[]
     }
 }
 
@@ -369,12 +380,45 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         workflowHealth: {
             loadWorkflowHealthFailure: () => null,
         },
+        runActivity: {
+            loadRunActivityFailure: () => ({ points: [], truncated: false, limit: 0 }),
+        },
+        runnerCosts: {
+            loadRunnerCostsFailure: () => [],
+        },
+        jobAggregates: {
+            loadJobAggregatesFailure: () => [],
+        },
         workflowHealthFailed: [
             false,
             {
                 loadWorkflowHealth: () => false,
                 loadWorkflowHealthSuccess: () => false,
                 loadWorkflowHealthFailure: () => true,
+            },
+        ],
+        runActivityFailed: [
+            false,
+            {
+                loadRunActivity: () => false,
+                loadRunActivitySuccess: () => false,
+                loadRunActivityFailure: () => true,
+            },
+        ],
+        runnerCostsFailed: [
+            false,
+            {
+                loadRunnerCosts: () => false,
+                loadRunnerCostsSuccess: () => false,
+                loadRunnerCostsFailure: () => true,
+            },
+        ],
+        jobAggregatesFailed: [
+            false,
+            {
+                loadJobAggregates: () => false,
+                loadJobAggregatesSuccess: () => false,
+                loadJobAggregatesFailure: () => true,
             },
         ],
         expandedRunKeys: [
@@ -481,7 +525,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                 if (runnerCosts.length === 0) {
                     return null
                 }
-                // Free runners report null — a bare sum would turn "no cost data" into a misleading $0.00.
+                // Free runners report null, so a bare sum would turn "no cost data" into a misleading $0.00.
                 const hasBillable = runnerCosts.some((cost) => cost.billable_minutes != null)
                 const hasEstimatedCost = runnerCosts.some((cost) => cost.estimated_cost_usd != null)
                 return {
@@ -495,18 +539,24 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             },
         ],
         breadcrumbs: [
-            (_, p) => [p.repoOwner, p.repoName, p.workflowName],
-            (repoOwner: string, repoName: string, workflowName: string): Breadcrumb[] => [
+            (s, p) => [p.repoOwner, p.repoName, p.workflowName, s.sourceId, router.selectors.searchParams],
+            (
+                repoOwner: string,
+                repoName: string,
+                workflowName: string,
+                sourceId: string | null,
+                searchParams: Record<string, string | undefined>
+            ): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
                     name: 'Engineering analytics',
-                    path: urls.engineeringAnalytics(),
+                    path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
                     iconType: 'health',
                 },
                 {
                     key: 'EngineeringAnalyticsWorkflows',
                     name: 'Workflows',
-                    path: urls.engineeringAnalyticsWorkflows(),
+                    path: withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId),
                     iconType: 'health',
                 },
                 {

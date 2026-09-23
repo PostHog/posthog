@@ -15,6 +15,7 @@ from django.utils import timezone
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
 from posthog.ingress.providers import WebhookProvider
 from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme
+from posthog.rate_limit import VapiWebhookIPThrottle
 
 VAPI_EVENT_TYPES = frozenset({"status-update", "end-of-call-report"})
 
@@ -34,6 +35,13 @@ class VapiProvider(WebhookProvider):
     app = "default"
     invalid_signature_status = 401
     unconfigured_status = 503
+    # Vapi sends the delivery again after a 5xx, and its report is the only copy: nothing else
+    # replays an interview. The consumer hands the report to a queue and does no other work, so a
+    # consumer failure means the report reached no queue at all, and a receipt would drop it.
+    retry_status = 500
+    # The endpoint is public and unauthenticated, so the per-IP cap bounds how much
+    # HMAC-verification CPU and structured-log volume one source can drive.
+    throttle_class = VapiWebhookIPThrottle
 
     def __init__(self) -> None:
         self._scheme = HmacSha256(

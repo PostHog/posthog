@@ -1,9 +1,8 @@
-"""Organization-level rollout gates for the optional content a report carries.
+"""Organization-level rollout gates for report metrics.
 
-Charts and metrics roll out independently, so one flag cannot decide the other. The checks live in
-their own module rather than in `report_metrics.py`, which stays dependency-light because report
-models and Temporal payloads import it during process setup, and these checks need `Team` and the
-flag client.
+The checks live in their own module because they need `Team` and the flag client.
+Report models and Temporal payloads import `report_metrics.py` during process setup,
+so that module must not import these dependencies.
 
 A metric gate binds every writer, not only the authoring agent: a stored metric definition is also a
 query that the refresh path runs later.
@@ -20,7 +19,6 @@ from posthog.ph_client import feature_enabled_or_false
 
 logger = structlog.get_logger(__name__)
 
-REPORT_CHARTS_FLAG = "signals-report-charts"
 REPORT_METRICS_FLAG = "signals-report-metrics"
 
 
@@ -69,7 +67,3 @@ def organization_report_metrics_enabled(organization_id: UUID) -> bool:
 
 def team_report_metrics_enabled(team_id: int) -> bool:
     return _team_flag_enabled(REPORT_METRICS_FLAG, team_id)
-
-
-def team_report_charts_enabled(team_id: int) -> bool:
-    return _team_flag_enabled(REPORT_CHARTS_FLAG, team_id)

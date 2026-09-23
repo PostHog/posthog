@@ -15,6 +15,27 @@ env:
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
+    # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
+    # Fork and Dependabot runs get no secret; the queue always runs everything anyway.
+    # The step fails open, because this telemetry must not turn a passing workflow red.
+    dynamic-ci-filter:
+        name: Trunk Dynamic CI (Learning Mode)
+        if: >-
+            github.event_name == 'pull_request' &&
+            github.repository == 'PostHog/posthog' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.actor != 'dependabot[bot]' &&
+            !startsWith(github.head_ref, 'trunk-merge/')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        steps:
+            - name: Ask Trunk which jobs this diff needs
+              continue-on-error: true
+              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              with:
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
     # Job to decide if we should run rust ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
@@ -320,6 +341,15 @@ jobs:
                   cargo build "${crates[@]}" --locked --release
                   find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
 
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
+
     test:
         name: Test Rust (${{ matrix.packages }})
         strategy:
@@ -364,7 +394,6 @@ jobs:
                   # batch-import-worker temp-bucket integration tests, which fail
                   # rather than skip when the store is down in CI.
                   COMPOSE_PROFILES: etcd,replay
-                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
               run: |
                   ../bin/ci-wait-for-docker launch --down
@@ -570,6 +599,15 @@ jobs:
               shell: bash
               run: exit 1
 
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
+
     # Spawns a real personhog stack (replica, writer, leaders, leader-mode
     # routers) against dockerized Postgres/Kafka/etcd and asserts that every
     # write acked by the leader path is visible afterwards — in strong reads
@@ -614,7 +652,6 @@ jobs:
               env:
                   COMPOSE_FILE: ../docker-compose.dev.yml:../docker-compose.profiles.yml
                   COMPOSE_PROFILES: etcd
-                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
               run: |
                   ../bin/ci-wait-for-docker launch --down db kafka etcd
@@ -725,56 +762,26 @@ jobs:
                     --shutdown-after 3s --zombie-after 8s --zombie-duration 6s \
                     --writer-pause-after 4s --writer-pause-duration 6s
 
-            # Broker-enforced epoch fencing, on the scenario it exists for:
-            # a SIGSTOPped leader whose lease is revoked wakes inside its
-            # own window and tries to append. Everything else in this file
-            # runs the flag off, so without this step the entire fenced
-            # arm — warm-time acquisition, the transaction windows, the
-            # write path's error mapping — ships with no end-to-end
-            # coverage at all.
-            #
-            # The gate rides along because startup refuses fencing without
-            # it: acquisition moves a partition's broker epoch, and a pod
-            # that has stopped renewing has no standing to do that.
-            #
-            # Guarded on the flag existing so a branch that predates
-            # --leader-env skips it rather than failing before its own
-            # tests run.
-            - name: Run the e2e gate with epoch fencing (zombie + writer lag)
+            # The freeze has to outlive the lease, or the woken pod still
+            # holds a valid claim and nothing is ever asked. 27s is the
+            # lowest TTL validate_fencing_timescales accepts, so the
+            # freeze runs past it. Rejection is asserted by consequence:
+            # an unfenced landing fails the verifier.
+            - name: Run the e2e gate under chaos (zombie + writer lag)
               run: |
-                  if ! ./target/debug/personhog-test-harness gate --help | grep -q -- --leader-env; then
-                    # Graceful degradation for unrebased branches (see the
-                    # CI back-compat rule) — but loud, so a harness
-                    # regression that drops the flag cannot silently
-                    # retire this gate.
-                    echo "::warning title=fenced e2e gate skipped::harness predates --leader-env; the fenced gate did not run"
-                    exit 0
-                  fi
-                  # The freeze has to outlive the lease, or the woken pod
-                  # still holds a valid claim and neither the lease gate
-                  # nor the broker fence is ever asked anything. 27s is
-                  # the lowest TTL validate_fencing_timescales accepts
-                  # with fencing on (the write budget pays the drain's
-                  # settle slack first), so the freeze runs past it and
-                  # the run is sized to leave the woken zombie time to
-                  # try. The gate asserts rejection by consequence (an
-                  # unfenced landing fails the verifier; a crash fails
-                  # the liveness check), not by scraping fence metrics —
-                  # the deterministic fencing_integration tests carry the
-                  # per-arm coverage.
                   ./target/debug/personhog-test-harness gate \
-                    --leader-env KAFKA_TRANSACTIONAL_FENCING=true \
-                    --leader-env LEASE_GATED_AUTHORITY=true \
                     --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 45s \
                     --leader-lease-ttl 27 \
                     --zombie-after 5s --zombie-duration 32s \
                     --writer-pause-after 4s --writer-pause-duration 6s
 
+            # A fenced write's budget rules out the short TTL this used
+            # to run, so the run is lengthened to keep the expiry inside.
             - name: Run the e2e gate under chaos (TTL-expiry kill + restarts)
               run: |
                   ./target/debug/personhog-test-harness gate \
-                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 18s \
-                    --leader-lease-ttl 5 --kill-after 4s --kill-fast false \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 45s \
+                    --leader-lease-ttl 27 --kill-after 4s --kill-fast false \
                     --writer-crash-after 9s --restart-after 12s
 
             - name: Run the e2e gate under chaos (coordinator failover + mid-handoff kill)
@@ -812,6 +819,15 @@ jobs:
                   name: personhog-test-harness-logs
                   path: rust/target/debug/harness-logs/
                   if-no-files-found: ignore
+
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
 
     linting:
         name: Lint Rust services (depot-ubuntu-22.04-4)
@@ -900,12 +916,21 @@ jobs:
             - name: Run cargo shear
               run: cargo shear
 
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
+
     # Collate job - single required status check for branch protection.
     # Individual jobs skip entirely when no Rust changes, saving runner time.
     rust_tests:
         needs: [changes, affected, build, test, linting]
         name: Rust Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         permissions: {}

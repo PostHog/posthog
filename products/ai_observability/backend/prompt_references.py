@@ -31,6 +31,10 @@ PROMPT_REFERENCE_REGEX = re.compile(
 )
 
 MAX_PROMPT_REFERENCES = 20
+# Incoming references are unbounded (any number of prompts can reference one
+# partial), so surfaces listing them cap the result. Existence checks stay
+# correct: over the cap still means "referenced".
+MAX_ACTIVE_REFERENCE_RESULTS = 100
 
 
 @frozen
@@ -75,13 +79,25 @@ def get_active_referencing_parent_names(team_id: int, child_name: str) -> list[s
     recorded before validation existed must not let a prompt block its own
     archival.
     """
-    return sorted(
+    return sorted({reference["name"] for reference in get_active_references_to(team_id, child_name)})
+
+
+def get_active_references_to(team_id: int, child_name: str) -> list[dict[str, Any]]:
+    """Active incoming references with the selector each parent used.
+
+    `label` set means the parent follows that label of this prompt, so moving
+    it propagates; `version` set means the parent pinned that version and
+    nothing propagates to it.
+    """
+    rows = (
         LLMPromptDependency.objects.filter(team_id=team_id, child_name=child_name, prompt__deleted=False)
         .filter(Q(prompt__is_latest=True) | Q(prompt__labels__isnull=False))
         .exclude(parent_name=child_name)
-        .values_list("parent_name", flat=True)
+        .values_list("parent_name", "child_label", "child_version")
         .distinct()
+        .order_by("parent_name", "child_label", "child_version")[:MAX_ACTIVE_REFERENCE_RESULTS]
     )
+    return [{"name": name, "label": label, "version": version} for name, label, version in rows]
 
 
 def get_active_parents_referencing_label(team_id: int, prompt_name: str, label_name: str) -> list[str]:
@@ -290,7 +306,11 @@ def _confirm_reference_missing(team_id: int, name: str, version: str | None, lab
         return False
 
 
-def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, Any]:
+def assemble_prompt_payload(
+    team: Team,
+    payload: dict[str, Any],
+    memoized: dict[tuple[str, str | None, str | None], tuple[str, int]] | None = None,
+) -> dict[str, Any]:
     """Splice referenced prompts' content into a fetched payload.
 
     Each referenced prompt resolves through the same cached read path as the
@@ -309,8 +329,14 @@ def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, An
     # can hold ~35k copies of one small tag whose label later moves to a large
     # version. Memoizing bounds the cache reads to the unique references, and
     # the running size check aborts before a large assembly is materialized,
-    # so a fetch never allocates more than the payload cap.
-    memoized: dict[tuple[str, str | None, str | None], str] = {}
+    # so a fetch never allocates more than the payload cap. Callers assembling
+    # several payloads in one request pass a shared memo so a partial used by
+    # many prompts is read once.
+    if memoized is None:
+        memoized = {}
+    # Provenance is per payload while the memo may span payloads, so a memo
+    # hit must still record the reference for this payload's list.
+    seen: set[tuple[str, str | None, str | None]] = set()
     # Running total of the true assembled size: each replacement removes the
     # tag's bytes and adds the spliced content's bytes.
     assembled_bytes = len(content.encode("utf-8"))
@@ -321,8 +347,8 @@ def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, An
         version = match.group("version")
         label = match.group("label")
         key = (name, version, label)
-        child_content = memoized.get(key)
-        if child_content is None:
+        cached = memoized.get(key)
+        if cached is None:
             child = get_prompt_by_name_from_cache(
                 team, name, int(version) if version is not None else None, label=label
             )
@@ -353,8 +379,12 @@ def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, An
                     message=f"The referenced prompt '{name}' contains references of its own and cannot be spliced in.",
                     missing=False,
                 )
-            memoized[key] = child_content
-            resolved.append({"name": name, "version": child["version"], "label": label})
+            cached = (child_content, int(child["version"]))
+            memoized[key] = cached
+        child_content, child_version = cached
+        if key not in seen:
+            seen.add(key)
+            resolved.append({"name": name, "version": child_version, "label": label})
         assembled_bytes += len(child_content.encode("utf-8")) - len(match.group(0).encode("utf-8"))
         if assembled_bytes > MAX_PROMPT_PAYLOAD_BYTES:
             raise PromptReferenceResolutionError(
