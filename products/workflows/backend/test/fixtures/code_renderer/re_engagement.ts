@@ -1,70 +1,92 @@
 // @posthog/workflows cannot express everything in this workflow. Review these before you push:
-// - wait_for_a_click: The branch edges out of "Wait for a click" are dropped. Only its next step is kept.
-// - wait_for_a_click: The wait_until_condition step "Wait for a click" has no constructor in @posthog/workflows. It is kept in place as a comment.
-// - text_them: The function_sms step "Text them" has no constructor in @posthog/workflows. It is kept in place as a comment.
-// - nudge_by_email: The email design of "Nudge by email" was edited in the visual editor. @posthog/workflows rebuilds the design from html, so that layout is dropped.
+// - Pass-through steps: wait_for_a_click (Wait for a click), nudge_by_email (Nudge by email), text_them (Text them).
+// - exit_node: The path after "Nudge by email" does not rejoin the workflow. The steps it leads to are dropped.
+// - nudge_by_email: The path after "Text them" does not rejoin the workflow. The steps it leads to are dropped.
 
-import { email, onEvent, path, workflow } from '@posthog/workflows'
+import { onEvent, path, step, workflow } from '@posthog/workflows'
 
 export const reEngagement = workflow({
     key: 're-engagement',
     name: 'Re-engagement',
+    status: 'active',
     on: onEvent({ event: 'trial started' }),
     steps: path(
-        // The wait_until_condition step "Wait for a click" is kept as JSON. Replace it or remove it before you push.
-        // {
-        //     "id": "wait_for_a_click",
-        //     "name": "Wait for a click",
-        //     "description": "",
-        //     "on_error": null,
-        //     "filters": null,
-        //     "type": "wait_until_condition",
-        //     "config": {
-        //         "condition": {
-        //             "filters": {
-        //                 "events": [
-        //                     {
-        //                         "id": "$autocapture",
-        //                         "name": "$autocapture",
-        //                         "type": "events",
-        //                         "order": 0
-        //                     }
-        //                 ]
-        //             }
-        //         },
-        //         "max_wait_duration": "3d"
-        //     }
-        // }
-        // The function_sms step "Text them" is kept as JSON. Replace it or remove it before you push.
-        // {
-        //     "id": "text_them",
-        //     "name": "Text them",
-        //     "description": "",
-        //     "on_error": null,
-        //     "filters": null,
-        //     "type": "function_sms",
-        //     "config": {
-        //         "template_id": "template-twilio",
-        //         "inputs": {
-        //             "to": {
-        //                 "value": "{person.properties.phone}",
-        //                 "order": 0
-        //             },
-        //             "body": {
-        //                 "value": "Your trial ends soon. Come back and finish setup.",
-        //                 "order": 1
-        //             }
-        //         },
-        //         "message_category_type": "marketing"
-        //     }
-        // }
-        email({
-            name: 'Nudge by email',
-            from: { integrationIds: [7] },
-            to: '{person.properties.email}',
-            subject: 'Your trial ends soon',
-            text: 'Come back and finish setup.',
-            html: '<p>Come back and finish setup.</p>',
+        step({
+            name: 'Wait for a click',
+            type: 'wait_until_condition',
+            config: {
+                condition: {
+                    filters: {
+                        events: [{ id: '$autocapture', name: '$autocapture', type: 'events', order: 0 }],
+                    },
+                },
+                max_wait_duration: '3d',
+            },
+            branches: [
+                path(
+                    step({
+                        name: 'Nudge by email',
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        from: { integrationId: 7, integrationIds: [7] },
+                                        to: { email: '{person.properties.email}' },
+                                        subject: 'Your trial ends soon',
+                                        text: 'Come back and finish setup.',
+                                        html: '<p>Come back and finish setup.</p>',
+                                        design: {
+                                            counters: { u_row: 1, u_column: 1, u_content_text: 1 },
+                                            schemaVersion: 16,
+                                            body: {
+                                                id: 'body-1',
+                                                headers: [],
+                                                footers: [],
+                                                rows: [
+                                                    {
+                                                        id: 'row-1',
+                                                        cells: [1],
+                                                        columns: [
+                                                            {
+                                                                id: 'column-1',
+                                                                contents: [
+                                                                    {
+                                                                        id: 'text-1',
+                                                                        type: 'text',
+                                                                        values: { text: '<p>Come back and finish setup.</p>', fontSize: '16px' },
+                                                                    },
+                                                                ],
+                                                                values: {},
+                                                            },
+                                                        ],
+                                                        values: {},
+                                                    },
+                                                ],
+                                                values: {},
+                                            },
+                                        },
+                                    },
+                                    order: 0,
+                                },
+                            },
+                        },
+                    }),
+                ),
+            ],
+        }),
+        step({
+            name: 'Text them',
+            type: 'function_sms',
+            config: {
+                template_id: 'template-twilio',
+                inputs: {
+                    to: { value: '{person.properties.phone}', order: 0 },
+                    body: { value: 'Your trial ends soon. Come back and finish setup.', order: 1 },
+                },
+                message_category_type: 'marketing',
+            },
         }),
     ),
     exit: { reason: 'Done' },

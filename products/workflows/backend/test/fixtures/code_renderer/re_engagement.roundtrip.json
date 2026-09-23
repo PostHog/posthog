@@ -2,6 +2,7 @@
     "key": "re-engagement",
     "name": "Re-engagement",
     "description": "",
+    "status": "active",
     "exit_condition": "exit_only_at_end",
     "variables": [],
     "actions": [
@@ -24,6 +25,26 @@
                     "properties": [],
                     "filter_test_accounts": false
                 }
+            }
+        },
+        {
+            "id": "wait_for_a_click",
+            "name": "Wait for a click",
+            "type": "wait_until_condition",
+            "config": {
+                "condition": {
+                    "filters": {
+                        "events": [
+                            {
+                                "id": "$autocapture",
+                                "name": "$autocapture",
+                                "type": "events",
+                                "order": 0
+                            }
+                        ]
+                    }
+                },
+                "max_wait_duration": "3d"
             }
         },
         {
@@ -51,57 +72,64 @@
                                 "counters": {
                                     "u_row": 1,
                                     "u_column": 1,
-                                    "u_content_html": 1
+                                    "u_content_text": 1
                                 },
                                 "schemaVersion": 16,
                                 "body": {
-                                    "id": "html-wrap-body",
+                                    "id": "body-1",
                                     "headers": [],
                                     "footers": [],
                                     "rows": [
                                         {
-                                            "id": "html-wrap-row",
+                                            "id": "row-1",
                                             "cells": [
                                                 1
                                             ],
                                             "columns": [
                                                 {
-                                                    "id": "html-wrap-column",
+                                                    "id": "column-1",
                                                     "contents": [
                                                         {
-                                                            "id": "html-wrap-content",
-                                                            "type": "html",
+                                                            "id": "text-1",
+                                                            "type": "text",
                                                             "values": {
-                                                                "html": "<p>Come back and finish setup.</p>",
-                                                                "_meta": {
-                                                                    "htmlID": "u_content_html_1",
-                                                                    "htmlClassNames": "u_content_html"
-                                                                }
+                                                                "text": "<p>Come back and finish setup.</p>",
+                                                                "fontSize": "16px"
                                                             }
                                                         }
                                                     ],
-                                                    "values": {
-                                                        "_meta": {
-                                                            "htmlID": "u_column_1",
-                                                            "htmlClassNames": "u_column"
-                                                        }
-                                                    }
+                                                    "values": {}
                                                 }
                                             ],
-                                            "values": {
-                                                "_meta": {
-                                                    "htmlID": "u_row_1",
-                                                    "htmlClassNames": "u_row"
-                                                }
-                                            }
+                                            "values": {}
                                         }
                                     ],
                                     "values": {}
                                 }
                             }
-                        }
+                        },
+                        "order": 0
                     }
                 }
+            }
+        },
+        {
+            "id": "text_them",
+            "name": "Text them",
+            "type": "function_sms",
+            "config": {
+                "template_id": "template-twilio",
+                "inputs": {
+                    "to": {
+                        "value": "{person.properties.phone}",
+                        "order": 0
+                    },
+                    "body": {
+                        "value": "Your trial ends soon. Come back and finish setup.",
+                        "order": 1
+                    }
+                },
+                "message_category_type": "marketing"
             }
         },
         {
@@ -116,14 +144,29 @@
     "edges": [
         {
             "from": "trigger_node",
-            "to": "nudge_by_email",
+            "to": "wait_for_a_click",
+            "type": "continue"
+        },
+        {
+            "from": "wait_for_a_click",
+            "to": "text_them",
             "type": "continue"
         },
         {
             "from": "nudge_by_email",
+            "to": "text_them",
+            "type": "continue"
+        },
+        {
+            "from": "wait_for_a_click",
+            "to": "nudge_by_email",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "text_them",
             "to": "exit_node",
             "type": "continue"
         }
-    ],
-    "status": "draft"
+    ]
 }

@@ -20,30 +20,18 @@ EXPECTED_WARNINGS: dict[str, list[dict[str, str | None]]] = {
     ],
     "re_engagement": [
         {
-            "action_id": "wait_for_a_click",
-            "message": 'The branch edges out of "Wait for a click" are dropped. Only its next step is kept.',
-        },
-        {
-            "action_id": "wait_for_a_click",
-            "message": 'The wait_until_condition step "Wait for a click" has no constructor in @posthog/workflows. It is kept in place as a comment.',
-        },
-        {
-            "action_id": "text_them",
-            "message": 'The function_sms step "Text them" has no constructor in @posthog/workflows. It is kept in place as a comment.',
+            "action_id": "exit_node",
+            "message": 'The path after "Nudge by email" does not rejoin the workflow. The steps it leads to are dropped.',
         },
         {
             "action_id": "nudge_by_email",
-            "message": 'The email design of "Nudge by email" was edited in the visual editor. @posthog/workflows rebuilds the design from html, so that layout is dropped.',
+            "message": 'The path after "Text them" does not rejoin the workflow. The steps it leads to are dropped.',
         },
     ],
     "trial_nudge": [
         {
             "action_id": None,
             "message": "This workflow has no key, so the copied file invents one from its name. The first push creates a new draft workflow. Turn the original workflow off or delete it after that push.",
-        },
-        {
-            "action_id": "trigger_node",
-            "message": "The trigger filters out test accounts. @posthog/workflows cannot set that, so a push turns it off.",
         },
     ],
     "ui_built": [
@@ -155,20 +143,11 @@ class TestCodeRenderer(SimpleTestCase):
                 ],
             ),
             (
-                "unsupported_condition_drops_the_arm_steps_out_loud",
+                "unsupported_condition_uses_passthrough_and_keeps_arm_steps",
                 _branch_workflow(conditions=[_cohort_condition("In cohort")], arm_targets={0: "inside"}),
+                ["step({", "type: 'conditional_branch'", "delay('1d', { name: 'Inside' })"],
                 ['// The conditional_branch step "Which" is kept as JSON.'],
-                ["delay('1d', { name: 'Inside' })"],
-                [
-                    {
-                        "action_id": "which",
-                        "message": 'The conditional_branch step "Which" has no constructor in @posthog/workflows. It is kept in place as a comment.',
-                    },
-                    {
-                        "action_id": "inside",
-                        "message": '"Inside" sits inside "Which", which is kept as a comment, so it is dropped.',
-                    },
-                ],
+                None,
             ),
             (
                 "line_terminators_in_a_step_name_stay_inside_the_comment",
@@ -177,7 +156,7 @@ class TestCodeRenderer(SimpleTestCase):
                     arm_targets={0: "inside"},
                     branch_name="Which\u2028import x from 'y'",
                 ),
-                ["// - which: The conditional_branch step \"Which\\u2028import x from 'y'\" has no constructor"],
+                ["// - Pass-through steps: which (Which\\u2028import x from 'y')."],
                 ["\u2028"],
                 None,
             ),
@@ -204,7 +183,15 @@ class TestCodeRenderer(SimpleTestCase):
                     {
                         "action_id": None,
                         "message": "This workflow has no key, so the copied file invents one from its name. The first push creates a new draft workflow. Turn the original workflow off or delete it after that push.",
-                    }
+                    },
+                    {
+                        "action_id": "trigger_node",
+                        "message": "The trigger leads to no step. The workflow has no steps.",
+                    },
+                    {
+                        "action_id": None,
+                        "message": "The workflow has no steps. A no-operation step is added so the file loads, but remove it before you push.",
+                    },
                 ],
                 ["key: 'basic-workflow'"],
                 [],
@@ -251,6 +238,10 @@ class TestCodeRenderer(SimpleTestCase):
                 ),
                 [
                     {
+                        "action_id": "trigger_node",
+                        "message": "The trigger leads to no step. The workflow has no steps.",
+                    },
+                    {
                         "action_id": None,
                         "message": 'The workflow setting "email_sending_rate_limit" is dropped. @posthog/workflows cannot declare it.',
                     },
@@ -261,6 +252,10 @@ class TestCodeRenderer(SimpleTestCase):
                     {
                         "action_id": None,
                         "message": 'The workflow setting "abort_action" is dropped. @posthog/workflows cannot declare it.',
+                    },
+                    {
+                        "action_id": None,
+                        "message": "The workflow has no steps. A no-operation step is added so the file loads, but remove it before you push.",
                     },
                 ],
                 [],
@@ -304,7 +299,16 @@ class TestCodeRenderer(SimpleTestCase):
                 _basic_workflow(
                     exit_condition="exit_on_conversion", conversion={"window_minutes": None, "filters": []}
                 ),
-                [],
+                [
+                    {
+                        "action_id": "trigger_node",
+                        "message": "The trigger leads to no step. The workflow has no steps.",
+                    },
+                    {
+                        "action_id": None,
+                        "message": "The workflow has no steps. A no-operation step is added so the file loads, but remove it before you push.",
+                    },
+                ],
                 ["key: 'basic-workflow'"],
                 ["exitCondition", "conversion goal"],
             ),
@@ -320,3 +324,33 @@ class TestCodeRenderer(SimpleTestCase):
             assert text in rendered.code, rendered.code
         for text in absent:
             assert text not in rendered.code, rendered.code
+
+    def test_renders_condition_shapes_the_sdk_supports(self) -> None:
+        definition = _branch_workflow(
+            conditions=[
+                {
+                    "name": "Modern operators",
+                    "filters": {
+                        "properties": [
+                            {"key": "plan", "operator": "exact", "value": "pro", "type": "person"},
+                            {"key": "email", "operator": "is_set", "type": "person", "value": "is_set"},
+                            {
+                                "key": "tier",
+                                "operator": "semver_gte",
+                                "value": "1.2.0",
+                                "type": "group",
+                                "group_type_index": 0,
+                            },
+                        ]
+                    },
+                }
+            ],
+            arm_targets={0: "inside"},
+        )
+
+        rendered = render_workflow_code(definition)
+
+        assert "person('plan', 'exact', 'pro')" in rendered.code
+        assert "person('email', 'is_set')" in rendered.code
+        assert "group(0, 'tier', 'semver_gte', '1.2.0')" in rendered.code
+        assert [asdict(warning) for warning in rendered.warnings] == []

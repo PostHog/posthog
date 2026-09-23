@@ -1,0 +1,117 @@
+{
+    "key": "passthrough-actions",
+    "name": "Pass-through actions",
+    "description": "",
+    "status": "draft",
+    "exit_condition": "exit_only_at_end",
+    "variables": [],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Trigger",
+            "description": "User starts this workflow.",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "signed_up",
+                            "name": "signed_up",
+                            "type": "events",
+                            "order": 0,
+                            "properties": []
+                        }
+                    ],
+                    "properties": [],
+                    "filter_test_accounts": false
+                }
+            }
+        },
+        {
+            "id": "send_sms",
+            "name": "Send SMS",
+            "type": "function_sms",
+            "config": {
+                "template_id": "template-twilio",
+                "inputs": {
+                    "to_number": {
+                        "value": "{person.properties.phone}",
+                        "order": 0
+                    },
+                    "message": {
+                        "value": "Welcome!",
+                        "order": 1
+                    }
+                }
+            }
+        },
+        {
+            "id": "split",
+            "name": "Split traffic",
+            "type": "random_cohort_branch",
+            "config": {
+                "cohorts": [
+                    {
+                        "percentage": 50,
+                        "name": "A"
+                    },
+                    {
+                        "percentage": 50,
+                        "name": "B"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "wait_for_office_hours",
+            "name": "Wait for office hours",
+            "type": "wait_until_time_window",
+            "config": {
+                "timezone": "UTC",
+                "day": "weekday",
+                "time": [
+                    "09:00",
+                    "17:00"
+                ]
+            }
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "The workflow finished.",
+            "type": "exit",
+            "config": {
+                "reason": "Done"
+            }
+        }
+    ],
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "send_sms",
+            "type": "continue"
+        },
+        {
+            "from": "send_sms",
+            "to": "split",
+            "type": "continue"
+        },
+        {
+            "from": "split",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "split",
+            "to": "wait_for_office_hours",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "wait_for_office_hours",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ]
+}
