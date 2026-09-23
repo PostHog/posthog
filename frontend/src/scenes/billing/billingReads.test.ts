@@ -31,7 +31,7 @@ describe('billingReadsLogic', () => {
             spendSeries: '/api/organizations/@current/billing/spend/timeseries/',
             usageExport: '/api/organizations/@current/billing/usage/export/',
             spendExport: '/api/organizations/@current/billing/spend/export/',
-            projects: [{ id: 7, name: null, deleted: true }],
+            projectIds: [7],
         },
         {
             flag: false,
@@ -39,10 +39,7 @@ describe('billingReadsLogic', () => {
             spendSeries: 'api/billing/spend/',
             usageExport: '/api/billing/usage/export/',
             spendExport: '/api/billing/spend/export/',
-            projects: [
-                { id: 7, name: null, deleted: true },
-                { id: 8, name: null, deleted: true },
-            ],
+            projectIds: [7, 8],
         },
     ])('reads from the routes the flag selects (flag on: $flag)', async (expected) => {
         featureFlagLogic.actions.setFeatureFlags(expected.flag ? [FEATURE_FLAGS.ORGANIZATION_BILLING_API] : [], {
@@ -55,6 +52,6 @@ describe('billingReadsLogic', () => {
         expect(reads.usageExportUrl(SERIES).split('?')[0]).toEqual(expected.usageExport)
         expect(reads.spendExportUrl(SERIES).split('?')[0]).toEqual(expected.spendExport)
         expect(reads.usageSeriesUrl(SERIES)).toContain('breakdowns=')
-        expect(await reads.reportedProjects()).toEqual(expected.projects)
+        expect(await reads.reportedProjectIds()).toEqual(expected.projectIds)
     })
 })

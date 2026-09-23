@@ -139,10 +139,10 @@ describe('billingUsageLogic loader', () => {
         logic = billingUsageLogic()
         logic.mount()
         await expectLogic(logic)
-            .toDispatchActions(['loadReportedProjects', 'loadReportedProjectsSuccess'])
+            .toDispatchActions(['loadReportedProjectIds', 'loadReportedProjectIdsSuccess'])
             .toFinishAllListeners()
 
-        expect(logic.values.reportedProjectsLoading).toBe(false)
+        expect(logic.values.reportedProjectIdsLoading).toBe(false)
         expect(logic.values.teamOptions.slice(-2)).toEqual([
             { key: '3', label: 'ID: 3 (deleted)' },
             { key: '17', label: 'ID: 17 (deleted)' },

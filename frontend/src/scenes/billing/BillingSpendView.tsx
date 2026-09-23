@@ -58,7 +58,7 @@ export function BillingSpendView(): JSX.Element {
         headingTooltip,
         showSeries,
         showEmptyState,
-        reportedProjectsLoading,
+        reportedProjectIdsLoading,
         teamOptions,
         billingPeriodMarkers,
     } = useValues(logic)
@@ -110,7 +110,7 @@ export function BillingSpendView(): JSX.Element {
                     {/* Projects */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Projects</LemonLabel>
-                        {reportedProjectsLoading ? (
+                        {reportedProjectIdsLoading ? (
                             <LemonInput className="w-50 h-10" placeholder="Loading projects…" disabled />
                         ) : (
                             <LemonInputSelect

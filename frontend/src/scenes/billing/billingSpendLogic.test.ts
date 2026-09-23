@@ -81,7 +81,7 @@ describe('billingSpendLogic chart type', () => {
         logic = billingSpendLogic()
         logic.mount()
         await expectLogic(logic)
-            .toDispatchActions(['loadReportedProjects', 'loadReportedProjectsSuccess'])
+            .toDispatchActions(['loadReportedProjectIds', 'loadReportedProjectIdsSuccess'])
             .toFinishAllListeners()
 
         expect(logic.values.teamOptions.slice(-2)).toEqual([
