@@ -79,6 +79,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     scout_skill_origin,
 )
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -186,7 +187,11 @@ from products.signals.backend.scout_harness.tools.notes import (
     leave_note,
     list_notes,
 )
-from products.signals.backend.scout_harness.tools.profile import get_project_profile
+from products.signals.backend.scout_harness.tools.profile import (
+    ProfileUnavailable,
+    get_project_profile,
+    unavailable_profile_summary,
+)
 from products.signals.backend.scout_harness.tools.report import (
     ReportChartInput,
     ReportEvidence,
@@ -2111,6 +2116,36 @@ def _overlay_effective_emit_eligibility(body: dict[str, Any], *, team_id: int, r
         body["summary"]["emit_eligibility"] = effective
 
 
+def _degraded_profile_body(*, team_id: int, run_id: str | None) -> dict[str, Any]:
+    """The response for a team whose profile could not be built, with the emit gate still in it.
+
+    The row metadata is null because no row was read or written, and `payload` is absent, which is
+    what tells the caller this is not ground truth about the project. `transient_error` says so in
+    words a client can branch on. The summary sections are read straight from source, and the emit
+    gate is re-derived for the calling scout the same way a full response does it.
+    """
+    summary = unavailable_profile_summary(team_id=team_id)
+    effective = emit_eligibility_for_run(team_id=team_id, run_id=run_id)
+    if effective is not None:
+        summary["emit_eligibility"] = effective
+    body = {
+        "summary": summary,
+        "profile_id": None,
+        "computed_at": None,
+        "expires_at": None,
+        "source_version": INVENTORY_SOURCE_VERSION,
+        "transient_error": {
+            "code": "profile_build_failed",
+            "message": (
+                "The project profile could not be built. This response carries the emit gate and the "
+                "inbox report counts only; retry the call for the full profile."
+            ),
+            "retryable": True,
+        },
+    }
+    return ProjectProfileSerializer(body).data
+
+
 class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Project profile — deterministic snapshot of \"what's true about this project\".
 
@@ -2203,19 +2238,22 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # workflow builds out-of-band, so the build path stays covered.
         force_refresh = bool(validated.get("force_refresh", False)) and caller_is_internal_scout
         team_id = _canonical_team_id(self)
-        profile = get_project_profile(
-            team_id=team_id,
-            force_refresh=force_refresh,
-            lazy_build=caller_is_internal_scout,
-        )
+        run_id = _eligibility_run_id(request, team_id=team_id, supplied=validated.get("run_id"))
+        try:
+            profile = get_project_profile(
+                team_id=team_id,
+                force_refresh=force_refresh,
+                lazy_build=caller_is_internal_scout,
+            )
+        except ProfileUnavailable:
+            # The build already retried. Answering with a 5xx here would cost the scout a whole
+            # discovery round trip before it could start, so degrade to the gate it has to read.
+            logger.warning("signals.profile.unavailable", team_id=team_id, exc_info=True)
+            return Response(_degraded_profile_body(team_id=team_id, run_id=run_id))
         if profile is None:
             raise exceptions.NotFound("No project profile has been built for this team yet.")
         body = profile.as_dict()
-        _overlay_effective_emit_eligibility(
-            body,
-            team_id=team_id,
-            run_id=_eligibility_run_id(request, team_id=team_id, supplied=validated.get("run_id")),
-        )
+        _overlay_effective_emit_eligibility(body, team_id=team_id, run_id=run_id)
         if validated.get("summary_only", False):
             # `payload` is `required=False` on the serializer, so dropping the key here omits it
             # from the response rather than rendering it null.

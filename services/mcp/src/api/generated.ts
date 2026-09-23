@@ -78903,6 +78903,23 @@ export namespace Schemas {
     }
 
     /**
+     * Why a profile response is degraded rather than a 500.
+     *
+     * The profile is the first call of a scout run, so a failed build that answers with an error
+     * status costs the scout a whole discovery round trip before it can investigate anything. This
+     * block says the build failed and the response is thin, while the summary envelope still
+     * carries the emit gate the scout has to read.
+     */
+    export interface TransientProfileError {
+      /** Stable machine-readable cause. Currently `profile_build_failed` only. */
+      code: string;
+      /** One-line description of what failed and what the response still holds. */
+      message: string;
+      /** Whether another call can be expected to succeed. Always true for a transient build failure. */
+      retryable: boolean;
+    }
+
+    /**
      * One row in either bucket of `inventory.signal_source_configs`.
      */
     export interface SignalSourceConfigEntry {
@@ -79453,15 +79470,26 @@ export namespace Schemas {
     export interface ProjectProfile {
       /** Compact envelope repeating the emit gate and the inbox report counts from `payload.inventory`. Declared first so it survives a truncated response. */
       summary: ProjectProfileSummary;
-      /** UUID of the `SignalProjectProfile` row. */
-      profile_id: string;
-      /** ISO-8601 timestamp the profile was built. */
-      computed_at: string;
-      /** ISO-8601 timestamp after which the profile is considered stale. */
-      expires_at: string;
+      /**
+         * UUID of the `SignalProjectProfile` row. Null when `transient_error` is set.
+         * @nullable
+         */
+      profile_id: string | null;
+      /**
+         * ISO-8601 timestamp the profile was built. Null when `transient_error` is set.
+         * @nullable
+         */
+      computed_at: string | null;
+      /**
+         * ISO-8601 timestamp after which the profile is considered stale. Null when `transient_error` is set.
+         * @nullable
+         */
+      expires_at: string | null;
       /** Schema version of the inventory builder. Bumps invalidate older cached rows. */
       source_version: string;
-      /** Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`. */
+      /** Present only when the profile could not be built. The response is degraded: `summary` is read straight from source and `payload` is omitted. Retry the call to get the full profile; do not treat the degraded response as ground truth about the project. */
+      transient_error?: TransientProfileError;
+      /** Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`, and when `transient_error` is set. */
       payload?: ProjectProfilePayload;
     }
 

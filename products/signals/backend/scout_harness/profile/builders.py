@@ -77,6 +77,15 @@ logger = logging.getLogger(__name__)
 # redaction stop being served.
 INVENTORY_SOURCE_VERSION = "v14"
 
+# Inventory sections repeated in the response's compact `summary` envelope, and the only ones
+# `build_summary_sections` produces. `emit_eligibility` is the delivery gate the prompt tells
+# every scout to read before it does any work, and `existing_inbox_reports` is what it dedupes
+# against. Both sit deep inside an inventory large enough that a client can cut the response off
+# before reaching them, so a scout that reads only the prefix cannot tell whether its output
+# would go anywhere. Repeating them up front costs a few hundred bytes and keeps them ahead of
+# any truncation point.
+SUMMARY_SECTIONS = ("emit_eligibility", "existing_inbox_reports")
+
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
 # bloating the profile payload. Adjust if shadow runs surface a clear ask.
@@ -158,6 +167,24 @@ def build_inventory(team: Team) -> Inventory:
             "top_events": _top_events(team),
         }
     )
+
+
+def build_summary_sections(team: Team) -> dict[str, Any]:
+    """Build the `SUMMARY_SECTIONS` alone, for a caller that could not get a full inventory.
+
+    Each section is read on its own and degrades to None when that read fails, so one
+    unavailable source cannot take the other down with it. None reads as "unknown" to the
+    scout, which the summary envelope already documents, and the write path still fails
+    closed on its own.
+    """
+    sections: dict[str, Any] = {}
+    for name, reader in (("emit_eligibility", _emit_eligibility), ("existing_inbox_reports", _existing_inbox_reports)):
+        try:
+            sections[name] = reader(team)
+        except Exception:
+            logger.exception("signals.profile.summary_section_failed", extra={"team_id": team.pk, "section": name})
+            sections[name] = None
+    return sections
 
 
 def _project_context(team: Team) -> dict[str, Any]:

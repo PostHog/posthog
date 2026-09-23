@@ -15,18 +15,26 @@ Profile feeds the scratchpad; the scratchpad does not update profile.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from django.db import connection, transaction
+from django.db import InterfaceError, OperationalError, connection, transaction
 from django.utils import timezone
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import SignalProjectProfile
-from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, build_inventory
+from products.signals.backend.scout_harness.profile import (
+    INVENTORY_SOURCE_VERSION,
+    SUMMARY_SECTIONS,
+    build_inventory,
+    build_summary_sections,
+)
+
+logger = logging.getLogger(__name__)
 
 # Soft cache TTL — `get_project_profile` recomputes when the newest row is older than this.
 # Aligned to the coordinator tick (60min in prod, 15min in dev) so an active team's
@@ -50,13 +58,27 @@ PROFILE_KEEP_N = 10
 _PROFILE_LOCK_NAMESPACE = 0x5191A1A6  # "SIGNAL"-ish leetspeak; just needs to be unique enough.
 
 
-# Inventory sections repeated in the response's compact `summary` envelope.
-# `emit_eligibility` is the delivery gate the prompt tells every scout to read before it does
-# any work, and `existing_inbox_reports` is what it dedupes against. Both sit deep inside
-# an inventory large enough that a client can cut the response off before reaching them, so a
-# scout that reads only the prefix cannot tell whether its output would go anywhere. Repeating
-# them up front costs a few hundred bytes and keeps them ahead of any truncation point.
-SUMMARY_SECTIONS = ("emit_eligibility", "existing_inbox_reports")
+# How many times a cache miss tries to build before the caller is told the profile is
+# unavailable. The build is a long run of Postgres reads, so a single dropped connection or
+# lock timeout anywhere in it fails the whole orientation call — and a scout reads the profile
+# once, at the start of a run, so that one failure costs it a discovery round trip before it
+# can start work. One extra attempt covers a momentary fault without turning a real outage
+# into a sustained double load.
+PROFILE_BUILD_ATTEMPTS = 2
+
+# Build failures worth a second attempt: a dropped or reset connection, a lock or statement
+# timeout, a deadlock. Any other error repeats identically, so it goes straight to the
+# unavailable path instead of paying for the build twice.
+_RETRYABLE_BUILD_ERRORS = (OperationalError, InterfaceError)
+
+
+class ProfileUnavailable(Exception):
+    """No profile could be read or built for the team.
+
+    Raised after `PROFILE_BUILD_ATTEMPTS` failed builds, with the last failure as `__cause__`.
+    The endpoint answers this with the compact summary envelope and a transient-error marker
+    rather than a 500, because the gate is what the scout has to have before it can start.
+    """
 
 
 @dataclass(frozen=True)
@@ -131,8 +153,43 @@ def get_project_profile(*, team_id: int, force_refresh: bool = False, lazy_build
             # Pure cache read: a miss returns None rather than triggering an inline build,
             # so an untrusted (CSRF-reachable) GET stays side-effect-free.
             return None
+    return _build_with_retry(team_id=team_id, force=force_refresh)
+
+
+def _build_with_retry(*, team_id: int, force: bool) -> ProjectProfile:
+    """Build a profile, retrying a transient failure once before giving up.
+
+    `Team.objects.get` stays outside the retry: a missing team is not transient, and letting
+    `DoesNotExist` propagate keeps it distinguishable from a build that could not run.
+    """
     team = Team.objects.get(id=team_id)
-    return compute_project_profile(team=team, force=force_refresh)
+    for attempt in range(1, PROFILE_BUILD_ATTEMPTS + 1):
+        try:
+            return compute_project_profile(team=team, force=force)
+        except _RETRYABLE_BUILD_ERRORS as error:
+            logger.warning(
+                "signals.profile.build_failed",
+                extra={"team_id": team_id, "attempt": attempt, "attempts": PROFILE_BUILD_ATTEMPTS},
+                exc_info=True,
+            )
+            if attempt == PROFILE_BUILD_ATTEMPTS:
+                raise ProfileUnavailable("Project profile build failed") from error
+    raise ProfileUnavailable("Project profile build failed")
+
+
+def unavailable_profile_summary(*, team_id: int) -> dict[str, Any]:
+    """The `SUMMARY_SECTIONS` for a team whose profile build failed.
+
+    Reads the two sections directly instead of through the inventory, so a scout still learns
+    whether its findings can reach the inbox and what is already there. A section that also
+    fails reads as None, which the envelope already documents as "unknown".
+    """
+    try:
+        team = Team.objects.get(id=team_id)
+    except Exception:
+        logger.exception("signals.profile.summary_team_read_failed", extra={"team_id": team_id})
+        return dict.fromkeys(SUMMARY_SECTIONS)
+    return build_summary_sections(team)
 
 
 def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfile:
