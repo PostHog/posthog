@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -32,8 +31,11 @@ type Story = StoryObj<typeof SpanColumnConfigurator>
 export const Default: Story = {}
 
 export const Open: Story = {
+    // A native click rather than fireEvent or userEvent: both wrap the event in `act`, which throws
+    // in the production React build the visual regression runner uses.
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('Configure columns'))
+        const trigger = await within(canvasElement).findByText('Configure columns')
+        trigger.click()
         await within(document.body).findByText('Add an attribute column')
     },
 }

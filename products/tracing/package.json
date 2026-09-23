@@ -19,7 +19,6 @@
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
         "@testing-library/react": "*",
-        "@testing-library/user-event": "*",
         "@types/react": "*",
         "clsx": "*",
         "fast-equals": "catalog:",
