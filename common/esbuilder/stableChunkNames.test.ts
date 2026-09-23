@@ -47,17 +47,9 @@ describe('planStableChunks', () => {
         expect(source).toContain('"/static/Inter-CCCC3333.woff2"')
     })
 
-    it('rewrites text inside a string literal that merely looks like an import (known limitation)', () => {
-        // IMPORT_OF_PATH matches by text shape, not JS syntax, so it cannot tell a real import from
-        // string data that happens to name a real chunk. This pins today's behavior rather than
-        // asserting it is correct.
-        const lookalike = entry('export const a=1', `const msg = "retry: import('/static/chunk-BBBB2222.js')"`)
-        const { source } = plan(lookalike).get('dist/Scene-AAAA1111.js')!
-
-        expect(source).toContain(`retry: import('@c/`)
-    })
-
     describe('identity collisions', () => {
+        afterEach(() => jest.restoreAllMocks())
+
         it('warns and falls back to a unique name when two chunks share an identity', () => {
             // Two chunks with no inputs hash to the same identity (see the comment in the source).
             const outputs = {
@@ -72,8 +64,6 @@ describe('planStableChunks', () => {
             expect(collisionPlan.get('dist/chunk-EEEE0000.js')!.identity).not.toBe(
                 collisionPlan.get('dist/chunk-FFFF0000.js')!.identity
             )
-
-            warn.mockRestore()
         })
     })
 

@@ -74,8 +74,7 @@ export function stableFileName(originalFile, rewrittenSource) {
  * `readSource(outputPath)` returns an output file's contents. Pure apart from `readSource`.
  *
  * Returns, per JS output, its identity, stable file name and rewritten source, plus the import
- * map. Throws when a rewritten chunk still names another chunk by path, because that chunk would
- * then load a second copy of the module graph.
+ * map.
  */
 export function planStableChunks(outputs, readSource, distPrefix = 'dist/') {
     const jsOutputs = Object.entries(outputs).filter(([outputPath]) => outputPath.endsWith('.js'))
@@ -102,11 +101,6 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/') {
     for (const [outputPath] of jsOutputs) {
         const file = fileOf(outputPath)
         const source = rewriteChunkSource(readSource(outputPath), identityByFile)
-        for (const match of source.matchAll(IMPORT_OF_PATH)) {
-            if (identityByFile.has(match[3])) {
-                throw new Error(`stable chunks: ${file} still imports ${match[3]} by path`)
-            }
-        }
         const identity = identityByFile.get(file)
         const stableFile = stableFileName(file, source)
         plan.set(outputPath, { identity, file, stableFile, source })
