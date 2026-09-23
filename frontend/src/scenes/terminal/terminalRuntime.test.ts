@@ -56,6 +56,46 @@ describe('terminal VM lifecycle', () => {
         }
     })
 
+    it('changes folders only at an empty prompt and quotes folder names', async () => {
+        const listeners = new Map<string, (value?: number) => void>()
+        const emulator = {
+            add_listener: jest.fn((event, callback) => listeners.set(event, callback)),
+            serial0_send: jest.fn(),
+            serial_send_bytes: jest.fn(),
+        }
+        jest.mocked(V86).mockImplementation(() => emulator as unknown as V86)
+        const runtime = new TerminalRuntime(jest.fn())
+        await runtime.start(
+            new NinePServer(new TerminalFilesystem(), jest.fn()),
+            new AbortController().signal,
+            jest.fn()
+        )
+        const output = (text: string): void => {
+            for (const byte of new TextEncoder().encode(text)) {
+                listeners.get('serial0-output-byte')!(byte)
+            }
+        }
+        output('~% ')
+        listeners.get('serial1-output-byte')!(30)
+        expect(runtime.changeDirectory('/posthog/files/Research')).toBe(true)
+        output('\x1b]133;B\x07')
+        expect(new TextDecoder().decode(emulator.serial_send_bytes.mock.calls.at(-1)![1])).toBe(
+            "cd -- '/posthog/files/Research'\n"
+        )
+        output('\x1b]133;B\x07')
+        expect(runtime.changeDirectory("/posthog/files/A's notes")).toBe(true)
+        expect(new TextDecoder().decode(emulator.serial_send_bytes.mock.calls.at(-1)![1])).toBe(
+            "cd -- '/posthog/files/A'\\''s notes'\n"
+        )
+        expect(runtime.changeDirectory('/posthog/files/Other')).toBe(false)
+        output('\x1b]133;B\x07')
+        runtime.write('nano ')
+        expect(runtime.changeDirectory('/posthog/files/Other')).toBe(false)
+        runtime.write('report.sql\n')
+        output('Editor output')
+        expect(runtime.changeDirectory('/posthog/files/Other')).toBe(false)
+    })
+
     it.each(['initializing', 'loaded'])(
         'stops a VM that is %s without allowing late output or startup',
         async (phase) => {
