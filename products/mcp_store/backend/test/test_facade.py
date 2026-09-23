@@ -951,6 +951,16 @@ class TestCallMemberServerTool(BaseTest):
         assert self._call().status == "needs_approval"
         mock_call.assert_not_called()
 
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_a_removed_tool_the_server_brought_back_is_callable_again(self, mock_call, mock_fetch) -> None:
+        installation = self._installation()
+        self._tool(installation, removed_at=timezone.now())
+        mock_fetch.return_value = [{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+
+        assert self._call().status == "ok"
+        mock_call.assert_called_once()
+
     @patch(
         "products.mcp_store.backend.facade.api.call_upstream_tool",
         return_value={"content": [{"type": "text", "text": "3 events"}], "isError": False},

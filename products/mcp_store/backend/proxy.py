@@ -377,6 +377,12 @@ def _requested_tool_names(data: dict[str, Any] | list[Any]) -> set[str]:
     return names
 
 
+def _unresolvable_tool_names(tools: dict[str, MCPServerInstallationTool], requested: set[str]) -> set[str]:
+    """The requested names no live row answers. A row marked removed counts as a
+    miss, so a tool the upstream server brings back is picked up by a re-listing."""
+    return {name for name in requested if tools.get(name) is None or tools[name].removed_at is not None}
+
+
 def _tools_by_name(installation: MCPServerInstallation, requested: set[str]) -> dict[str, MCPServerInstallationTool]:
     """The installation's tool rows, re-listed from upstream on a miss.
 
@@ -388,14 +394,14 @@ def _tools_by_name(installation: MCPServerInstallation, requested: set[str]) -> 
     renamed after the last listing.
     """
     tools = {t.tool_name: t for t in installation.tools.all()}
-    if not requested - tools.keys():
+    if not _unresolvable_tool_names(tools, requested):
         return tools
 
     from .tools import resync_installation_tools  # noqa: PLC0415 — tools.py imports this module
 
     if resync_installation_tools(installation):
         tools = {t.tool_name: t for t in installation.tools.all()}
-    missing = requested - tools.keys()
+    missing = _unresolvable_tool_names(tools, requested)
     if missing:
         logger.warning(
             "MCP tool call refers to an unregistered tool",

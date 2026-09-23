@@ -578,12 +578,14 @@ def _registered_tool(installation: MCPServerInstallation, tool_name: str) -> MCP
     """The installation's row for one tool, re-listing upstream once on a miss.
 
     A connection whose connect-time listing never landed holds no rows at all,
-    and a call it cannot resolve against policy is refused.
+    and a call it cannot resolve against policy is refused. A row marked removed
+    counts as a miss too, so a tool the upstream server brings back under the
+    same name is picked up here rather than waiting for "Refresh tools".
     """
 
     rows = installation.tools.filter(tool_name=tool_name).order_by("-last_seen_at", "-id")
     tool = rows.first()
-    if tool is None and resync_installation_tools(installation):
+    if (tool is None or tool.removed_at is not None) and resync_installation_tools(installation):
         tool = rows.first()
     return tool
 

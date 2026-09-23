@@ -13,12 +13,14 @@ from django.utils import timezone
 import httpx
 from parameterized import parameterized
 
+from posthog.redis import get_client
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.tools import (
     CALL_TIMEOUT,
     HANDSHAKE_TIMEOUT,
+    RESYNC_FAILURE_THROTTLE_SECONDS,
     ToolCallError,
     ToolsFetchError,
     call_upstream_tool,
@@ -288,6 +290,25 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         with pytest.raises(ToolsFetchError, match="unreachable"):
             fetch_upstream_tools(installation)
 
+    @parameterized.expand(
+        [
+            ("remote_protocol", httpx.RemoteProtocolError("server disconnected")),
+            ("too_many_redirects", httpx.TooManyRedirects("redirect loop")),
+        ]
+    )
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.tools.pinned_client")
+    def test_fetch_upstream_tools_reports_handshake_faults_as_fetch_errors(self, _name, error, mock_client_cls, _allow):
+        # Callers on the request path turn ToolsFetchError into a refusal, so an
+        # httpx error escaping here would become a 500 instead.
+        installation = self._installation()
+        client = MagicMock()
+        client.post.side_effect = error
+        mock_client_cls.return_value.__enter__.return_value = client
+
+        with pytest.raises(ToolsFetchError, match="handshake failed"):
+            fetch_upstream_tools(installation)
+
     @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
     @patch("products.mcp_store.backend.tools.pinned_client")
     def test_fetch_upstream_tools_raises_on_initialize_error(self, mock_client_cls, _allow):
@@ -545,4 +566,11 @@ class TestResyncInstallationTools(ClickhouseTestMixin, APIBaseTest):
     def test_failed_listing_is_reported_rather_than_raised(self, _mock_fetch):
         # This runs inside the proxy request path, where raising turns a refused
         # tool call into a 500.
-        assert resync_installation_tools(self._installation()) is False
+        installation = self._installation()
+
+        assert resync_installation_tools(installation) is False
+
+        # A listing that failed refreshed nothing, so holding the full window would
+        # keep both repair paths shut long after a transient fault cleared.
+        remaining = get_client().ttl(f"mcp_store:tools_resync:{installation.id}")
+        assert 0 < remaining <= RESYNC_FAILURE_THROTTLE_SECONDS

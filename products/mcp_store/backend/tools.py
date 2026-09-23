@@ -56,6 +56,12 @@ CALL_TIMEOUT = 60
 # "Refresh tools", which lists upstream directly and ignores this.
 RESYNC_THROTTLE_SECONDS = 60 * 60
 
+# A listing that failed refreshed nothing, so holding the full window would let
+# one transient upstream fault keep both repair paths shut for an hour. This is
+# still long enough that a caller looping on a missing name cannot make every
+# call pay for a failed handshake.
+RESYNC_FAILURE_THROTTLE_SECONDS = 5 * 60
+
 
 class ToolsFetchError(Exception):
     pass
@@ -135,6 +141,11 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
         raise ToolsFetchError("Upstream MCP server unreachable") from exc
     except httpx.TimeoutException as exc:
         raise ToolsFetchError("Upstream MCP server timed out") from exc
+    except httpx.HTTPError as exc:
+        # A malformed reply or a redirect loop is an upstream fault like the
+        # cases above. Callers on the request path turn ToolsFetchError into a
+        # refusal; anything else escaping here becomes a 500.
+        raise ToolsFetchError(f"Upstream MCP handshake failed: {exc}") from exc
 
 
 def call_upstream_tool(
@@ -485,5 +496,9 @@ def resync_installation_tools(installation: MCPServerInstallation) -> bool:
             url=installation.url,
             error=str(exc),
         )
+        try:
+            get_client().expire(key, RESYNC_FAILURE_THROTTLE_SECONDS)
+        except Exception:
+            logger.exception("mcp_store tools re-listing throttle not shortened", installation_id=str(installation.id))
         return False
     return True
