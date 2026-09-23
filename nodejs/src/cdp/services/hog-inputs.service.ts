@@ -305,6 +305,21 @@ export const formatHogInput = async (
     return bytecode
 }
 
+/**
+ * A parse error or a refused filter fails the template on every event. Any other render error is
+ * the template meeting this event's values, so another event may pass. A budget is a limit.
+ */
+const liquidErrorKind = (error: unknown): HogVMErrorKind => {
+    const { name, message } = error instanceof Error ? error : { name: '', message: String(error) }
+    if (message.includes('limit exceeded')) {
+        return 'limit'
+    }
+    if (name === 'RenderError' && !message.includes('is not supported')) {
+        return 'data'
+    }
+    return 'contract'
+}
+
 export const formatLiquidInput = (
     value: unknown,
     globals: HogFunctionInvocationGlobalsWithInputs,
@@ -320,10 +335,8 @@ export const formatLiquidInput = (
             return LiquidRenderer.renderWithHogFunctionGlobals(value, globals, budget)
         } catch (error) {
             // The renderer's message names the template line the owner has to fix, so it stays as is.
-            // A budget is a limit; anything else is a template this renderer cannot run on any event.
             const message = error instanceof Error ? error.message : String(error)
-            const kind: HogVMErrorKind = message.includes('limit exceeded') ? 'limit' : 'contract'
-            throw new Error(message, { cause: new HogVMException(message, kind) })
+            throw new Error(message, { cause: new HogVMException(message, liquidErrorKind(error)) })
         }
     }
 

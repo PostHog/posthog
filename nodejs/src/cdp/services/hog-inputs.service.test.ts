@@ -144,13 +144,19 @@ describe('Hog Inputs', () => {
 
         it.each([
             ['an unsupported filter', '{{ event.event | where_exp: "i", "i" }}', 'contract'],
+            ['a syntax error', '{% if %}', 'contract'],
+            // The same template renders for a well-formed URL, so this failure belongs to the event.
+            ['a malformed URL meeting url_decode', '{{ event.properties.url | url_decode }}', 'data'],
             [
                 'a template over its memory budget',
                 "{% assign s = 'aaaaaaaa' %}{% for i in (1..40) %}{% assign s = s | append: s %}{% endfor %}{{ s | size }}",
                 'limit',
             ],
         ])('gives a liquid failure from %s a kind and keeps its message', (_name, template, kind) => {
-            const globals = createHogExecutionGlobals({ inputs: {} } as any) as any
+            const globals = createHogExecutionGlobals({
+                event: { event: '$pageview', properties: { url: '%' } } as any,
+                inputs: {},
+            } as any) as any
             let thrown: any
             try {
                 formatLiquidInput(template, globals, 'field')
