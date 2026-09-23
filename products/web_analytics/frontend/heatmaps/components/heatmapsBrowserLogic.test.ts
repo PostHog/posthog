@@ -3,18 +3,14 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { resolveHeatmapUrlFilter } from 'lib/components/heatmaps/heatmapUrlMatch'
 
 import { initKeaTests } from '~/test/init'
 
-import {
-    PagePreflight,
-    heatmapsBrowserLogic,
-    normalizeHeatmapDataUrl,
-    preflightBannerMessage,
-} from './heatmapsBrowserLogic'
+import { PagePreflight, heatmapsBrowserLogic, preflightBannerMessage } from './heatmapsBrowserLogic'
 
 describe('heatmapsBrowserLogic', () => {
-    describe('normalizeHeatmapDataUrl', () => {
+    describe('resolveHeatmapUrlFilter', () => {
         it.each([
             ['example.com', null],
             ['   ', null],
@@ -25,9 +21,18 @@ describe('heatmapsBrowserLogic', () => {
             ['https://example.com', { href: 'https://example.com/', matchType: 'exact' }],
             ['https://example.com/pricing', { href: 'https://example.com/pricing', matchType: 'exact' }],
             ['  https://example.com/pricing  ', { href: 'https://example.com/pricing', matchType: 'exact' }],
-            ['https://example.com/users/*', { href: 'https://example.com/users/*', matchType: 'pattern' }],
-        ] as const)('normalizeHeatmapDataUrl(%s) → %s', (input, expected) => {
-            expect(normalizeHeatmapDataUrl(input)).toEqual(expected)
+            [
+                'https://example.com/pricing?plan=a+b&ref=(x)',
+                { href: 'https://example.com/pricing?plan=a+b&ref=(x)', matchType: 'exact' },
+            ],
+            ['https://example.com/users/*', { href: 'https\\:\\/\\/example\\.com\\/users\\/*', matchType: 'pattern' }],
+            [
+                'https://example.com/users/*?tab=1',
+                { href: 'https\\:\\/\\/example\\.com\\/users\\/*\\?tab\\=1', matchType: 'pattern' },
+            ],
+        ] as const)('resolveHeatmapUrlFilter(%s) → %s', (input, expected) => {
+            const filter = resolveHeatmapUrlFilter(input)
+            expect(filter && { href: filter.href, matchType: filter.matchType }).toEqual(expected)
         })
     })
 
@@ -131,14 +136,26 @@ describe('heatmapsBrowserLogic', () => {
                 width: 100,
                 height: 100,
                 startDateTime: undefined,
-                url: 'https://example.com/pricing',
+                url: 'https://example.com/pricing?plan=a',
             })
             await expectLogic(logic).toFinishAllListeners()
-            expect(dataLogic.values.href).toBe('https://example.com/pricing')
+            const pageRegex = '^https\\:\\/\\/example\\.com\\/pricing\\/?(\\?.*)?(#.*)?$'
+            expect(dataLogic.values.href).toBe(pageRegex)
+            expect(dataLogic.values.hrefMatchType).toBe('pattern')
 
             logic.actions.onIframeLoad()
             await expectLogic(logic).toFinishAllListeners()
-            expect(dataLogic.values.href).toBe('https://example.com/pricing')
+            expect(dataLogic.values.href).toBe(pageRegex)
+
+            logic.actions.setRecordingUrlMatchMode('exact')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('https://example.com/pricing?plan=a')
+            expect(dataLogic.values.hrefMatchType).toBe('exact')
+
+            logic.actions.setReplayIframeDataURL('https://')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('')
+            expect(dataLogic.values.hrefMatchType).toBe('exact')
         })
 
         // The snapshot is a DOM captured at one width, so that width is the only one the overlay can
