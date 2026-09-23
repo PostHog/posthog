@@ -14,8 +14,6 @@ export const welcomeNewSignups = workflow({
     key: 'welcome-new-signups',
     name: 'Welcome new signups',
     description: 'Sends a welcome email a day after signup to people who have an email address.',
-    // Stays draft so a push never sends an email to anyone.
-    status: 'draft',
     on: onEvent({ event: 'user signed up' }),
     steps: path(
         delay('1d', { name: 'Wait a day' }),

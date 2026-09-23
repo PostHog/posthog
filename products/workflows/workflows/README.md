@@ -36,4 +36,4 @@ pnpm --filter=@posthog/workflows build
 pnpm --filter=@posthog/workflows exec node dist/cli/main.js init ../../workflows/<name>.ts
 ```
 
-Keep `status: 'draft'` until the workflow is reviewed and meant to run. A draft can be pushed as often as you like and sends nothing.
+Leave `status` out of the file. A pushed workflow starts as a draft and sends nothing, and a person turns it on in PostHog once it is reviewed. A push never changes the status of a file that does not set one.
