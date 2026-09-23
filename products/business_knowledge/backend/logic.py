@@ -80,6 +80,7 @@ from .constants import (
 )
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
+    AddedBy,
     CrawlMode,
     GapStatus,
     KnowledgeChunk,
@@ -553,11 +554,16 @@ def list_for_team(
     *,
     search: str | None = None,
     source_type: str | None = None,
+    added_by: str | None = None,
 ) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
     queryset = KnowledgeSource.objects.filter(team_id=team_id)
     if source_type:
         queryset = queryset.filter(source_type=source_type)
+    if added_by == AddedBy.HUMAN:
+        queryset = queryset.filter(is_generated=False)
+    elif added_by == AddedBy.LEARNED:
+        queryset = queryset.filter(is_generated=True)
     if search:
         term = search.strip()
         if term:
@@ -572,6 +578,21 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
         return KnowledgeSource.objects.annotate(**_source_list_annotations()).get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
+
+
+@with_team_scope(canonical=True)
+def list_live_documents_for_source(source_id: UUID, team_id: int) -> list[KnowledgeDocument] | None:
+    if not KnowledgeSource.objects.filter(id=source_id, team_id=team_id).exists():
+        return None
+    return list(
+        KnowledgeDocument.objects.filter(
+            team_id=team_id,
+            source_id=source_id,
+            tombstoned_at__isnull=True,
+        )
+        .only("id", "url", "title", "safety_verdict")
+        .order_by("url", "id")
+    )
 
 
 @with_team_scope(canonical=True)
