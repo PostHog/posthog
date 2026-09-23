@@ -1,3 +1,5 @@
+import { waitFor } from '@testing-library/react'
+
 import apiMutator from 'lib/api-orval-mutator'
 
 import { fileSystemCreate, fileSystemDestroy, fileSystemList, fileSystemRetrieve } from '~/generated/core/api'
@@ -352,7 +354,7 @@ describe('PostHog filesystem projection', () => {
                 { ...entry('alias', 'Copy'), ref: 'note1' },
             ],
         })
-        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        const fs = new PosthogFilesystem('42', new AbortController().signal, async () => true)
         await fs.load()
         const files = fs.root.children!.get('files')!
         const folder = files.children!.get('Research')!
@@ -377,6 +379,78 @@ describe('PostHog filesystem projection', () => {
         expect(files.children!.has('Research')).toBe(false)
         expect(fileSystemDestroy).toHaveBeenLastCalledWith('42', 'folder', { recursive: false }, expect.anything())
         expect(notebooksRetrieve).not.toHaveBeenCalled()
+    })
+
+    it.each([false, true])(
+        'confirms a recursive snapshot once before any API deletion (approved=%s)',
+        async (approved) => {
+            const entries = [
+                entry('folder', 'Research', 'folder'),
+                entry('note1', 'Research/Notes'),
+                entry('note2', 'Research/More'),
+            ]
+            jest.mocked(fileSystemList).mockImplementation(async (_, params) => {
+                const { parent, depth } = params as { parent?: string; depth?: number }
+                const results = entries.filter(
+                    (item) =>
+                        item.path.split('/').length === depth && item.path.split('/').slice(0, -1).join('/') === parent
+                )
+                return { count: results.length, results }
+            })
+            let answer!: (approved: boolean) => void
+            const confirm = jest.fn(
+                () =>
+                    new Promise<boolean>((resolve) => {
+                        answer = resolve
+                    })
+            )
+            const fs = new PosthogFilesystem('42', new AbortController().signal, confirm)
+            const operation = fs.removePaths(['/posthog/files/Research'], true, true)
+            const outcome = operation.catch((error: Error) => error)
+            await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+            expect(confirm.mock.calls[0]).toEqual([
+                expect.objectContaining({
+                    items: [
+                        '/posthog/files/Research/More.md (notebook: note2)',
+                        '/posthog/files/Research/Notes.md (notebook: note1)',
+                        '/posthog/files/Research',
+                    ],
+                }),
+            ])
+            expect(fileSystemDestroy).not.toHaveBeenCalled()
+            answer(approved)
+            if (approved) {
+                await expect(outcome).resolves.toBeUndefined()
+                expect(jest.mocked(fileSystemDestroy).mock.calls.map((call) => call[1])).toEqual([
+                    'note2',
+                    'note1',
+                    'folder',
+                ])
+            } else {
+                await expect(outcome).resolves.toEqual(
+                    expect.objectContaining({ message: expect.stringContaining('canceled') })
+                )
+                expect(fileSystemDestroy).not.toHaveBeenCalled()
+            }
+            expect(confirm).toHaveBeenCalledTimes(1)
+            expect(notebooksRetrieve).not.toHaveBeenCalled()
+        }
+    )
+
+    it.each(['remove', 'json'] as const)('fails closed without a confirmation handler for %s', async (operation) => {
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        await fs.load()
+        const node =
+            operation === 'remove'
+                ? fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')!
+                : fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note1.json')!
+        const pending =
+            operation === 'remove'
+                ? node.remove!()
+                : (await node.open!()).save!(new TextEncoder().encode(JSON.stringify({ deleted: true })))
+        await expect(pending).rejects.toThrow('canceled')
+        expect(fileSystemDestroy).not.toHaveBeenCalled()
+        expect(notebooksPartialUpdate).not.toHaveBeenCalled()
     })
 
     it('rejects moves of implicit folders without creating records or changing their contents', async () => {
