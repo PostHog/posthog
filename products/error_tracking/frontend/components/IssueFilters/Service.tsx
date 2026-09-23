@@ -23,7 +23,9 @@ import { PropertyDefinitionType } from '~/types'
 import { getEventPropertyFilterValue, issueFiltersLogic } from './issueFiltersLogic'
 
 export const SERVICE_PROPERTY = 'service'
-const ALL_SERVICES_VALUE = '__all__'
+const ALL_SERVICES_VALUE = 'all'
+// Prefixed so no real service name can collide with the all-services item.
+const SERVICE_ITEM_PREFIX = 'service:'
 
 export const ServiceFilter = (): JSX.Element | null => {
     const { options } = useValues(propertyDefinitionsModel)
@@ -57,7 +59,7 @@ export const ServiceFilter = (): JSX.Element | null => {
         if (selected && !names.includes(selected)) {
             names.unshift(selected)
         }
-        return [ALL_SERVICES_VALUE, ...names]
+        return [ALL_SERVICES_VALUE, ...names.map((name) => `${SERVICE_ITEM_PREFIX}${name}`)]
     }, [option?.values, selected])
 
     // A project that never sets the property would only ever see an empty control, so hide it.
@@ -68,7 +70,7 @@ export const ServiceFilter = (): JSX.Element | null => {
     return (
         <Combobox
             items={items}
-            value={selected ?? ALL_SERVICES_VALUE}
+            value={selected === null ? ALL_SERVICES_VALUE : `${SERVICE_ITEM_PREFIX}${selected}`}
             onValueChange={(next: string | null) => {
                 if (next === null) {
                     return
@@ -77,7 +79,7 @@ export const ServiceFilter = (): JSX.Element | null => {
                     removePropertyFilter(SERVICE_PROPERTY)
                     return
                 }
-                addPropertyFilter(SERVICE_PROPERTY, next, undefined, false, true)
+                addPropertyFilter(SERVICE_PROPERTY, next.slice(SERVICE_ITEM_PREFIX.length), undefined, false, true)
             }}
         >
             <ComboboxTrigger
@@ -109,7 +111,7 @@ export const ServiceFilter = (): JSX.Element | null => {
                 <ComboboxList>
                     {(item: string) => (
                         <ComboboxItem key={item} value={item}>
-                            {item === ALL_SERVICES_VALUE ? 'All services' : item}
+                            {item === ALL_SERVICES_VALUE ? 'All services' : item.slice(SERVICE_ITEM_PREFIX.length)}
                         </ComboboxItem>
                     )}
                 </ComboboxList>
