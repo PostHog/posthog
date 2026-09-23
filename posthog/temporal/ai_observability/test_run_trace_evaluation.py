@@ -377,42 +377,22 @@ class TestFetchTraceForEvaluation:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize("window_end", [None, FROZEN_NOW + timedelta(minutes=30)])
-    def test_a_trace_left_with_nothing_to_grade_is_skipped(self, setup_data, window_end):
+    @pytest.mark.parametrize("trace_state", [{}, {"inputState": "what is the weather?"}])
+    def test_an_event_less_trace_is_returned_when_the_read_saw_everything(self, setup_data, window_end, trace_state):
         team = setup_data["team"]
-        empty_trace = create_trace([])
+        root_only_trace = create_trace([], **trace_state)
 
         # The count preflight sees the `$ai_trace` root row, which never reaches `events`, so the
-        # runner can return a trace row whose transcript is the trace name alone. Both the live and
-        # the backfilled run must skip it rather than let the judge grade nothing.
-        with (
-            time_machine.travel(FROZEN_NOW, tick=False),
-            patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=2),
-            patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
-        ):
-            mock_runner.return_value.calculate.return_value = MagicMock(results=[empty_trace])
-            outcome = fetch_trace_for_evaluation(team.id, "trace-123", FROZEN_NOW, window_end)
-
-        assert outcome.skip_reason == "trace_not_found"
-        assert outcome.trace is None
-
-    @pytest.mark.django_db(transaction=True)
-    def test_an_event_less_trace_with_trace_level_state_is_graded(self, setup_data):
-        team = setup_data["team"]
-        # The formatter renders the trace-level input and output when the hierarchy is empty, so
-        # this trace still gives the judge something to read.
-        root_only_trace = create_trace([], inputState="what is the weather?", outputState="it is sunny")
-
+        # runner can return a trace with no events. Whether that is enough to grade depends on the
+        # evaluation, so the fetch hands it back and lets each activity decide.
         with (
             time_machine.travel(FROZEN_NOW, tick=False),
             # The preflight count, then the renderable-event count.
-            patch(
-                "posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events",
-                side_effect=[1, 0],
-            ),
+            patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", side_effect=[1, 0]),
             patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
         ):
             mock_runner.return_value.calculate.return_value = MagicMock(results=[root_only_trace])
-            outcome = fetch_trace_for_evaluation(team.id, "trace-123", FROZEN_NOW)
+            outcome = fetch_trace_for_evaluation(team.id, "trace-123", FROZEN_NOW, window_end)
 
         assert outcome.skip_reason is None
         assert outcome.trace is root_only_trace
@@ -422,15 +402,12 @@ class TestFetchTraceForEvaluation:
         team = setup_data["team"]
         root_only_trace = create_trace([], inputState="what is the weather?")
 
-        # The count finds generations the fetch did not return, so the read missed part of the
-        # trace. Grading the remainder would hide the missing generations from the judge.
+        # The count finds events the fetch did not return, so the read missed part of the trace.
+        # Grading the remainder would hide those events from every evaluation.
         with (
             time_machine.travel(FROZEN_NOW, tick=False),
             # The preflight count, then the renderable-event count.
-            patch(
-                "posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events",
-                side_effect=[1, 3],
-            ),
+            patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", side_effect=[1, 3]),
             patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
         ):
             mock_runner.return_value.calculate.return_value = MagicMock(results=[root_only_trace])
@@ -577,6 +554,31 @@ class TestExecuteTraceLLMJudgeActivity:
         assert result["reasoning"] == "Resolved both questions"
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("trace_state", [{}, {"inputState": ""}])
+    def test_skips_without_llm_call_when_the_trace_has_no_transcript(self, setup_data, trace_state):
+        # With no events and no trace-level state the formatter emits the trace name alone, and the
+        # judge would confidently report that there is nothing to grade.
+        root_only_trace = create_trace([], **trace_state)
+
+        with patch(
+            "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
+            return_value=TraceFetchOutcome(trace=root_only_trace, skip_reason=None, event_count=1),
+        ):
+            with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+                result = execute_trace_llm_judge_activity(
+                    ExecuteTraceEvaluationInputs(
+                        evaluation=evaluation_dict(setup_data),
+                        team_id=setup_data["team"].id,
+                        trace_id="trace-123",
+                        window_start=FROZEN_NOW.isoformat(),
+                    )
+                )
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "trace_not_found"
+        mock_client_class.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
     def test_skips_without_llm_call_when_trace_missing(self, setup_data):
         with patch(
             "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
@@ -628,6 +630,35 @@ class TestExecuteTraceHogEvalActivity:
             )
 
         assert result["verdict"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_grades_a_root_only_trace_on_trace_level_metadata(self, setup_data):
+        # Hog needs no transcript: cost and latency come off the root event. A trace the judge
+        # cannot read must still reach a latency evaluation.
+        bytecode = compile_hog("return target.total_latency_seconds < 10", "destination")
+        evaluation = evaluation_dict(
+            setup_data,
+            evaluation_type="hog",
+            evaluation_config={"source": "...", "bytecode": bytecode},
+        )
+        root_only_trace = create_trace([], totalLatency=1.5)
+
+        with patch(
+            "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
+            return_value=TraceFetchOutcome(trace=root_only_trace, skip_reason=None, event_count=1),
+        ):
+            result = await execute_trace_hog_eval_activity(
+                ExecuteTraceEvaluationInputs(
+                    evaluation=evaluation,
+                    team_id=setup_data["team"].id,
+                    trace_id="trace-123",
+                    window_start=FROZEN_NOW.isoformat(),
+                )
+            )
+
+        assert result["verdict"] is True
+        assert not result.get("skipped")
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

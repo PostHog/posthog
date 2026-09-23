@@ -235,18 +235,13 @@ def _sum_trace_payload_bytes(team: Team, trace_id: str, date_from: datetime, dat
     return int(result.results[0][0] or 0)
 
 
-def _nothing_to_grade(team: Team, trace: LLMTrace, date_from: datetime, date_to: datetime) -> bool:
-    """Decide whether a trace that came back with no events still carries something to grade.
-
-    The formatter falls back to the trace-level input and output when the hierarchy is empty, so a
-    root-only trace grades fine. Without either, the judge receives the trace name alone.
+def _read_missed_events(team: Team, trace: LLMTrace, date_from: datetime, date_to: datetime) -> bool:
+    """Decide whether a trace that came back with no events was read in full.
 
     A renderable event the fetch did not return means `ai_events` served a partial trace. This count
     falls back to the shared events table when `ai_events` holds no renderable row, so it finds the
-    generations the fetch did not see. Those generations are what the judge needs.
+    events the fetch did not see. Every evaluation would grade the wrong unit without them.
     """
-    if not trace.inputState and not trace.outputState:
-        return True
     return _count_trace_events(team, trace.id, date_from, date_to, event_names=_RENDERABLE_TRACE_EVENT_NAMES) > 0
 
 
@@ -291,9 +286,9 @@ def _fetch_trace(
     if not response.results:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     trace = response.results[0]
-    # The count preflight above includes the `$ai_trace` root row, so a non-zero count does not
-    # promise a transcript.
-    if not trace.events and _nothing_to_grade(team, trace, date_from, date_to):
+    # The count preflight above includes the `$ai_trace` root row, which the runner drops from
+    # `events`, so a non-zero count does not promise that the fetch saw the whole trace.
+    if not trace.events and _read_missed_events(team, trace, date_from, date_to):
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     return TraceFetchOutcome(trace=trace, skip_reason=None, event_count=event_count)
 
@@ -535,6 +530,17 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
     return text
 
 
+def _has_judge_transcript(trace: LLMTrace) -> bool:
+    """Whether the trace formats into something the LLM judge can read.
+
+    `format_trace_text_repr` renders the trace-level input and output only when the event hierarchy
+    is empty, so a trace with neither formats down to its name alone and the judge grades nothing.
+    A Hog eval has no such requirement: it reads trace-level cost and latency straight off the root
+    event, so this gate belongs to the judge rather than to the fetch.
+    """
+    return bool(trace.events or trace.inputState or trace.outputState)
+
+
 def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[Any] | None = None) -> dict[str, Any]:
     """Build Hog globals for a trace-level eval.
 
@@ -621,6 +627,8 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     )
     if outcome.skip_reason or outcome.trace is None:
         return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found")
+    if not _has_judge_transcript(outcome.trace):
+        return _build_trace_skip_result(allows_na, "trace_not_found")
 
     return call_llm_judge(
         evaluation=evaluation,
