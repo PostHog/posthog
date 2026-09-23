@@ -1,17 +1,16 @@
-//! Folds the component rows of a classic Prometheus histogram (`_bucket`,
-//! `_count`, `_sum`) into one histogram row, the row shape the OTLP path
-//! writes. Runs on the remote-write rows after the capture-logs library built
-//! them and before the series label gate.
+//! Converts component rows of a classic Prometheus histogram (`_bucket`,
+//! `_count`, `_sum`) to one native histogram row. The remote-write code calls
+//! this module after `capture-logs` builds the rows and before the series label
+//! gate.
 //!
-//! A histogram folds only when one request carries its `_sum` series and its
-//! `+Inf` bucket for the same label set and timestamp, and the cumulative
-//! bucket values are consistent. Every other component row passes through
-//! unchanged, so a histogram that a sender splits across requests loses
-//! nothing. The read side unions both forms by label set.
+//! The module converts a histogram only when one request has its `_sum` series
+//! and `+Inf` bucket for the same label set and timestamp. Bucket values must
+//! be consistent. Other component rows stay unchanged. This preserves data
+//! when a sender divides a histogram across requests. Query code must combine
+//! native and normal rows by label set.
 //!
-//! `le` and `quantile` label values are normalized to Go's shortest float
-//! format first, the format Prometheus client libraries and the query side use,
-//! so `le="1.0"` and `le="1"` become one series.
+//! The module converts `le` and `quantile` label values to Go's shortest float
+//! format. Therefore, `le="1.0"` and `le="1"` identify the same series.
 
 use std::collections::HashMap;
 
@@ -31,9 +30,9 @@ const SUM_SUFFIX: &str = "_sum";
 const SUM_TYPE: &str = "sum";
 const HISTOGRAM_TYPE: &str = "histogram";
 
-/// Normalizes `le` and `quantile` labels, then folds complete classic
-/// histograms into histogram rows. Folded rows come first, then the remaining
-/// rows in their original order.
+/// Converts `le` and `quantile` labels, then converts complete classic
+/// histograms to native rows. Native rows come first. Other rows keep their
+/// original order.
 pub fn fold_classic_histograms(
     mut rows: Vec<KafkaMetricRow>,
     metadata: &[MetricMetadata],
@@ -174,8 +173,8 @@ fn normalize_float_labels(rows: &mut [KafkaMetricRow]) {
     }
 }
 
-/// Formats a float the way Go's `strconv.FormatFloat(v, 'g', -1, 64)` does. A
-/// value that does not parse as a float is returned as it is.
+/// Formats a float as Go's `strconv.FormatFloat(v, 'g', -1, 64)` does.
+/// Returns an unparseable value unchanged.
 pub fn normalize_float_label(value: &str) -> String {
     let Ok(parsed) = value.trim().parse::<f64>() else {
         return value.to_string();
@@ -270,9 +269,9 @@ fn sorted_pairs(map: &HashMap<String, String>, skip: Option<&str>) -> Vec<(Strin
     pairs
 }
 
-/// A histogram assembles only when its `_sum` and `+Inf` bucket are present,
-/// the cumulative bucket values are non-negative integers that do not
-/// decrease, and a present `_count` equals the `+Inf` bucket.
+/// A histogram is converted only when it has `_sum` and `+Inf` bucket values.
+/// Bucket values must be non-negative integers that do not decrease. A present
+/// `_count` value must equal the `+Inf` bucket value.
 fn assemble_histogram(parts: &HistogramParts) -> Option<AssembledHistogram> {
     let (sum, _) = parts.sum?;
     let mut buckets: Vec<(f64, f64)> = parts

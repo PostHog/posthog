@@ -46,7 +46,8 @@ fn fold(request: WriteRequest) -> Vec<KafkaMetricRow> {
     fold_classic_histograms(rows, &metadata)
 }
 
-/// A complete classic histogram: buckets 0.5, 1 and +Inf with `_count` and `_sum`.
+/// Creates a complete classic histogram with 0.5, 1, and `+Inf` buckets,
+/// plus `_count` and `_sum` samples.
 fn complete_histogram_request(timestamp: i64) -> WriteRequest {
     let route = &[("route", "/checkout")];
     WriteRequest {
