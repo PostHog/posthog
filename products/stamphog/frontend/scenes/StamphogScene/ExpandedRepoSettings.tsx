@@ -104,14 +104,18 @@ export function ExpandedRepoSettings({ repo }: { repo: StamphogRepoConfigApi }):
                     <LemonSwitch
                         label="Include in the digest"
                         checked={!!repo.digest_enabled}
-                        disabledReason={editorDisabledReason(level) ?? updatingReason}
+                        // The API refuses a digest without reviews, because the digest lists only approved merges.
+                        disabledReason={
+                            editorDisabledReason(level) ??
+                            (repo.enabled ? updatingReason : 'Turn reviews on to include this repository in the digest')
+                        }
                         onChange={(checked) => updateRepoConfig(repo.id, { digest_enabled: checked })}
                         data-attr="stamphog-repo-digest-toggle"
                     />
                 </Section>
                 <Section
                     title="Reviews"
-                    description="Pausing keeps the settings, so you can turn reviews back on later."
+                    description="Pausing also takes the repository out of the digest. The trigger settings stay."
                 >
                     <LemonSwitch
                         label="Review pull requests"
