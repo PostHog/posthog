@@ -61,6 +61,9 @@ describe('router-utils', () => {
             // unrelated /new and /settings scenes
             ['/project/new', '/project/new'],
             ['/project/settings', '/project/settings'],
+            // kea-router decodes the pathname, so these reach the same two routes
+            ['/project/%6Eew', '/project/%6Eew'],
+            ['/project/%73ettings', '/project/%73ettings'],
         ])('reduces %s to %s', (path, expected) => {
             expect(removeProjectIdIfPresent(path)).toEqual(expected)
         })
@@ -87,6 +90,8 @@ describe('router-utils', () => {
             ],
             // A malformed escape cannot be decoded, and must not throw
             ['/project/%E0%A4%A/replay', '/project/123/replay'],
+            // A query string the decoder chokes on must not cost the link its project
+            ['/project/%32/replay?q=50%off', '/project/%32/replay?q=50%off'],
         ])('resolves %s to %s against the current team', (path, expected) => {
             expect(addProjectIdIfMissing(path, 123)).toEqual(expected)
         })

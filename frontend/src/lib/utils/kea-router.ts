@@ -38,37 +38,42 @@ const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 // and `/project/settings` out, because they have their own entries in the redirects map.
 const projectRootWithoutIdentifierInUrlRegex = /^\/project\/?(?=$|[?#])/
 
+const projectSegmentInUrlRegex = /^\/project\/([^/?#]+)/
+
+// These two segments name a route rather than a project, because they have their own entries in the
+// redirects map, so the strip below must leave them alone.
+const reservedProjectRouteNames = ['new', 'settings']
+
+// kea-router decodes the pathname while matching routes, so `/project/%32/replay` reaches project 2
+// and `/project/%6Eew` reaches the create-project flow. Read every project segment in its decoded
+// form, or the strip below takes both for unusable. A stray `%` that no decoder accepts leaves the
+// value as it came, which keeps a path such as `/person/50%off` routable.
+function decodeSafely(value: string): string {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return value
+    }
+}
+
 // Same dead end as above, but for a segment that is there and names no project: a link written by an
 // agent or by hand can carry a placeholder, for example `/project/<project-id>/replay/home`. Drop
 // the unusable segment, so the rest of the link resolves against the current team rather than
-// reading `/project/<team id>/project/%3Cproject-id%3E/replay/home` behind the 404 scene.
-// The lookahead exempts the same two redirect routes.
-const unresolvableProjectIdentifierInUrlRegex = /^\/project\/(?!new(?=$|[/?#])|settings(?=$|[/?#]))[^/?#]+/
-
+// reading `/project/<team id>/project/%3Cproject-id%3E/replay/home` behind the 404 scene. Callers
+// reach this only once `hasProjectIdentifier` has refused the segment.
 function stripUnresolvableProjectIdentifier(path: string): string {
-    const match = path.match(unresolvableProjectIdentifierInUrlRegex)
-    if (!match) {
+    const match = path.match(projectSegmentInUrlRegex)
+    if (!match || reservedProjectRouteNames.includes(decodeSafely(match[1]))) {
         return path
     }
     const stripped = path.slice(match[0].length)
     return stripped.startsWith('/') ? stripped : `/${stripped}`
 }
 
-// kea-router decodes the pathname while matching routes, so an encoded identifier such as
-// `/project/%32/replay` still reaches project 2. Read the decoded form, or the strip above treats
-// that link as unusable and sends it to the current team instead.
-function decodePathSafely(path: string): string {
-    try {
-        return decodeURIComponent(path)
-    } catch {
-        return path
-    }
-}
-
 // A refused project keeps in the address whatever identifier the link carried, which can be a
 // legacy project token that the pattern above does not know.
 function hasProjectIdentifier(path: string): boolean {
-    if (decodePathSafely(path).match(projectIdentifierInUrlRegex)) {
+    if (decodeSafely(path.split(/[?#]/)[0]).match(projectIdentifierInUrlRegex)) {
         return true
     }
     const refusedProject = getAppContext()?.project_access_denied
