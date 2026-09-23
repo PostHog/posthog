@@ -46,9 +46,8 @@ Built-in `posthog.*` namespaces are outside this rollout.
 
 ### Lazy-table traversal catalog
 
-The Go consumer accepts optional traversal metadata alongside the flat catalog.
-This is a consumer-first extension: existing Django snapshots do not publish these annotations yet.
-Deploy the Go consumer before enabling publication in Python, because older consumers reject unknown JSON fields.
+The Python publisher adds traversal metadata alongside the flat catalog using the same permission-filtered HogQL database.
+Deploy the Go traversal consumer before this publisher, because older consumers reject unknown JSON fields.
 Snapshots without traversal metadata keep their existing completion and validation behavior.
 
 A field can carry one of two optional annotations:
@@ -137,18 +136,37 @@ The cache budget includes the traversal graph and annotations; the catalog reque
 Cycles are allowed without recursive expansion.
 Each query path can follow at most 16 relation hops and also consumes the request's field-lookup work budget.
 
-This first consumer slice supports traversal from bound catalog sources, including sources inside CTE bodies.
+Traversal works from bound catalog sources, including sources inside CTE bodies.
 Direct top-level property containers retain their explicit namespace through the existing projected-field provenance rules.
 Projecting a relation or nested virtual property container through a CTE, subquery, or SELECT alias does not yet retain traversal provenance.
-Quoted path completion, nested JSON schemas, scalar traverser expression inference, and execution of lazy joins remain outside this slice.
+Quoted path completion, nested JSON schemas, scalar traverser expression inference, and execution of lazy joins remain unsupported by this graph.
 For deeper JSON paths under an explicit property namespace, validation checks the first property key but does not validate its descendants.
 
-The Python publisher follow-up must resolve `LazyJoin`, `VirtualTable`, and table-valued `FieldTraverser` targets using the same permission-filtered database as the snapshot.
-It must publish only permitted fields, reuse canonical table schemas when they match the resolved target, and deduplicate virtual relation definitions.
-It must bound traversal during publication and isolate unresolvable edges without exposing denied targets.
-It must also distinguish traversal-capable revisions so cached flat snapshots refresh instead of hiding the new suggestions until expiry.
+The Python publisher resolves `LazyJoin`, `VirtualTable`, and table-valued `FieldTraverser` targets from the snapshot's database.
+It follows the configured person and session schemas, including person-on-events virtual fields and parent-relative traversers used by custom joins.
+It reuses a canonical table only when the resolved object and permitted field set match; other permitted helper and virtual targets receive deduplicated inline definitions.
+Warehouse tables and views require a matching exported canonical schema; the publisher never copies them into inline definitions.
+Hidden fields and denied targets do not gain traversal metadata.
+An unresolvable edge or publication budget limit omits the affected traversal, while unrelated fields remain available.
+Omissions produce one aggregate warning per catalog build with reason counts, without table names, query text, or exception traces.
 Scalar traversers need no relation annotation.
 No Python resolver chains, join SQL, credentials, or executable expressions belong in the graph.
+
+For example, with the corresponding tables and properties available to the user:
+
+| SQL                                               | Completion behavior                                                     |
+| ------------------------------------------------- | ----------------------------------------------------------------------- |
+| `SELECT e.person.\| FROM events AS e`             | Fields on the effective person target, not an assumed copy of `persons` |
+| `SELECT e.person.properties.\| FROM events AS e`  | Permitted person properties                                             |
+| `SELECT e.session.\| FROM events AS e`            | Fields on the configured session table                                  |
+| `SELECT e.group_0.properties.\| FROM events AS e` | Properties for group index 0 only                                       |
+| `SELECT e.pdi.person.\| FROM events AS e`         | Fields reached through the person distinct-ID helper                    |
+
+Catalog publication revisions and Redis coordination keys include the traversal capability version.
+The revision retains the warehouse-alias prefix so older Django workers can accept enriched snapshots.
+New Django workers refresh older flat snapshots on use instead of accepting them until expiry.
+During a mixed Django rollout, old workers can still publish flat snapshots; new workers reject those revisions and republish the traversal-capable catalog.
+The frontend request and response contracts do not change, and the existing eligibility checks and Python fallback still apply.
 
 ## Query analysis
 

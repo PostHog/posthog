@@ -6,11 +6,31 @@ import redis
 import requests
 from parameterized import parameterized
 
-from posthog.schema import DatabaseSchemaDataWarehouseTable, DatabaseSchemaPostHogTable, DatabaseSchemaQueryResponse
+from posthog.schema import (
+    DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaField,
+    DatabaseSchemaPostHogTable,
+    DatabaseSchemaQueryResponse,
+    DatabaseSerializedFieldType,
+)
 
-from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import TableNode
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database, _schema_field_input, serialize_fields
+from posthog.hogql.database.lazy_join_tags import EVENTS_TO_SESSIONS_V2, GROUP_N
+from posthog.hogql.database.models import (
+    FieldTraverser,
+    LazyJoin,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    Table,
+    TableNode,
+    VirtualTable,
+)
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.groups import GroupsTable
+from posthog.hogql.database.schema.persons import PersonsTable
+from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
 from posthog.hogql.language_service import (
     CatalogMissing,
     LanguageServiceClient,
@@ -347,6 +367,198 @@ class TestLanguageServiceCatalog(SimpleTestCase):
             },
             joins=[],
         )
+
+    def _posthog_schema(self, database: Database, names: list[str]) -> DatabaseSchemaQueryResponse:
+        context = HogQLContext(team_id=12, database=database)
+        tables = {}
+        for name in names:
+            table = database.get_table(name)
+            fields = serialize_fields(_schema_field_input(table), context, [name])
+            tables[name] = DatabaseSchemaPostHogTable(
+                fields={field.name: field for field in fields}, id=name, name=name
+            )
+        return DatabaseSchemaQueryResponse(tables=tables, joins=[])
+
+    def _posthog_table(self, name: str, field_names: list[str]) -> DatabaseSchemaPostHogTable:
+        return DatabaseSchemaPostHogTable(
+            fields={
+                field_name: DatabaseSchemaField(
+                    name=field_name,
+                    hogql_value=field_name,
+                    schema_valid=True,
+                    type=DatabaseSerializedFieldType.UNKNOWN,
+                )
+                for field_name in field_names
+            },
+            id=name,
+            name=name,
+        )
+
+    def _warehouse_table(self, name: str, table_id: str, table: S3Table) -> DatabaseSchemaDataWarehouseTable:
+        fields = serialize_fields(
+            table.fields,
+            HogQLContext(team_id=12),
+            name.split("."),
+            table_type="external",
+        )
+        return DatabaseSchemaDataWarehouseTable(
+            fields={field.name: field for field in fields},
+            id=table_id,
+            name=name,
+        )
+
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    def test_publishes_resolved_person_session_group_and_virtual_traversals(self, _properties: MagicMock) -> None:
+        database = Database(include_posthog_tables=False)
+        events = EventsTable()
+        persons = PersonsTable()
+        sessions = SessionsTableV2()
+        groups = GroupsTable()
+        groups.fields["member"] = EventsPersonSubTable()
+        hidden_groups = GroupsTable()
+        hidden_groups.fields["properties"].hidden = True
+        subscriptions = S3Table(
+            name="subscriptions",
+            fields={
+                "plan": StringDatabaseField(name="plan"),
+                "team_id": StringDatabaseField(name="team_id"),
+            },
+            table_id="subscriptions-id",
+            url="",
+        )
+        events.fields["session"] = LazyJoin(
+            from_field=["$session_id"], join_table=sessions, resolver=EVENTS_TO_SESSIONS_V2
+        )
+        events.fields["group_0"] = LazyJoin(
+            from_field=["$group_0"], join_table=groups, resolver=GROUP_N, resolver_params={"group_index": 0}
+        )
+        events.fields["organization"] = FieldTraverser(chain=["group_0"])
+        events.fields["group_member"] = FieldTraverser(chain=["group_0", "member"])
+        events.fields["hidden_group"] = LazyJoin(
+            from_field=["$group_1"], join_table=hidden_groups, resolver=GROUP_N, resolver_params={"group_index": 1}
+        )
+        events.fields["subscription"] = LazyJoin(
+            from_field=["subscription_id"], join_table=subscriptions, resolver="foreign_key"
+        )
+        for name, table in (
+            ("events", events),
+            ("persons", persons),
+            ("sessions", sessions),
+            ("groups", groups),
+            ("hidden_groups", hidden_groups),
+        ):
+            database.tables.add_child(TableNode(name=name, table=table))
+        database.tables.add_child(TableNode.create_nested_for_chain(["warehouse", "subscriptions"], subscriptions))
+        schema = self._posthog_schema(database, ["events", "persons", "sessions", "groups", "hidden_groups"])
+        schema.tables["warehouse.subscriptions"] = self._warehouse_table(
+            "warehouse.subscriptions", "subscriptions-id", subscriptions
+        )
+
+        catalog = build_catalog(MagicMock(pk=12), MagicMock(), schema, database=database)
+
+        relations = catalog["relations"]
+        person = relations[catalog["tables"]["events"]["fields"]["person"]["relation"]]
+        assert person == {"table": "persons"}
+        session = relations[catalog["tables"]["events"]["fields"]["session"]["relation"]]
+        assert session == {"table": "sessions"}
+        group_relation_name = catalog["tables"]["events"]["fields"]["group_0"]["relation"]
+        assert catalog["tables"]["events"]["fields"]["organization"]["relation"] == group_relation_name
+        assert relations[group_relation_name] == {
+            "table": "groups",
+            "propertyNamespaces": {"properties": "group:0"},
+        }
+        hidden_group = relations[catalog["tables"]["events"]["fields"]["hidden_group"]["relation"]]
+        assert hidden_group == {"table": "hidden_groups"}
+        group_member = relations[catalog["tables"]["events"]["fields"]["group_member"]["relation"]]
+        assert group_member["fields"]["properties"]["propertyNamespace"] == "person"
+        subscription = relations[catalog["tables"]["events"]["fields"]["subscription"]["relation"]]
+        assert subscription == {"table": "warehouse.subscriptions"}
+        pdi = relations[catalog["tables"]["events"]["fields"]["pdi"]["relation"]]
+        assert relations[pdi["fields"]["person"]["relation"]] == {"table": "persons"}
+
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    def test_virtual_person_schema_keeps_parent_traversal_and_does_not_reuse_persons(
+        self, _properties: MagicMock
+    ) -> None:
+        database = Database(include_posthog_tables=False)
+        events = EventsTable()
+        persons = PersonsTable()
+        poe = EventsPersonSubTable()
+        poe.fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
+        poe.fields["again"] = LazyJoin(from_field=["id"], join_table=poe, resolver="foreign_key")
+        events.fields["poe"] = poe
+        events.fields["person"] = FieldTraverser(chain=["poe"])
+        database.tables.add_child(TableNode(name="events", table=events))
+        database.tables.add_child(TableNode(name="persons", table=persons))
+        schema = self._posthog_schema(database, ["events", "persons"])
+
+        catalog = build_catalog(MagicMock(pk=12), MagicMock(), schema, database=database)
+
+        relation = catalog["relations"][catalog["tables"]["events"]["fields"]["person"]["relation"]]
+        assert "table" not in relation
+        assert set(relation["fields"]) == {"again", "created_at", "id", "properties", "revenue_analytics"}
+        nested_relation_name = relation["fields"]["again"]["relation"]
+        assert catalog["relations"][nested_relation_name]["fields"]["again"]["relation"] == nested_relation_name
+        assert relation["fields"]["properties"]["propertyNamespace"] == "person"
+        assert "is_identified" not in relation["fields"]
+
+    @patch("posthog.hogql.catalog_traversal.logger.warning")
+    @patch("posthog.hogql.catalog_traversal.MAX_RELATION_DEFINITIONS", 1)
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    def test_omits_denied_hidden_and_broken_edges_without_failing_catalog(
+        self, _properties: MagicMock, warning: MagicMock
+    ) -> None:
+        database = Database(include_posthog_tables=False)
+        denied = S3Table(
+            name="private",
+            fields={
+                "nested": VirtualTable(fields={"secret": StringDatabaseField(name="secret")}),
+                "secret": StringDatabaseField(name="secret"),
+            },
+            url="",
+        )
+        virtual = VirtualTable(
+            fields={
+                "visible": StringDatabaseField(name="visible"),
+                "hidden": StringDatabaseField(name="hidden", hidden=True),
+                "broken": LazyJoin(from_field=["id"], join_table="missing", resolver="foreign_key"),
+            }
+        )
+        overflow = VirtualTable(fields={"other": StringDatabaseField(name="other")})
+        events = Table(
+            fields={
+                "denied": LazyJoin(from_field=["id"], join_table=denied, resolver="foreign_key"),
+                "denied_nested": FieldTraverser(chain=["denied", "nested"]),
+                "allowed": virtual,
+                "overflow": overflow,
+                "id": StringDatabaseField(name="id"),
+                "properties": StringJSONDatabaseField(name="properties"),
+            }
+        )
+        database.tables.add_child(TableNode(name="events", table=events))
+        denied_node = TableNode(name="private", table=denied)
+        denied_node.hidden = True
+        database.tables.add_child(denied_node)
+        schema = DatabaseSchemaQueryResponse(
+            tables={
+                "events": self._posthog_table(
+                    "events", ["denied", "denied_nested", "allowed", "overflow", "id", "properties"]
+                )
+            },
+            joins=[],
+        )
+
+        catalog = build_catalog(MagicMock(pk=12), MagicMock(), schema, database=database)
+
+        fields = catalog["tables"]["events"]["fields"]
+        assert "relation" not in fields["denied"]
+        assert "relation" not in fields["denied_nested"]
+        assert "relation" not in fields["overflow"]
+        allowed = catalog["relations"][fields["allowed"]["relation"]]["fields"]
+        assert set(allowed) == {"visible"}
+        warning.assert_called_once()
+        assert warning.call_args.kwargs["reasons"]["definition_limit"] == 1
+        assert "missing" not in str(warning.call_args)
 
     @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
     def test_publishes_only_resolver_confirmed_aliases(self, _properties: MagicMock) -> None:

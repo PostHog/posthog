@@ -179,7 +179,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         enabled.side_effect = enable_language_service
         language_result = LanguageServiceResult(
             body={
-                "catalogRevision": "warehouse-aliases-v1:cached",
+                "catalogRevision": "warehouse-aliases-v1:traversals-v1:cached",
                 "suggestions": [
                     {"label": "events", "kind": "table", "detail": "posthog"},
                     {"label": "count", "kind": "function", "insertText": "count()", "sortText": "2-count"},
@@ -240,7 +240,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         now = [0.0]
         language_result = LanguageServiceResult(
             body={
-                "catalogRevision": "warehouse-aliases-v1:published",
+                "catalogRevision": "warehouse-aliases-v1:traversals-v1:published",
                 "suggestions": [],
                 "durationMicros": 10_000,
             },
@@ -362,7 +362,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
     ) -> None:
         client_class.return_value.validate.return_value = LanguageServiceResult(
             body={
-                "catalogRevision": "warehouse-aliases-v1:cached",
+                "catalogRevision": "warehouse-aliases-v1:traversals-v1:cached",
                 "valid": False,
                 "diagnostics": [
                     {
@@ -488,7 +488,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         capture_malformed: MagicMock,
     ) -> None:
         client_class.return_value.validate.return_value = LanguageServiceResult(
-            body={"catalogRevision": "warehouse-aliases-v1:cached", "diagnostics": diagnostics},
+            body={"catalogRevision": "warehouse-aliases-v1:traversals-v1:cached", "diagnostics": diagnostics},
             duration_seconds=0,
             response_size_bytes=0,
         )
@@ -548,7 +548,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         perf_counter.side_effect = lambda: now[0]
         language_result = LanguageServiceResult(
             body={
-                "catalogRevision": "warehouse-aliases-v1:cached",
+                "catalogRevision": "warehouse-aliases-v1:traversals-v1:cached",
                 "suggestions": suggestions,
                 "durationMicros": 1,
             },
@@ -840,14 +840,14 @@ class TestLanguageServiceRouting(SimpleTestCase):
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
     @patch("posthog.hogql.language_service.get_client")
     @patch("posthog.api.services.query.LanguageServiceClient")
-    def test_accepts_a_cached_alias_catalog(
+    def test_accepts_a_cached_traversal_catalog(
         self,
         client_class: MagicMock,
         get_redis_client: MagicMock,
         _enabled: MagicMock,
     ) -> None:
         client_class.return_value.validate.return_value = LanguageServiceResult(
-            body={"valid": True, "catalogRevision": "warehouse-aliases-v1:cached"},
+            body={"valid": True, "catalogRevision": "warehouse-aliases-v1:traversals-v1:cached"},
             duration_seconds=0,
             response_size_bytes=0,
         )
@@ -865,6 +865,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
     @parameterized.expand(
         [
             ("legacy-v1:cached",),
+            ("warehouse-aliases-v1:cached",),
             ("1789766573113832612",),
             (None,),
         ]
@@ -922,7 +923,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         )
 
         assert result.result is not None
-        assert published_revision[0].startswith("warehouse-aliases-v1:")
+        assert published_revision[0].startswith("warehouse-aliases-v1:traversals-v1:")
         assert client.validate.call_count == 3
         assert build_catalog_mock.call_args.kwargs["database"] is build_schema.return_value.database
 
@@ -962,7 +963,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("warehouse-aliases-v1:concurrent", True, "served", None),
+            ("warehouse-aliases-v1:traversals-v1:concurrent", True, "served", None),
             ("legacy-v1:other", False, "invalid_response", "http_response"),
             (None, False, "invalid_response", "http_response"),
             (123, False, "invalid_response", "http_response"),

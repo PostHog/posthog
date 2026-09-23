@@ -19,6 +19,7 @@ import posthoganalytics
 
 from posthog.schema import DatabaseSchemaDataWarehouseTable, DatabaseSchemaQueryResponse
 
+from posthog.hogql.catalog_traversal import build_catalog_traversals
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.editor_assist_metrics import (
     LANGUAGE_SERVICE_HTTP_DURATION_SECONDS,
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
 
 FEATURE_FLAG = "hogql-language-service"
 AFFINITY_HEADER = "X-HogQL-Affinity-Key"
-WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX = "warehouse-aliases-v1:"
+TRAVERSAL_CATALOG_REVISION_PREFIX = "warehouse-aliases-v1:traversals-v1:"
 
 _CATALOG_PUBLICATION_MARKER_TTL_SECONDS = 5
 _CATALOG_PUBLICATION_LOCK_TTL_SECONDS = 10
@@ -81,9 +82,7 @@ def coordinate_catalog_publication(
     publish_catalog: Callable[[], None],
     timings: HogQLTimings | None = None,
 ) -> LanguageServiceResult | None:
-    scope = sha256(
-        f"{service_target}:{team_id}:{user_id}:{WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}".encode()
-    ).hexdigest()
+    scope = sha256(f"{service_target}:{team_id}:{user_id}:{TRAVERSAL_CATALOG_REVISION_PREFIX}".encode()).hexdigest()
     key_prefix = f"hogql-language-service:catalog-publication:{{{scope}}}"
     marker_key = f"{key_prefix}:success"
     lock_key = f"{key_prefix}:lock"
@@ -194,10 +193,15 @@ def build_catalog(
         properties[f"group:{group_type_index}"] = _properties_for_namespace(
             team, user, PropertyDefinition.Type.GROUP, group_type_index
         )
+    traversals = build_catalog_traversals(team, user, schema, database, set(properties))
+    for table_name, field_annotations in traversals.field_annotations.items():
+        for field_name, annotation in field_annotations.items():
+            tables[table_name]["fields"][field_name].update(annotation)
     return {
         "tables": tables,
         "properties": properties,
         "tableAliases": _warehouse_table_aliases(schema, database),
+        "relations": traversals.relations,
     }
 
 
