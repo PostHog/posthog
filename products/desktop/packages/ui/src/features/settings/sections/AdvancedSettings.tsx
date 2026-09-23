@@ -19,15 +19,12 @@ import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettin
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useSetupStore } from "@posthog/ui/features/setup/setupStore";
 import { useTourStore } from "@posthog/ui/features/tour/tourStore";
-import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { clearApplicationStorage } from "@posthog/ui/utils/clearStorage";
 import { Button, Checkbox, Flex, Switch, Text } from "@radix-ui/themes";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 import { OnboardingTestTools } from "./OnboardingTestTools";
 import { SettingsBackup } from "./SettingsBackup";
-
-const CHROME_REMOTE_DEBUGGING_URL = "chrome://inspect/#remote-debugging";
 
 export function AdvancedSettings() {
   const showDebugLogsToggle =
@@ -52,6 +49,9 @@ export function AdvancedSettings() {
   );
   const hostTRPC = useHostTRPC();
   const { data: rtkStatus } = useQuery(hostTRPC.agent.rtkStatus.queryOptions());
+  const openChromeRemoteDebugging = useMutation(
+    hostTRPC.os.openChromeRemoteDebugging.mutationOptions(),
+  );
   const devModeClient = useServiceOptional<DevModeClient>(DEV_MODE_CLIENT);
   const showOnboardingTools = useFeatureFlag(ONBOARDING_TEST_TOOLS_FLAG);
 
@@ -59,27 +59,43 @@ export function AdvancedSettings() {
     <div className="flex flex-col gap-7">
       <SettingsBackup />
       <SettingsSection
-        label="Computer use"
-        description="Manage how local agents use other applications on your computer"
+        label="Browser access"
+        description="Manage Chrome access for new local agent sessions"
       >
         <SettingsCard>
           <SettingsCardRow
             label="Google Chrome"
-            description="Let local agents inspect and control open Chrome tabs, including signed-in pages. In Chrome, enable remote debugging and approve the connection."
+            description={
+              <ul className="list-disc space-y-0.5 pl-4">
+                <li>Can access open tabs signed in to your accounts</li>
+                <li>Enable only for agents you trust</li>
+                <li>Applies to new sessions</li>
+              </ul>
+            }
           >
-            <div className="flex items-center gap-3">
-              <Button
-                size="1"
-                variant="soft"
-                onClick={() => openExternalUrl(CHROME_REMOTE_DEBUGGING_URL)}
-              >
-                Open Chrome setup
-              </Button>
-              <Switch
-                checked={browserIntegrationEnabled}
-                onCheckedChange={setBrowserIntegrationEnabled}
-                size="1"
-              />
+            <div className="flex flex-col items-end gap-1">
+              <div className="flex items-center gap-3">
+                <Button
+                  size="1"
+                  variant="soft"
+                  disabled={openChromeRemoteDebugging.isPending}
+                  onClick={() => openChromeRemoteDebugging.mutate()}
+                >
+                  Open Chrome setup
+                </Button>
+                <Switch
+                  aria-label="Enable Google Chrome browser access"
+                  checked={browserIntegrationEnabled}
+                  onCheckedChange={setBrowserIntegrationEnabled}
+                  size="1"
+                />
+              </div>
+              {openChromeRemoteDebugging.isError && (
+                <Text size="1" color="red">
+                  Couldn&apos;t open Chrome setup. Check that Google Chrome is
+                  installed.
+                </Text>
+              )}
             </div>
           </SettingsCardRow>
         </SettingsCard>

@@ -278,6 +278,11 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
 
   {
     category: "advanced",
+    label: "Advanced",
+    keywords: ["settings"],
+  },
+  {
+    category: "advanced",
     label: "Back up settings and sounds",
     requiresBackupFiles: true,
     keywords: [

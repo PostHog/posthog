@@ -55,7 +55,6 @@ const CLIPBOARD_TEMP_DIR = path.join(
   CLIPBOARD_ATTACHMENT_DIR_NAME,
 );
 const claudeSettingsPath = path.join(os.homedir(), ".claude", "settings.json");
-
 async function isInsideClipboardTempDir(filePath: string): Promise<boolean> {
   const [realFile, realDir] = await Promise.all([
     fsPromises.realpath(filePath),
@@ -444,6 +443,10 @@ export class OsService {
 
   async openExternal(url: string): Promise<void> {
     await this.urlLauncher.launch(url);
+  }
+
+  async openChromeRemoteDebugging(): Promise<void> {
+    await this.urlLauncher.launchChromeRemoteDebugging();
   }
 
   async showLogFolder(): Promise<void> {

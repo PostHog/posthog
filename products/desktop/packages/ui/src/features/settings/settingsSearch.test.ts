@@ -8,6 +8,7 @@ describe("searchSettings", () => {
   it.each([
     ["finds backups by export", "export sounds", "Back up settings and sounds"],
     ["matches labels case-insensitively", "THEME", "Theme"],
+    ["finds Advanced settings", "advanced", "Advanced"],
     [
       "matches keywords the label doesn't contain",
       "elevenlabs",

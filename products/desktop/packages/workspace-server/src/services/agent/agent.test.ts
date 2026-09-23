@@ -116,11 +116,12 @@ vi.mock("@posthog/agent/agent", () => ({
 
 vi.mock("@posthog/agent/browser-mcp", () => ({
   createBrowserMcpServer: () => ({
-    name: "browser",
+    name: "chrome-devtools",
     command: "/mock/electron",
     args: [
       "/mock/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js",
       "--auto-connect",
+      "--redact-network-headers",
       "--no-usage-statistics",
       "--no-performance-crux",
     ],
@@ -855,7 +856,7 @@ describe("AgentService", () => {
     });
 
     it.each(["claude", "codex"] as const)(
-      "adds Chrome browser access for %s when enabled",
+      "configures Chrome browser access for %s based on the setting",
       async (adapter) => {
         await service.startSession({
           ...baseSessionParams,
@@ -863,18 +864,35 @@ describe("AgentService", () => {
           browserIntegrationEnabled: true,
         });
 
-        expect(mockNewSession.mock.calls[0][0].mcpServers).toEqual(
+        const enabledServers = mockNewSession.mock.calls[0][0].mcpServers;
+        expect(enabledServers).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
-              name: "browser",
+              name: "chrome-devtools",
               command: "/mock/electron",
               args: [
                 "/mock/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js",
                 "--auto-connect",
+                "--redact-network-headers",
                 "--no-usage-statistics",
                 "--no-performance-crux",
               ],
             }),
+          ]),
+        );
+
+        mockNewSession.mockClear();
+        await service.startSession({
+          ...baseSessionParams,
+          adapter,
+          browserIntegrationEnabled: false,
+          taskRunId: `browser-disabled-${adapter}`,
+        });
+
+        const disabledServers = mockNewSession.mock.calls[0][0].mcpServers;
+        expect(disabledServers).not.toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ name: "chrome-devtools" }),
           ]),
         );
       },

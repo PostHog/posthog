@@ -72,6 +72,10 @@ export const osRouter = router({
       ctx.container.get<OsService>(OS_SERVICE).openExternal(input.url),
     ),
 
+  openChromeRemoteDebugging: publicProcedure.mutation(({ ctx }) =>
+    ctx.container.get<OsService>(OS_SERVICE).openChromeRemoteDebugging(),
+  ),
+
   showLogFolder: publicProcedure.mutation(({ ctx }) =>
     ctx.container.get<OsService>(OS_SERVICE).showLogFolder(),
   ),

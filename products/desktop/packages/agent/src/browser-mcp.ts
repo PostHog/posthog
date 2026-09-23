@@ -14,7 +14,7 @@ export function createBrowserMcpServer(): BrowserMcpServer {
   const packageJson = require.resolve("chrome-devtools-mcp/package.json");
 
   return {
-    name: "browser",
+    name: "chrome-devtools",
     command: process.execPath,
     args: [
       path.join(
@@ -22,6 +22,7 @@ export function createBrowserMcpServer(): BrowserMcpServer {
         "build/src/bin/chrome-devtools-mcp.js",
       ),
       "--auto-connect",
+      "--redact-network-headers",
       "--no-usage-statistics",
       "--no-performance-crux",
     ],

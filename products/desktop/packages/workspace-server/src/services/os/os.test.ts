@@ -29,7 +29,10 @@ function createService() {
     pickFile: vi.fn(),
     confirm: vi.fn(),
   };
-  const urlLauncher = { launch: vi.fn().mockResolvedValue(undefined) };
+  const urlLauncher = {
+    launch: vi.fn().mockResolvedValue(undefined),
+    launchChromeRemoteDebugging: vi.fn().mockResolvedValue(undefined),
+  };
   const appMeta = { version: "9.9.9" };
   const imageProcessor = { downscale: vi.fn() };
   const workspaceSettings = {
@@ -170,6 +173,12 @@ describe("OsService simple delegations", () => {
     const { service, urlLauncher } = createService();
     await service.openExternal("https://posthog.com");
     expect(urlLauncher.launch).toHaveBeenCalledWith("https://posthog.com");
+  });
+
+  it("opens Chrome remote debugging through the url launcher", async () => {
+    const { service, urlLauncher } = createService();
+    await service.openChromeRemoteDebugging();
+    expect(urlLauncher.launchChromeRemoteDebugging).toHaveBeenCalledOnce();
   });
 
   it("opens the log folder as a file URL via the url launcher", async () => {
