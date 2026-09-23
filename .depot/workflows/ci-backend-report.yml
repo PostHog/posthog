@@ -23,6 +23,7 @@ jobs:
     report-migrations:
         if: >-
             github.event.pull_request.head.repo.full_name == github.repository
+            && !startsWith(github.event.pull_request.head.ref, 'trunk-merge/')
             && (github.event.pull_request.draft != true || !contains(github.event.pull_request.labels.*.name, 'no-ci'))
         name: Report Depot migration results
         runs-on: depot-ubuntu-24.04
@@ -64,29 +65,38 @@ jobs:
                   }
 
                   handoff_url=$(check_url "$GITHUB_ACTIONS_APP_ID" "$HANDOFF_CHECK")
-                  handoff=absent
-                  for _ in $(seq 1 45); do
+                  # A failed API read sets `unread`, so it never passes for a confirmed `absent`.
+                  handoff=unread
+                  # Matches the hand-off wait in ci-backend.yml: after it, Depot runs nothing to report.
+                  for _ in $(seq 1 30); do
                       if read_check "$handoff_url" /tmp/handoff-checks.json; then
                           handoff=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '
                               [.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))]
                               | max_by(.id)
                               | if . == null then "absent" elif .status == "completed" then .conclusion else .status end
                           ' /tmp/handoff-checks.json)
+                      else
+                          handoff=unread
                       fi
                       case "$handoff" in
-                          success) break ;;
-                          absent|queued|in_progress|pending|waiting|requested) sleep 20 ;;
-                          *)
-                              echo "handed_off=false" >> "$GITHUB_OUTPUT"
-                              echo "GitHub Actions kept the backend tests (hand-off check: $handoff)."
-                              exit 0
-                              ;;
+                          unread|absent|queued|in_progress|pending|waiting|requested) sleep 20 ;;
+                          *) break ;;
                       esac
                   done
-                  if [ "$handoff" != success ]; then
-                      echo "::error::Backend routing did not resolve within 15 minutes"
-                      exit 1
-                  fi
+                  case "$handoff" in
+                      success) ;;
+                      unread|queued|in_progress|pending|waiting|requested)
+                          echo "::error::Backend routing did not resolve within 10 minutes (hand-off check: $handoff)"
+                          exit 1
+                          ;;
+                      *)
+                          # `absent` covers a PR with merge conflicts: GitHub runs no pull_request
+                          # workflow for it, but this pull_request_target run still starts.
+                          echo "handed_off=false" >> "$GITHUB_OUTPUT"
+                          echo "GitHub Actions kept the backend tests (hand-off check: $handoff)."
+                          exit 0
+                          ;;
+                  esac
                   echo "handed_off=true" >> "$GITHUB_OUTPUT"
 
                   migration_url=$(check_url "$DEPOT_APP_ID" "$MIGRATION_CHECK")
@@ -235,7 +245,9 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
               with:
                   repository: ${{ github.repository }}
-                  ref: ${{ github.event.pull_request.base.sha }}
+                  # The base branch head this workflow file came from. pull_request.base.sha
+                  # only moves when the PR is opened or force-pushed, so it can predate the scripts.
+                  ref: ${{ github.sha }}
                   path: trusted-reporter
                   sparse-checkout: |
                       .nvmrc
@@ -301,7 +313,6 @@ jobs:
               working-directory: trusted-reporter
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-                  IS_TRUNK: ${{ startsWith(github.event.pull_request.head.ref, 'trunk-merge/') }}
               run: |
                   set -euo pipefail
                   data=/tmp/depot-migration-rendered
@@ -336,7 +347,7 @@ jobs:
                       post_django risk post ok "migration analysis complete" "$data/django-migration-risk.md"
                   fi
 
-                  if [ "$IS_TRUNK" != true ] && [ "$(jq -r '.chAvailable' "$metadata")" = true ]; then
+                  if [ "$(jq -r '.chAvailable' "$metadata")" = true ]; then
                       count=$(jq -r '.chMigrationCount' "$metadata")
                       if [ "$count" -gt 0 ]; then
                           cp "$data/ch-migration-sql.md" ch_migration_sql_comment.md
