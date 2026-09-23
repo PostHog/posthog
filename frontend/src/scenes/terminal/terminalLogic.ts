@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
+import { router } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -297,7 +298,7 @@ export const terminalLogic = kea<terminalLogicType>([
                     return pending
                 })
                 cache.filesystem = filesystem
-                new PosthogCommands(String(projectId), controller.signal, filesystem)
+                new PosthogCommands(String(projectId), controller.signal, filesystem, (url) => router.actions.push(url))
                 actions.setStatus('booting')
                 const server = new NinePServer(filesystem, (error) => {
                     if (!controller.signal.aborted) {

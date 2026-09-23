@@ -160,6 +160,7 @@ export class TerminalRuntime {
                         'cp /posthog/bin/ph /usr/bin/ph && chmod +x /usr/bin/ph || exit',
                         'mkdir -p /usr/local/bin && cp /posthog/bin/rm /usr/local/bin/rm && chmod +x /usr/local/bin/rm || exit',
                         'export PATH=/usr/local/bin:$PATH',
+                        'cp /posthog/bin/open /usr/bin/open && chmod +x /usr/bin/open || exit',
                         ...Object.values(packageManifest.packages).flatMap((pkg) =>
                             Object.keys(pkg.commands).map(
                                 (command) =>

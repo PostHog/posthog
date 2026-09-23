@@ -46,6 +46,7 @@ ph <command> --json '{...}'       Supply a JSON arguments object
 ph <command> --json @args.json    Read arguments from a Linux file
 ph <command> --json -            Read arguments from stdin
 ph refresh                       Reload the project tree and connected tool catalog
+ph open [path]                   Open a project file or folder in PostHog (defaults to .)
 
 Examples:
   ph notebooks-list --limit 10 | jq .results
@@ -136,7 +137,8 @@ export class PosthogCommands {
     constructor(
         private projectId: string,
         private signal: AbortSignal,
-        private filesystem: PosthogFilesystem
+        private filesystem: PosthogFilesystem,
+        private navigate: (url: string) => void
     ) {
         this.toolDirectory = filesystem.directory('tools', filesystem.root)
         const options = { signal }
@@ -375,6 +377,17 @@ export class PosthogCommands {
             const { paths, recursive, force } = parseRemovalArguments(request.argv)
             await this.filesystem.removePaths(paths, recursive, force)
             return null
+        }
+        if (name === 'open') {
+            if (rest.length > 1) {
+                throw new Error('Use open with one file or folder path. Quote paths containing spaces.')
+            }
+            const url = await this.filesystem.navigationUrl(rest[0] ?? '.', cwd)
+            if (this.signal.aborted) {
+                throw new Error('The terminal stopped. Start it again before opening a file.')
+            }
+            this.navigate(url)
+            return `Opened ${rest[0] ?? '.'} in PostHog.`
         }
         if (name === 'help' || name === '--help') {
             if (!rest.length) {
