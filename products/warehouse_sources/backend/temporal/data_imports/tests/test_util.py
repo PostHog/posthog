@@ -400,6 +400,31 @@ async def test_delete_folder_swallows_transient_s3_connection_error(mock_capture
 
 @pytest.mark.asyncio
 @patch(f"{_UTIL_MODULE}.capture_exception")
+async def test_delete_folder_swallows_s3_clock_skew_error(mock_capture_exception: MagicMock) -> None:
+    # S3 rejects a signed request whose clock has drifted too far from its own with
+    # RequestTimeTooSkewed, which s3fs maps onto the same generic PermissionError as a real access
+    # denial. The worker's own clock resyncs and the identical delete succeeds later, so this must
+    # not mint an error-tracking issue any more than a connection blip would.
+    s3 = _mock_s3()
+    s3._rm = AsyncMock(
+        side_effect=PermissionError("The difference between the request time and the current time is too large.")
+    )
+
+    with _mock_s3_context(s3):
+        await prepare_s3_files_for_querying(
+            folder_path="job",
+            table_name="events",
+            file_uris=[],
+            use_timestamped_folders=False,
+            delete_existing=True,
+        )
+
+    s3._rm.assert_awaited_once()
+    mock_capture_exception.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch(f"{_UTIL_MODULE}.capture_exception")
 async def test_delete_folder_still_captures_non_transient_error(mock_capture_exception: MagicMock) -> None:
     # A genuine cleanup failure (not a network blip) must still be reported.
     s3 = _mock_s3()

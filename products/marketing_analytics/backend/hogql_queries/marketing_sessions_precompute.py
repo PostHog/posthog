@@ -7,7 +7,6 @@ from datetime import datetime
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import expand_default_channel_type_call
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 from posthog.schema_enums import SessionTableVersion
@@ -43,16 +42,6 @@ SESSION_READ_REACHBACK_DAYS = 1
 MAX_PRECOMPUTED_SESSION_SECONDS = 3 * 24 * 60 * 60
 SESSION_SETTLING_PERIOD_SECONDS = MAX_PRECOMPUTED_SESSION_SECONDS
 
-# Keep start predicates unwrapped so the sessions resolver pushes them into raw sessions.
-UNSUPPORTED_SESSIONS_QUERY = """
-SELECT 1
-FROM sessions
-WHERE $start_timestamp >= {time_window_min}
-    AND $start_timestamp < {time_window_max}
-    AND $end_timestamp > $start_timestamp + toIntervalSecond({max_session_seconds})
-LIMIT 1
-"""
-
 SESSIONS_INSERT_TEMPLATE = """
 SELECT
     toStartOfHour(toTimeZone(min(events.session.$start_timestamp), 'UTC')) AS period_bucket,
@@ -81,7 +70,8 @@ WHERE and(
 GROUP BY session_id_v7, person_id
 HAVING and(
     min(events.session.$start_timestamp) >= {time_window_min},
-    min(events.session.$start_timestamp) < {time_window_max}
+    min(events.session.$start_timestamp) < {time_window_max},
+    max(events.session.$end_timestamp) <= min(events.session.$start_timestamp) + toIntervalSecond({max_session_seconds})
 )
 """
 
@@ -124,27 +114,6 @@ def ensure_marketing_sessions_precomputed(
     windows = get_daily_windows(time_range_start, time_range_end)
     if not windows:
         return LazyComputationResult(ready=True, job_ids=[])
-
-    # Check cache hits too: a session can outgrow the scan budget after its window was materialized.
-    unsupported = execute_hogql_query(
-        UNSUPPORTED_SESSIONS_QUERY,
-        team,
-        modifiers=modifiers,
-        query_type="marketing_sessions_precompute_coverage",
-        placeholders={
-            "time_window_min": ast.Constant(value=windows[0][0]),
-            "time_window_max": ast.Constant(value=windows[-1][1]),
-            "max_session_seconds": ast.Constant(value=MAX_PRECOMPUTED_SESSION_SECONDS),
-        },
-    )
-    if unsupported.error:
-        return LazyComputationResult(ready=False, job_ids=[], errors=["Could not verify session precompute coverage"])
-    if unsupported.results:
-        return LazyComputationResult(
-            ready=False,
-            job_ids=[],
-            errors=["Session duration exceeds the precompute scan budget; use live attribution"],
-        )
 
     return ensure_precomputed(
         run_inserts=run_inserts,

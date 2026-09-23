@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     apply_incremental_lookback,
     complete_schema_run,
     mark_initial_sync_complete,
+    mark_schema_running_unless_halted,
     process_incremental_value,
     update_sync_type_config_keys,
 )
@@ -783,6 +784,42 @@ class TestMarkInitialSyncComplete(BaseTest):
         schema.refresh_from_db()
         assert schema.initial_sync_complete == expected_flag
         assert schema.sync_type_config == expected_config
+
+
+class TestMarkSchemaRunningUnlessHalted(BaseTest):
+    @parameterized.expand(
+        [
+            ("healthy", {}, True),
+            ("broken", {"cdc_broken": {"reason": "critical_lag_self_managed"}}, False),
+            ("paused", {"cdc_extraction_paused": {"reason": "transaction_too_large"}}, False),
+        ]
+    )
+    def test_only_a_schema_without_a_halt_marker_is_painted_running(
+        self, _name: str, sync_type_config: dict, painted: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="users",
+            sync_type="cdc",
+            sync_type_config=sync_type_config,
+            status=ExternalDataSchema.Status.FAILED,
+        )
+        stale = ExternalDataSchema.objects.get(id=schema.id)
+        stale.sync_type_config = {}
+
+        assert mark_schema_running_unless_halted(stale) is painted
+
+        schema.refresh_from_db()
+        expected = ExternalDataSchema.Status.RUNNING if painted else ExternalDataSchema.Status.FAILED
+        assert schema.status == expected
 
 
 class TestCompleteSchemaRun(BaseTest):
