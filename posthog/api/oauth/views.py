@@ -940,6 +940,13 @@ class OAuthValidator(OAuth2Validator):
         original ``authorization_code``-issued AT keeps the back-reference;
         refresh-issued rows pass ``source_refresh_token=None`` and stay
         addressable by token / token_checksum.
+
+        The RT's own ``access_token`` link moves to the new row. The daily
+        cleanup job deletes an RT by the expiry of its linked AT, and DOT reads
+        the next refresh's scopes from that AT, so a link left on the
+        authorization-code AT would delete a refresh token that is still in use.
+        The previous AT stays valid until it expires, and the cleanup job then
+        deletes it as a standalone token.
         """
         refresh_token_code = token.get("refresh_token")
         refresh_token_instance = getattr(request, "refresh_token_instance", None)
@@ -961,13 +968,14 @@ class OAuthValidator(OAuth2Validator):
             seconds=token.get("expires_in", oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS),
         )
 
-        self._create_access_token(
+        access_token = self._create_access_token(
             expires,
             request,
             token,
             source_refresh_token=None,
             scope_source_refresh_token=refresh_token_instance,
         )
+        OAuthRefreshToken.objects.filter(pk=refresh_token_instance.pk).update(access_token=access_token)
         logger.info(
             "oauth_non_rotating_refresh_inserted",
             client_id_prefix=str(getattr(request.client, "client_id", "")[:8]),
