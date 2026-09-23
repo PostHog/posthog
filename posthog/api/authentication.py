@@ -53,11 +53,12 @@ from posthog.api.email_verification import email_verification_code_verifier, is_
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_password_reset
+from posthog.event_usage import report_password_reset_no_op, report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.organization_access_request import OrganizationAccessRequestGrant
 from posthog.helpers.sso import is_sso_reauth_begin, sso_failure_redirect_url
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
@@ -78,6 +79,7 @@ from posthog.rate_limit import (
     CodeBasedVerificationResendThrottle,
     CodeBasedVerificationThrottle,
     LoginPrecheckThrottle,
+    OrganizationAccessRequestThrottle,
     SSOLoginThrottle,
     TwoFactorThrottle,
     UserPasswordResetThrottle,
@@ -85,6 +87,7 @@ from posthog.rate_limit import (
 from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import (
     login_from_new_device_notification,
+    send_organization_access_request,
     send_password_reset,
     send_two_factor_auth_backup_code_used_email,
 )
@@ -1177,6 +1180,32 @@ class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     throttle_classes = [] if settings.E2E_TESTING else [LoginPrecheckThrottle]
 
 
+class OrganizationAccessRequestSerializer(serializers.Serializer):
+    def create(self, validated_data):
+        access_request = OrganizationAccessRequestGrant.take(self.context["request"].session)
+        if access_request is None:
+            raise serializers.ValidationError(
+                "This request is no longer valid. Try to log in again, then ask for access.",
+                code="access_request_expired",
+            )
+
+        send_organization_access_request.delay(
+            organization_id=str(access_request.organization.id),
+            requester_email=access_request.email,
+        )
+        return True
+
+
+class OrganizationAccessRequestViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    """Ask the admins of the organization that owns your email domain to invite you."""
+
+    queryset = User.objects.none()
+    serializer_class = OrganizationAccessRequestSerializer
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes = [OrganizationAccessRequestThrottle]
+    SUCCESS_STATUS_CODE = status.HTTP_204_NO_CONTENT
+
+
 class PasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField(write_only=True)
 
@@ -1204,6 +1233,13 @@ class PasswordResetSerializer(serializers.Serializer):
             user.save()
             token = password_reset_token_generator.make_token(user)
             send_password_reset(user.id, token)
+        else:
+            # The response above is the same either way, so this event is the only record that the
+            # request arrived and sent nothing.
+            report_password_reset_no_op(
+                email,
+                matched_deactivated_account=EmailLookupHandler.get_user_by_email(email, is_active=None) is not None,
+            )
 
         return True
 

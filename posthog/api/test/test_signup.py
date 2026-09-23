@@ -25,7 +25,7 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.oauth_pending_connection import PENDING_OAUTH_CONNECTION_COOKIE, PendingOAuthConnection
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
-from posthog.models.instance_setting import override_instance_config
+from posthog.models.instance_setting import override_instance_config, set_instance_setting
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -1007,7 +1007,11 @@ class TestSignupAPI(APIBaseTest):
     @pytest.mark.ee
     def test_cannot_social_signup_with_allowed_but_jit_provisioning_disabled(self, mock_sso_providers, mock_request):
         mock_sso_providers.return_value = {"google-oauth2": True}
+        set_instance_setting("EMAIL_HOST", "localhost")
         new_org = Organization.objects.create(name="Test org")
+        org_admin = User.objects.create_and_join(
+            new_org, "admin@posthog.net", None, level=OrganizationMembership.Level.ADMIN
+        )
         OrganizationDomain.objects.create(
             domain="posthog.net",
             verified_at=timezone.now(),
@@ -1028,9 +1032,25 @@ class TestSignupAPI(APIBaseTest):
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(
-            response, "/login?error_code=jit_not_enabled"
-        )  # show the user an error; operation not permitted
+        # Show the user an error; operation not permitted. The organization that claimed the domain
+        # is named, so the login screen can say who to ask.
+        self.assertRedirects(response, "/login?error_code=jit_not_enabled&organization_name=Test+org")
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            access_request = self.client.post("/api/login/request-access")
+        self.assertEqual(access_request.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {org_admin.email})
+
+        # The grant is single use, so a replay of the same request cannot mail the admins again.
+        repeat = self.client.post("/api/login/request-access")
+        self.assertEqual(repeat.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(repeat.json()["code"], "access_request_expired")
+
+    def test_cannot_request_organization_access_without_a_blocked_login(self):
+        response = self.client.post("/api/login/request-access")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "access_request_expired")
+        self.assertEqual(len(mail.outbox), 0)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")

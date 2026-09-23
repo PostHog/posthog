@@ -20,7 +20,7 @@ import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTi
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
-import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
+import { ERROR_MESSAGES, getDomainBlockMessage } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
@@ -101,8 +101,13 @@ function buildLoginSupportMessage({
 // insertBefore NotFoundError, see react#11538). Text that is its own element's only child is
 // already safe, so only text sharing a parent with element siblings needs wrapping.
 export function LoginForm(): JSX.Element {
-    const { precheck, exitCodeVerification, resendCodeBasedVerification, submitCodeVerification } =
-        useActions(loginLogic)
+    const {
+        precheck,
+        exitCodeVerification,
+        resendCodeBasedVerification,
+        submitCodeVerification,
+        requestOrganizationAccess,
+    } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { sendSupportRequest } = useValues(supportLogic)
     const {
@@ -123,6 +128,9 @@ export function LoginForm(): JSX.Element {
         restrictToProviders,
         autoRedirectingToProvider,
         availableLoginMethods,
+        blockedOrganizationName,
+        organizationAccessRequested,
+        organizationAccessRequestedLoading,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'login' }))
@@ -210,7 +218,8 @@ export function LoginForm(): JSX.Element {
                 {generalError && (
                     <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         <span>
-                            {generalError.detail ||
+                            {(blockedOrganizationName && getDomainBlockMessage(blockedOrganizationName)) ||
+                                generalError.detail ||
                                 ERROR_MESSAGES[generalError.code] ||
                                 'Could not complete your login. Please try again.'}
                         </span>
@@ -251,6 +260,29 @@ export function LoginForm(): JSX.Element {
                                     Need help?
                                 </Link>
                             </>
+                        )}
+                        {blockedOrganizationName && (
+                            <div className="mt-2">
+                                {organizationAccessRequested ? (
+                                    <p className="flex items-center gap-1 mb-0 text-success" role="status">
+                                        <IconCheckCircle />
+                                        <span>We asked the admins of {blockedOrganizationName} to invite you.</span>
+                                    </p>
+                                ) : (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        data-attr="login-request-organization-access"
+                                        loading={organizationAccessRequestedLoading}
+                                        disabledReason={
+                                            organizationAccessRequestedLoading ? 'Sending your request' : undefined
+                                        }
+                                        onClick={() => requestOrganizationAccess(null)}
+                                    >
+                                        Request access
+                                    </LemonButton>
+                                )}
+                            </div>
                         )}
                     </div>
                 )}

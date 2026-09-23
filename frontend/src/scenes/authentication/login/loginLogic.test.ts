@@ -641,4 +641,34 @@ describe('loginLogic', () => {
             expect(replaceSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
         })
     })
+
+    describe('domain block', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+
+        beforeEach(() => {
+            useMocks({ get: { '/api/users/@me/': () => [200, {}] } })
+            initKeaTests()
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        // The handler strips every query param off /login right after it reads them, so the name
+        // has to be held in state before that happens.
+        it('keeps the organization named in the redirect', async () => {
+            router.actions.push('/login?error_code=jit_not_enabled&organization_name=Acme%20Inc')
+            await expectLogic(logic).toMatchValues({
+                generalError: { code: 'jit_not_enabled', detail: undefined },
+                blockedOrganizationName: 'Acme Inc',
+            })
+        })
+
+        it('holds no organization for an error the server did not name one for', async () => {
+            router.actions.push('/login?error_code=no_new_organizations')
+            await expectLogic(logic).toMatchValues({ blockedOrganizationName: null })
+        })
+    })
 })

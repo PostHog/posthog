@@ -41,3 +41,14 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
     social_login_failure: 'Login failed. Please try again or contact your administrator.',
 }
+
+/**
+ * The block copy for a login that the organization holding the email domain turned away.
+ *
+ * `OrganizationDomain.domain` is unique across PostHog, so the first organization to verify a
+ * domain owns every address on it. The person is stuck until an admin of that organization invites
+ * them, and the generic copy above does not say which organization that is.
+ */
+export function getDomainBlockMessage(organizationName: string): string {
+    return `${organizationName} has claimed your email domain and does not add new members automatically. Ask an admin there to invite you.`
+}

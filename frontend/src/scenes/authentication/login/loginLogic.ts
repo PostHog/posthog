@@ -179,6 +179,7 @@ export interface loginLogicValues {
     autoRedirectAttemptedForEmail: string | null
     autoRedirectingToProvider: SSOProvider | null
     availableLoginMethods: LoginMethod[]
+    blockedOrganizationName: string | null
     codeVerification: CodeVerificationForm
     codeVerificationAllErrors: Record<string, any>
     codeVerificationChanged: boolean
@@ -201,6 +202,8 @@ export interface loginLogicValues {
     isLoginValid: boolean
     isPasswordLoginUnavailable: boolean
     login: LoginForm
+    organizationAccessRequested: boolean
+    organizationAccessRequestedLoading: boolean
     loginAllErrors: Record<string, any>
     loginChanged: boolean
     loginErrors: DeepPartialMap<LoginForm, ValidationErrorType>
@@ -285,6 +288,17 @@ export interface loginLogicActions {
     }
     resetLogin: (values?: LoginForm) => {
         values?: LoginForm
+    }
+    requestOrganizationAccess: (_: any) => any
+    requestOrganizationAccessSuccess: (
+        organizationAccessRequested: boolean,
+        payload?: any
+    ) => {
+        organizationAccessRequested: boolean
+        payload?: any
+    }
+    setBlockedOrganizationName: (organizationName: string | null) => {
+        organizationName: string | null
     }
     setCodeVerificationManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -405,6 +419,7 @@ export const loginLogic = kea<loginLogicType>([
     })),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
+        setBlockedOrganizationName: (organizationName: string | null) => ({ organizationName }),
         clearGeneralError: true,
         setCodeVerificationRequired: (email: string) => ({ email }),
         exitCodeVerification: true,
@@ -416,6 +431,17 @@ export const loginLogic = kea<loginLogicType>([
             null as { code: string; detail: string } | null,
             {
                 setGeneralError: (_, error) => error,
+                clearGeneralError: () => null,
+                exitCodeVerification: () => null,
+            },
+        ],
+        // The organization that holds the email domain the login was blocked on. The server names it
+        // in the redirect, because only the server can resolve a domain to its owner.
+        blockedOrganizationName: [
+            null as string | null,
+            {
+                setGeneralError: () => null,
+                setBlockedOrganizationName: (_, { organizationName }) => organizationName,
                 clearGeneralError: () => null,
                 exitCodeVerification: () => null,
             },
@@ -489,6 +515,25 @@ export const loginLogic = kea<loginLogicType>([
                     } catch {
                         // Never let a failed precheck lock the user out of password login.
                         return precheckFallback(email)
+                    }
+                },
+            },
+        ],
+        // Whether the blocked person has asked the owning organization's admins for an invite. The
+        // server reads the address and the organization out of the session it wrote when it blocked
+        // the login, so this request carries no body.
+        organizationAccessRequested: [
+            false,
+            {
+                requestOrganizationAccess: async (_, breakpoint) => {
+                    breakpoint()
+                    try {
+                        await api.create<any>('api/login/request-access')
+                        return true
+                    } catch (e) {
+                        const { detail } = e as Record<string, any>
+                        lemonToast.error(detail || 'Could not send your request. Please try again.')
+                        return false
                     }
                 },
             },
@@ -720,9 +765,10 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/login': (_, { error_code, error_detail, email, message }) => {
+        '/login': (_, { error_code, error_detail, email, message, organization_name }) => {
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
+                actions.setBlockedOrganizationName(organization_name || null)
                 router.actions.replace('/login', {})
             }
 

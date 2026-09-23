@@ -363,6 +363,7 @@ router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "web
 router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistrationViewSet, "webauthn_signup_register")
 router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
 router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
+router.register(r"login/request-access", authentication.OrganizationAccessRequestViewSet, "organization_access_request")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 users_router = router.register(r"users", user.UserViewSet, "users")
 users_router.register(

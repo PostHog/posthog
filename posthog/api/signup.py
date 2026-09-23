@@ -34,6 +34,7 @@ from posthog.event_usage import alias_invite_id, report_user_joined_organization
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
 from posthog.helpers.oauth_pending_connection import read_pending_oauth_connection
+from posthog.helpers.organization_access_request import OrganizationAccessRequestGrant
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
@@ -1113,10 +1114,21 @@ def social_create_user(
             )
 
             if not get_can_create_org(request.user):
-                if email and OrganizationDomain.objects.get_verified_for_email_address(email):
+                claimed_domain = OrganizationDomain.objects.get_verified_for_email_address(email) if email else None
+                if claimed_domain:
                     # There's a claimed and verified domain for the user's email address domain, but JIT provisioning is not enabled. To avoid confusion
                     # don't let the user create a new org (very likely they won't want this) and show an appropriate error response.
-                    return redirect("/login?error_code=jit_not_enabled")
+                    # The IdP proved the address, so the block screen can name the organization that holds
+                    # the domain, and the session grant lets the person mail that organization's admins.
+                    claimed_organization = claimed_domain.organization
+                    strategy.session_set(
+                        OrganizationAccessRequestGrant.SESSION_KEY,
+                        OrganizationAccessRequestGrant.build(email, claimed_organization),
+                    )
+                    block_params = urlencode(
+                        {"error_code": "jit_not_enabled", "organization_name": claimed_organization.name}
+                    )
+                    return redirect(f"/login?{block_params}")
                 else:
                     return redirect("/login?error_code=no_new_organizations")
             strategy.session_set("email", email)
