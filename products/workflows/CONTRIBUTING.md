@@ -354,7 +354,7 @@ The delete, bulk delete, publish, discard, restore and invocation actions refuse
 A write made with the key has no user behind it: `created_by` is null on the workflow and on its revisions, and the activity log records a system row whose trigger names the key by label.
 A workflow the key creates cannot contain a "Create AI task" step, because that step runs as the workflow's creator.
 
-## Code-managed workflows (read-only)
+## Code-managed workflows
 
 A workflow can be owned by a file in a repository instead of by this app.
 `HogFlow.managed_by` holds that: `code` means a repository owns the content, and `gui` (which is also what `NULL` means) means this API does.
@@ -388,10 +388,26 @@ Three costs of that rule, all deliberate:
 
 ### What the editor does
 
-`workflowLogic` derives `workflowEditDisabledReason` and `canEditWorkflow` from the loaded workflow, and every edit control reads one of them.
-Code ownership shadows the access level, because naming the file is more useful than telling someone their access is too low.
-A missing `user_access_level` is treated as no opinion rather than as no access, so a response without it does not lock the editor.
-`CodeManagedTag` renders the badge on the workflow scene and in the list.
+A person can edit a code-managed workflow in the editor like any other workflow: the canvas, the step panels, the name and the description.
+The edits stay in the editor and are never sent to the API, because only a push changes the content.
+
+`workflowLogic` keeps "may edit" apart from "may save":
+
+- `workflowEditDisabledReason` and `canEditWorkflow` carry the access level only. The canvas mutation listeners and the header title read them, so a viewer cannot edit.
+  A missing `user_access_level` is treated as no opinion rather than as no access, so a response without it does not lock the editor.
+- `isCodeManaged` says whether a repository owns the workflow.
+- `workflowSaveDisabledReason` and `canSaveWorkflow` add code ownership on top of the access level. The auto-save, the schedule write, publish, discard and "Restore as draft" read them.
+  Code ownership shadows the access level, because naming the file is more useful than telling someone their access is too low.
+  The `saveWorkflow` loader also throws before a content `PATCH` on a code-managed workflow, as a backstop for a path that does not check.
+
+Enable and disable still work, because they send a status-only `PATCH`.
+Unsaved edits do not block them on a code-managed workflow, and the edits stay in the form after the status save.
+When a push lands while someone has edits, the editor shows the reload or keep banner rather than reloading on its own.
+
+On the workflow scene, a code-managed workflow has no save button and no draft actions.
+`CodeManagedTag` renders the badge beside the title and in the list.
+`CodeManagedSource` renders one line below the title with the file, the repository and the ref of the last push, linked through `GitMetadataParser` for GitHub and GitLab and plain text for any other host.
+The versions table adds a "Source" column that shows that ref on the live version, because a revision does not record one.
 
 ## Common pitfalls
 
