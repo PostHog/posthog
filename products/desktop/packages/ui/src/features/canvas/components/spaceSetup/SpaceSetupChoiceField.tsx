@@ -15,7 +15,7 @@ const OPTIONS: readonly RadioCardOption<SpaceSetupChoice>[] = [
     value: "goal",
     title: "A goal",
     description:
-      "Move one metric. Loops measure it, test changes behind flags, and open pull requests for you to review.",
+      "Move one metric. Loops measure it and recommend changes. Let them open pull requests and experiments from the context page when you are ready.",
   },
   {
     value: "feature",
