@@ -570,13 +570,9 @@ pub fn compare_values(
 
     use HogLiteral::{Boolean, Null, Number, String as HString};
     match (a, b) {
+        // SQL semantics, shared with the Node and Python VMs: a null on either side is no match.
+        (Null, _) | (_, Null) => Ok(Boolean(false)),
         (Number(x), Number(y)) => Num::binary_op(op, x, y),
-        // JS relational coercion: null behaves as 0 against numbers and booleans.
-        (Null, Number(y)) => Num::binary_op(op, &Num::Integer(0), y),
-        (Number(x), Null) => Num::binary_op(op, x, &Num::Integer(0)),
-        (Null, Null) => Num::binary_op(op, &Num::Integer(0), &Num::Integer(0)),
-        (Null, Boolean(y)) => Num::binary_op(op, &Num::Integer(0), &bool_to_num(*y)),
-        (Boolean(x), Null) => Num::binary_op(op, &bool_to_num(*x), &Num::Integer(0)),
         (Number(x), HString(s)) => Num::binary_op(op, x, &Num::from_str(s)?),
         (HString(s), Number(y)) => Num::binary_op(op, &Num::from_str(s)?, y),
         (Boolean(x), Number(y)) => Num::binary_op(op, &bool_to_num(*x), y),

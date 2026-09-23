@@ -43,6 +43,7 @@ function __lambda (fn) { return fn }
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
+function __gt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a > b }
 function __getProperty(objectOrArray, key, nullish) {
     if ((nullish && !objectOrArray) || key === 0) { return null }
     if (Array.isArray(objectOrArray)) { return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key] }
@@ -123,7 +124,7 @@ print(indexOf([1, 2, 3], 1));
 print(indexOf([1, 2, 3], 2));
 print(indexOf([1, 2, 3], 3));
 print(indexOf([1, 2, 3], 4));
-print(arrayCount(__lambda((x) => (x > 2)), [1, 2, 3, 4, 5]));
+print(arrayCount(__lambda((x) => __gt(x, 2)), [1, 2, 3, 4, 5]));
 print("------");
 let c = [1, 2, 3];
 print(__getProperty(c, 1, false), __getProperty(c, 2, false), __getProperty(c, 3, false), __getProperty(c, 4, false));

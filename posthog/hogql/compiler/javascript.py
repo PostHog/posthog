@@ -195,6 +195,15 @@ class JavaScriptCompiler(Visitor):
             ast.CompareOperationOp.LtEq: "<=",
         }
 
+        ordering_helpers = {
+            ast.CompareOperationOp.Gt: "__gt",
+            ast.CompareOperationOp.GtEq: "__gte",
+            ast.CompareOperationOp.Lt: "__lt",
+            ast.CompareOperationOp.LtEq: "__lte",
+        }
+        if op in ordering_helpers:
+            self.stl_functions.add(ordering_helpers[op])
+            return f"{ordering_helpers[op]}({left_code}, {right_code})"
         if op in op_map:
             return f"({left_code} {op_map[op]} {right_code})"
         elif op == ast.CompareOperationOp.In:

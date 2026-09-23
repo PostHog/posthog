@@ -231,43 +231,21 @@ describe('hogvm execute', () => {
         ).toEqual(expected)
     })
 
-    test('null coercion in ordering comparisons - preserved behavior', () => {
-        // This test documents the current typescript hogvm behavior where null is coerced to 0 in ordering comparisons.
-        // HogVM in python/rust does not share this behavior.
-        // It is preserved for backward compatibility - users depend on it.
-        // See: https://github.com/PostHog/posthog/pull/45328
+    test('an ordering comparison with a null operand is false', () => {
+        // SQL semantics, shared with the Python and Rust VMs. JavaScript would read null as 0, which
+        // made `missing <= 18` match every person without the property.
         const options = {}
-
-        // null is coerced to 0 in JavaScript comparisons
-        // 0 <= null is true (null coerces to 0, 0 <= 0)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.LT_EQ], options)).toBe(true)
-        // 0 >= null is true (null coerces to 0, 0 >= 0)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.GT_EQ], options)).toBe(true)
-        // 0 < null is false (null coerces to 0, 0 < 0 is false)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.LT], options)).toBe(false)
-        // 0 > null is false (null coerces to 0, 0 > 0 is false)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.GT], options)).toBe(false)
-
-        // 1 < null is false (null coerces to 0, 1 < 0 is false)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.LT], options)).toBe(false)
-        // 1 <= null is false (null coerces to 0, 1 <= 0 is false)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.LT_EQ], options)).toBe(false)
-        // 1 > null is true (null coerces to 0, 1 > 0 is true)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.GT], options)).toBe(true)
-        // 1 >= null is true (null coerces to 0, 1 >= 0 is true)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.GT_EQ], options)).toBe(true)
-
-        // -1 < null is true (null coerces to 0, -1 < 0 is true)
-        expect(execSync(['_h', op.NULL, op.INTEGER, -1, op.LT], options)).toBe(true)
-        // -1 > null is false (null coerces to 0, -1 > 0 is false)
-        expect(execSync(['_h', op.NULL, op.INTEGER, -1, op.GT], options)).toBe(false)
-
-        // Reverse order: null < 0 is false (null coerces to 0, 0 < 0 is false)
-        expect(execSync(['_h', op.INTEGER, 0, op.NULL, op.LT], options)).toBe(false)
-        // Reverse order: null < 1 is true (null coerces to 0, 0 < 1 is true)
-        expect(execSync(['_h', op.INTEGER, 1, op.NULL, op.LT], options)).toBe(true)
-        // Reverse order: null > 1 is false (null coerces to 0, 0 > 1 is false)
-        expect(execSync(['_h', op.INTEGER, 1, op.NULL, op.GT], options)).toBe(false)
+        for (const operation of [op.LT, op.LT_EQ, op.GT, op.GT_EQ]) {
+            for (const value of [-1, 0, 1]) {
+                expect(execSync(['_h', op.NULL, op.INTEGER, value, operation], options)).toBe(false)
+                expect(execSync(['_h', op.INTEGER, value, op.NULL, operation], options)).toBe(false)
+            }
+            expect(execSync(['_h', op.NULL, op.NULL, operation], options)).toBe(false)
+        }
+        // Equality keeps its meaning.
+        expect(execSync(['_h', op.NULL, op.NULL, op.EQ], options)).toBe(true)
+        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.EQ], options)).toBe(false)
+        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.NOT_EQ], options)).toBe(true)
     })
 
     test('async limits', async () => {

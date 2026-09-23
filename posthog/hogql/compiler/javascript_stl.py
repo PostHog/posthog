@@ -9,6 +9,22 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         "function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }",
         [],
     ],
+    "__gt": [
+        "function __gt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a > b }",
+        [],
+    ],
+    "__gte": [
+        "function __gte (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a >= b }",
+        [],
+    ],
+    "__lt": [
+        "function __lt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a < b }",
+        [],
+    ],
+    "__lte": [
+        "function __lte (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a <= b }",
+        [],
+    ],
     "__imatch": [
         "function __imatch (str, pattern) { return !str || !pattern ? false : new RegExp(pattern, 'i').test(str) }",
         [],

@@ -95,10 +95,14 @@ function __printHogValue(obj, marked = new Set()) {
             if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
+function __lte (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a <= b }
+function __lt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a < b }
 function __lambda (fn) { return fn }
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
+function __gte (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a >= b }
+function __gt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a > b }
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = { '\b': '\\b', '\f': '\\f', '\r': '\\r', '\n': '\\n', '\t': '\\t', '\0': '\\0', '\v': '\\v', '\\': '\\\\', "'": "\\'" }
     return `'${value.split('').map((c) => singlequoteEscapeCharsMap[c] || c).join('')}'`;
@@ -144,5 +148,13 @@ print(arrayStringConcat(arrayPopFront(splitByString(" ", null)), " "));
 print((0 == null));
 print((0 != null));
 print((() => { const expr=(0), low=(1), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr < 1 || expr > 10); })());
-print((length(null) > 3));
-print((length(null) < 3));
+print(__gt(length(null), 3));
+print(__lt(length(null), 3));
+print(__lt(null, 3));
+print(__lte(null, 0));
+print(__gt(null, 3));
+print(__gte(null, 0));
+print(__gt(3, null));
+print(__gt(null, null));
+print((!__gt(length(null), 3)));
+print((length(null) == 0));

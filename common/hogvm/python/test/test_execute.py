@@ -851,13 +851,17 @@ class TestBytecodeExecute:
         ):
             assert self._run_program(program) is None, program
 
-    def test_bytecode_orders_null_as_zero_like_the_node_vm(self):
+    def test_bytecode_ordering_with_a_null_operand_is_false(self):
         # A filter comparing a missing value must not match, and must not fail either.
-        assert self._run_program("return length(null) > 3;") is False
-        assert self._run_program("return length(null) < 3;") is True
-        assert self._run_program("return null >= 0;") is True
-        assert self._run_program("return 1 > null;") is True
-        assert self._run_program("return null > true;") is False
+        for program in (
+            "return length(null) > 3;",
+            "return length(null) < 3;",
+            "return null >= 0;",
+            "return 1 > null;",
+            "return null > true;",
+            "return null < null;",
+        ):
+            assert self._run_program(program) is False, program
         # Equality does not coerce: a zero is not a null.
         assert self._run_program("return 0 == null;") is False
         assert self._run_program("return 0 != null;") is True

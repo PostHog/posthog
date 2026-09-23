@@ -54,6 +54,13 @@ def _compare_values(left: Any, right: Any, comparison: Callable[[Any, Any], bool
         raise HogVMException(str(e)) from e
 
 
+def _ordered(left: Any, right: Any, comparison: Callable[[Any, Any], bool]) -> bool:
+    # SQL semantics: a null on either side of an ordering comparison is no match.
+    if left is None or right is None:
+        return False
+    return _compare_values(left, right, comparison)
+
+
 def execute_bytecode(
     input: list[Any] | dict,
     globals: Optional[dict[str, Any]] = None,
@@ -285,17 +292,17 @@ def execute_bytecode(
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                 push_stack(var1 != var2)
             case Operation.GT:
-                var1, var2 = unify_comparison_types(pop_stack(), pop_stack(), ordering=True)
-                push_stack(_compare_values(var1, var2, operator.gt))
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(_ordered(var1, var2, operator.gt))
             case Operation.GT_EQ:
-                var1, var2 = unify_comparison_types(pop_stack(), pop_stack(), ordering=True)
-                push_stack(_compare_values(var1, var2, operator.ge))
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(_ordered(var1, var2, operator.ge))
             case Operation.LT:
-                var1, var2 = unify_comparison_types(pop_stack(), pop_stack(), ordering=True)
-                push_stack(_compare_values(var1, var2, operator.lt))
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(_ordered(var1, var2, operator.lt))
             case Operation.LT_EQ:
-                var1, var2 = unify_comparison_types(pop_stack(), pop_stack(), ordering=True)
-                push_stack(_compare_values(var1, var2, operator.le))
+                var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
+                push_stack(_ordered(var1, var2, operator.le))
             case Operation.LIKE:
                 push_stack(like(pop_stack(), pop_stack()))
             case Operation.ILIKE:
