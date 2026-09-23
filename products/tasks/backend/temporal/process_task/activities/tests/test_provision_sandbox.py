@@ -18,7 +18,7 @@ from products.tasks.backend.exceptions import (
     SandboxRateLimitedError,
 )
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
-from products.tasks.backend.logic.services.sandbox import ExecutionResult
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxTemplate
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label, resume_mode_label
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
@@ -616,3 +616,36 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
 
     sandbox.destroy.assert_called_once_with()
     task_run.clear_sandbox_connection_state_atomic.assert_called_once_with("run-id", "sandbox-id")
+
+
+def test_create_reads_the_sandbox_template_from_the_run_context(mocker):
+    # The prepare output carries no template on purpose: a prepare activity claimed by an
+    # older worker during a rolling deploy returns the old shape.
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="posthog/posthog",
+        distinct_id="distinct-id",
+        state={"await_user_message": True, "sandbox_template": "autoresearch_base"},
+    )
+    create = mocker.Mock(
+        side_effect=SandboxRateLimitedError("Sandbox control plane is rate limited", {"operation": "create"})
+    )
+    mocker.patch.object(
+        provision_sandbox_module, "get_sandbox_class_for_run_backend", return_value=mocker.Mock(create=create)
+    )
+    mocker.patch.object(provision_sandbox_module, "emit_agent_log")
+    mocker.patch.object(provision_sandbox_module, "_emit_image_source_log")
+    mocker.patch.object(provision_sandbox_module, "_apply_modal_network_policy")
+    mocker.patch.object(provision_sandbox_module, "_build_sandbox_tags", return_value={})
+
+    with pytest.raises(SandboxRateLimitedError):
+        async_to_sync(provision_sandbox_module._create_sandbox_for_repository)(
+            CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
+        )
+
+    assert create.call_args.args[0].template == SandboxTemplate.AUTORESEARCH_BASE
