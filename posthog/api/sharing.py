@@ -1138,7 +1138,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             try:
                 return get_content_response(exported_asset, False)
             except NotFound:
-                fallback = HttpResponseRedirect(request.build_absolute_uri(static("blank-dashboard-hog.png")))
+                fallback = HttpResponseRedirect(static("blank-dashboard-hog.png"))
                 fallback["Cache-Control"] = "no-store"
                 return fallback
         elif isinstance(resource, SharingConfiguration):

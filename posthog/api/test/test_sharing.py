@@ -478,7 +478,7 @@ class TestSharing(APIBaseTest):
         pending_response = self.client.get(image_url)
 
         assert pending_response.status_code == 302
-        assert pending_response["Location"] == "http://testserver/static/blank-dashboard-hog.png"
+        assert pending_response["Location"] == "/static/blank-dashboard-hog.png"
         assert pending_response["Cache-Control"] == "no-store"
         patched_exporter_task.assert_called_once()
 
