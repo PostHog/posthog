@@ -3915,6 +3915,19 @@ export interface PatchedFileSystemApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemHomeFolderApi {
+    /**
+     * The user's home folder ID, or null if deleted.
+     * @nullable
+     */
+    readonly id: string | null
+    /**
+     * The current path of the user's home folder.
+     * @nullable
+     */
+    readonly path: string | null
+}
+
 export interface FileSystemShortcutApi {
     readonly id: string
     /** Display path of the shortcut in the sidebar. */

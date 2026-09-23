@@ -89,6 +89,9 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         KnowledgeSource.objects.unscoped().create(
             team=self.team, name="Gamma report", source_type="file", status="ready"
         )
+        KnowledgeSource.objects.unscoped().create(
+            team=self.team, name="Learned policy", source_type="text", status="ready", is_generated=True
+        )
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other"
         )
@@ -111,6 +114,11 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         # Search and type combine as AND.
         assert names("source_type=file&search=gamma") == ["Gamma report"]
         assert names("source_type=text&search=beta") == []
+        # added_by splits sources you created from ones learned from support tickets.
+        assert names("added_by=human") == ["Alpha docs", "Beta guide", "Gamma report"]
+        assert names("added_by=learned") == ["Learned policy"]
+        assert names("added_by=learned&source_type=text&search=policy") == ["Learned policy"]
+        assert names("added_by=human&search=policy") == []
 
     def test_list_pages_do_not_skip_or_repeat_sources_with_equal_timestamps(self, _ff) -> None:
         created_ids = sorted(
@@ -139,6 +147,8 @@ class TestKnowledgeSourceAPI(APIBaseTest):
 
     def test_list_rejects_unknown_source_type(self, _ff) -> None:
         response = self.client.get(f"{self.url}?source_type=bogus")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response = self.client.get(f"{self.url}?added_by=robot")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_cannot_read_other_team_source_via_id(self, _ff) -> None:
