@@ -28,7 +28,6 @@ jest.mock('./terminalRuntime', () => ({
         syncClock: jest.fn(),
         changeDirectory: jest.fn(() => true),
         read: jest.fn(() => ''),
-        write: jest.fn(),
     })),
 }))
 jest.mock('./TerminalSession', () => ({
