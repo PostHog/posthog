@@ -191,7 +191,7 @@ export const QueryDatabase = ({
         setSourceQuery,
         insertTextAtCursor,
     } = useActions(sqlEditorLogic)
-    const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
+    const { isEmbeddedMode, sourceQuery, hasUnsavedQueryChanges } = useValues(sqlEditorLogic)
     useMountedLogic(sqlEditorLogic)
     // Project-wide warehouse write actions (Add join, Materialization) — gated at the
     // resource level regardless of per-object creator bypass. Per-object actions like
@@ -325,6 +325,40 @@ export const QueryDatabase = ({
         return ['view', 'managed-view', 'endpoint'].includes(item.record?.type)
     }
 
+    /**
+     * Open `url` in the editor, but never on top of unsaved SQL without asking. Every "Query"
+     * item here overwrites the editor in place, and the overwritten draft cannot be recovered,
+     * so the new browser tab is offered as the way to keep both.
+     */
+    const openQueryInEditor = (url: string, replaceInPlace?: () => void): void => {
+        const replaceHere = replaceInPlace ?? ((): void => router.actions.push(url))
+
+        if (!hasUnsavedQueryChanges) {
+            replaceHere()
+            return
+        }
+
+        LemonDialog.open({
+            title: 'Replace the query in the editor?',
+            description: 'The editor holds changes you have not saved. Replacing the query discards them.',
+            primaryButton: {
+                children: 'Open in a new tab',
+                'data-attr': 'sql-editor-replace-query-new-tab',
+                onClick: () => newInternalTab(url),
+            },
+            secondaryButton: {
+                children: 'Replace query',
+                status: 'danger',
+                'data-attr': 'sql-editor-replace-query-confirm',
+                onClick: replaceHere,
+            },
+            tertiaryButton: {
+                children: 'Cancel',
+                'data-attr': 'sql-editor-replace-query-cancel',
+            },
+        })
+    }
+
     const previewItem = (item: TreeDataItem): void => {
         if (!isPreviewableViewItem(item)) {
             return
@@ -333,29 +367,30 @@ export const QueryDatabase = ({
         const table = item.record?.tableName || item.name
         const previewQuery = `SELECT * FROM ${escapePropertyAsHogQLIdentifier(table)} LIMIT 100`
         const nextConnectionId = connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
+        const url = urls.sqlEditor({
+            query: previewQuery,
+            outputTab: OutputTab.Results,
+            connectionId: nextConnectionId,
+        })
 
         if (isEmbeddedMode) {
-            setActiveTab(OutputTab.Results)
-            setSourceQuery({
-                ...sourceQuery,
-                source: {
-                    ...sourceQuery.source,
-                    connectionId: nextConnectionId,
-                    query: previewQuery,
-                },
+            openQueryInEditor(url, () => {
+                setActiveTab(OutputTab.Results)
+                setSourceQuery({
+                    ...sourceQuery,
+                    source: {
+                        ...sourceQuery.source,
+                        connectionId: nextConnectionId,
+                        query: previewQuery,
+                    },
+                })
+                setQueryInput(previewQuery)
+                runQuery(previewQuery, true)
             })
-            setQueryInput(previewQuery)
-            runQuery(previewQuery, true)
             return
         }
 
-        router.actions.push(
-            urls.sqlEditor({
-                query: previewQuery,
-                outputTab: OutputTab.Results,
-                connectionId: nextConnectionId,
-            })
-        )
+        openQueryInEditor(url)
     }
 
     const openItemEditor = (item: TreeDataItem, newTab = false): void => {
@@ -711,7 +746,7 @@ export const QueryDatabase = ({
                                     e.stopPropagation()
                                     const nextConnectionId =
                                         connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
-                                    router.actions.push(
+                                    openQueryInEditor(
                                         urls.sqlEditor({
                                             query: buildSelectAllQuery(item.name, null),
                                             connectionId: nextConnectionId,
