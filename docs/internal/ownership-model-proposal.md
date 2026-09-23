@@ -90,9 +90,16 @@ status: active
 # ancestor owners.yaml. false = Gerrit's `set noparent`.
 inherit: true
 
-# Per-path overrides inside this directory, evaluated last-match-wins
-# *within this file only*. owners, status, and inherit can be overridden
-# per rule. `match` is one glob or a list of globs (each is its own
+# The owners of ADDITIONS below this directory, as opposed to the owners
+# of the files already in it. Names people only; what counts as an
+# addition, and whether a consumer asks them for review or blocks on
+# them, is that consumer's policy. Unlike every other field this one
+# adds up across the walk (see below).
+additions: [team-devex]
+
+# Per-path overrides inside this directory, *within this file only*.
+# Every matching rule applies in order, and each replaces only the fields
+# it sets: owners, status, or inherit. `match` is one glob or a list of globs (each is its own
 # boundary — the list is just shorthand for repeating owners/status).
 rules:
   - match: 'generated/**'
@@ -111,6 +118,33 @@ The 90% case is two lines:
 version: 1
 owners: team-ingestion
 ```
+
+### `additions:` — ownership of the namespace, not the file
+
+`owners:` answers "whose is this file".
+`additions:` answers a different question about the same path: "who owns what gets added here".
+The two are independent: each product under `products/` is owned by its team, while the owners of additions to `products/` can be one team.
+Much of the architecture guidance already has this shape as prose that nothing checks, such as reserving top-level `tools/`, `services/` and `packages/` for cross-product things.
+
+- **It adds up across the walk.** Every declaration on the walk applies, so a nested directory cannot drop the owners of additions that an ancestor names.
+  `owners:` stays nearest-wins, and `inherit: false` still cuts everything, additions included.
+- **Ask about the directory, not a file inside it.** The walk stops at the parent of the path it resolves, so resolving `products/newthing` matches a `match: '/*'` rule on `products/`, while resolving `products/newthing/product.yaml` does not.
+  `/*` therefore means "a direct child", and `/**` reaches any descendant.
+  A directory query also skips that directory's own ownership file, so a new product cannot remove itself from what its parent names.
+- **Newness and enforcement belong to the consumer.** The file only names the owners and where they apply. A consumer works out from the diff that a directory is new, treats a rename into the directory as an addition (git reports it as `R`, not `A`), and decides whether the answer is a review request or a blocking check.
+
+**Why not `owners:` on the parent directory.**
+An owner on `products/` would also claim every file below it that has no nearer owner.
+That misattributes those files, and it satisfies the coverage check for them, which turns real gaps into permanent false coverage.
+Over a hundred files under `products/` are unowned today and would flip.
+`additions:` contributes nothing to `owners`, so the coverage signal survives.
+
+**A consumer can combine `owners` and `additions`.**
+The owners are already responsible for everything in their tree.
+An empty `additions` means that the file names no separate owners of additions, not that nobody owns them.
+That is also why the key does not default to `owners`: a reader could no longer tell a directory with its own owners of additions from one that merely has an owner.
+
+The normative definition is section 3.6 of [`packages/owners-yaml/SPEC.md`](../../packages/owners-yaml/SPEC.md).
 
 ### `product.yaml` as an accepted alias
 
@@ -202,7 +236,7 @@ For a path `P`:
 
 1. Walk from the repo root toward `P`, collecting every `owners.yaml` (or aliased `product.yaml`) on the way. If a file sets `inherit: false`, drop everything collected above it.
 2. Effective config = shallow merge, nearest file winning per field (lists replace, never merge — predictability over cleverness).
-3. Within the nearest file that has `rules:`, apply the last rule whose `match` glob (gitignore-style semantics, documented with the schema) matches `P` relative to that file's directory. Rule fields override the merged config.
+3. Within each file, apply every rule whose `match` glob (gitignore-style semantics, documented with the schema) matches `P` relative to that file's directory, in file order. Each rule replaces only the fields it sets, before the file's fields merge into the result.
 4. Review tagging = resolved `owners`. Primary owner = its first entry.
 5. No ownership file on the walk and no rule match → **unowned**, which fails the coverage check unless the path is under an `owners: null` rule.
 
@@ -277,4 +311,4 @@ Safety properties of the atomic switch:
 1. **Oncall routing**: resolved — dropped from v1. The Slack channel costs nothing (derived from the team slug by convention, with the root `teams:` registry overriding or setting `slack: false` where needed), but nothing consumes an oncall reference, so it is not carried. Re-adding it is additive once a consumer exists.
 2. **Resolver ownership**: resolved — the resolver package is covered by the hard `CODEOWNERS` (see §5).
 3. **Coverage gating cadence**: how soon after the PR to flip `owners:lint` coverage from warn to fail — immediately for _new_ directories (ratchet), or only once the whole tree is clean?
-4. **Hard-CODEOWNERS future** (explicitly out of scope now): if blocking gates ever move into the schema, approver inheritance should probably union up the tree rather than nearest-wins — parked until `team-security` wants to revisit.
+4. **Hard-CODEOWNERS future** (explicitly out of scope now): if blocking gates ever move into the schema, approver inheritance should probably union up the tree rather than nearest-wins — parked until `team-security` wants to revisit. `additions:` set the precedent for the union half; it is advisory, so it did not settle the blocking half.

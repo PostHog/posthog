@@ -1,17 +1,26 @@
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import HogQLQueryResponse
+
+from posthog.hogql import ast
+
+from posthog.clickhouse.workload import Workload
+
 from products.engineering_analytics.backend.facade.contracts import (
     ComparisonTeamBasis as Basis,
     DeliveryScopeKind,
     PRTimelineSegmentKind as Kind,
+    QueryWorkLimitExceededError,
     ScopeRepoFigure,
 )
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
@@ -650,6 +659,13 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         kinds = {item.number: [segment.kind for segment in item.segments] for item in timelines.items}
         assert kinds == {number: _LISTED_KINDS[number] for number in expected}
         merged = next(item for item in timelines.items if item.number == 21)
+        assert timelines.merged_pr_count == 1
+        assert [(entry.kind, entry.seconds_per_merged_pr) for entry in timelines.red_seconds_per_merged_pr] == [
+            (Kind.RED_FIXED_BY_PUSH, 7 * 3600),
+            (Kind.RED_PASSED_ON_RERUN, 0),
+            (Kind.RED_MASTER_BROKEN, 0),
+            (Kind.RED_NOT_PROVABLE, 0),
+        ]
         assert merged.author.handle == "alice"
         assert [(push.head_sha, push.pushed_at) for push in merged.pushes] == [
             ("sha21a", _dt(_ago_offset_with_duration(2, 0, 3600)[0])),
@@ -660,6 +676,111 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert merged.started_at == _dt(_ago(2))
         starting_at_lookback = {item.number for item in timelines.items if item.started_at == date_from - CI_LOOKBACK}
         assert starting_at_lookback == expected & {26}
+
+    def test_red_time_includes_merged_prs_beyond_the_list_limit(self) -> None:
+        failure_start, failure_end = _ago_offset_with_duration(5, 0, 3600)
+        fix_start, fix_end = _ago_offset_with_duration(4, 0, 3600)
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(1, "alice", "closed", 0, _ago(6), merged_at=_ago(1)),
+                *[_pr_row(number, "alice", "closed", 0, _ago(3), merged_at=_ago(2)) for number in range(2, 202)],
+                _pr_row(202, "alice", "open", 0, _ago(1)),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(4001, "CI", "sha-old", "completed", "failure", failure_start, failure_end, pr_number=1),
+                _run_row(4002, "CI", "sha-fix", "completed", "success", fix_start, fix_end, pr_number=1),
+            ],
+        )
+        curated = CuratedGitHubSource.for_team(self.team)
+        original_source = curated.pr_source()
+        source_reads = 0
+
+        def source_after_close() -> str:
+            nonlocal source_reads
+            source_reads += 1
+            if source_reads == 1:
+                return original_source
+            return f"(SELECT * FROM {original_source} WHERE number != 202)"
+
+        with (
+            patch.object(curated, "pr_source", side_effect=source_after_close),
+            patch("products.engineering_analytics.backend.logic.queries._curated._QUERY_PAGE_SIZE", 1),
+        ):
+            timelines = query_pull_request_timelines(
+                curated=curated,
+                scope=_ALICE,
+                date_from=datetime.now(tz=UTC) - timedelta(days=7),
+                date_to=None,
+            )
+
+        red_by_kind = {entry.kind: entry.seconds_per_merged_pr for entry in timelines.red_seconds_per_merged_pr}
+        expected = (_dt(fix_start) - _dt(failure_end)).total_seconds() / 201
+        assert timelines.truncated is True
+        assert len(timelines.items) == timelines.limit == 200
+        assert all(item.number != 1 for item in timelines.items)
+        assert timelines.merged_pr_count == 201
+        assert red_by_kind[Kind.RED_FIXED_BY_PUSH] == expected
+
+        with self.assertRaises(QueryWorkLimitExceededError):
+            query_pull_request_timelines(
+                curated=CuratedGitHubSource.for_team(self.team, query_limit=1),
+                scope=_ALICE,
+                date_from=datetime.now(tz=UTC) - timedelta(days=7),
+                date_to=None,
+            )
+
+    def test_evidence_paging_keeps_the_next_row_when_an_earlier_row_leaves(self) -> None:
+        failure_start, failure_end = _ago_offset_with_duration(3, 0, 3600)
+        fix_start, fix_end = _ago_offset_with_duration(2, 0, 3600)
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(1, "alice", "closed", 0, _ago(4), merged_at=_ago(1))],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(4001, "CI", "sha-old", "completed", "failure", failure_start, failure_end, pr_number=1),
+                _run_row(4002, "CI", "sha-fix", "completed", "success", fix_start, fix_end, pr_number=1),
+            ],
+        )
+        curated = CuratedGitHubSource.for_team(self.team)
+        original_run = curated.run
+        evidence_page = 0
+
+        def run_after_first_page(
+            sql: str,
+            *,
+            query_type: str,
+            placeholders: dict[str, ast.Expr] | None = None,
+            workload: Workload = Workload.DEFAULT,
+        ) -> HogQLQueryResponse | SimpleNamespace:
+            nonlocal evidence_page
+            if query_type == "engineering_analytics.pull_request_timelines_runs":
+                evidence_page += 1
+                if evidence_page == 2 and " OFFSET " in sql:
+                    return SimpleNamespace(results=[])
+            return original_run(sql, query_type=query_type, placeholders=placeholders, workload=workload)
+
+        with (
+            patch.object(curated, "run", side_effect=run_after_first_page),
+            patch("products.engineering_analytics.backend.logic.queries._curated._QUERY_PAGE_SIZE", 1),
+        ):
+            timelines = query_pull_request_timelines(
+                curated=curated,
+                scope=_ALICE,
+                date_from=datetime.now(tz=UTC) - timedelta(days=7),
+                date_to=None,
+            )
+
+        assert [push.head_sha for push in timelines.items[0].pushes] == ["sha-old", "sha-fix"]
 
     def test_a_ready_event_after_the_close_still_builds_a_timeline(self) -> None:
         closed_at = _ago(2)
@@ -997,6 +1118,19 @@ class TestDeliveryDeployWindow(_WarehouseMixin):
 
 
 class TestDeliveryEndpoints(APIBaseTest):
+    def test_query_budget_exhaustion_does_not_return_partial_totals(self) -> None:
+        with patch(
+            "products.engineering_analytics.backend.presentation.views.delivery.api.get_pull_request_timelines",
+            side_effect=QueryWorkLimitExceededError,
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/engineering_analytics/pull_request_timelines/?author=alice"
+            )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "shorter date range" in response.json()["detail"]
+        assert "merged_pr_count" not in response.json()
+
     @parameterized.expand(
         [
             ("delivery_summary", "", "exactly one of author, github_team"),

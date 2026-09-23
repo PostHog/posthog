@@ -28,6 +28,7 @@ import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { isInboxTriagePath } from "@posthog/ui/features/inbox/triageRoute";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
@@ -43,6 +44,7 @@ import {
   navigateToSpaces,
   navigateToSpacesContext,
 } from "@posthog/ui/router/navigationBridge";
+import { hrefPath } from "@posthog/ui/router/reportNavigation";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import type { ComponentType } from "react";
 
@@ -101,6 +103,13 @@ function showSpaces(): void {
 function focusColumnSearch(): void {
   useSidebarStore.getState().setOpen(true);
   requestSidebarSearchFocus();
+}
+
+function showInboxList(): void {
+  if (isInboxTriagePath(hrefPath(currentHref() ?? ""))) {
+    navigateToInbox();
+  }
+  focusColumnSearch();
 }
 
 /**
@@ -212,7 +221,7 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: EnvelopeSimple,
     href: "/inbox",
     onPick: navigateToInbox,
-    onReclick: focusColumnSearch,
+    onReclick: showInboxList,
     shortcut: formatHotkey(SHORTCUTS.INBOX),
     count: (counts) => counts.inbox,
     enabled: (flags) => flags.inbox,
