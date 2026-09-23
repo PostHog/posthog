@@ -76,8 +76,8 @@ KafkaPayload = dict[str, typing.Any]
 
 def _notify_run_failure(
     batch_export_run_id: str | UUIDT,
-    was_paused: bool = False,
-    failures_until_pause: int | None = None,
+    was_paused: bool,
+    failures_until_pause: int,
 ) -> None:
     """Fan out failure notifications across every channel for a failed run.
 

@@ -2491,6 +2491,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         jobs: list[tuple[str, dt.timedelta, str | None]],
         expect_email: bool,
     ) -> None:
+
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2521,6 +2522,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_ignores_managed_warehouse_shadow(self, MockEmailMessage: MagicMock) -> None:
+
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2554,6 +2556,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_shows_clickhouse_error_not_newer_shadow(
         self, MockEmailMessage: MagicMock
     ) -> None:
+
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2588,6 +2591,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "managed warehouse boom" not in mocked_email_messages[0].html_body
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
+
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         # View that would trigger an email (scheduled + recent failed job), but user hasn't opted in.
@@ -2609,6 +2613,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_kitchen_sink_snapshot(self, MockEmailMessage: MagicMock) -> None:
+
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2686,6 +2691,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_truncates_long_errors(
         self, MockEmailMessage: MagicMock, name: str, error: str, expected_error: str
     ) -> None:
+
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2727,6 +2733,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_immediate_email_includes_the_error(
         self, MockEmailMessage: MagicMock, _name: str, job_error: str, latest_error: str | None, expected_error: str
     ) -> None:
+
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {
@@ -2927,6 +2934,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert "suspended_view" not in html
 
     def test_send_matview_failure_digest_caps_the_rows_and_counts_the_rest(self, MockEmailMessage: MagicMock) -> None:
+
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
@@ -2986,6 +2994,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_immediate_email_respects_immediate_preference(
         self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
     ) -> None:
+
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = notification_settings
@@ -3099,6 +3108,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_respects_daily_preference(
         self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
     ) -> None:
+
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = notification_settings

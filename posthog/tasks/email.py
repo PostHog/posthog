@@ -1275,6 +1275,7 @@ MAX_ERROR_CHARS = 255
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
+
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
         return
@@ -1337,6 +1338,7 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], suspended_query_ids: list[str]) -> None:
+
     if not is_email_available(with_absolute_urls=True):
         return
 
