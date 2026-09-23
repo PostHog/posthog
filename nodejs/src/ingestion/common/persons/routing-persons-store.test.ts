@@ -752,6 +752,36 @@ describe('RoutingPersonsStore', () => {
             expect(counted).toEqual(countedAs === null ? [] : [{ verb: 'mergePersons', error: countedAs }])
         })
 
+        it.each([
+            ['settles on a retry', 1, 2, 'merged'],
+            ['stays unsettled through every attempt', 3, 3, 'skipped_conflict'],
+        ])('shadow merge that %s', async (_name, unsettledAttempts, expectedCalls, finalOutcome) => {
+            const stores = makeStores()
+            stores.pg.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+            })
+            for (let i = 0; i < unsettledAttempts; i++) {
+                stores.personhogMock.mergePersons.mockResolvedValueOnce({
+                    survivor: person(1, '1'),
+                    results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict', settled: false }],
+                })
+            }
+            stores.personhogMock.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+            })
+            const store = makeStore(stores, 'shadow')
+
+            await store.mergePersons(mergeRequest() as never, 0)
+
+            expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
+            // The outcome the comparator saw: settled after a retry, or the last unsettled verdict.
+            const divergences = (personhogStoreShadowDivergenceCounter.labels as jest.Mock).mock.calls.map(([l]) => l)
+            expect(divergences.some((d) => d.field === 'outcome')).toBe(finalOutcome !== 'merged')
+            expect(personhogStoreShadowErrorsCounter.labels).not.toHaveBeenCalled()
+        })
+
         it('prefetch warms both worlds', async () => {
             const stores = makeStores()
             const store = makeStore(stores, 'shadow')

@@ -20,6 +20,7 @@ import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-wri
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
+import { PersonMergeUnsettledError } from './person-merge-types'
 import { EventOps } from './person-update'
 import { PersonhogPersonsStore } from './personhog-persons-store'
 import {
@@ -448,23 +449,40 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /** The merge service's retries wrap the routed call, which never throws for the shadow side. */
-    private retriedShadowMerge(
+    private async retriedShadowMerge(
         request: MergePersonsRequest,
         batchId: number,
         abandoned: AbortSignal
     ): Promise<MergePersonsResult> {
-        return promiseRetry(
-            // An abandoned verb starts no new write; one already in flight still finishes.
-            () =>
-                abandoned.aborted
-                    ? Promise.reject(new ShadowVerbTimeoutError('mergePersons'))
-                    : this.personhog.mergePersons(request, batchId),
-            'shadow_merge_persons',
-            undefined,
-            undefined,
-            undefined,
-            [ConnectError, ShadowVerbTimeoutError]
-        )
+        let unsettled: MergePersonsResult | undefined
+        try {
+            return await promiseRetry(
+                async () => {
+                    // An abandoned verb starts no new write; one already in flight still finishes.
+                    if (abandoned.aborted) {
+                        throw new ShadowVerbTimeoutError('mergePersons')
+                    }
+                    const result = await this.personhog.mergePersons(request, batchId)
+                    // The backend states a retry under the same op id may settle it,
+                    // the same signal the merge service retries on.
+                    if (result.results.some((source) => source.settled === false)) {
+                        unsettled = result
+                        throw new PersonMergeUnsettledError('shadow merge verdict is unsettled')
+                    }
+                    return result
+                },
+                'shadow_merge_persons',
+                undefined,
+                undefined,
+                undefined,
+                [ConnectError, ShadowVerbTimeoutError]
+            )
+        } catch (error) {
+            if (error instanceof PersonMergeUnsettledError && unsettled !== undefined) {
+                return unsettled
+            }
+            throw error
+        }
     }
 
     /** A fold is never retried as a fold: one that throws aborts, and its pairs take the re-drive. */
