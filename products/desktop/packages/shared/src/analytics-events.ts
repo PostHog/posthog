@@ -824,7 +824,13 @@ export type InboxReportActionFailureCode =
   | "task_creation_failed"
   | "unexpected_error";
 
-export type InboxReviewerScope = "for-you" | "entire-project" | "teammate";
+export type InboxReviewerScope =
+  | "for-you"
+  | "entire-project"
+  | "teammate"
+  | "team"
+  | "domain"
+  | "unclassified";
 
 export interface InboxTriageStartedProperties {
   /** Correlates one Desktop triage run across its start, actions, and end. */

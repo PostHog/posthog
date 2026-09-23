@@ -1139,6 +1139,16 @@ import type { SignalReportOrderingField } from "./signal-types";
 export type { SignalReportOrderingField };
 
 export interface SignalReportsQueryParams {
+  scope?:
+    | "for_me"
+    | "entire_project"
+    | "teammate"
+    | "team"
+    | "domain"
+    | "unclassified";
+  owning_role_id?: string;
+  domain_id?: string;
+  teammate_uuid?: string;
   limit?: number;
   offset?: number;
   status?: CommaSeparatedSignalReportStatuses | string;

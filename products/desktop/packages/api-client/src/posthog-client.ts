@@ -2920,10 +2920,9 @@ export class PostHogAPIClient {
       "/api/projects/{project_id}/external_data_sources/{id}/bulk_update_schemas/",
       {
         path: { project_id: projectId.toString(), id: sourceId },
-        query: {},
         body: {
           schemas,
-        } as unknown as Schemas.PatchedExternalDataSourceBulkUpdateSchemas,
+        } as unknown as Schemas.ExternalDataSourceBulkUpdateSchemas,
         withResponse: true,
         throwOnStatusError: false,
       },
@@ -3230,6 +3229,7 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/`, {
+        header: {},
         path: { project_id: teamId.toString() },
         body: {
           ...taskOptions,
@@ -4227,6 +4227,7 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/{id}/run/`, {
+        header: {},
         path: { project_id: teamId.toString(), id: taskId },
         body,
       }),
@@ -5356,6 +5357,134 @@ export class PostHogAPIClient {
     }
   }
 
+  async getRoutingDomains(offset = 0) {
+    const project_id = String(await this.getTeamId());
+    return this.api.get("/api/projects/{project_id}/signals/domains/", {
+      path: { project_id },
+      query: { limit: 100, offset },
+    });
+  }
+
+  async getRoutingTeams() {
+    const project_id = String(await this.getTeamId());
+    return this.api.get("/api/projects/{project_id}/signals/domains/teams/", {
+      path: { project_id },
+    });
+  }
+
+  async getRoutingPreferences(offset = 0) {
+    const project_id = String(await this.getTeamId());
+    return this.api.get(
+      "/api/projects/{project_id}/signals/routing_preferences/",
+      { path: { project_id }, query: { limit: 100, offset } },
+    );
+  }
+
+  async getRoutingSuggestions() {
+    const project_id = String(await this.getTeamId());
+    return this.api.get(
+      "/api/projects/{project_id}/signals/routing_preferences/suggestions/",
+      { path: { project_id } },
+    );
+  }
+
+  async getRoutingBatches() {
+    const project_id = String(await this.getTeamId());
+    return this.api.get("/api/projects/{project_id}/signals/routing_batches/", {
+      path: { project_id },
+      query: { limit: 25 },
+    });
+  }
+
+  async previewRoutingDomain(body: Schemas.SignalDomainPreview) {
+    const project_id = String(await this.getTeamId());
+    return this.api.post(
+      "/api/projects/{project_id}/signals/routing_preferences/preview/",
+      { path: { project_id }, body },
+    );
+  }
+
+  async setRoutingPreference(body: Schemas.SignalDomainPreferenceWrite) {
+    const project_id = String(await this.getTeamId());
+    return this.api.post(
+      "/api/projects/{project_id}/signals/routing_preferences/set/",
+      { path: { project_id }, body },
+    );
+  }
+
+  async getReportRouting(report_id: string) {
+    const project_id = String(await this.getTeamId());
+    return this.api.get(
+      "/api/projects/{project_id}/signals/reports/{report_id}/routing/",
+      { path: { project_id, report_id } },
+    );
+  }
+  async correctReportRouting(
+    report_id: string,
+    body: Schemas.SignalRoutingCorrection,
+  ) {
+    const project_id = String(await this.getTeamId());
+    return this.api.post(
+      "/api/projects/{project_id}/signals/reports/{report_id}/routing/",
+      { path: { project_id, report_id }, body },
+    );
+  }
+
+  async removeRoutingSuggestion(report_id: string) {
+    const project_id = String(await this.getTeamId());
+    return this.api.post(
+      "/api/projects/{project_id}/signals/reports/{report_id}/routing/not_me/",
+      { path: { project_id, report_id } },
+    );
+  }
+
+  async restoreRoutingSuggestion(report_id: string) {
+    const project_id = String(await this.getTeamId());
+    return this.api.post(
+      "/api/projects/{project_id}/signals/reports/{report_id}/routing/restore/",
+      { path: { project_id, report_id } },
+    );
+  }
+
+  async getRoutingBatch(id: string) {
+    const project_id = String(await this.getTeamId());
+    return this.api.get(
+      "/api/projects/{project_id}/signals/routing_batches/{id}/",
+      { path: { project_id, id } },
+    );
+  }
+  async getRoutingBatchReports(id: string, offset = 0) {
+    const project_id = String(await this.getTeamId());
+    return this.api.get(
+      "/api/projects/{project_id}/signals/routing_batches/{id}/reports/",
+      { path: { project_id, id }, query: { limit: 20, offset } },
+    );
+  }
+
+  async applyRoutingBatch(id: string) {
+    const project_id = String(await this.getTeamId());
+    return this.api.post(
+      "/api/projects/{project_id}/signals/routing_batches/{id}/apply/",
+      { path: { project_id, id } },
+    );
+  }
+
+  async undoRoutingBatch(id: string) {
+    const project_id = String(await this.getTeamId());
+    return this.api.post(
+      "/api/projects/{project_id}/signals/routing_batches/{id}/undo/",
+      { path: { project_id, id } },
+    );
+  }
+
+  async retryRoutingBatch(id: string) {
+    const project_id = String(await this.getTeamId());
+    return this.api.post(
+      "/api/projects/{project_id}/signals/routing_batches/{id}/retry/",
+      { path: { project_id, id } },
+    );
+  }
+
   async getSignalReports(
     params?: SignalReportsQueryParams,
   ): Promise<SignalReportsResponse> {
@@ -5378,6 +5507,14 @@ export class PostHogAPIClient {
     }
     if (params?.source_product) {
       url.searchParams.set("source_product", params.source_product);
+    }
+    for (const key of [
+      "scope",
+      "owning_role_id",
+      "domain_id",
+      "teammate_uuid",
+    ] as const) {
+      if (params?.[key]) url.searchParams.set(key, params[key]);
     }
     if (params?.suggested_reviewers) {
       url.searchParams.set("suggested_reviewers", params.suggested_reviewers);
@@ -7590,7 +7727,7 @@ export class PostHogAPIClient {
         const [issue, totals, daily] = await Promise.all([
           this.api.get(
             "/api/projects/{project_id}/error_tracking/issues/{id}/",
-            { path: { project_id: projectId, id } },
+            { path: { project_id: projectId, id }, query: {} },
           ),
           this.runQuery({
             kind: "HogQLQuery",
@@ -7601,6 +7738,10 @@ export class PostHogAPIClient {
             query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE ${scope} GROUP BY day ORDER BY day`,
           }).catch(() => ({})),
         ]);
+        if (!("id" in issue))
+          throw new Error(
+            "This issue has moved. Open it in PostHog to follow the redirect.",
+          );
         const preview = shapeErrorIssuePreview(issue);
         const totalRow = gridRows(totals)[0];
         const facts = [...(preview.facts ?? [])];

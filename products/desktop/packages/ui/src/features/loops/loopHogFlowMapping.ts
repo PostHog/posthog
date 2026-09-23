@@ -624,9 +624,7 @@ function loopRunStatus(status: unknown): LoopSchemas.LoopRunStatusEnum {
  * still lists (as not started) so a fire that queued a task is visible before
  * the sandbox picks it up.
  */
-export function taskToLoopRun(
-  task: Schemas.TaskDetailDTO,
-): LoopSchemas.LoopRun {
+export function taskToLoopRun(task: Schemas.TaskListItem): LoopSchemas.LoopRun {
   const run = task.latest_run ?? null;
   const status = loopRunStatus(run?.status);
   const createdAt = run?.created_at ?? task.created_at ?? "";
