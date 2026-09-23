@@ -1815,25 +1815,27 @@ class GitHubIntegrationBase:
         """
         if not _is_safe_github_repo_path(repository):
             raise GitHubIntegrationError(f"Unsafe repository path: {repository!r}")
-        response = self._installation_authenticated_get(
+        responses, complete = self._installation_authenticated_get_pages(
             f"https://api.github.com/repos/{repository}/pulls",
             endpoint="/repos/{owner}/{repo}/pulls",
             params={"base": branch, "state": "open", "per_page": 100},
         )
-        try:
-            pulls = response.json() if response is not None and response.status_code == 200 else None
-        except ValueError:
-            pulls = None
-        if not isinstance(pulls, list):
-            raise GitHubIntegrationError(
-                f"Could not list the pull requests based on {repository}:{branch}",
-                status_code=response.status_code if response is not None else None,
-            )
-        return any(
-            isinstance(pull, dict)
-            and str(((pull.get("head") or {}).get("repo") or {}).get("full_name", "")).lower() == repository.lower()
-            for pull in pulls
-        )
+        for response in responses:
+            try:
+                pulls = response.json() if response.status_code == 200 else None
+            except ValueError:
+                pulls = None
+            if not isinstance(pulls, list):
+                raise GitHubIntegrationError(
+                    f"Could not list the pull requests based on {repository}:{branch}", status_code=response.status_code
+                )
+            for pull in pulls:
+                head_repo = ((pull.get("head") or {}).get("repo") or {}) if isinstance(pull, dict) else {}
+                if str(head_repo.get("full_name", "")).lower() == repository.lower():
+                    return True
+        if not complete:
+            raise GitHubIntegrationError(f"Could not list every pull request based on {repository}:{branch}")
+        return False
 
     def get_open_pull_request_for_head(self, repository: str, branch: str) -> dict[str, Any] | None:
         """Return the OPEN pull request whose head is ``branch`` — its number, HTML url, and base ref.

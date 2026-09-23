@@ -37,6 +37,9 @@ class MergeQueueState(StrEnum):
     CANCELLED = "cancelled"
     REJECTED = "rejected"
     MERGED = "merged"
+    # Trunk's comment exists but its wording matches no known state. It counts as holding, because
+    # a push into an unknown state can eject the pull request.
+    UNKNOWN = "unknown"
 
     @property
     def holds_pull_request(self) -> bool:
@@ -56,21 +59,18 @@ class MergeQueueState(StrEnum):
     def from_comments(cls, comments: Iterable[Mapping[str, Any]]) -> "MergeQueueState | None":
         """The state in the last Trunk queue comment, or None when Trunk does not manage the pull request.
 
-        Takes GitHub REST issue comments. The last match wins because a recreated comment replaces
-        the older one.
+        Takes GitHub REST issue comments. The last queue comment decides, because a recreated comment
+        replaces the older one, and an older comment's state is stale.
         """
-        found: MergeQueueState | None = None
+        last_body: str | None = None
         for comment in comments:
-            state = cls._from_comment(comment)
-            if state is not None:
-                found = state
-        return found
+            body = comment.get("body")
+            if isinstance(body, str) and _is_queue_comment(body, comment.get("user")):
+                last_body = body
+        return None if last_body is None else cls._from_body(last_body)
 
     @classmethod
-    def _from_comment(cls, comment: Mapping[str, Any]) -> "MergeQueueState | None":
-        body = comment.get("body")
-        if not isinstance(body, str) or not _is_queue_comment(body, comment.get("user")):
-            return None
+    def _from_body(cls, body: str) -> "MergeQueueState":
         for pattern, state in _STATUS_PATTERNS:
             if pattern.search(body):
                 return state
@@ -78,14 +78,14 @@ class MergeQueueState(StrEnum):
         # is the whole answer.
         start = body.find(_CHECKBOX_START)
         if start == -1:
-            return None
+            return cls.UNKNOWN
         end = body.find(_CHECKBOX_END, start)
         checkbox = body[start + len(_CHECKBOX_START) : end if end != -1 else None]
         if re.search(r"\[x\]", checkbox, re.IGNORECASE):
             return cls.QUEUED
         if re.search(r"\[\s*\]", checkbox):
             return cls.NOT_SUBMITTED
-        return None
+        return cls.UNKNOWN
 
 
 _HOLDING_STATES = frozenset(
@@ -95,6 +95,7 @@ _HOLDING_STATES = frozenset(
         MergeQueueState.TESTING,
         MergeQueueState.PASSED,
         MergeQueueState.PENDING_FAILURE,
+        MergeQueueState.UNKNOWN,
     }
 )
 _PUSH_EJECTS_STATES = _HOLDING_STATES - {MergeQueueState.NOT_READY}

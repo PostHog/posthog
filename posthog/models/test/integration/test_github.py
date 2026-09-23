@@ -144,6 +144,7 @@ class TestPullRequestCommentMarker(SimpleTestCase):
             ("stacked", 200, [{"head": {"repo": {"full_name": "Example/Repo"}}}], True),
             ("not_stacked", 200, [], False),
             ("fork_only", 200, [{"head": {"repo": {"full_name": "someone/repo"}}}], False),
+            ("fork_only_page_then_incomplete", 200, [{"head": {"repo": {"full_name": "someone/repo"}}}], "partial"),
             ("error_status", 502, {"message": "Bad gateway"}, None),
         ]
     )
@@ -151,8 +152,9 @@ class TestPullRequestCommentMarker(SimpleTestCase):
         github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
         response = MagicMock(status_code=status_code)
         response.json.return_value = body
-        with patch.object(github, "_installation_authenticated_get", return_value=response):
-            if expected is None:
+        complete = expected != "partial"
+        with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], complete)):
+            if expected in (None, "partial"):
                 with pytest.raises(GitHubIntegrationError):
                     github.has_open_pull_request_with_base("example/repo", "feature")
             else:

@@ -93,6 +93,15 @@ class TestMergeQueueState(SimpleTestCase):
     def test_ignores_comments_that_are_not_the_queue_comment(self, _name: str, comments: list[dict[str, Any]]) -> None:
         assert MergeQueueState.from_comments(comments) is None
 
+    def test_unrecognized_latest_comment_fails_closed(self) -> None:
+        comments = [
+            trunk_comment(f"🧪 Running tests on this pull request. [details]({LINK})"),
+            trunk_comment(f"🆕 A wording this reader has never seen. [details]({LINK})"),
+        ]
+        state = MergeQueueState.from_comments(comments)
+        assert state == MergeQueueState.UNKNOWN
+        assert state.holds_pull_request and state.push_would_eject
+
     def test_last_trunk_comment_wins(self) -> None:
         comments = [
             trunk_comment(f"😎 Merged successfully - [details]({LINK})"),
