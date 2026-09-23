@@ -70,6 +70,20 @@ describe('router-utils', () => {
         })
     })
 
+    describe('a project segment that names no project', () => {
+        // Links written by hand or by an agent keep the `<project-id>` placeholder, which used to get
+        // the current team prefixed onto it — `/project/123/project/%3Cproject-id%3E/replay/home` —
+        // and dead-end on the 404 scene.
+        it.each([
+            ['/project/%3Cproject-id%3E/replay/home', '/project/123/replay/home'],
+            ['/project/<project-id>/logs', '/project/123/logs'],
+            ['/project/%3Cproject_id%3E', '/project/123'],
+            ['/project/%3Cproject-id%3E/replay?filter=all', '/project/123/replay?filter=all'],
+        ])('resolves %s to %s against the current team', (path, expected) => {
+            expect(addProjectIdIfMissing(path, 123)).toEqual(expected)
+        })
+    })
+
     describe('relative path normalization', () => {
         it('normalizes ../ prefix to absolute path with project id', () => {
             expect(addProjectIdIfMissing('../dashboard/1663553', 112509)).toEqual('/project/112509/dashboard/1663553')

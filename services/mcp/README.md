@@ -103,7 +103,9 @@ See also the main PostHog MCP docs for available tools and setup flows: [https:/
 
 ### Example Prompts
 
-Below are detailed examples showing realistic prompts and expected outputs:
+Below are detailed examples showing realistic prompts and expected outputs.
+The ids in the app URLs are illustrative.
+Build a real link with the `generate-app-url` tool, because a link that keeps a placeholder in place of the project id cannot reach the page it names.
 
 #### Example 1: Feature flag management
 
@@ -121,7 +123,7 @@ Created feature flag 'new-checkout-flow':
 - Key: new-checkout-flow
 - Active: true
 - Rollout: 20% of all users
-- URL: https://us.posthog.com/project/<project-id>/feature_flags/12345
+- URL: https://us.posthog.com/project/2/feature_flags/12345
 ```
 
 #### Example 2: Analytics query
@@ -166,7 +168,7 @@ Created experiment 'Pricing page test':
 - Variants: control (50%), test (50%)
 - Primary metric: Funnel conversion (pricing_page → checkout)
 - Status: Draft (ready to launch)
-- URL: https://us.posthog.com/project/<project-id>/experiments/789
+- URL: https://us.posthog.com/project/2/experiments/789
 ```
 
 #### Example 4: Error investigation
