@@ -19,6 +19,9 @@ import {
   Autocomplete,
   AutocompleteList,
   Button,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
   cn,
   MenuLabel,
   Skeleton,
@@ -34,24 +37,37 @@ import {
   isInCommandCenter,
 } from "@posthog/ui/features/canvas/commandCenterAssign";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
+import { SpaceHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
+import {
+  ChannelActionItems,
+  useChannelActions,
+} from "@posthog/ui/features/canvas/components/ChannelsList";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
+import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { PresenceAvatars } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import { SidebarSearchInput } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
-import { SpaceRowControls } from "@posthog/ui/features/canvas/components/SpaceRowControls";
+import { SpaceActionDialogs } from "@posthog/ui/features/canvas/components/SpaceActionDialogs";
+import type { SpacePreviewPayload } from "@posthog/ui/features/canvas/components/SpacePreview";
 import { WorkRowSurface } from "@posthog/ui/features/canvas/components/WorkRowSurface";
+import { useBlockedSessionCount } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelItemSelection } from "@posthog/ui/features/canvas/hooks/useChannelItemSelection";
 import { useChannelItemActions } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import {
   type Channel,
   useChannels,
 } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
-import { useSpacePresence } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
+import {
+  usePrefetchSpaceTasks,
+  useSpacePresence,
+} from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import { useRecentWorkItems } from "@posthog/ui/features/canvas/hooks/useRecentWorkItems";
 import { useSidebarSearchFocus } from "@posthog/ui/features/canvas/hooks/useSidebarSearchFocus";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
+import { useUnreadSessionCount } from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
@@ -67,6 +83,7 @@ import {
   navigateToSpaces,
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
+import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { useRouterState } from "@tanstack/react-router";
@@ -75,6 +92,7 @@ import {
   type ReactNode,
   useCallback,
   useDeferredValue,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -83,6 +101,9 @@ import {
 const log = logger.scope("work-column");
 
 const RECENT_COLLAPSED_COUNT = 5;
+
+/** How long the pointer has to rest on a space before its sessions are warmed. */
+const SESSION_PREFETCH_DELAY_MS = 250;
 
 // Recent leads with the newest work, so a pin neither floats a row to the top
 // nor opens a section of its own. The row's badge is what says it is pinned.
@@ -145,63 +166,142 @@ function IconAction({
   );
 }
 
-function SpaceRow({
+/**
+ * A space in the column. The row itself never changes on hover: its faces and
+ * unread dot stay where they are, and what you can do to the space lives in its
+ * hover card and its right-click menu. Buttons that appeared on the row pushed
+ * those marks aside every time the pointer crossed it.
+ */
+export function SpaceRow({
   channel,
   isActive,
   unread,
+  unreadSessions,
+  blockedSessions,
   presence,
+  prefetchSessions,
 }: {
   channel: Channel;
   isActive: boolean;
   unread: boolean;
+  unreadSessions: number;
+  blockedSessions: number;
   presence: ChannelPresence | undefined;
+  prefetchSessions: (spaceId: string) => void;
 }) {
   const people = presence?.people ?? [];
-  return (
-    <div className="group/chan group relative">
-      <WorkRowSurface
-        optionValue={channel.id}
-        data-selected={isActive || undefined}
-        onClick={() => {
+  const noun = useChannelsLayout() ? "space" : "channel";
+  const channelActions = useChannelActions(channel);
+  const { actions } = channelActions;
+  // New session leads because it is the action the row's own button used to
+  // offer. It is not in the shared list, because the spaces list keeps that
+  // button and would show the action twice.
+  const cardActions = useMemo<ChannelActionItem[]>(
+    () => [
+      {
+        key: "new-session",
+        label: "New session",
+        icon: <PlusIcon size={14} />,
+        onSelect: () => {
           track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-            action_type: "nav_click",
+            action_type: "new_task_open",
             surface: "sidebar",
             channel_id: channel.id,
-            nav_target: "space",
           });
-          navigateToChannel(channel.id);
-        }}
-      >
-        <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-          {channelGlyph(channel.name, {
-            size: 13,
-            space: false,
-            personal: channel.channelType === "personal",
-            private: channel.channelType === "private",
-          })}
-        </span>
-        <span
-          className={cn("min-w-0 flex-1 truncate", unread && "font-semibold")}
-        >
-          {channel.name}
-        </span>
-        <span className="flex shrink-0 items-center gap-1.5 group-hover/chan:mr-11">
-          {people.length > 0 && (
-            <PresenceAvatars people={people} liveUuids={presence?.liveUuids} />
-          )}
-          {unread && !isActive && (
-            <span
-              role="img"
-              aria-label="Unread"
-              className="size-1.5 shrink-0 rounded-full bg-primary"
-            />
-          )}
-        </span>
-      </WorkRowSurface>
-      {channel.channelType !== "personal" && (
-        <SpaceRowControls channel={channel} />
-      )}
-    </div>
+          openTaskInput({ channelId: channel.id });
+        },
+      },
+      ...actions,
+    ],
+    [actions, channel.id],
+  );
+  // Memoized because the card writes the payload to its store whenever its
+  // identity changes.
+  const preview = useMemo<SpacePreviewPayload>(
+    () => ({ channel, unreadSessions, blockedSessions, actions: cardActions }),
+    [channel, unreadSessions, blockedSessions, cardActions],
+  );
+
+  // Warms the page the card reads from, so the card opens with its facts
+  // rather than filling them in. Only once the pointer rests: scrolling the
+  // column passes rows under a still cursor, and each would fire a request.
+  const prefetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => () => clearTimeout(prefetchTimer.current), []);
+
+  return (
+    <>
+      <SpaceHoverCard space={preview}>
+        <ContextMenu>
+          <ContextMenuTrigger
+            render={
+              <WorkRowSurface
+                optionValue={channel.id}
+                data-selected={isActive || undefined}
+                onPointerEnter={() => {
+                  clearTimeout(prefetchTimer.current);
+                  prefetchTimer.current = setTimeout(
+                    () => prefetchSessions(channel.id),
+                    SESSION_PREFETCH_DELAY_MS,
+                  );
+                }}
+                onPointerLeave={() => clearTimeout(prefetchTimer.current)}
+                onClick={() => {
+                  track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+                    action_type: "nav_click",
+                    surface: "sidebar",
+                    channel_id: channel.id,
+                    nav_target: "space",
+                  });
+                  navigateToChannel(channel.id);
+                }}
+              >
+                <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+                  {channelGlyph(channel.name, {
+                    size: 13,
+                    space: false,
+                    personal: channel.channelType === "personal",
+                    private: channel.channelType === "private",
+                  })}
+                </span>
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate",
+                    unread && "font-semibold",
+                  )}
+                >
+                  {channel.name}
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {people.length > 0 && (
+                    <PresenceAvatars
+                      people={people}
+                      liveUuids={presence?.liveUuids}
+                    />
+                  )}
+                  {unread && !isActive && (
+                    <span
+                      role="img"
+                      aria-label="Unread"
+                      className="size-1.5 shrink-0 rounded-full bg-primary"
+                    />
+                  )}
+                </span>
+              </WorkRowSurface>
+            }
+          />
+          <ContextMenuContent>
+            <ChannelActionItems actions={cardActions} kind="context" />
+          </ContextMenuContent>
+        </ContextMenu>
+      </SpaceHoverCard>
+      <SpaceActionDialogs
+        channel={channel}
+        noun={noun}
+        actions={channelActions}
+      />
+    </>
   );
 }
 
@@ -292,6 +392,9 @@ export function WorkColumn() {
   );
 
   const presenceBySpace = useSpacePresence();
+  const unreadSessionCount = useUnreadSessionCount();
+  const blockedSessionCount = useBlockedSessionCount();
+  const prefetchSessions = usePrefetchSpaceTasks();
   const open = useCallback(
     (item: ChannelItemModel) => {
       const channelId = channelIdOf(item);
@@ -591,7 +694,10 @@ export function WorkColumn() {
                     channel={channel}
                     isActive={channel.id === activeChannelId}
                     unread={isChannelUnread(channel.id)}
+                    unreadSessions={unreadSessionCount(channel.id)}
+                    blockedSessions={blockedSessionCount(channel.id)}
                     presence={presenceBySpace.get(channel.id)}
+                    prefetchSessions={prefetchSessions}
                   />
                 ))}
                 {starredSpaces.length <= 1 && needle === "" && (

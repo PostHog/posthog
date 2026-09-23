@@ -14,11 +14,13 @@ function CardFrame({
   people,
   liveUuids,
   total,
+  lastActivityAt,
   ...payload
 }: SpacePreviewPayload & {
   people: UserBasic[];
   liveUuids?: string[];
   total: number | null;
+  lastActivityAt?: number | null;
 }) {
   return (
     <div className="p-4">
@@ -31,6 +33,7 @@ function CardFrame({
           people={people}
           liveUuids={liveUuids ? new Set(liveUuids) : undefined}
           total={total}
+          lastActivityAt={lastActivityAt}
           onAction={() => {}}
         />
       </Card>
@@ -86,6 +89,9 @@ const meta = {
     blockedSessions: 0,
     actions,
     total: 14,
+    // Two hours before the frozen test-runner clock (2026-07-01T10:30Z), so
+    // the card reads "Active 2h ago" in the visual snapshots.
+    lastActivityAt: Date.parse("2026-07-01T08:30:00Z"),
     people: [
       user(1, "Ada", "Lovelace"),
       user(2, "Grace", "Hopper"),
@@ -128,5 +134,21 @@ export const ManyRepos: Story = {
       ],
       createdBy: null,
     },
+  },
+};
+
+/** A members-only space names its kind, the way the row's lock marks it. */
+export const Private: Story = {
+  args: {
+    channel: {
+      id: "channel-3",
+      name: "launch-planning",
+      channelType: "private",
+      starred: true,
+      repositories: [],
+      createdBy: user(1, "Ada", "Lovelace"),
+    },
+    total: 3,
+    people: [user(1, "Ada", "Lovelace"), user(2, "Grace", "Hopper")],
   },
 };

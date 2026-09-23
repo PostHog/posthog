@@ -1,5 +1,9 @@
 import { GitBranchIcon } from "@phosphor-icons/react";
 import {
+  isPersonalChannel,
+  isPrivateChannel,
+} from "@posthog/core/canvas/channelName";
+import {
   Item,
   ItemActions,
   ItemContent,
@@ -8,6 +12,7 @@ import {
   ItemSeparator,
   ItemTitle,
 } from "@posthog/quill";
+import { formatRelativeAge } from "@posthog/shared";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import {
   type ChannelActionItem,
@@ -36,6 +41,29 @@ const MAX_PEOPLE = 5;
 
 /** Repos past this are counted rather than named — the card has one line. */
 const MAX_REPOS = 3;
+
+/**
+ * The card's summary: what kind of space it is and how many sessions it holds.
+ *
+ * The count appears only once the page has arrived: "0 sessions" on a space
+ * that has them is a wrong answer, and the card is about to have a right one.
+ * A public space stays "Space", because the lock on the row already marks the
+ * two kinds that differ from it.
+ */
+function spaceSummary(channel: Channel, total: number | null): string {
+  const identity = {
+    system_role: channel.systemRole,
+    channel_type: channel.channelType,
+    name: channel.name,
+  };
+  const kind = isPersonalChannel(identity)
+    ? "Personal space"
+    : isPrivateChannel(identity)
+      ? "Private space"
+      : "Space";
+  if (total == null) return kind;
+  return `${kind} \u00b7 ${total} ${total === 1 ? "session" : "sessions"}`;
+}
 
 /** A counted signal, drawn as the dot the row shows for it plus the words. */
 function CountSignal({
@@ -138,6 +166,7 @@ export function SpacePreviewContent({
   people,
   liveUuids,
   total,
+  lastActivityAt = null,
   onAction,
 }: {
   payload: SpacePreviewPayload;
@@ -146,6 +175,8 @@ export function SpacePreviewContent({
   liveUuids?: ReadonlySet<string>;
   /** Sessions in the space, or `null` while the page hasn't arrived. */
   total: number | null;
+  /** When someone last worked in the space, in epoch milliseconds. */
+  lastActivityAt?: number | null;
   onAction: () => void;
 }) {
   const { channel, unreadSessions, blockedSessions, actions } = payload;
@@ -173,13 +204,15 @@ export function SpacePreviewContent({
             )}
             <span className="min-w-0 font-bold">{channel.name}</span>
           </ItemTitle>
+          {/* The age takes its own line, so that the width the faces leave
+              never wraps a phrase like "8h ago" across two lines. */}
           <ItemDescription>
-            {/* No count until the page lands: "0 sessions" on a space that has
-                them is a wrong answer, and the card is about to have a right
-                one. */}
-            {total == null
-              ? "Space"
-              : `Space \u00b7 ${total} ${total === 1 ? "session" : "sessions"}`}
+            <span className="block">{spaceSummary(channel, total)}</span>
+            {total != null && lastActivityAt != null && (
+              <span className="block">
+                Active {formatRelativeAge(lastActivityAt)}
+              </span>
+            )}
           </ItemDescription>
         </ItemContent>
         {/* Top-aligned: the people belong to the space's name, not to the
@@ -231,6 +264,7 @@ export function SpacePreview({
       people={overview.people}
       liveUuids={overview.liveUuids}
       total={overview.total}
+      lastActivityAt={overview.lastActivityAt}
       onAction={onAction}
     />
   );
