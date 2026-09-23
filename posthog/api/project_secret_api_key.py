@@ -49,8 +49,8 @@ def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> Non
     )
     if missing:
         raise PermissionDenied(
-            "Your personal API key can only issue a project secret API key with scopes it has. "
-            f"Add these scopes to your personal API key: {', '.join(missing)}."
+            "Your API key or OAuth token can only issue a project secret API key with scopes it has. "
+            f"Use a key or token that has these scopes: {', '.join(missing)}."
         )
 
 
