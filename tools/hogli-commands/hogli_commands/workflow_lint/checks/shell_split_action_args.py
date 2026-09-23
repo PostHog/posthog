@@ -26,6 +26,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 from hogli.manifest import REPO_ROOT
@@ -147,7 +148,15 @@ def _composite_steps(data: dict[str, object]) -> Iterator[dict[str, object]]:
             yield step
 
 
-def _quoted_spans(script: str) -> list[tuple[int, int]]:
+class _Span(NamedTuple):
+    """A half-open index range. Named because `start` and `end` share a type and a
+    bare `tuple[int, int]` lets a call site swap them silently."""
+
+    start: int
+    end: int
+
+
+def _quoted_spans(script: str) -> list[_Span]:
     """Index ranges the inner shell would treat as quoted.
 
     A quoted reference is ONE argument: the shell expands it without splitting
@@ -156,7 +165,7 @@ def _quoted_spans(script: str) -> list[tuple[int, int]]:
     and a quote of one kind makes the other literal until it closes, which is why
     this tracks them together rather than one pass each.
     """
-    spans: list[tuple[int, int]] = []
+    spans: list[_Span] = []
     index = 0
     length = len(script)
     while index < length:
@@ -176,7 +185,7 @@ def _quoted_spans(script: str) -> list[tuple[int, int]]:
                 if script[cursor] == quote:
                     break
                 cursor += 1
-            spans.append((start, min(cursor, length)))
+            spans.append(_Span(start, min(cursor, length)))
             index = cursor + 1
             continue
         index += 1
@@ -201,14 +210,14 @@ def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
         script = shell_c.group("dquoted") or shell_c.group("squoted") or ""
         quoted = _quoted_spans(script)
         for ref in VAR_REF_RE.finditer(script):
-            if any(lo <= ref.start() < hi for lo, hi in quoted):
+            if any(span.start <= ref.start() < span.end for span in quoted):
                 continue
             name = by_var.get(ref.group("braced") or ref.group("plain") or "")
             if name is not None:
                 yield name
         # an input interpolated straight into the script, with no env hop
         for direct in INPUT_EXPR_RE.finditer(script):
-            if any(lo <= direct.start() < hi for lo, hi in quoted):
+            if any(span.start <= direct.start() < span.end for span in quoted):
                 continue
             yield _input_name(direct)
 
