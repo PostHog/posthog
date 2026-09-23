@@ -13,10 +13,8 @@ from django.utils import timezone
 import requests
 import structlog
 from asgiref.sync import async_to_sync
-from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.dataclasses import frozen
-from posthog.temporal.common.client import async_connect
 
 from products.tasks.backend.facade.contracts import TaskRunSpend
 from products.tasks.backend.logic.services.sandbox_pricing import (
@@ -285,6 +283,10 @@ def _cents(value: Decimal) -> int:
 
 
 async def _schedule_gateway_usage(*, run_id: UUID, team_id: int) -> None:
+    from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415 - keeps Temporal off Django's startup path
+
+    from posthog.temporal.common.client import async_connect  # noqa: PLC0415 - keeps Temporal off Django's startup path
+
     from products.tasks.backend.temporal.gateway_usage import (  # noqa: PLC0415 — avoids loading workflows during Django startup
         GatewayUsageInput,
     )

@@ -3,6 +3,7 @@ from uuid import UUID
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
@@ -51,23 +52,24 @@ class TaskRunGatewayUsageWorkflow(PostHogWorkflow):
             self._retry_until or workflow.now(), input.retry_until or workflow.now() + timedelta(days=1)
         )
         delay = 30
-        while True:
+        pending: int | None = None
+        while workflow.now() < self._retry_until:
             wakeups = self._wakeups
-            pending = await workflow.execute_activity(
-                reconcile_gateway_usage,
-                input,
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_interval=timedelta(minutes=5)),
-            )
+            remaining = self._retry_until - workflow.now()
+            try:
+                pending = await workflow.execute_activity(
+                    reconcile_gateway_usage,
+                    input,
+                    start_to_close_timeout=min(timedelta(seconds=30), remaining),
+                    schedule_to_close_timeout=remaining,
+                    retry_policy=RetryPolicy(maximum_interval=timedelta(minutes=5)),
+                )
+            except ActivityError:
+                pending = None
             if pending == 0 and wakeups == self._wakeups:
                 return
             if workflow.now() >= self._retry_until:
-                # A 404 can be unsettled or permanently unpriced; keep the IDs for recovery.
-                workflow.logger.warning(
-                    "task_gateway_usage.retries_exhausted",
-                    extra={"run_id": input.run_id, "team_id": input.team_id, "pending": pending},
-                )
-                return
+                break
 
             def requests_available(wakeups: int = wakeups) -> bool:
                 return self._wakeups != wakeups
@@ -84,3 +86,9 @@ class TaskRunGatewayUsageWorkflow(PostHogWorkflow):
                 workflow.continue_as_new(
                     GatewayUsageInput(run_id=input.run_id, team_id=input.team_id, retry_until=self._retry_until)
                 )
+
+        # A 404 can be unsettled or permanently unpriced; keep the IDs for recovery.
+        workflow.logger.warning(
+            "task_gateway_usage.retries_exhausted",
+            extra={"run_id": input.run_id, "team_id": input.team_id, "pending": pending},
+        )

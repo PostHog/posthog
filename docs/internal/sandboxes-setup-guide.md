@@ -114,6 +114,8 @@ Deploy the worker that registers this workflow before enabling gateway callbacks
 Reconciliation runs independently of event ingestion and sandbox cleanup.
 It fetches gateway usage in bounded batches, groups exact microdollar costs by model and provider, and deduplicates generation IDs under a row lock.
 Unsettled or failed lookups retry with a delay that grows from 30 seconds to five minutes, for up to 24 hours after the latest callback.
+This deadline also bounds activity retries after exceptions and time spent waiting for a worker.
+A callback received during activity retries extends the reconciliation window.
 A callback after workflow completion starts a new execution for the same run.
 After retries expire, unresolved IDs stay in `unprocessed_request_ids` and the workflow logs `task_gateway_usage.retries_exhausted`.
 A missing usage record is never treated as a confirmed zero cost; zero-charge generations can have no usage record.
