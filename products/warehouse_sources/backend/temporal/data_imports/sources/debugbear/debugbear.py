@@ -5,6 +5,7 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import orjson
+import structlog
 from dateutil import parser as dateutil_parser
 from requests import Session
 from requests.exceptions import RequestException
@@ -20,6 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.
     RUM_GROUP_BY_TIME,
     RUM_PAGE_VIEWS_PAGE_SIZE,
 )
+
+logger = structlog.get_logger(__name__)
 
 BASE_URL = "https://www.debugbear.com/api/v1"
 _REQUEST_TIMEOUT = 30
@@ -317,6 +320,15 @@ def _iter_rum_page_views_for_project(
             return
         last_to_sent = next_to
         to_cutoff = next_to
+    else:
+        # The watermark still advances to the newest row, so anything older than this cutoff
+        # is never fetched again — say so rather than truncating quietly.
+        logger.warning(
+            "DebugBear page view cap reached; truncating project history",
+            project_id=project_fields["project_id"],
+            pages=_MAX_PAGES_PER_PROJECT,
+            to_cutoff=to_cutoff,
+        )
 
 
 def _iter_annotations_for_project(
