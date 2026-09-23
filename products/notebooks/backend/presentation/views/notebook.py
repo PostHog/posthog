@@ -2,6 +2,7 @@ import math
 import hashlib
 from collections import Counter
 from typing import Any, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
@@ -645,6 +646,14 @@ class NotebookCollabPresenceSerializer(serializers.Serializer):
 
 def _collab_user_name(user: User) -> str:
     return user.get_full_name() or "Wandering Hog"
+
+
+def _parse_user_uuid(param: str, value: Any) -> UUID:
+    try:
+        return UUID(str(value))
+    except ValueError:
+        # Unparsed, the value reaches the ORM, which raises a Django ValidationError and returns a 500.
+        raise serializers.ValidationError({param: "Must be a valid UUID."})
 
 
 IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "activity"})
@@ -1339,9 +1348,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "created_by":
-                queryset = queryset.filter(created_by__uuid=value)
+                queryset = queryset.filter(created_by__uuid=_parse_user_uuid(key, value))
             elif key == "last_modified_by":
-                queryset = queryset.filter(last_modified_by__uuid=value)
+                queryset = queryset.filter(last_modified_by__uuid=_parse_user_uuid(key, value))
             elif key == "date_from" and isinstance(value, str):
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(value, self.team.timezone_info))
             elif key == "date_to" and isinstance(value, str):

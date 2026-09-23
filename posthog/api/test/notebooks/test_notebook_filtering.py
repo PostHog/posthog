@@ -159,6 +159,13 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
 
         assert [r["short_id"] for r in results] == [edited_by_other_user.short_id]
 
+    @parameterized.expand([["created_by"], ["last_modified_by"]])
+    def test_rejects_a_malformed_user_uuid(self, param: str) -> None:
+        Notebook.objects.create(team=self.team, created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks?{param}=other@posthog.com")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_filtering_by_types(self) -> None:
         playlist_content_notebook = self._create_notebook_with_content([PLAYLIST_CONTENT()])
         insight_content_notebook = self._create_notebook_with_content([QUERY_CONTENT("insight_id")])
