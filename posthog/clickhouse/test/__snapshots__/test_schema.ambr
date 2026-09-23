@@ -9898,6 +9898,18 @@
       
   '''
 # ---
+# name: test_create_table_query[web_pre_aggregated_teams]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `web_pre_aggregated_teams`  (
+      team_id UInt64,
+      enabled_by String DEFAULT 'system',
+      version UInt32 DEFAULT toUnixTimestamp(now())
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_analytics_team_selection', '{replica}-{shard}', version)
+  ORDER BY (team_id);
+  
+  '''
+# ---
 # name: test_create_table_query[web_sessions_dimensional_preaggregated]
   '''
   
@@ -15306,6 +15318,18 @@
       mat_metadata_backend
   )
       
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[web_pre_aggregated_teams]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `web_pre_aggregated_teams`  (
+      team_id UInt64,
+      enabled_by String DEFAULT 'system',
+      version UInt32 DEFAULT toUnixTimestamp(now())
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_analytics_team_selection', '{replica}-{shard}', version)
+  ORDER BY (team_id);
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[writable_session_replay_events]
