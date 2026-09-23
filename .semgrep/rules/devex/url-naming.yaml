@@ -26,6 +26,7 @@ rules:
       patterns:
           - pattern-either:
                 - pattern: action(..., url_path="$PATH", ...)
+                - pattern: $MODULE.action(..., url_path="$PATH", ...)
                 - pattern: $ROUTER.register("$PATH", ...)
           # Semgrep anchors the regex at the start of the value. Check only literal segments: a
           # segment starts at a `/` and ends at a `/`, a regex group or the end, so a character

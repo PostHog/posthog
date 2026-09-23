@@ -15,6 +15,10 @@ class ExampleViewSet:
     @action(methods=["GET"], detail=False, url_path=r"(?P<run_id>[^/.]+)/check-result")
     def check_result(self, request, **kwargs): ...
 
+    # ruleid: api-path-underscore
+    @decorators.action(methods=["GET"], detail=False, url_path="sso-callback")
+    def sso_callback(self, request, **kwargs): ...
+
     # ok: api-path-underscore
     @action(methods=["POST"], detail=True, url_path="add_snapshots")
     def add_snapshots_ok(self, request, **kwargs): ...
