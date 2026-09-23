@@ -345,7 +345,7 @@ pub struct Config {
     ///
     /// Set it below what the deployment's broker accepts, leaving room for the
     /// `CapturedEvent` envelope and the JSON-escaping of `data`:
-    /// `KAFKA_PRODUCER_MESSAGE_MAX_BYTES` bounds the produced message, not the
+    /// `KAFKA_INGESTION_PRODUCER_MESSAGE_MAX_BYTES` bounds the produced message, not the
     /// event inside it. capture-analytics needs a smaller value than capture-ai
     /// because its AI topic is on MSK.
     ///
@@ -368,7 +368,7 @@ pub struct Config {
     /// event in it, not just the offender. The multipart handler counts no
     /// drop at all: like every other error it raises, the refusal shows up
     /// only on `capture_error_by_stage_and_type`.
-    /// Keep this under the deployment's `KAFKA_PRODUCER_MESSAGE_MAX_BYTES`.
+    /// Keep this under the deployment's `KAFKA_INGESTION_PRODUCER_MESSAGE_MAX_BYTES`.
     /// Above it the ceiling stops being a guard: capture reads the body, builds
     /// the event, and the producer refuses it anyway. A deployment that has not
     /// raised its producer cap wants a lower value than this default; the boot
