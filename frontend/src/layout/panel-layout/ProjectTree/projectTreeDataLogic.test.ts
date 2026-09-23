@@ -2,9 +2,12 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
@@ -38,6 +41,62 @@ describe('projectTreeDataLogic', () => {
         unmount?.()
         jest.restoreAllMocks()
     })
+
+    it('initializes the home folder once when the sidebar flag arrives after mount', async () => {
+        const initialize = jest.fn(() => [200, { id: 'home', path: 'Users/Alex' }])
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': initialize } })
+        expect(logic.values.homeFolder).toBeNull()
+        await expectLogic(logic, () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
+                [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
+            })
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
+                [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
+            })
+        }).toDispatchActions(['loadHomeFolderSuccess'])
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
+            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
+        })
+        expect(initialize).toHaveBeenCalledTimes(1)
+        expect(logic.values.currentHomeFolder).toEqual({ id: 'home', path: 'Users/Alex' })
+        logic.actions.loadFolderSuccess(
+            'Research',
+            [{ id: 'home', path: 'Research/My work', type: 'folder' }],
+            false,
+            0
+        )
+        expect(logic.values.currentHomeFolder?.path).toBe('Research/My work')
+    })
+
+    it.each(['loaded', 'loading', 'has-more', 'populated'] as const)(
+        'renders a starred nested folder with %s contents',
+        (state) => {
+            const folder = 'Research/Ideas'
+            logic.actions.loadShortcutsSuccess([{ id: 'star-folder', path: 'Ideas', type: 'folder', ref: folder }])
+            logic.actions.loadFolderSuccess(
+                folder,
+                state === 'populated' ? [{ id: 'note', path: `${folder}/Notes`, type: 'notebook', ref: 'notes' }] : [],
+                state === 'has-more',
+                0
+            )
+            if (state === 'loading') {
+                logic.actions.loadFolderStart(folder)
+            }
+
+            const [starredFolder] = logic.values.getShortcutTreeItems('', false)
+            expect(starredFolder.id).toBe('shortcuts://Ideas')
+            expect(starredFolder.children).toHaveLength(1)
+            expect(starredFolder.children?.[0]).toMatchObject(
+                state === 'loaded'
+                    ? { name: 'Empty folder', type: 'empty-folder', disableSelect: true }
+                    : state === 'loading'
+                      ? { name: 'Loading...', type: 'loading-indicator' }
+                      : state === 'has-more'
+                        ? { name: 'Load more...' }
+                        : { name: 'Notes', record: { path: `${folder}/Notes` } }
+            )
+        }
+    )
 
     it('shows only the products the user added, with nothing injected alongside them', () => {
         customProductsLogic.actions.loadCustomProductsSuccess([

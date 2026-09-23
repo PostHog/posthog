@@ -48,6 +48,7 @@ export const INBOX_EVENTS = {
     SOURCE_DISABLED: 'Signal source disabled',
     SOURCE_INTEREST: 'signals source interest',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
+    SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -588,6 +589,23 @@ export function captureSignalSourceSteeringChanged(params: {
         source_type: params.sourceType,
         steering_length: params.steeringLength,
         has_steering: params.steeringLength > 0,
+        success: params.success,
+    })
+}
+
+export function captureSignalSourceFiltersChanged(params: {
+    sourceProduct: string
+    sourceType: string
+    filter: string
+    selectedCount: number
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_FILTERS_CHANGED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        filter: params.filter,
+        selected_count: params.selectedCount,
+        reads_everything: params.selectedCount === 0,
         success: params.success,
     })
 }

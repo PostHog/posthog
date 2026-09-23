@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
+    mark_schema_running_unless_halted,
     resolve_destinations,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
@@ -196,8 +197,7 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
         )
         return
 
-    instance.status = ExternalDataSchema.Status.RUNNING
-    instance.save(update_fields=["status", "updated_at"])
+    mark_schema_running_unless_halted(instance)
 
 
 # A schedule divides the sync time of day by the cadence, so a null interval cannot build one.
@@ -867,6 +867,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         sync_type = data.get("sync_type")
 
         if sync_type == ExternalDataSchema.SyncType.CDC:
+            # The publication step below skips types without an adapter, so accepting one here would
+            # save a `cdc` label that nothing can read a change stream for.
+            if not source_type_supports_cdc(instance.source.source_type):
+                raise ValidationError(f"CDC is not supported for {instance.source.source_type} sources.")
+
             from posthog.models import Team
 
             team = Team.objects.get(id=self.context["team_id"])
@@ -1824,8 +1829,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             raise
 
-        instance.status = ExternalDataSchema.Status.RUNNING
-        instance.save()
+        mark_schema_running_unless_halted(instance)
         return Response(status=status.HTTP_200_OK)
 
     @extend_schema(
@@ -1900,8 +1904,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        instance.status = ExternalDataSchema.Status.RUNNING
-        instance.save(update_fields=["status", "updated_at"])
+        mark_schema_running_unless_halted(instance)
 
         return Response(status=status.HTTP_200_OK)
 

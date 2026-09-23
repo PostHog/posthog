@@ -49,7 +49,7 @@ class CDCErrorInfo:
 
 
 class CDCTransactionTooLargeError(Exception):
-    """A single source transaction exceeded the in-memory decode budget.
+    """A single source transaction exceeded the decoder's per-transaction caps (changes, spill bytes or decode time).
 
     Non-retryable: re-decoding replays the same oversized transaction. The decoder guard
     that raises this lives in the source-specific decoder; the type is defined here so the

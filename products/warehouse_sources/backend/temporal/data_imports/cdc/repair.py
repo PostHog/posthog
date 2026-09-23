@@ -27,6 +27,7 @@ Safeguards, in order:
 from __future__ import annotations
 
 import typing
+import datetime as dt
 
 import structlog
 
@@ -101,7 +102,17 @@ def _repair_locked(source: ExternalDataSource) -> int:
         raise CDCRepairError("There are no active CDC schemas on this source to repair.")
 
     _require_broken_evidence(source, adapter, cdc_schemas)
-    _cancel_running_cdc_jobs(source, cdc_schemas, log)
+    _mark_repair_in_progress(source, cdc_schemas)
+
+    # Every CDC table, including those with sync off: the new slot cannot replay what the dead one
+    # lost, so a table turned back on later must re-snapshot too.
+    all_cdc_schemas = list(
+        ExternalDataSchema.objects.filter(
+            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC
+        ).exclude(deleted=True)
+    )
+    all_cdc_schema_ids = [schema.id for schema in all_cdc_schemas]
+    _cancel_running_cdc_jobs(source, all_cdc_schemas, log)
 
     # Every CDC table, including those with sync off: the new slot cannot replay what the dead one
     # lost, so a table turned back on later must re-snapshot too.
@@ -126,6 +137,11 @@ def _repair_locked(source: ExternalDataSource) -> int:
             removes=["cdc_last_log_position", "cdc_deferred_runs"],
             extra_model_fields={"initial_sync_complete": False},
         )
+
+    # Before the new slot exists, so no change it captures can be purged, and a failure here leaves
+    # the slot missing, which is the evidence a retry needs.
+    for schema_id in all_cdc_schema_ids:
+        purge_buffer_prefix(source.team_id, str(schema_id), log, strict=True)
 
     default_schema = (source.job_inputs or {}).get("schema")
     resource_fields = adapter.recreate_slot(
@@ -156,6 +172,18 @@ def _repair_locked(source: ExternalDataSource) -> int:
 
     log.info("cdc_repair_complete", schemas_reset=len(cdc_schemas))
     return len(cdc_schemas)
+
+
+def _mark_repair_in_progress(source: ExternalDataSource, cdc_schemas: list[ExternalDataSchema]) -> None:
+    """Leave a marker on schemas that have none, so a repair allowed by a live probe alone keeps
+    its retry evidence once the new slot exists. Cleared with the other markers when repair ends."""
+    marker = {"reason": "repair_in_progress", "at": dt.datetime.now(tz=dt.UTC).isoformat()}
+
+    def _mark(config: dict[str, typing.Any]) -> None:
+        config.setdefault("cdc_broken", marker)
+
+    for schema in cdc_schemas:
+        update_sync_type_config_keys(schema.id, source.team_id, mutate=_mark)
 
 
 def _require_broken_evidence(
