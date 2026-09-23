@@ -80,7 +80,7 @@ func (b Bindings) SelectAlias(name string) (catalog.Entry, bool) {
 
 func (b Bindings) ResolvedSelectAlias(name string) (catalog.Entry, bool) {
 	alias, ok := b.selectAlias(name)
-	return alias.field, ok && alias.ambiguousAt == 0
+	return alias.field, ok && (alias.ambiguousAt == 0 || alias.ambiguousAt > b.aliasCutoff())
 }
 
 func (b Bindings) selectAlias(name string) (selectAlias, bool) {

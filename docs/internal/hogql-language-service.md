@@ -454,6 +454,13 @@ Generated field expressions have no matching token in the editor and must not pr
 Notices remain separate from error and warning diagnostics, with at most 128 notices per response.
 Their source ranges follow the requested position encoding, including UTF-16 for the editor.
 Unknown or ambiguous fields do not receive a type hint.
+SELECT alias hints follow declaration order:
+
+```sql
+SELECT event AS v, v, timestamp AS v FROM events ORDER BY v
+```
+
+The middle `v` retains the `String` hint from `event`; the later duplicate declaration makes `ORDER BY v` ambiguous, so it receives no hint.
 Notice collection reuses the parsed query after validation and stops when its output or lookup budget is exhausted; it does not turn a valid query into an error.
 Expression type inference, physical ClickHouse table metadata, and property materialization details remain follow-up work.
 Unrecognized catalog type strings are omitted rather than converted into a guessed type.

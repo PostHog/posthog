@@ -116,6 +116,16 @@ func TestValidateNotices(t *testing.T) {
 			},
 		},
 		{
+			name:  "select alias before duplicate",
+			query: "SELECT event AS v, v, timestamp AS v FROM events",
+			notices: []struct{ source, message string }{
+				{"event", "Field 'event' is of type 'String'"},
+				{"v", "Field 'v' is of type 'String'"},
+				{"timestamp", "Field 'timestamp' is of type 'DateTime'"},
+				{"events", "Table 'events'"},
+			},
+		},
+		{
 			name:  "property",
 			query: "SELECT e.properties.$geo_city FROM events AS e",
 			notices: []struct{ source, message string }{
