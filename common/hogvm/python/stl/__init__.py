@@ -657,19 +657,19 @@ def equals(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]],
 
 
 def greater(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
-    return args[0] > args[1]
+    return args[0] is not None and args[1] is not None and args[0] > args[1]
 
 
 def greaterOrEquals(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
-    return args[0] >= args[1]
+    return args[0] is not None and args[1] is not None and args[0] >= args[1]
 
 
 def less(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
-    return args[0] < args[1]
+    return args[0] is not None and args[1] is not None and args[0] < args[1]
 
 
 def lessOrEquals(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
-    return args[0] <= args[1]
+    return args[0] is not None and args[1] is not None and args[0] <= args[1]
 
 
 def notEquals(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:

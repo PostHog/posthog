@@ -1276,11 +1276,11 @@ function __setProperty(objectOrArray, key, value) {
         [],
     ],
     "greater": [
-        "function greater(a, b) { return a > b }",
+        "function greater(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a > b }",
         [],
     ],
     "greaterOrEquals": [
-        "function greaterOrEquals(a, b) { return a >= b }",
+        "function greaterOrEquals(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a >= b }",
         [],
     ],
     "if": [
@@ -1297,11 +1297,11 @@ function __setProperty(objectOrArray, key, value) {
         [],
     ],
     "less": [
-        "function less(a, b) { return a < b }",
+        "function less(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a < b }",
         [],
     ],
     "lessOrEquals": [
-        "function lessOrEquals(a, b) { return a <= b }",
+        "function lessOrEquals(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a <= b }",
         [],
     ],
     "min2": [

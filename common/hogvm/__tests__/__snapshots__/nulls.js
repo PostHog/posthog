@@ -61,8 +61,12 @@ function replaceOne (str, searchValue, replaceValue) { return str === null || st
 function replaceAll (str, searchValue, replaceValue) { return str === null || str === undefined ? null : str.replaceAll(searchValue, replaceValue) }
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function match (str, pattern) { return !str || !pattern ? false : new RegExp(pattern).test(str) }
+function lessOrEquals(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a <= b }
+function less(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a < b }
 function length (value) { return value === null || value === undefined ? null : value.length }
 function keys (obj) { if (typeof obj === 'object' && obj !== null) { if (Array.isArray(obj)) { return Array.from(obj.keys()) } else if (obj instanceof Map) { return Array.from(obj.keys()) } return Object.keys(obj) } return [] }
+function greaterOrEquals(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a >= b }
+function greater(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a > b }
 function arrayStringConcat (arr, separator = '') { if (!Array.isArray(arr)) { return '' } return arr.join(separator) }
 function arrayReduce (func, arr, initial) { let result = initial; for (let i = 0; i < (arr ?? []).length; i++) { result = func(result, arr[i]) } return result }
 function arrayPopFront (arr) { if (!Array.isArray(arr)) { return [] } return arr.slice(1) }
@@ -158,3 +162,8 @@ print(__gt(3, null));
 print(__gt(null, null));
 print((!__gt(length(null), 3)));
 print((length(null) == 0));
+print(less(null, 3));
+print(greater(3, null));
+print(lessOrEquals(null, null));
+print(greaterOrEquals(null, 0));
+print(less(1, 3));

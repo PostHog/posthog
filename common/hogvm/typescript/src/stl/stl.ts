@@ -208,20 +208,25 @@ function equalsFn([a, b]: any[]): boolean {
     return a === b
 }
 
+// A null on either side is no match, the same as the comparison operators.
+function isNullish(value: any): boolean {
+    return value === null || value === undefined
+}
+
 function greaterFn([a, b]: any[]): boolean {
-    return a > b
+    return !isNullish(a) && !isNullish(b) && a > b
 }
 
 function greaterOrEqualsFn([a, b]: any[]): boolean {
-    return a >= b
+    return !isNullish(a) && !isNullish(b) && a >= b
 }
 
 function lessFn([a, b]: any[]): boolean {
-    return a < b
+    return !isNullish(a) && !isNullish(b) && a < b
 }
 
 function lessOrEqualsFn([a, b]: any[]): boolean {
-    return a <= b
+    return !isNullish(a) && !isNullish(b) && a <= b
 }
 
 function notEqualsFn([a, b]: any[]): boolean {

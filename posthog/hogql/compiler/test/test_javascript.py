@@ -31,7 +31,7 @@ class TestJavaScript(BaseTest):
         self.assertEqual(to_js_expr("1 and 2"), "!!(1 && 2)")
         self.assertEqual(to_js_expr("1 or 2"), "!!(1 || 2)")
         self.assertEqual(to_js_expr("not true"), "(!true)")
-        self.assertEqual(to_js_expr("1 < 2"), "(1 < 2)")
+        self.assertEqual(to_js_expr("1 < 2"), "__lt(1, 2)")
         self.assertEqual(to_js_expr("properties.bla"), '__getProperty(__getGlobal("properties"), "bla", true)')
 
     def test_javascript_string_functions(self):
@@ -50,9 +50,9 @@ class TestJavaScript(BaseTest):
         self.assertEqual(to_js_expr("3 = 4"), "(3 == 4)")
         self.assertEqual(to_js_expr("3 != 4"), "(3 != 4)")
         self.assertEqual(to_js_expr("3 < 4"), "(3 < 4)")
-        self.assertEqual(to_js_expr("3 <= 4"), "(3 <= 4)")
-        self.assertEqual(to_js_expr("3 > 4"), "(3 > 4)")
-        self.assertEqual(to_js_expr("3 >= 4"), "(3 >= 4)")
+        self.assertEqual(to_js_expr("3 <= 4"), "__lte(3, 4)")
+        self.assertEqual(to_js_expr("3 > 4"), "__gt(3, 4)")
+        self.assertEqual(to_js_expr("3 >= 4"), "__gte(3, 4)")
 
     def test_javascript_create_query_error(self):
         with self.assertRaises(QueryError) as e:
@@ -79,8 +79,10 @@ class TestJavaScript(BaseTest):
 
     def test_if_else(self):
         code = to_js_program("if (1 < 2) { return true } else { return false }")
-        expected_code = "if ((1 < 2)) {\n    return true;\n} else {\n    return false;\n}"
-        self.assertEqual(code.strip(), expected_code.strip())
+        expected_code = "if (__lt(1, 2)) {\n    return true;\n} else {\n    return false;\n}"
+        self.assertTrue(code.strip().endswith(expected_code), code)
+        # A null on either side of an ordering comparison is false, so the helper is part of the program.
+        self.assertIn("function __lt (a, b)", code)
 
     def test_declare_local(self):
         compiler = JavaScriptCompiler()
@@ -221,7 +223,7 @@ return fibonacci(6);"""
 
     def test_between_expr(self):
         code = to_js_expr("properties.value between 1 and 10")
-        self.assertIn("expr >= 1 && expr <= 10", code)
+        self.assertIn("__gte(expr, 1) && __lte(expr, 10)", code)
         self.assertEqual(code.count("__getProperty"), 1)
 
     def test_function_assignment_error(self):
