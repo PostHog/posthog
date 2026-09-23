@@ -52,8 +52,8 @@ export type HogFlowFiltersProps = {
     excludeGroupProperties?: boolean
     // Offer cohort filters in the taxonomy. Only conditional_branch supports them (membership is
     // resolved by a realtime point lookup on arrival); waits would only notice membership changes
-    // via the polling backstop, so they must not pass this. Still gated on the realtime cohort
-    // rollout flag, since the backend only accepts realtime cohorts that have finished calculating.
+    // via the polling backstop, so they must not pass this. Still gated on the
+    // workflows-cohort-conditions rollout flag, which the save path checks too.
     includeCohorts?: boolean
     // When filtering rows of a data warehouse table, pass the selected table's columns so they appear
     // as suggestions and resolve their distinct values.
@@ -159,7 +159,7 @@ export function HogFlowPropertyFilters({
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { workflow } = useValues(workflowLogic)
-    const realtimeCohortsEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
     // Surface workflow variables in the All/Suggestions tab so a user searching by variable key
     // sees a match alongside event/person properties. The dedicated tab still works without this.
     const taxonomicFilterOptionsFromProp = {
@@ -194,7 +194,7 @@ export function HogFlowPropertyFilters({
                           TaxonomicFilterGroupType.EventProperties,
                           TaxonomicFilterGroupType.EventFeatureFlags,
                           TaxonomicFilterGroupType.PersonProperties,
-                          ...(includeCohorts && realtimeCohortsEnabled ? [TaxonomicFilterGroupType.Cohorts] : []),
+                          ...(includeCohorts && cohortConditionsEnabled ? [TaxonomicFilterGroupType.Cohorts] : []),
                           ...(excludeGroupProperties ? [] : groupsTaxonomicTypes),
                           TaxonomicFilterGroupType.HogQLExpression,
                           TaxonomicFilterGroupType.EventMetadata,
