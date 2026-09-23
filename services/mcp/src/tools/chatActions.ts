@@ -33,6 +33,17 @@ export const ChatActionSchema = z
 
 export type ChatAction = z.infer<typeof ChatActionSchema>
 
+/** A tool's action list. Keys must be unique, because `suggest-actions` resolves a key to its first match. */
+export const ChatActionListSchema = z.array(ChatActionSchema).superRefine((actions, ctx) => {
+    const seen = new Set<string>()
+    actions.forEach((action, index) => {
+        if (seen.has(action.key)) {
+            ctx.addIssue({ code: 'custom', message: `duplicate action key \`${action.key}\``, path: [index, 'key'] })
+        }
+        seen.add(action.key)
+    })
+})
+
 const SLOT_RE = /\{([a-zA-Z0-9_]+)\}/g
 
 /** Slot names in declaration order, deduplicated. */

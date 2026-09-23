@@ -7,7 +7,7 @@
  */
 import { z } from 'zod'
 
-import { ChatActionSchema } from '../src/tools/chatActions'
+import { ChatActionListSchema } from '../src/tools/chatActions'
 
 export const ToolConfigSchema = z
     .object({
@@ -42,7 +42,7 @@ export const ToolConfigSchema = z
          * Follow-up actions the PostHog AI chat offers as buttons after this tool ran, once the
          * agent picks them through `suggest-actions`. The agent addresses one as `<tool>.<key>`.
          */
-        actions: z.array(ChatActionSchema).optional(),
+        actions: ChatActionListSchema.optional(),
         /**
          * Brief work-protocol guidance appended to the tool's *response* as `_agentNote`,
          * so the agent sees it at point of use instead of it growing the always-loaded tool

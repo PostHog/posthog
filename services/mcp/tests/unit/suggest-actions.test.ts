@@ -51,6 +51,15 @@ describe('suggest-actions', () => {
             ).toBe(false)
         })
 
+        it('rejects a duplicate key in both schemas, since a pick resolves to the first match', () => {
+            const actions = [
+                { key: 'enable', label: 'Enable', kind: 'run', tool: 'workflows-enable' },
+                { key: 'enable', label: 'Enable again', kind: 'send' },
+            ]
+            expect(ToolConfigSchema.safeParse({ operation: 'op', enabled: true, actions }).success).toBe(false)
+            expect(ToolDefinitionSchema.safeParse({ ...baseDefinition, actions }).success).toBe(false)
+        })
+
         it('declares the two workflow actions on workflows-create', () => {
             expect(getToolDefinition('workflows-create').actions).toEqual([
                 {

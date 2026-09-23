@@ -102,17 +102,23 @@ export function TaskRunChat({
         },
     }
 
+    const content = (
+        <TaskRunChatContent
+            logicProps={logicProps}
+            readOnly={readOnly}
+            escapeScope={escapeScope}
+            autoFocus={autoFocus}
+            flushDraftRef={flushDraftRef}
+        />
+    )
+    // A read-only viewer has no composer, so the suggested-action buttons get none either and render disabled.
     return (
         <BindLogic logic={runInteractionLogic} props={logicProps}>
-            <RunChatActionComposerProvider logicProps={logicProps}>
-                <TaskRunChatContent
-                    logicProps={logicProps}
-                    readOnly={readOnly}
-                    escapeScope={escapeScope}
-                    autoFocus={autoFocus}
-                    flushDraftRef={flushDraftRef}
-                />
-            </RunChatActionComposerProvider>
+            {readOnly ? (
+                content
+            ) : (
+                <RunChatActionComposerProvider logicProps={logicProps}>{content}</RunChatActionComposerProvider>
+            )}
         </BindLogic>
     )
 }
