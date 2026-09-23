@@ -35,6 +35,7 @@ from products.signals.backend.models import (
     SignalReportSuggestedReviewer,
 )
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
+from products.signals.backend.suggested_reviewer_index import rebuild_suggested_reviewer_index
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
 from products.tasks.backend.models import Channel, Task
@@ -93,6 +94,22 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?suggested_reviewers={reviewer.uuid}")
         assert response.status_code == status.HTTP_200_OK
         return str(report.id) in {row["id"] for row in response.json()["results"]}
+
+    def _index_row_ids(self, report: SignalReport) -> set:
+        return set(SignalReportSuggestedReviewer.all_teams.filter(report_id=report.id).values_list("id", flat=True))
+
+    def _run_backfill_walk(self) -> None:
+        # The walk the 0152 data migration runs, over the concrete models rather than historical
+        # ones: every team, and only the reports that have no rows yet.
+        walk = rebuild_suggested_reviewer_index(
+            reviewer_artefacts=SignalReportArtefact.objects.filter(
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            ),
+            index_rows=SignalReportSuggestedReviewer.all_teams.all(),
+            only_missing=True,
+        )
+        for _written, _cursor in walk:
+            pass
 
     def _latest_reviewers(self, report: SignalReport) -> list:
         # suggested_reviewers is append-only: the current reviewers are the latest row's content.
@@ -985,6 +1002,44 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         call_command("backfill_suggested_reviewer_index", "--team-id", str(self.team.id))
 
         assert self._reviewer_filter_matches(report, alice)
+
+    def test_backfill_command_rerun_rewrites_rather_than_appends(self):
+        alice = self._create_org_member("alice@example.com", github_login="alice")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(alice.uuid)}])
+
+        call_command("backfill_suggested_reviewer_index", "--team-id", str(self.team.id))
+        call_command("backfill_suggested_reviewer_index", "--team-id", str(self.team.id))
+
+        assert SignalReportSuggestedReviewer.all_teams.filter(report_id=report.id).count() == 1
+        assert self._reviewer_filter_matches(report, alice)
+
+    def test_backfill_walk_indexes_a_report_missing_rows_and_leaves_an_indexed_one_alone(self):
+        alice = self._create_org_member("alice@example.com", github_login="alice")
+        missing = self._create_report()
+        self._create_artefact(missing, content=[{"user_uuid": str(alice.uuid)}])
+        indexed = self._create_report()
+        self._create_artefact(indexed, content=[{"user_uuid": str(alice.uuid)}])
+        SignalReportSuggestedReviewer.all_teams.filter(report_id=missing.id).delete()
+        rows_before = self._index_row_ids(indexed)
+
+        self._run_backfill_walk()
+
+        assert self._reviewer_filter_matches(missing, alice)
+        assert self._index_row_ids(indexed) == rows_before
+
+    def test_backfill_walk_indexes_only_the_reports_live_reviewers(self):
+        alice = self._create_org_member("alice@example.com", github_login="alice")
+        bob = self._create_org_member("bob@example.com", github_login="bob")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(alice.uuid)}])
+        self._create_artefact(report, content=[{"user_uuid": str(bob.uuid)}])
+        SignalReportSuggestedReviewer.all_teams.filter(report_id=report.id).delete()
+
+        self._run_backfill_walk()
+
+        assert self._reviewer_filter_matches(report, bob)
+        assert not self._reviewer_filter_matches(report, alice)
 
     def test_diff_with_non_dict_content_returns_400_not_500(self):
         # Log content is stored as arbitrary JSON; a non-object commit payload must not 500.

@@ -8,9 +8,12 @@ matching rules the inbox reads it with.
 from __future__ import annotations
 
 import uuid as uuid_module
+from collections import defaultdict
+from collections.abc import Iterable, Iterator
+from typing import TypeVar
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Model, Q, QuerySet
 
 import structlog
 from pydantic import ValidationError
@@ -20,31 +23,32 @@ from products.signals.backend.models import SignalReportArtefact, SignalReportSu
 
 logger = structlog.get_logger(__name__)
 
+_IndexRow = TypeVar("_IndexRow", bound=Model)
+
 
 # A tie needs at most a handful of rows, and a report's reviewer history is short, so reading the
 # newest few and grouping in Python costs one query where a timestamp lookup would cost two.
 _TIE_SCAN_LIMIT = 20
 
+# Reports per batch of the rebuild walk. A batch reads its reports' artefacts in one query and
+# rewrites their rows in one transaction, so this bounds both.
+_REBUILD_BATCH_SIZE = 100
 
-def _current_reviewer_artefacts(team_id: int, report_id: str) -> list[SignalReportArtefact]:
-    """The report's live reviewer artefacts: the newest row, plus any row written at the same
-    instant. The predicate this replaces ("no newer row of this type exists") also kept every row
-    at the maximum timestamp, so a tie must stay a union rather than become a pick.
+
+def _live_artefacts(artefacts: Iterable[SignalReportArtefact]) -> list[SignalReportArtefact]:
+    """One report's live reviewer artefacts, picked out of any set of that report's reviewer
+    artefacts: the newest row, plus any row written at the same instant. The predicate this
+    replaces ("no newer row of this type exists") also kept every row at the maximum timestamp,
+    so a tie must stay a union rather than become a pick.
     """
-    newest_first = list(
-        SignalReportArtefact.objects.filter(
-            team_id=team_id,
-            report_id=report_id,
-            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-        ).order_by("-created_at")[:_TIE_SCAN_LIMIT]
-    )
-    if not newest_first:
+    rows = list(artefacts)
+    if not rows:
         return []
-    latest = newest_first[0].created_at
-    return [artefact for artefact in newest_first if artefact.created_at == latest]
+    latest = max(artefact.created_at for artefact in rows)
+    return [artefact for artefact in rows if artefact.created_at == latest]
 
 
-def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSuggestedReviewer]:
+def _rows_for_artefact(artefact: SignalReportArtefact, index_model: type[_IndexRow]) -> list[_IndexRow]:
     try:
         entries = SuggestedReviewers.model_validate_json(artefact.content).root
     except ValidationError:
@@ -57,7 +61,7 @@ def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSugge
             artefact_id=str(artefact.id),
         )
         return []
-    rows: list[SignalReportSuggestedReviewer] = []
+    rows: list[_IndexRow] = []
     seen: set[tuple[str | None, str | None]] = set()
     for entry in entries:
         login = entry.github_login.lower() if entry.github_login else None
@@ -66,7 +70,7 @@ def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSugge
             continue
         seen.add(identity)
         rows.append(
-            SignalReportSuggestedReviewer(
+            index_model(
                 team_id=artefact.team_id,
                 report_id=artefact.report_id,
                 artefact_id=artefact.id,
@@ -77,19 +81,78 @@ def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSugge
     return rows
 
 
+def _rows_for_report(artefacts: Iterable[SignalReportArtefact], index_model: type[_IndexRow]) -> list[_IndexRow]:
+    rows: list[_IndexRow] = []
+    for artefact in _live_artefacts(artefacts):
+        rows.extend(_rows_for_artefact(artefact, index_model))
+    return rows
+
+
 def sync_suggested_reviewer_index(*, team_id: int, report_id: str) -> None:
     """Rewrite a report's index rows from its current reviewer artefacts.
 
     Called from every path that can change which artefact is current — an append, an edit in
     place, a delete — so the index never needs a reader to fall back to the log.
     """
-    rows: list[SignalReportSuggestedReviewer] = []
-    for artefact in _current_reviewer_artefacts(team_id, report_id):
-        rows.extend(_rows_for_artefact(artefact))
+    rows = _rows_for_report(
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        ).order_by("-created_at")[:_TIE_SCAN_LIMIT],
+        SignalReportSuggestedReviewer,
+    )
+    index_rows = SignalReportSuggestedReviewer.objects.for_team(team_id)
     with transaction.atomic():
-        SignalReportSuggestedReviewer.objects.for_team(team_id).filter(report_id=report_id).delete()
+        index_rows.filter(report_id=report_id).delete()
         if rows:
-            SignalReportSuggestedReviewer.objects.for_team(team_id).bulk_create(rows)
+            index_rows.bulk_create(rows)
+
+
+def rebuild_suggested_reviewer_index(
+    *,
+    reviewer_artefacts: QuerySet,
+    index_rows: QuerySet,
+    after: str | None = None,
+    batch_size: int = _REBUILD_BATCH_SIZE,
+    only_missing: bool = False,
+) -> Iterator[tuple[int, str]]:
+    """Rebuild index rows from the reviewer artefact log, a batch of reports at a time.
+
+    Yields `(reports written, resume cursor)` once per batch, so a caller can report progress and
+    resume a stopped walk. Each batch commits on its own, which keeps a long run off a single
+    transaction.
+
+    The caller passes the two querysets rather than a team id, because the two callers reach the
+    rows differently: the management command scopes both to one project, and the data migration
+    hands over the historical models its own state knows. The index model comes from `index_rows`
+    for the same reason.
+
+    `only_missing` skips a report that already has index rows. A backfill runs that way, because a
+    report the live code has already indexed needs no repair, and rewriting it could undo a write
+    that landed between this walk's read and its own.
+    """
+    index_model = index_rows.model
+    while True:
+        batch = reviewer_artefacts if after is None else reviewer_artefacts.filter(report_id__gt=after)
+        report_ids = list(batch.order_by("report_id").values_list("report_id", flat=True).distinct()[:batch_size])
+        if not report_ids:
+            return
+        after = str(report_ids[-1])
+        targets = report_ids
+        if only_missing:
+            indexed = set(index_rows.filter(report_id__in=report_ids).values_list("report_id", flat=True))
+            targets = [report_id for report_id in report_ids if report_id not in indexed]
+        if targets:
+            by_report: dict[uuid_module.UUID, list[SignalReportArtefact]] = defaultdict(list)
+            for artefact in reviewer_artefacts.filter(report_id__in=targets):
+                by_report[artefact.report_id].append(artefact)
+            rows = [row for artefacts in by_report.values() for row in _rows_for_report(artefacts, index_model)]
+            with transaction.atomic():
+                index_rows.filter(report_id__in=targets).delete()
+                if rows:
+                    index_rows.bulk_create(rows)
+        yield len(targets), after
 
 
 def _identity_filter(user_uuids: list[str], github_logins: list[str], *, logins_match_unidentified_only: bool) -> Q:

@@ -183,6 +183,14 @@ records. `--batch-size` bounds each page; the printed `--after` cursor resumes i
 The command is idempotent and does not call GitHub, change report state, or enqueue
 reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
 
+## Rebuilding the suggested reviewer index
+
+`uv run manage.py backfill_suggested_reviewer_index --team-id <id>` rewrites the indexed `SignalReportSuggestedReviewer` rows from the reviewer artefact log, for every report in a project that has one.
+The inbox reviewer scopes and the `is_suggested_reviewer` flag read those rows alone, so a report with no rows names nobody.
+`--batch-size` bounds each page and the printed `--after` cursor resumes it.
+Safe to rerun, because each report is rewritten from its current artefact.
+`--only-missing` skips the reports that already have rows, which is how migration `0153_backfill_suggested_reviewer_index` runs the same walk across every team.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`
