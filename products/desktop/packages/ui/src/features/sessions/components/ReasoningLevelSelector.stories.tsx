@@ -86,7 +86,7 @@ function effortOption(currentValue: string): SessionConfigOption {
         value: "high",
         _meta: { "posthog.code/defaultOption": true },
       },
-      { name: "Extra High", value: "xhigh" },
+      { name: "Extra high", value: "xhigh" },
       { name: "Max", value: "max" },
     ],
   } as unknown as SessionConfigOption;
