@@ -45,6 +45,8 @@ describe('inboxTaskKickoffLogic', () => {
         let onRunRequest: (() => void) | null
         // What `@me/config` resolves to for this user; null is a project that never picked a model.
         let resolvedRunDefaults: Record<string, unknown> | null
+        // Holds the `@me/config` response until the test resolves it, so a test can act mid-flight.
+        let runDefaultsGate: Promise<void> | null
         const report = makeReport({ id: 'report-sidebar', status: SignalReportStatus.READY })
 
         // Which model it names does not matter; what counts is that a default exists.
@@ -74,13 +76,16 @@ describe('inboxTaskKickoffLogic', () => {
             createStatus = 201
             onRunRequest = null
             resolvedRunDefaults = null
+            runDefaultsGate = null
             useMocks({
                 get: {
                     '/api/projects/:team/signals/reports/:id/': report,
-                    '/api/projects/:team/tasks/@me/config/': () => [
-                        200,
-                        { ai_run_preferences: {}, resolved_ai_run_defaults: resolvedRunDefaults },
-                    ],
+                    '/api/projects/:team/tasks/@me/config/': async () => {
+                        if (runDefaultsGate) {
+                            await runDefaultsGate
+                        }
+                        return [200, { ai_run_preferences: {}, resolved_ai_run_defaults: resolvedRunDefaults }]
+                    },
                 },
                 post: {
                     '/api/projects/:team/tasks/': async ({ request }) => {
@@ -229,6 +234,25 @@ describe('inboxTaskKickoffLogic', () => {
                 expect(startedRuns[0]).not.toHaveProperty('reasoning_effort')
             }
         )
+
+        it('waits for the stored default before it falls back to a model of its own', async () => {
+            // Put `@me/config` back in flight, as it is for a reader who presses the button while the
+            // report is still opening.
+            taskRunDefaultsLogic.unmount()
+            let releaseRunDefaults = (): void => {}
+            runDefaultsGate = new Promise<void>((resolve) => {
+                releaseRunDefaults = resolve
+            })
+            resolvedRunDefaults = RESOLVED_TEAM_DEFAULT
+            taskRunDefaultsLogic.mount()
+
+            const kickoff = expectLogic(logic, () => logic.actions.createPrFromReport(report)).toFinishAllListeners()
+            releaseRunDefaults()
+            await kickoff
+
+            expect(createdTasks[0]).not.toHaveProperty('model')
+            expect(startedRuns[0]).not.toHaveProperty('model')
+        })
 
         it('warms on the default model when the project set one', async () => {
             warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
