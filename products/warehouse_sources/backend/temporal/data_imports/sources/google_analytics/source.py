@@ -81,6 +81,10 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             # `session.post()` before any HTTP status is available to match on, so match Google's
             # stable OAuth error code instead.
             "invalid_grant": "Your Google Analytics connection has expired or been revoked. Please reconnect your account.",
+            # Also a bare `RefreshError` out of `session.post()`, raised when the user's Google
+            # Workspace admin has not approved this app for their organization. No retry can
+            # recover it — an admin must grant access before the user reconnects.
+            "access_not_configured": "Your Google Workspace administrator has restricted API access for this app. Ask your admin to approve it, then reconnect your Google Analytics account.",
         }
 
     def get_retryable_errors(self) -> set[str]:
