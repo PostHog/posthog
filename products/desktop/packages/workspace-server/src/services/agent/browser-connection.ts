@@ -29,7 +29,7 @@ export class BrowserConnection {
   private listener: ReturnType<typeof createServer> | undefined;
   private listening: Promise<number> | undefined;
   private readonly tokens = new Map<string, string>();
-  private blocked = false;
+  private blocked = true;
   private generation = 0;
   private status: BrowserConnectionStatus["status"] = "idle";
 
@@ -49,7 +49,7 @@ export class BrowserConnection {
       this.tokens.set(sessionId, token);
     }
     return {
-      name: "chrome-devtools",
+      name: "posthog-browser",
       type: "http",
       url: `http://127.0.0.1:${port}/mcp`,
       headers: [{ name: "Authorization", value: `Bearer ${token}` }],
@@ -60,10 +60,10 @@ export class BrowserConnection {
     this.tokens.delete(sessionId);
   }
 
-  private async getClient(): Promise<Client> {
-    if (this.blocked) {
+  private async getClient(allowDisconnected = false): Promise<Client> {
+    if (this.blocked && !allowDisconnected) {
       throw new Error(
-        "Chrome is disconnected. Reconnect in Settings > Advanced > Browser access.",
+        "Chrome is disconnected. Select Connect Chrome in Settings > Advanced > Browser access.",
       );
     }
     if (this.starting) return this.starting;
@@ -123,8 +123,24 @@ export class BrowserConnection {
     if (generation !== this.generation) return;
     this.blocked = false;
     this.status = "connecting";
-    const client = await this.getClient();
-    await this.callTool(client, { name: "list_pages", arguments: {} });
+    try {
+      const client = await this.getClient();
+      const result = await this.callTool(client, {
+        name: "list_pages",
+        arguments: {},
+      });
+      if (result.isError) {
+        throw new Error(
+          "Couldn't connect to Chrome. Check Chrome and try again.",
+        );
+      }
+    } catch (error) {
+      if (generation === this.generation) {
+        this.blocked = true;
+        this.status = "error";
+      }
+      throw error;
+    }
   }
 
   async disconnect(): Promise<void> {
@@ -144,20 +160,21 @@ export class BrowserConnection {
   ): ReturnType<Client["callTool"]> {
     if (this.blocked || this.client !== client) {
       throw new Error(
-        "Chrome is disconnected. Reconnect in Settings > Advanced > Browser access.",
+        "Chrome is disconnected. Select Connect Chrome in Settings > Advanced > Browser access.",
       );
     }
-    if (this.status !== "connected") this.status = "connecting";
+    const wasConnected = this.status === "connected";
+    if (!wasConnected) this.status = "connecting";
     try {
       const result = await client.callTool(params, undefined, {
         timeout: 60_000,
         signal,
       });
       if (this.client === client)
-        this.status = result.isError ? "error" : "connected";
+        this.status = result.isError && !wasConnected ? "error" : "connected";
       return result;
     } catch (error) {
-      if (this.client === client) this.status = "error";
+      if (this.client === client && !wasConnected) this.status = "error";
       throw error;
     }
   }
@@ -184,7 +201,7 @@ export class BrowserConnection {
       { capabilities: { tools: {} } },
     );
     server.setRequestHandler(ListToolsRequestSchema, async () => {
-      const client = await this.getClient();
+      const client = await this.getClient(true);
       const result = await client.listTools();
       return {
         ...result,

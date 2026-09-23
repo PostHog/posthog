@@ -318,7 +318,7 @@ describe("AgentService", () => {
       deps.loggerFactory as never,
       {
         getServer: vi.fn().mockResolvedValue({
-          name: "chrome-devtools",
+          name: "posthog-browser",
           type: "http",
           url: "http://127.0.0.1:12345/mcp",
           headers: [],
@@ -851,37 +851,21 @@ describe("AgentService", () => {
     });
 
     it.each(["claude", "codex"] as const)(
-      "configures Chrome browser access for %s based on the setting",
+      "registers Chrome tools for %s before browser access is enabled",
       async (adapter) => {
         await service.startSession({
           ...baseSessionParams,
           adapter,
-          browserIntegrationEnabled: true,
         });
 
-        const enabledServers = mockNewSession.mock.calls[0][0].mcpServers;
-        expect(enabledServers).toEqual(
+        const servers = mockNewSession.mock.calls[0][0].mcpServers;
+        expect(servers).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
-              name: "chrome-devtools",
+              name: "posthog-browser",
               type: "http",
               url: "http://127.0.0.1:12345/mcp",
             }),
-          ]),
-        );
-
-        mockNewSession.mockClear();
-        await service.startSession({
-          ...baseSessionParams,
-          adapter,
-          browserIntegrationEnabled: false,
-          taskRunId: `browser-disabled-${adapter}`,
-        });
-
-        const disabledServers = mockNewSession.mock.calls[0][0].mcpServers;
-        expect(disabledServers).not.toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({ name: "chrome-devtools" }),
           ]),
         );
       },
@@ -906,7 +890,7 @@ describe("AgentService", () => {
 
       const claudeMcp = mockNewSession.mock.calls[0][0].mcpServers;
       const codexMcp = mockNewSession.mock.calls[1][0].mcpServers;
-      expect(claudeMcp).toHaveLength(1);
+      expect(claudeMcp).toHaveLength(2);
       expect(codexMcp).toEqual(claudeMcp);
     });
 

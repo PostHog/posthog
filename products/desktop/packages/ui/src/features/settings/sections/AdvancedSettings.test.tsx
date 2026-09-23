@@ -32,12 +32,10 @@ vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
   useSettingsStore: (
     selector: (state: {
       autoPublishCloudRuns: boolean;
-      browserIntegrationEnabled: boolean;
       debugLogsCloudRuns: boolean;
       rtkEnabledCloud: boolean;
       rtkEnabledLocal: boolean;
       setAutoPublishCloudRuns: () => void;
-      setBrowserIntegrationEnabled: () => void;
       setDebugLogsCloudRuns: () => void;
       setRtkEnabledCloud: () => void;
       setRtkEnabledLocal: () => void;
@@ -45,12 +43,10 @@ vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
   ) =>
     selector({
       autoPublishCloudRuns: false,
-      browserIntegrationEnabled: false,
       debugLogsCloudRuns: false,
       rtkEnabledCloud: false,
       rtkEnabledLocal: false,
       setAutoPublishCloudRuns: vi.fn(),
-      setBrowserIntegrationEnabled: vi.fn(),
       setDebugLogsCloudRuns: vi.fn(),
       setRtkEnabledCloud: vi.fn(),
       setRtkEnabledLocal: vi.fn(),

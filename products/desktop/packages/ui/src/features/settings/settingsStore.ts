@@ -288,7 +288,6 @@ export interface SettingsStore {
   // sessions, cloud covers cloud runs.
   rtkEnabledLocal: boolean;
   rtkEnabledCloud: boolean;
-  browserIntegrationEnabled: boolean;
   codexModelAccess: ModelAccess;
   claudeModelAccess: ModelAccess;
   claudeCloudSubscriptionOn: boolean;
@@ -298,7 +297,6 @@ export interface SettingsStore {
   setAutoPublishCloudRuns: (enabled: boolean) => void;
   setRtkEnabledLocal: (enabled: boolean) => void;
   setRtkEnabledCloud: (enabled: boolean) => void;
-  setBrowserIntegrationEnabled: (enabled: boolean) => void;
   setCodexModelAccess: (mode: ModelAccess) => void;
   setClaudeModelAccess: (mode: ModelAccess) => void;
   setClaudeCloudSubscriptionOn: (enabled: boolean) => void;
@@ -562,7 +560,6 @@ export const useSettingsStore = create<SettingsStore>()(
       autoPublishCloudRuns: true,
       rtkEnabledLocal: true,
       rtkEnabledCloud: true,
-      browserIntegrationEnabled: false,
       codexModelAccess: "posthog-gateway",
       claudeModelAccess: "posthog-gateway",
       claudeCloudSubscriptionOn: false,
@@ -575,8 +572,6 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ autoPublishCloudRuns: enabled }),
       setRtkEnabledLocal: (enabled) => set({ rtkEnabledLocal: enabled }),
       setRtkEnabledCloud: (enabled) => set({ rtkEnabledCloud: enabled }),
-      setBrowserIntegrationEnabled: (enabled) =>
-        set({ browserIntegrationEnabled: enabled }),
       setCodexModelAccess: (mode) => set({ codexModelAccess: mode }),
       setClaudeModelAccess: (mode) => set({ claudeModelAccess: mode }),
       setClaudeCloudSubscriptionOn: (enabled) =>
@@ -731,7 +726,6 @@ export const useSettingsStore = create<SettingsStore>()(
         autoPublishCloudRuns: state.autoPublishCloudRuns,
         rtkEnabledLocal: state.rtkEnabledLocal,
         rtkEnabledCloud: state.rtkEnabledCloud,
-        browserIntegrationEnabled: state.browserIntegrationEnabled,
         codexModelAccess: state.codexModelAccess,
         claudeModelAccess: state.claudeModelAccess,
         claudeCloudSubscriptionOn: state.claudeCloudSubscriptionOn,

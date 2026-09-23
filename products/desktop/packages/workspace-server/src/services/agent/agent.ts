@@ -327,7 +327,6 @@ interface SessionConfig {
   importedSessionId?: string;
   /** rtk command-output compression for this session; false opts out. */
   rtkEnabled?: boolean;
-  browserIntegrationEnabled?: boolean;
   /** The user's spoken-narration setting at session start. */
   spokenNarration?: boolean;
   /** Matched `bedrock-llm-gateway` variant at session start. */
@@ -1139,9 +1138,10 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         toolApprovals,
         toolInstallations,
       } = await this.agentAuthAdapter.buildMcpServers(credentials);
-      const sessionMcpServers: McpServer[] = config.browserIntegrationEnabled
-        ? [...mcpServers, await this.browserConnection.getServer(taskRunId)]
-        : mcpServers;
+      const sessionMcpServers: McpServer[] = [
+        ...mcpServers,
+        await this.browserConnection.getServer(taskRunId),
+      ];
 
       // Store server configs for lazy MCP connections — actual connections
       // are created on-demand when UI resources are first requested.
@@ -2371,10 +2371,6 @@ For git operations while detached:
       importedSessionId:
         "importedSessionId" in params ? params.importedSessionId : undefined,
       rtkEnabled: "rtkEnabled" in params ? params.rtkEnabled : undefined,
-      browserIntegrationEnabled:
-        "browserIntegrationEnabled" in params
-          ? params.browserIntegrationEnabled
-          : undefined,
       spokenNarration:
         "spokenNarration" in params ? params.spokenNarration : undefined,
       bedrockGatewayVariant:

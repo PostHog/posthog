@@ -5,30 +5,23 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
-import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 export function ChromeBrowserSettings() {
   const hostTRPC = useHostTRPC();
-  const setEnabled = useSettingsStore((s) => s.setBrowserIntegrationEnabled);
   const status = useQuery({
     ...hostTRPC.agent.browserStatus.queryOptions(),
     refetchInterval: 2000,
   });
   const reconnect = useMutation({
     ...hostTRPC.agent.reconnectBrowser.mutationOptions(),
-    onSuccess: async () => {
-      const result = await status.refetch();
-      setEnabled(result.data?.status === "connected");
-    },
     onSettled: () => {
       void status.refetch();
     },
   });
   const disconnect = useMutation({
     ...hostTRPC.agent.disconnectBrowser.mutationOptions(),
-    onSuccess: () => setEnabled(false),
     onSettled: () => {
       void status.refetch();
     },
@@ -105,8 +98,8 @@ export function ChromeBrowserSettings() {
               Open Chrome remote debugging settings
             </Button>
             <p>
-              New local sessions share this connection. Disconnect to stop
-              access for all sessions.
+              Local sessions share this connection. You can connect during a
+              conversation. Disconnect to stop access for all sessions.
             </p>
             {setup.isError && (
               <span className="text-destructive" role="alert">

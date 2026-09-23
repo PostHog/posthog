@@ -3,7 +3,9 @@
 ## Chrome asks for permission in each agent session
 
 Desktop shares one Chrome connection across local agent sessions.
-Select **Connect Chrome** in **Settings > Advanced** before you start a local session.
+Local sessions receive browser tools at startup, but those tools cannot access Chrome until you connect.
+Select **Connect Chrome** in **Settings > Advanced** at any time, including during a conversation.
+Sessions created before this version need one restart to receive the browser tools.
 If Chrome needs setup, expand **Connection help** to open its remote debugging settings.
 Approve the connection request in Chrome.
 Ending a session does not close the shared connection.

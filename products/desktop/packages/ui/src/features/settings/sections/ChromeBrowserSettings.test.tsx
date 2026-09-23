@@ -7,7 +7,6 @@ import { ChromeBrowserSettings } from "./ChromeBrowserSettings";
 const mocks = vi.hoisted(() => ({
   reconnect: vi.fn(),
   disconnect: vi.fn(),
-  setEnabled: vi.fn(),
   status: "connected",
 }));
 
@@ -33,19 +32,6 @@ vi.mock("@posthog/host-router/react", () => ({
       },
     },
   }),
-}));
-
-vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
-  useSettingsStore: (
-    selector: (state: {
-      browserIntegrationEnabled: boolean;
-      setBrowserIntegrationEnabled: (enabled: boolean) => void;
-    }) => unknown,
-  ) =>
-    selector({
-      browserIntegrationEnabled: true,
-      setBrowserIntegrationEnabled: mocks.setEnabled,
-    }),
 }));
 
 describe("ChromeBrowserSettings", () => {
@@ -116,10 +102,9 @@ describe("ChromeBrowserSettings", () => {
     expect(mocks.disconnect).toHaveBeenCalledOnce();
     finish();
     await screen.findByRole("button", { name: "Connect Chrome" });
-    expect(mocks.setEnabled).toHaveBeenLastCalledWith(false);
   });
 
-  it("enables access after Chrome connects", async () => {
+  it("shows disconnect after Chrome connects", async () => {
     mocks.status = "disconnected";
     act(() =>
       queryClient.setQueryData(["browser-status"], { status: mocks.status }),
@@ -131,11 +116,8 @@ describe("ChromeBrowserSettings", () => {
     await user.click(
       await screen.findByRole("button", { name: "Connect Chrome" }),
     );
-    await waitFor(() =>
-      expect(mocks.setEnabled).toHaveBeenLastCalledWith(true),
-    );
     expect(
-      screen.getByRole("button", { name: "Disconnect Chrome" }),
+      await screen.findByRole("button", { name: "Disconnect Chrome" }),
     ).toBeInTheDocument();
   });
 
@@ -159,13 +141,15 @@ describe("ChromeBrowserSettings", () => {
     );
   });
 
-  it("keeps access enabled if disconnect fails", async () => {
+  it("keeps the disconnect action if disconnect fails", async () => {
     mocks.disconnect.mockRejectedValue(new Error("Disconnect failed"));
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Disconnect Chrome" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Couldn't disconnect from Chrome",
     );
-    expect(mocks.setEnabled).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Disconnect Chrome" }),
+    ).toBeInTheDocument();
   });
 });

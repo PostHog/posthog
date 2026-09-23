@@ -88,6 +88,29 @@ describe("BrowserConnection", () => {
     return client;
   }
 
+  it("discovers tools without browser access and connects without replacing the session", async () => {
+    const client = await connect("session");
+    const descriptor = await connection.getServer("session");
+    expect(descriptor.name).toBe("posthog-browser");
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toContain(
+      "list_pages",
+    );
+    expect(upstream.calls).not.toHaveBeenCalled();
+    await expect(client.callTool({ name: "list_pages" })).rejects.toThrow(
+      "Chrome is disconnected",
+    );
+    expect(upstream.calls).not.toHaveBeenCalled();
+    await connection.reconnect();
+    await client.callTool({ name: "list_pages" });
+    await connection.disconnect();
+    await client.listTools();
+    upstream.calls.mockClear();
+    await expect(client.callTool({ name: "list_pages" })).rejects.toThrow(
+      "Chrome is disconnected",
+    );
+    expect(upstream.calls).not.toHaveBeenCalled();
+  });
+
   it("shares one browser across concurrent sessions and keeps it after a session ends", async () => {
     const [first, second] = await Promise.all([
       connect("first"),
@@ -95,9 +118,11 @@ describe("BrowserConnection", () => {
     ]);
     const lists = await Promise.all([first.listTools(), second.listTools()]);
     expect(upstream.starts).toBe(1);
+    expect(upstream.calls).not.toHaveBeenCalled();
     expect(lists[0].tools.map((tool) => tool.name)).not.toContain(
       "select_page",
     );
+    await connection.reconnect();
     await Promise.all([
       first.callTool({ name: "take_snapshot", arguments: { pageId: 11 } }),
       second.callTool({ name: "take_snapshot", arguments: { pageId: 22 } }),
@@ -116,11 +141,12 @@ describe("BrowserConnection", () => {
     await first.close();
     const third = await connect("third");
     await third.callTool({ name: "list_pages" });
-    expect(upstream.starts).toBe(1);
+    expect(upstream.starts).toBe(2);
   });
 
   it("blocks calls after disconnect until explicit reconnect", async () => {
     const client = await connect("session");
+    await connection.reconnect();
     await client.callTool({ name: "list_pages" });
     expect(connection.getStatus().status).toBe("connected");
     await connection.disconnect();
@@ -136,18 +162,35 @@ describe("BrowserConnection", () => {
 
   it("keeps the same connection after a failed browser action", async () => {
     const client = await connect("session");
+    await connection.reconnect();
     upstream.calls.mockRejectedValueOnce(new Error("Browser action timed out"));
     await expect(client.callTool({ name: "list_pages" })).rejects.toThrow(
       "Browser action timed out",
     );
-    expect(connection.getStatus().status).toBe("error");
+    expect(connection.getStatus().status).toBe("connected");
     await client.callTool({ name: "list_pages" });
     expect(upstream.starts).toBe(1);
     expect(connection.getStatus().status).toBe("connected");
   });
 
+  it("requires explicit reconnect after a connection attempt fails", async () => {
+    const client = await connect("session");
+    upstream.calls.mockRejectedValueOnce(new Error("Connection failed"));
+    await expect(connection.reconnect()).rejects.toThrow("Connection failed");
+    expect(connection.getStatus().status).toBe("error");
+    await client.listTools();
+    await expect(client.callTool({ name: "list_pages" })).rejects.toThrow(
+      "Chrome is disconnected",
+    );
+    expect(upstream.calls).toHaveBeenCalledTimes(1);
+    await connection.reconnect();
+    await client.callTool({ name: "list_pages" });
+    expect(connection.getStatus().status).toBe("connected");
+  });
+
   it("requires explicit reconnect after the browser process exits", async () => {
     const client = await connect("session");
+    await connection.reconnect();
     await client.callTool({ name: "list_pages" });
     await upstream.transports[0].close();
     expect(connection.getStatus().status).toBe("disconnected");
