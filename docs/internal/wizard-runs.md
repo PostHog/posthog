@@ -56,13 +56,21 @@ POST  /api/projects/{project_id}/wizard/runs/
 GET   /api/projects/{project_id}/wizard/runs/{run_id}/
 PATCH /api/projects/{project_id}/wizard/runs/{run_id}/
 GET   /api/projects/{project_id}/wizard/runs/{run_id}/artifacts/
+PUT   /api/projects/{project_id}/wizard/runs/{run_id}/tasks/
+GET   /api/projects/{project_id}/wizard/runs/{run_id}/tasks/
+GET   /api/projects/{project_id}/wizard/runs/{run_id}/stream/
 ```
 
 Run responses include the creator ID and basic creator details for attribution in project-level run lists.
+Use `GET /api/projects/{project_id}/wizard/runs/?active=true&limit=1` to fetch the newest active run; `count` gives the total number of active runs in the project.
+The app-wide sync widget polls this summary and opens one event stream for the newest run.
+The `wizard-run-sync` feature flag switches the authenticated shell from the session sync widget to the run sync widget.
 
 The PATCH request accepts a terminal `status`: `completed`, `failed`, or `cancelled`.
 Failed runs can also include an `error_code`.
 Local agents can create runs and update runs they created.
+These operations accept OAuth tokens with `wizard_run:write`; browser sessions can also create and manage runs.
+Run creation uses the existing per-user creation throttle for both environments.
 Cloud creation requires a signed-in browser session and enabled cloud execution.
 Cloud lifecycle updates are owned by the Wizard Worker.
 
@@ -181,6 +189,45 @@ For a Git-repository workspace with changes, V0 also stores the pull request URL
 Updated archives remain a future artifact type.
 
 ## State synchronization
+
+The setup agent sends its complete task snapshot to `PUT /api/projects/{project_id}/wizard/runs/{run_id}/tasks/`:
+
+```json
+{ "tasks": [{ "name": "Install SDK", "status": "running" }] }
+```
+
+The endpoint requires an OAuth token with `wizard_run:write` for the user who created the run.
+Add `wizard_run:write` to the Wizard OAuth application's scope ceiling before switching the agent to these endpoints.
+Agents that read snapshots also need `wizard_run:read`.
+Existing tokens need these grants through renewed authorization; the backend does not widen them automatically.
+It returns `204` with no body.
+Both local and cloud agents write to their assigned run ID.
+Task names must be unique within the snapshot and remain stable between updates: renaming a task creates a new task identity.
+Each snapshot replaces the stored list, preserves its order, and removes omitted tasks.
+An empty list clears the snapshot.
+A snapshot accepts up to 100 tasks, with names up to 255 characters.
+Task statuses are `created`, `running`, `completed`, and `failed`.
+Multiple tasks may run at once, and a snapshot does not need to contain a running task.
+Task statuses do not change the run's lifecycle status.
+
+`GET /api/projects/{project_id}/wizard/runs/{run_id}/tasks/` returns the full list as `{"tasks": [...]}` without pagination.
+Browser sessions and tokens with `wizard_run:read` can read the list within their project.
+Each task includes `name`, `status`, `created_at`, `started_at`, `completed_at`, `failed_at`, and `error_message`.
+The server preserves the first-observed timestamp for each state while the task remains in the snapshot.
+A task first received as completed has no known start time, so `started_at` remains null.
+The input does not include failure details; `error_message` remains null.
+Timestamps use the server clock and are returned as ISO 8601 strings.
+Snapshots are reconciled under a row lock so concurrent updates preserve recorded timestamps.
+The server applies snapshots in arrival order; clients must await each update before sending the next.
+
+The run's `stream/` endpoint requires a browser session and emits an initial state followed by updates after committed task, status, or stage changes.
+Each SSE `data` event contains `tasks`, `status`, `stage`, `error_code`, `error_message`, `updated_at`, `started_at`, and `finished_at`.
+Immutable run fields such as `id` are omitted.
+Redis notifications are scoped by project and run ID, and each notification reloads the committed state.
+Fanout is best effort: reconnecting reads the latest state, and GET remains available if a notification is missed.
+The stream sends heartbeat comments and rotates after 15 minutes with `event: end` and `data: reconnect`.
+It uses the existing `onboarding-wizard-sync-killswitch` flag; an enabled flag returns `204` so EventSource stops reconnecting.
+Use EventSource rather than the generated fetch wrapper to consume the stream.
 
 The existing Wizard session endpoint remains active during migration:
 

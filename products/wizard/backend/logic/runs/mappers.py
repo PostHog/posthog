@@ -1,16 +1,18 @@
+from datetime import datetime
+
 from products.wizard.backend.facade.contracts import (
     GitRepositoryWorkspace,
     LocalFolderWorkspace,
     WizardRunCreatorDTO,
     WizardRunDTO,
-    WizardTaskDTO,
+    WizardRunTaskDTO,
     WizardWorkspace,
 )
 from products.wizard.backend.facade.enums import (
     WizardRunEnvironment,
     WizardRunStage,
     WizardRunStatus,
-    WizardSessionTaskStatus,
+    WizardTaskStatus,
     WizardWorkspaceType,
 )
 from products.wizard.backend.facade.validation import validate_workspace_metadata_value
@@ -64,13 +66,13 @@ def record_to_run(run: WizardRun) -> WizardRunDTO:
             else None
         ),
         tasks=tuple(
-            WizardTaskDTO(
+            WizardRunTaskDTO(
                 title=task["title"],
-                status=WizardSessionTaskStatus(task["status"]),
-                created_at=task["created_at"],
-                started_at=task["started_at"],
-                completed_at=task["completed_at"],
-                failed_at=task["failed_at"],
+                status=WizardTaskStatus(task["status"]),
+                created_at=datetime.fromisoformat(task["created_at"]),
+                started_at=datetime.fromisoformat(task["started_at"]) if task["started_at"] else None,
+                completed_at=datetime.fromisoformat(task["completed_at"]) if task["completed_at"] else None,
+                failed_at=datetime.fromisoformat(task["failed_at"]) if task["failed_at"] else None,
                 error_message=task["error_message"],
             )
             for task in run.tasks_snapshot or []

@@ -96275,6 +96275,42 @@ export namespace Schemas {
       success: boolean;
     }
 
+    /**
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     */
+    export type WizardTaskStatusEnum = typeof WizardTaskStatusEnum[keyof typeof WizardTaskStatusEnum];
+
+
+    export const WizardTaskStatusEnum = {
+      Created: 'created',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface UpdateWizardRunTask {
+      /**
+         * Task name, unique within this run and stable across snapshots.
+         * @maxLength 255
+         */
+      name: string;
+      /** Current task status reported by the setup agent.
+       *
+       * * `created` - created
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed */
+      status: WizardTaskStatusEnum;
+    }
+
+    export interface UpdateWizardRunTaskList {
+      /** Complete task snapshot. An empty list clears the run's tasks. */
+      tasks: UpdateWizardRunTask[];
+    }
+
     export interface UploadVersionRequest {
       /** Zip archive containing the Streamlit app sources (max 10 MB). */
       file: string;
@@ -98034,6 +98070,45 @@ export namespace Schemas {
     export const WizardRunPullRequestArtifactArtifactTypeEnum = {
       PullRequest: 'pull_request',
     } as const;
+
+    export interface WizardRunTask {
+      /** Task name, unique within this run. */
+      readonly name: string;
+      /** Current task status reported by the setup agent.
+       *
+       * * `created` - created
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed */
+      readonly status: WizardTaskStatusEnum;
+      /** When the server first received this task. */
+      readonly created_at: string;
+      /**
+         * When the server first observed this task running.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the server first observed this task completed.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+      /**
+         * When the server first observed this task failed.
+         * @nullable
+         */
+      readonly failed_at: string | null;
+      /**
+         * Task failure explanation, or null when none is available.
+         * @nullable
+         */
+      readonly error_message: string | null;
+    }
+
+    export interface WizardRunTaskList {
+      /** Complete task list in snapshot order. */
+      readonly tasks: readonly WizardRunTask[];
+    }
 
     /**
      * Whether PostHog paused this one workflow's email sending, and why.
@@ -112899,6 +112974,10 @@ export namespace Schemas {
     };
 
     export type WizardRunsListParams = {
+    /**
+     * Only return active runs.
+     */
+    active?: boolean;
     /**
      * Number of results to return per page.
      */

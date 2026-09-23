@@ -15,7 +15,14 @@ class WizardRunPagination(LimitOffsetPagination):
         limit = self.get_limit(request)
         assert limit is not None
         offset = self.get_offset(request)
-        page = wizard_facade.list_runs(ListWizardRunsInput(team_id=team_id, offset=offset, limit=limit))
+        page = wizard_facade.list_runs(
+            ListWizardRunsInput(
+                team_id=team_id,
+                offset=offset,
+                limit=limit,
+                active_only=request.query_params.get("active") == "true",
+            )
+        )
         self.request = request
         self.limit = limit
         self.offset = offset

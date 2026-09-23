@@ -20,7 +20,12 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from '../generated/api.schemas'
+import type {
+    WizardRunApi,
+    WizardRunArtifactApi,
+    WizardRunGitDiffArtifactApi,
+    WizardRunTaskApi,
+} from '../generated/api.schemas'
 import {
     WIZARD_LOCAL_RUNS_VISIBLE,
     wizardGithubRepositoryUrl,
@@ -73,6 +78,7 @@ function RetryItem({
 
 export function WizardRunDetailsDrawer({
     run,
+    tasks = [],
     artifacts,
     artifactsError,
     artifactsLoading,
@@ -93,6 +99,7 @@ export function WizardRunDetailsDrawer({
     onRunAgain,
 }: {
     run: WizardRunApi | null
+    tasks?: readonly WizardRunTaskApi[]
     artifacts: WizardRunArtifactApi[]
     artifactsError: string | null
     artifactsLoading: boolean
@@ -110,7 +117,7 @@ export function WizardRunDetailsDrawer({
     onRefresh: () => void
     onCopyRunId: (runId: string) => void
     onCancel: (run: WizardRunApi) => void
-    onRunAgain: (run: WizardRunApi) => void
+    onRunAgain?: (run: WizardRunApi) => void
 }): JSX.Element {
     const pullRequest = artifacts.find((artifact) => artifact.artifact_type === 'pull_request')
     const gitDiff = artifacts.find((artifact) => artifact.artifact_type === 'git_diff')
@@ -252,7 +259,7 @@ export function WizardRunDetailsDrawer({
 
                                     <section>
                                         <h4 className="mb-4">Run progress</h4>
-                                        <WizardRunProgress run={run} />
+                                        <WizardRunProgress run={run} tasks={tasks} />
                                         <div className="mt-4 flex items-center justify-between text-xs text-muted">
                                             <span>
                                                 {wizardRunIsActive(run) ? (
@@ -266,9 +273,10 @@ export function WizardRunDetailsDrawer({
                                                     `${wizardRunTerminalLabel(run.status)}.`
                                                 )}
                                             </span>
-                                            {run.status === 'failed' &&
+                                            {onRunAgain &&
+                                            run.status === 'failed' &&
                                             (WIZARD_LOCAL_RUNS_VISIBLE || run.environment === 'cloud') ? (
-                                                <Button size="sm" onClick={() => onRunAgain(run)}>
+                                                <Button size="sm" onClick={() => onRunAgain?.(run)}>
                                                     Run again
                                                 </Button>
                                             ) : wizardRunIsActive(run) ? (
@@ -296,9 +304,10 @@ export function WizardRunDetailsDrawer({
                                 <Button variant="destructive" onClick={() => onCancel(run)} loading={cancelling}>
                                     <IconStopFilled /> Cancel run
                                 </Button>
-                            ) : run.status === 'failed' &&
+                            ) : onRunAgain &&
+                              run.status === 'failed' &&
                               (WIZARD_LOCAL_RUNS_VISIBLE || run.environment === 'cloud') ? (
-                                <Button variant="primary" onClick={() => onRunAgain(run)}>
+                                <Button variant="primary" onClick={() => onRunAgain?.(run)}>
                                     Run again
                                 </Button>
                             ) : null}

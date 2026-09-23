@@ -177,7 +177,7 @@ class UpdateWizardRunTaskListInput:
 
 
 @frozen
-class WizardTaskDTO:
+class WizardRunTaskDTO:
     """
     A single task of a WizardRun.
 
@@ -187,7 +187,7 @@ class WizardTaskDTO:
     """
 
     title: str
-    status: WizardSessionTaskStatus
+    status: WizardTaskStatus
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
@@ -213,7 +213,7 @@ class WizardRunDTO:
     finished_at: datetime | None
     deadline_at: datetime | None
     created_by: WizardRunCreatorDTO | None = None
-    tasks: tuple[WizardTaskDTO, ...] | None = None
+    tasks: tuple[WizardRunTaskDTO, ...] = ()
 
 
 @frozen
@@ -221,6 +221,7 @@ class ListWizardRunsInput:
     team_id: int
     offset: int
     limit: int
+    active_only: bool = False
 
 
 @frozen

@@ -3,7 +3,7 @@ import { Spinner } from '@posthog/quill-primitives'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type { WizardRunApi } from '../generated/api.schemas'
+import type { WizardRunApi, WizardRunTaskApi } from '../generated/api.schemas'
 import { wizardRunFailureStage, wizardWorkspaceLabel } from '../wizardRunDisplay'
 import { wizardRunErrorDetails } from './wizardRunErrorCatalog'
 
@@ -109,7 +109,13 @@ function RunLevelOutcome({ run }: { run: WizardRunApi }): JSX.Element | null {
     )
 }
 
-export function WizardRunProgress({ run }: { run: WizardRunApi }): JSX.Element {
+export function WizardRunProgress({
+    run,
+    tasks = [],
+}: {
+    run: WizardRunApi
+    tasks?: readonly WizardRunTaskApi[]
+}): JSX.Element {
     const runError = wizardRunErrorDetails(run.error_code, run.error_message)
     const failedAtStep = run.status === 'failed' && wizardRunFailureStage(run)
     const steps = [
@@ -154,6 +160,27 @@ export function WizardRunProgress({ run }: { run: WizardRunApi }): JSX.Element {
                         <div className="min-w-0">
                             <div className="font-semibold">{step.title}</div>
                             <div className="text-xs text-muted">{step.detail}</div>
+                            {index === 2 && run.status === 'running' && tasks.length > 0 && (
+                                <ul className="mt-2 space-y-1 text-xs">
+                                    {tasks.map((task) => (
+                                        <li key={task.name} className="flex items-center gap-2">
+                                            <ProgressIcon
+                                                state={
+                                                    task.status === 'completed'
+                                                        ? 'complete'
+                                                        : task.status === 'running'
+                                                          ? 'active'
+                                                          : task.status === 'failed'
+                                                            ? 'failed'
+                                                            : 'pending'
+                                                }
+                                            />
+                                            <span className="break-words">{task.name}</span>
+                                            <span className="sr-only">({task.status})</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
                             {state === 'failed' && (
                                 <div className="mt-1 space-y-1 text-xs">
                                     <div className="flex items-center gap-1 text-danger">

@@ -367,6 +367,80 @@ export interface PaginatedWizardRunArtifactListApi {
 }
 
 /**
+ * * `created` - created
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ */
+export type WizardTaskStatusEnumApi = (typeof WizardTaskStatusEnumApi)[keyof typeof WizardTaskStatusEnumApi]
+
+export const WizardTaskStatusEnumApi = {
+    Created: 'created',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface WizardRunTaskApi {
+    /** Task name, unique within this run. */
+    readonly name: string
+    /** Current task status reported by the setup agent.
+     *
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed */
+    readonly status: WizardTaskStatusEnumApi
+    /** When the server first received this task. */
+    readonly created_at: string
+    /**
+     * When the server first observed this task running.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the server first observed this task completed.
+     * @nullable
+     */
+    readonly completed_at: string | null
+    /**
+     * When the server first observed this task failed.
+     * @nullable
+     */
+    readonly failed_at: string | null
+    /**
+     * Task failure explanation, or null when none is available.
+     * @nullable
+     */
+    readonly error_message: string | null
+}
+
+export interface WizardRunTaskListApi {
+    /** Complete task list in snapshot order. */
+    readonly tasks: readonly WizardRunTaskApi[]
+}
+
+export interface UpdateWizardRunTaskApi {
+    /**
+     * Task name, unique within this run and stable across snapshots.
+     * @maxLength 255
+     */
+    name: string
+    /** Current task status reported by the setup agent.
+     *
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed */
+    status: WizardTaskStatusEnumApi
+}
+
+export interface UpdateWizardRunTaskListApi {
+    /** Complete task snapshot. An empty list clears the run's tasks. */
+    tasks: UpdateWizardRunTaskApi[]
+}
+
+/**
  * The in-flight `wizard_ask` question. Typed rather than a free-form dict so the shape the
  * widget renders is enforced at the edge instead of trusted from the producer.
  */
@@ -579,6 +653,10 @@ export type WizardRegistryListParams = {
 }
 
 export type WizardRunsListParams = {
+    /**
+     * Only return active runs.
+     */
+    active?: boolean
     /**
      * Number of results to return per page.
      */

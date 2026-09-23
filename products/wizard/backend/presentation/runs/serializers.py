@@ -13,6 +13,7 @@ from products.wizard.backend.facade.contracts import (
     WizardWorkspace,
 )
 from products.wizard.backend.facade.enums import (
+    WIZARD_TASK_STATUS_CHOICES,
     WizardRunEnvironment,
     WizardRunErrorCode,
     WizardRunStage,
@@ -206,51 +207,65 @@ class WizardRunCreatorSerializer(serializers.Serializer):
 
 class UpdateWizardRunTaskSerializer(serializers.Serializer):
     name = serializers.CharField(
-        max_length=255, help_text="Name of this specific task", allow_null=False, allow_blank=False
+        max_length=255, help_text="Task name, unique within this run and stable across snapshots."
     )
 
     status = serializers.ChoiceField(
-        choices=[run_status.value for run_status in WizardTaskStatus],
-        help_text="Status of this particular task",
-        allow_null=False,
-        allow_blank=False,
+        choices=WIZARD_TASK_STATUS_CHOICES,
+        help_text="Current task status reported by the setup agent.",
     )
-
-    def to_contract(self) -> UpdateWizardRunTaskInput:
-        # todo: this is failing
-        return UpdateWizardRunTaskInput(
-            title=cast(str, self.validated_data["name"]),
-            status=WizardTaskStatus(cast(str, self.validated_data["status"])),
-        )
 
 
 class UpdateWizardRunTaskListSerializer(serializers.Serializer):
-    tasks = UpdateWizardRunTaskSerializer(many=True)
+    tasks: serializers.ListSerializer[dict[str, object]] = serializers.ListSerializer(
+        child=UpdateWizardRunTaskSerializer(),
+        max_length=100,
+        help_text="Complete task snapshot. An empty list clears the run's tasks.",
+    )
+
+    def validate_tasks(self, value: list[dict[str, object]]) -> list[dict[str, object]]:
+        names = [task["name"] for task in value]
+        if len(set(names)) != len(names):
+            raise serializers.ValidationError("Task names must be unique. Use a different name for each task.")
+        return value
 
     def to_contract(self) -> tuple[UpdateWizardRunTaskInput, ...]:
-        return tuple(task_serializer.to_contract() for task_serializer in self.validated_data["tasks"])
+        return tuple(
+            UpdateWizardRunTaskInput(
+                title=cast(str, task["name"]),
+                status=WizardTaskStatus(cast(str, task["status"])),
+            )
+            for task in self.validated_data["tasks"]
+        )
 
 
 class WizardRunTaskSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=255, help_text="Name of this specific task")
-    name = serializers.CharField(max_length=255, help_text="Name of this specific task")
+    name = serializers.CharField(source="title", read_only=True, help_text="Task name, unique within this run.")
 
     status = serializers.ChoiceField(
         read_only=True,
-        choices=[run_status.value for run_status in WizardTaskStatus],
-        help_text="Status of this particular task",
+        choices=WIZARD_TASK_STATUS_CHOICES,
+        help_text="Current task status reported by the setup agent.",
     )
 
-    created_at = serializers.DateTimeField(allow_null=True)
-    started_at = serializers.DateTimeField(allow_null=True)
-    completed_at = serializers.DateTimeField(allow_null=True)
-    failed_at = serializers.DateTimeField(allow_null=True)
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the server first received this task.")
+    started_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the server first observed this task running."
+    )
+    completed_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the server first observed this task completed."
+    )
+    failed_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the server first observed this task failed."
+    )
 
-    error_message = serializers.CharField(max_length=2000, help_text="Reason for this run to have failed")
+    error_message = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Task failure explanation, or null when none is available."
+    )
 
 
 class WizardRunTaskListSerializer(serializers.Serializer):
-    tasks = WizardRunTaskSerializer(many=True, read_only=True)
+    tasks = WizardRunTaskSerializer(many=True, read_only=True, help_text="Complete task list in snapshot order.")
 
 
 class WizardRunSerializer(serializers.Serializer):

@@ -632,6 +632,7 @@ SPECTACULAR_SETTINGS = {
             #
             # The definition site is a deliberately Django-free module (facade contracts,
             # signals taxonomy), so it cannot define a models.Choices class.
+            "WizardTaskStatusEnum": "products.wizard.backend.facade.enums.WIZARD_TASK_STATUS_CHOICES",
             "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
             "ReportLinkKindEnum": "products.signals.backend.enums.report_link_kind_choices",
             "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",

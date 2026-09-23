@@ -33,6 +33,9 @@ class WizardTaskStatus(StrEnum):
     FAILED = "failed"
 
 
+WIZARD_TASK_STATUS_CHOICES = [(status.value, status.value) for status in WizardTaskStatus]
+
+
 class WizardRunStatus(StrEnum):
     CREATED = "created"
     RUNNING = "running"
