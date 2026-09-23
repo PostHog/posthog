@@ -464,6 +464,7 @@ class AssistantTool(StrEnum):
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
     CREATE_MESSAGE_TEMPLATE = "create_message_template"
+    CREATE_BROADCAST = "create_broadcast"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
@@ -1257,12 +1258,6 @@ class Kind1(StrEnum):
 class StartHandling(StrEnum):
     FIRST_SEEN = "first_seen"
     LAST_SEEN = "last_seen"
-
-
-class Kind2(StrEnum):
-    EVENTS_NODE = "EventsNode"
-    ACTIONS_NODE = "ActionsNode"
-    EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
 
 
 class ConversionRateInputType(StrEnum):
@@ -2370,6 +2365,7 @@ class ProductItemCategory(StrEnum):
     ANALYTICS = "Analytics"
     AI_ENGINEERING = "AI engineering"
     BEHAVIOR = "Behavior"
+    MESSAGING = "Messaging"
     APP_MONITORING = "App monitoring"
     FEATURES = "Features"
     TOOLS = "Tools"
