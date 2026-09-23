@@ -29,6 +29,7 @@ export class BrowserConnection {
   private listener: ReturnType<typeof createServer> | undefined;
   private listening: Promise<number> | undefined;
   private readonly tokens = new Map<string, string>();
+  private readonly authorizedSessions = new Set<string>();
   private blocked = true;
   private generation = 0;
   private status: BrowserConnectionStatus["status"] = "idle";
@@ -58,6 +59,7 @@ export class BrowserConnection {
 
   releaseSession(sessionId: string): void {
     this.tokens.delete(sessionId);
+    this.authorizedSessions.delete(sessionId);
   }
 
   private async getClient(allowDisconnected = false): Promise<Client> {
@@ -122,6 +124,10 @@ export class BrowserConnection {
     await closing;
     if (generation !== this.generation) return;
     this.blocked = false;
+    this.authorizedSessions.clear();
+    for (const sessionId of this.tokens.keys()) {
+      this.authorizedSessions.add(sessionId);
+    }
     this.status = "connecting";
     try {
       const client = await this.getClient();
@@ -145,6 +151,7 @@ export class BrowserConnection {
 
   async disconnect(): Promise<void> {
     this.blocked = true;
+    this.authorizedSessions.clear();
     this.status = "disconnected";
     this.generation++;
     const client = this.client;
@@ -183,12 +190,10 @@ export class BrowserConnection {
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
-    if (
-      req.headers.origin ||
-      ![...this.tokens.values()].some(
-        (token) => req.headers.authorization === `Bearer ${token}`,
-      )
-    ) {
+    const sessionId = [...this.tokens].find(
+      ([, token]) => req.headers.authorization === `Bearer ${token}`,
+    )?.[0];
+    if (req.headers.origin || !sessionId) {
       res.writeHead(403).end();
       return;
     }
@@ -211,6 +216,16 @@ export class BrowserConnection {
     server.setRequestHandler(
       CallToolRequestSchema,
       async ({ params }, extra) => {
+        if (this.blocked) {
+          throw new Error(
+            "Chrome is disconnected. Select Connect Chrome in Settings > Advanced > Browser access.",
+          );
+        }
+        if (!this.authorizedSessions.has(sessionId)) {
+          throw new Error(
+            "Chrome access is not allowed for this session. Select Allow sessions in Settings > Advanced > Browser access.",
+          );
+        }
         if (params.name === "select_page")
           throw new Error("Use an explicit pageId for browser actions.");
         const client = await this.getClient();
@@ -246,6 +261,7 @@ export class BrowserConnection {
   @preDestroy()
   async close(): Promise<void> {
     this.tokens.clear();
+    this.authorizedSessions.clear();
     await this.disconnect();
     const listener = this.listener;
     this.listener = undefined;

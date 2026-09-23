@@ -140,8 +140,13 @@ describe("BrowserConnection", () => {
     await second.callTool({ name: "list_pages" });
     await first.close();
     const third = await connect("third");
+    await expect(third.callTool({ name: "list_pages" })).rejects.toThrow(
+      "Chrome access is not allowed for this session",
+    );
+    await second.callTool({ name: "list_pages" });
+    await connection.reconnect();
     await third.callTool({ name: "list_pages" });
-    expect(upstream.starts).toBe(2);
+    expect(upstream.starts).toBe(3);
   });
 
   it("blocks calls after disconnect until explicit reconnect", async () => {

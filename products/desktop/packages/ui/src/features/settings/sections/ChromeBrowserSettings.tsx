@@ -30,6 +30,7 @@ export function ChromeBrowserSettings() {
     hostTRPC.os.openChromeRemoteDebugging.mutationOptions(),
   );
   const busy = reconnect.isPending || disconnect.isPending;
+  const connected = status.data?.status === "connected";
   const connecting =
     reconnect.isPending || status.data?.status === "connecting";
   const canDisconnect = connecting || status.data?.status === "connected";
@@ -51,15 +52,27 @@ export function ChromeBrowserSettings() {
               </output>
             )}
             {canDisconnect ? (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={disconnect.isPending}
-                onClick={() => disconnect.mutate()}
-              >
-                {disconnect.isPending && <Spinner aria-hidden="true" />}
-                {disconnectLabel}
-              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                {connected && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => reconnect.mutate()}
+                  >
+                    Allow sessions
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={disconnect.isPending}
+                  onClick={() => disconnect.mutate()}
+                >
+                  {disconnect.isPending && <Spinner aria-hidden="true" />}
+                  {disconnectLabel}
+                </Button>
+              </div>
             ) : (
               <Button
                 size="sm"
@@ -98,8 +111,9 @@ export function ChromeBrowserSettings() {
               Open Chrome remote debugging settings
             </Button>
             <p>
-              Local sessions share this connection. You can connect during a
-              conversation. Disconnect to stop access for all sessions.
+              Connect Chrome to allow open local sessions to use your tabs.
+              Select Allow sessions to include new sessions. Disconnect to stop
+              access for all sessions.
             </p>
             {setup.isError && (
               <span className="text-destructive" role="alert">

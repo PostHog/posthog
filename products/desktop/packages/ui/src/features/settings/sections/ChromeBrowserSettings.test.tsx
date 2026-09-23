@@ -71,11 +71,26 @@ describe("ChromeBrowserSettings", () => {
     });
     expect(actions).toHaveLength(1);
     expect(actions[0]).toHaveTextContent(label);
+    if (status === "connected") {
+      expect(
+        screen.getByRole("button", { name: "Allow sessions" }),
+      ).toBeInTheDocument();
+    } else {
+      expect(
+        screen.queryByRole("button", { name: "Allow sessions" }),
+      ).not.toBeInTheDocument();
+    }
     expect(screen.queryByText("Disconnected")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Connected", { exact: true }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("Ready to connect")).not.toBeInTheDocument();
+  });
+
+  it("allows sessions added after the connection", async () => {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Allow sessions" }));
+    expect(mocks.reconnect).toHaveBeenCalledOnce();
   });
 
   it("offers cancel while a connection is pending", async () => {

@@ -1138,10 +1138,14 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         toolApprovals,
         toolInstallations,
       } = await this.agentAuthAdapter.buildMcpServers(credentials);
-      const sessionMcpServers: McpServer[] = [
-        ...mcpServers,
-        await this.browserConnection.getServer(taskRunId),
-      ];
+      const browserServer = await this.browserConnection.getServer(taskRunId);
+      const serverNames = new Set(mcpServers.map((server) => server.name));
+      const browserServerName = browserServer.name;
+      let suffix = 2;
+      while (serverNames.has(browserServer.name)) {
+        browserServer.name = `${browserServerName}-${suffix++}`;
+      }
+      const sessionMcpServers: McpServer[] = [...mcpServers, browserServer];
 
       // Store server configs for lazy MCP connections — actual connections
       // are created on-demand when UI resources are first requested.

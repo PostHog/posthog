@@ -871,6 +871,26 @@ describe("AgentService", () => {
       },
     );
 
+    it("keeps a configured server with the browser server name", async () => {
+      deps.agentAuthAdapter.buildMcpServers.mockResolvedValue({
+        servers: [
+          {
+            name: "posthog-browser",
+            type: "http",
+            url: "https://example.com/mcp",
+            headers: [],
+          },
+        ],
+        toolApprovals: {},
+        toolInstallations: {},
+      });
+      await service.startSession(baseSessionParams);
+      const servers = mockNewSession.mock.calls[0][0].mcpServers;
+      expect(servers.map((server: { name: string }) => server.name)).toEqual(
+        expect.arrayContaining(["posthog-browser", "posthog-browser-2"]),
+      );
+    });
+
     it("passes the same MCP servers to codex as to claude without probing them first", async () => {
       vi.stubGlobal(
         "fetch",
