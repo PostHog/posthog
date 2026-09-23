@@ -174,6 +174,7 @@ def _event(
         alert=alert,
         evaluation_key=outcome.evaluation_key,
         kind=outcome.kind.value,
+        alert_name=configuration.name,
         previous_state=previous_state,
         state=outcome.new_state,
         value=outcome.value,

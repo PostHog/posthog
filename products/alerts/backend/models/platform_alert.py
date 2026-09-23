@@ -131,6 +131,10 @@ class PlatformAlertEvent(TeamScopedRootMixin, UUIDTModel):
     evaluation_key = models.CharField(max_length=255)
     kind = models.CharField(max_length=32, choices=Kind.choices)
 
+    # The configuration's name when the check ran. A rename between the root message and a
+    # later reply would otherwise have one thread contradict itself.
+    alert_name = models.CharField(max_length=255)
+
     previous_state = models.CharField(max_length=32)
     state = models.CharField(max_length=32)
 

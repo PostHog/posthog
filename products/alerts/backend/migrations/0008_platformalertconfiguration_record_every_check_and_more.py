@@ -44,6 +44,7 @@ class Migration(migrations.Migration):
                         max_length=32,
                     ),
                 ),
+                ("alert_name", models.CharField(max_length=255)),
                 ("previous_state", models.CharField(max_length=32)),
                 ("state", models.CharField(max_length=32)),
                 ("value", models.FloatField(blank=True, null=True)),

@@ -105,6 +105,9 @@ class TestPlatformAlertLifecycle(APIBaseTest):
 
         # Without the snapshot a retried delivery renders against a threshold nothing measured.
         event = self._events()[0]
+        # The name too: a rename between the root message and a later reply would otherwise
+        # have one thread contradict itself.
+        assert event.alert_name == self.configuration.name
         assert event.value == 42.0
         assert event.query_duration_ms == 17
         assert event.condition_snapshot["threshold_count"] == 10
