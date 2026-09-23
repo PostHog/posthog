@@ -41,6 +41,7 @@ from products.signals.backend.scout_harness.suggestions import (
     read_team_activity,
     reserved_scout_names,
     select_teams_to_scan,
+    stamp_requested,
     team_is_active_enough,
     visible_items,
 )
@@ -567,6 +568,11 @@ class TestSelectTeamsToScan(BaseTest):
         ):
             return select_teams_to_scan(planned, settings or self.settings, limit=limit)
 
+    def _skip_event_uuids(self, planned) -> list[str | None]:
+        with patch("posthoganalytics.capture") as capture:
+            self._select(planned)
+        return [call.kwargs.get("uuid") for call in capture.call_args_list]
+
     def _status(self, team: Team) -> str | None:
         row = SignalScoutSuggestionSet.all_teams.filter(team_id=team.id).first()
         return row.status if row else None
@@ -621,6 +627,16 @@ class TestSelectTeamsToScan(BaseTest):
 
         self.assertEqual([run.team_id for run in selection.dispatch], [self.quiet.id])
         self.assertEqual(selection.skipped_team_ids, ())
+
+    def test_a_replanned_tick_reports_the_skip_once(self):
+        first = self._skip_event_uuids(self._planned(self.quiet))
+        retried = self._skip_event_uuids(self._planned(self.quiet))
+        stamp_requested([self.quiet.id])
+        next_tick = self._skip_event_uuids(self._planned(self.quiet))
+
+        self.assertEqual(first, retried)
+        self.assertNotEqual(first, next_tick)
+        self.assertNotIn(None, first)
 
     def test_overselected_candidates_past_the_limit_are_left_untouched(self):
         second_busy = self._team("second-busy")

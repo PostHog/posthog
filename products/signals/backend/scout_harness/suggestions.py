@@ -25,7 +25,7 @@ import json
 from collections.abc import Collection, Iterable
 from datetime import datetime, timedelta
 from typing import Any, Literal
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.db import transaction
 from django.db.models import F, Max, Q
@@ -618,10 +618,19 @@ def select_teams_to_scan(
     return ActivitySelection(dispatch=tuple(dispatch), skipped_team_ids=tuple(skipped))
 
 
+def _skip_event_uuid(team_id: int, *, requested_at: datetime | None) -> str:
+    """One id per skip decision, so a retry of the planning activity does not count it twice.
+
+    `last_requested_at` is stamped after fan-out, so it reads the same on every attempt of one
+    tick and a different value by the time the project is due again.
+    """
+    return str(uuid5(NAMESPACE_URL, f"{LOW_ACTIVITY_SKIP_REASON}:{team_id}:{requested_at}"))
+
+
 def _record_low_activity(
     team_id: int, *, activity: TeamActivity, settings: SuggestionSettings, tier: int | None
 ) -> None:
-    mark_low_activity(team_id)
+    row = mark_low_activity(team_id)
     team = Team.objects.select_related("organization").filter(id=team_id).first()
     if team is None:
         return
@@ -630,6 +639,7 @@ def _record_low_activity(
         status="skipped",
         skip_reason=LOW_ACTIVITY_SKIP_REASON,
         tier=tier,
+        event_uuid=_skip_event_uuid(team_id, requested_at=row.last_requested_at),
         extra_properties={
             "activity_window_days": settings.activity_window_days,
             "activity_event_count": activity.event_count,
@@ -649,14 +659,20 @@ def capture_suggestions_generated(
     tier: int | None = None,
     model: str | None = None,
     triggered_by: str = "schedule",
+    event_uuid: str | None = None,
     extra_properties: dict[str, Any] | None = None,
 ) -> None:
     """The one emitter of `$scout_suggestions_generated`, so a completed run and a skipped one
-    are read from the same event and the daily roll-up needs no new column."""
+    are read from the same event and the daily roll-up needs no new column.
+
+    `event_uuid` dedupes the emitters that can run twice for one decision. A completed run needs
+    none: its activity runs at most once.
+    """
     try:
         posthoganalytics.capture(
             event="$scout_suggestions_generated",
             distinct_id=str(team.uuid),
+            uuid=event_uuid,
             properties={
                 "team_id": team.id,
                 "status": status,
