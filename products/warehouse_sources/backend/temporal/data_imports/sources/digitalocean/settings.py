@@ -11,7 +11,10 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 200
 
 
-@dataclass
+# Mutable by choice, not oversight: instances flow into `build_dependent_resource`'s
+# `endpoint_configs: Mapping[str, FanoutEndpointLike]`, and mypy treats a frozen dataclass's
+# fields as read-only, which is incompatible with that Protocol's plain (read-write) attributes.
+@dataclass(frozen=False)
 class DigitalOceanEndpointConfig:
     name: str
     # Path relative to the API root (https://api.digitalocean.com). A fan-out child's path
@@ -34,6 +37,11 @@ class DigitalOceanEndpointConfig:
     # since some live nested inside spec/deployment objects — and their presence also disables
     # HTTP sample capture for the endpoint so the raw response can't leak into HTTP samples.
     sensitive_fields: frozenset[str] = frozenset()
+    # `False` keeps the endpoint's raw response out of HTTP sample capture, which records the
+    # response before the resource maps run. Set it for a response that carries data belonging in
+    # the warehouse table but not in a diagnostic sample bucket, such as billing identity. A
+    # `sensitive_fields` entry implies it, because a secret must never reach a sample either.
+    captures_http_samples: bool = True
     # Set for endpoints that hang off a parent list endpoint (invoice line items and summaries
     # are only reachable per invoice uuid). `None` for top-level endpoints.
     fanout: Optional[DependentEndpointConfig] = None
@@ -201,6 +209,7 @@ DIGITALOCEAN_ENDPOINTS: dict[str, DigitalOceanEndpointConfig] = {
         name="invoice_items",
         path="/v2/customers/my/invoices/{invoice_uuid}",
         data_selector="invoice_items",
+        captures_http_samples=False,
         # Line items have no id. Like `billing_history`, this composite is a best-effort dedup
         # guard rather than a true key, because the endpoint is full-refresh and each sync
         # rewrites the whole table.
@@ -225,19 +234,22 @@ DIGITALOCEAN_ENDPOINTS: dict[str, DigitalOceanEndpointConfig] = {
         ),
     ),
     # Invoice totals split into product charges, overages, taxes and credits, one row per
-    # invoice. The summary body carries its own `invoice_uuid`, so nothing is projected from the
-    # parent, and the endpoint returns a single object rather than a paginated list.
+    # invoice. The endpoint returns a single object rather than a paginated list. The parent's
+    # `invoice_uuid` is projected over the body's own, because the spec does not require the
+    # summary body to carry it and it is this table's primary key.
     "invoice_summaries": DigitalOceanEndpointConfig(
         name="invoice_summaries",
         path="/v2/customers/my/invoices/{invoice_uuid}/summary",
         data_selector="$",
         primary_keys=["invoice_uuid"],
         paginated=False,
+        captures_http_samples=False,
         fanout=DependentEndpointConfig(
             parent_name="invoices",
             resolve_param="invoice_uuid",
             resolve_field="invoice_uuid",
-            include_from_parent=[],
+            include_from_parent=["invoice_uuid"],
+            parent_field_renames={"invoice_uuid": "invoice_uuid"},
             parent_params={"per_page": PAGE_SIZE},
         ),
     ),

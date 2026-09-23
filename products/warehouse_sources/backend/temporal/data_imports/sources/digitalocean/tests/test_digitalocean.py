@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.digitaloce
 )
 
 TOP_LEVEL_ENDPOINTS = [name for name, config in DIGITALOCEAN_ENDPOINTS.items() if config.fanout is None]
+INVOICE_UUID = "22737513-0ea7-4206-8ceb-98a575af7681"
 
 
 def _make_response(json_body: dict[str, Any] | None = None, status_code: int = 200) -> Response:
@@ -146,25 +147,31 @@ class TestDigitalOceanSensitiveFields:
 
         assert resource._apply_transforms([dict(record)]) == [record]
 
+    @pytest.mark.parametrize(
+        "endpoint,capture_disabled",
+        [
+            pytest.param("databases", True, id="secrets_in_the_response"),
+            pytest.param("invoice_summaries", True, id="billing_identity_in_the_response"),
+            pytest.param("invoice_items", True, id="resource_level_spend_in_the_response"),
+            pytest.param("droplets", False, id="nothing_to_withhold"),
+        ],
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean.make_tracked_session"
     )
-    def test_databases_opts_out_of_sample_capture(self, mock_session: MagicMock) -> None:
-        # Sample capture records the raw response before resource maps run, so the secrets would be
-        # captured even though they're stripped from storage; the endpoint must disable capture.
-        digitalocean_source("dop_v1_token", "databases", team_id=1, job_id="job-1")
+    def test_capture_is_disabled_only_where_the_response_must_not_be_sampled(
+        self, mock_session: MagicMock, endpoint: str, capture_disabled: bool
+    ) -> None:
+        # Sample capture records the raw response before resource maps run, so stripping a field
+        # from storage does not keep it out of a sample. An endpoint holding secrets or billing
+        # identity must build its own capture-off session; every other endpoint must not, leaving
+        # the tracked client's default (capture on) in place.
+        digitalocean_source("dop_v1_token", endpoint, team_id=1, job_id="job-1")
 
-        mock_session.assert_called_once_with(redact_values=("dop_v1_token",), capture=False)
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean.make_tracked_session"
-    )
-    def test_non_sensitive_endpoint_keeps_capture_on(self, mock_session: MagicMock) -> None:
-        # Non-sensitive endpoints must not build their own session here, leaving the tracked client's
-        # default (capture on) in place so their traffic stays in HTTP samples.
-        digitalocean_source("dop_v1_token", "droplets", team_id=1, job_id="job-1")
-
-        mock_session.assert_not_called()
+        if capture_disabled:
+            mock_session.assert_called_once_with(redact_values=("dop_v1_token",), capture=False)
+        else:
+            mock_session.assert_not_called()
 
 
 class TestDigitalOceanValidateCredentials:
@@ -207,8 +214,6 @@ class TestDigitalOceanValidateCredentials:
 
 
 class TestDigitalOceanInvoiceFanout:
-    _INVOICE_UUID = "22737513-0ea7-4206-8ceb-98a575af7681"
-
     def _rows(self, endpoint: str) -> list[dict[str, Any]]:
         resource = digitalocean_source("dop_v1_token", endpoint, team_id=1, job_id="job-1")
         return [row for page in resource for row in page]
@@ -216,7 +221,7 @@ class TestDigitalOceanInvoiceFanout:
     def _mock_invoice_list(self, requests_mock: Any) -> None:
         requests_mock.get(
             f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices",
-            json={"invoices": [{"invoice_uuid": self._INVOICE_UUID, "amount": "27.13"}]},
+            json={"invoices": [{"invoice_uuid": INVOICE_UUID, "amount": "27.13"}]},
         )
 
     def test_invoice_items_carry_their_parent_invoice_uuid(self, requests_mock: Any) -> None:
@@ -224,21 +229,19 @@ class TestDigitalOceanInvoiceFanout:
         # (and its rename off the `_invoices_` prefix) spend can't be joined back to an invoice.
         self._mock_invoice_list(requests_mock)
         requests_mock.get(
-            f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{self._INVOICE_UUID}",
+            f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{INVOICE_UUID}",
             json={"invoice_items": [{"product": "Droplets", "amount": "12.34"}]},
         )
 
-        assert self._rows("invoice_items") == [
-            {"product": "Droplets", "amount": "12.34", "invoice_uuid": self._INVOICE_UUID}
-        ]
+        assert self._rows("invoice_items") == [{"product": "Droplets", "amount": "12.34", "invoice_uuid": INVOICE_UUID}]
 
     def test_invoice_items_paginate_within_one_invoice(self, requests_mock: Any) -> None:
         # An invoice with hundreds of resources spans pages; the child must follow
         # links.pages.next per parent rather than syncing only the first page of line items.
         self._mock_invoice_list(requests_mock)
-        page_two = f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{self._INVOICE_UUID}?page=2"
+        page_two = f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{INVOICE_UUID}?page=2"
         requests_mock.get(
-            f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{self._INVOICE_UUID}",
+            f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{INVOICE_UUID}",
             [
                 {"json": {"invoice_items": [{"product": "Droplets"}], "links": {"pages": {"next": page_two}}}},
                 {"json": {"invoice_items": [{"product": "Spaces"}], "links": {}}},
@@ -247,16 +250,24 @@ class TestDigitalOceanInvoiceFanout:
 
         assert [row["product"] for row in self._rows("invoice_items")] == ["Droplets", "Spaces"]
 
-    def test_invoice_summary_yields_one_row_from_the_bare_object(self, requests_mock: Any) -> None:
+    @pytest.mark.parametrize(
+        "summary",
+        [
+            pytest.param({"invoice_uuid": INVOICE_UUID, "amount": "27.13"}, id="body_carries_its_own_uuid"),
+            pytest.param({"amount": "27.13"}, id="body_omits_the_uuid"),
+        ],
+    )
+    def test_invoice_summary_yields_one_keyed_row_from_the_bare_object(
+        self, requests_mock: Any, summary: dict[str, Any]
+    ) -> None:
         # The summary endpoint returns the record as the response body rather than wrapped in a
-        # list, so a list-shaped data_selector would sync nothing for it.
+        # list, so a list-shaped data_selector would sync nothing for it. The spec does not require
+        # the body to carry `invoice_uuid`, so the parent's value is projected on; without that the
+        # row can arrive with no primary key column at all.
         self._mock_invoice_list(requests_mock)
-        summary = {"invoice_uuid": self._INVOICE_UUID, "billing_period": "2020-01", "amount": "27.13"}
-        requests_mock.get(
-            f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{self._INVOICE_UUID}/summary", json=summary
-        )
+        requests_mock.get(f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{INVOICE_UUID}/summary", json=summary)
 
-        assert self._rows("invoice_summaries") == [summary]
+        assert self._rows("invoice_summaries") == [{**summary, "invoice_uuid": INVOICE_UUID}]
 
     def test_both_sides_of_the_fanout_ask_for_the_max_page(self, requests_mock: Any) -> None:
         # The fan-out helper is wired with no page-size param of its own, so `per_page` rides on
@@ -264,9 +275,9 @@ class TestDigitalOceanInvoiceFanout:
         # of 20 rows a page, which is 10x the requests against a 250-per-minute limit.
         invoices = requests_mock.get(
             f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices",
-            json={"invoices": [{"invoice_uuid": self._INVOICE_UUID}]},
+            json={"invoices": [{"invoice_uuid": INVOICE_UUID}]},
         )
-        items = requests_mock.get(f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{self._INVOICE_UUID}", json={})
+        items = requests_mock.get(f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{INVOICE_UUID}", json={})
         self._rows("invoice_items")
 
         assert invoices.last_request.qs["per_page"] == [str(PAGE_SIZE)]

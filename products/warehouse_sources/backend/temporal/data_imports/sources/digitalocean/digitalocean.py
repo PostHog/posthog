@@ -77,10 +77,10 @@ def _client_config(api_key: str, endpoint_config: DigitalOceanEndpointConfig) ->
         },
         "paginator": _paginator(),
     }
-    # Endpoints that return secrets (e.g. `databases`) must not have their raw responses
-    # captured into HTTP samples, which happens before resource maps run. Opt them out of
-    # sample capture while keeping the request metered, logged, and token-redacted.
-    if endpoint_config.sensitive_fields:
+    # Sample capture records the raw response before resource maps run, so an endpoint whose
+    # response holds secrets (e.g. `databases`) or billing identity (e.g. `invoice_summaries`)
+    # must opt out. The request stays metered, logged, and token-redacted.
+    if endpoint_config.sensitive_fields or not endpoint_config.captures_http_samples:
         client_config["session"] = make_tracked_session(redact_values=(api_key,), capture=False)
     return client_config
 
