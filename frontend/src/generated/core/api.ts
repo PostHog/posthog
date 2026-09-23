@@ -83,6 +83,7 @@ import type {
     SCIMTokenResponseApi,
     SharingConfigurationApi,
     ToolbarEntitlementsApi,
+    TwoFactorStatusApi,
     UploadedMediaApi,
     UploadedMediaCreate201,
     UploadedMediaCreateBody,
@@ -3301,10 +3302,13 @@ export const getUsersTwoFactorStatusRetrieveUrl = (uuid: string) => {
 }
 
 /**
- * Get current 2FA status including backup codes if enabled
+ * Get current 2FA status, including how many backup codes are left.
  */
-export const usersTwoFactorStatusRetrieve = async (uuid: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersTwoFactorStatusRetrieveUrl(uuid), {
+export const usersTwoFactorStatusRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<TwoFactorStatusApi> => {
+    return apiMutator<TwoFactorStatusApi>(getUsersTwoFactorStatusRetrieveUrl(uuid), {
         ...options,
         method: 'GET',
     })

@@ -1836,6 +1836,36 @@ describe('the feature flag release conditions logic', () => {
         })
     })
 
+    describe('readonly and editable instances of one flag', () => {
+        it('keeps separate filters so the overview does not show the edit form state', () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'mode-key-test',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 100, variant: null, sort_key: 'group-1' },
+                ]),
+            })
+            logic.mount()
+
+            const readonlyLogic = featureFlagReleaseConditionsLogic({
+                id: 'mode-key-test',
+                readOnly: true,
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 25, variant: null, sort_key: 'group-1' },
+                ]),
+            })
+            readonlyLogic.mount()
+
+            expect(readonlyLogic.values.filters.groups[0].rollout_percentage).toEqual(25)
+
+            logic.actions.updateConditionSet(0, 70)
+            expect(readonlyLogic.values.filters.groups[0].rollout_percentage).toEqual(25)
+
+            readonlyLogic.unmount()
+        })
+    })
+
     describe('propsChanged does not clobber fresher local edits', () => {
         it('keeps a local rollout edit when the parent prop has not caught up', async () => {
             logic?.unmount()

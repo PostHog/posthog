@@ -3,6 +3,7 @@ import json
 import hashlib
 from datetime import datetime, timedelta
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 import pytest
 import time_machine
@@ -30,6 +31,8 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import (
+    CSP_ENFORCE_APP_POLICY_FLAG,
+    CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
     CSPMiddleware,
     ManagedProxyClientIPMiddleware,
     ManagedProxyClientIPOutcome,
@@ -2347,8 +2350,8 @@ class TestCSPMiddleware(APIBaseTest):
     def test_admin_pages_enforce_the_policy_and_follow_the_reporting_default(self, _name, overrides, expects_reporting):
         # The admin policy is enforced, not report-only, and builds its own Reporting-Endpoints
         # header, so it can drift from the app policy unnoticed. A non-staff request redirects but
-        # still carries that policy, because the middleware picks its branch by path.
-        with override_settings(CSP_REPORT_ENDPOINT=None, **overrides):
+        # still carries that policy, because the middleware picks its branch by path once the portal is on.
+        with override_settings(CSP_REPORT_ENDPOINT=None, ADMIN_PORTAL_ENABLED=True, **overrides):
             response = self.client.get("/admin/")
         policy = response["Content-Security-Policy"]
         # Only the admin policy forbids framing outright; the non-HTML fallback is default-src alone.
@@ -2368,16 +2371,36 @@ class TestCSPMiddleware(APIBaseTest):
             assert "report-to" not in policy
             assert "Reporting-Endpoints" not in response
 
+    @override_settings(ADMIN_PORTAL_ENABLED=False)
+    def test_admin_path_gets_the_app_policy_when_the_portal_is_off(self):
+        # Without the portal, `/admin/` is an app page, and the app keeps running in that document
+        # after it navigates away. The admin policy there would refuse every request the app makes
+        # to another origin.
+        response = self.client.get("/admin/")
+        assert "frame-ancestors 'none'" not in response["Content-Security-Policy"]
+        assert "connect-src 'self'" in response["Content-Security-Policy-Report-Only"]
+
     @parameterized.expand(
         [
             (
-                "cloud",
+                "cloud_us",
                 {
                     "CLOUD_DEPLOYMENT": "US",
                     "SITE_URL": "https://us.posthog.com",
                     "JS_URL": "https://app-static-prod.posthog.com",
+                    "TASKS_AGENT_PROXY_PUBLIC_URL": "https://agent-proxy.us.posthog.com",
                 },
-                True,
+                ("us", "eu"),
+            ),
+            (
+                "cloud_eu",
+                {
+                    "CLOUD_DEPLOYMENT": "EU",
+                    "SITE_URL": "https://eu.posthog.com",
+                    "JS_URL": "https://app-static.eu.posthog.com",
+                    "TASKS_AGENT_PROXY_PUBLIC_URL": "https://agent-proxy.eu.posthog.com/",
+                },
+                ("eu", "us"),
             ),
             # An operator can turn reporting on for their own install, but the shadow names PostHog
             # Cloud's hosts and token, so its reports would tell that operator nothing they can act on.
@@ -2388,11 +2411,11 @@ class TestCSPMiddleware(APIBaseTest):
                     "SITE_URL": "https://posthog.example.com",
                     "CSP_REPORT_ENDPOINT": "https://posthog.example.com/report/?token=phc_test&v=2",
                 },
-                False,
+                None,
             ),
         ]
     )
-    def test_only_cloud_pages_carry_a_report_only_shadow_without_the_wildcards(self, _name, overrides, expects_shadow):
+    def test_only_cloud_pages_carry_a_report_only_shadow_without_the_wildcards(self, _name, overrides, regions):
         # The shadow is the evidence for dropping the wildcards, so it must report on its own version
         # and must not quietly keep a wildcard.
         with override_settings(TEST=False, DEBUG=False, **overrides):
@@ -2401,13 +2424,19 @@ class TestCSPMiddleware(APIBaseTest):
         app_policy, *shadows = response["Content-Security-Policy-Report-Only"].split(", ")
         assert "https://*.posthog.com" in app_policy
         assert "&v=2&" in app_policy
-        assert len(shadows) == (1 if expects_shadow else 0)
-        if expects_shadow:
+        assert len(shadows) == (1 if regions else 0)
+        if regions:
+            region, other_region = regions
             shadow = shadows[0]
             assert "*.posthog.com" not in shadow
             assert "https://internal-j.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
-            assert "https://live.us.posthog.com" in shadow
             assert "&v=3&" in shadow
+            connect_src = next(part for part in shadow.split("; ") if part.startswith("connect-src ")).split()
+            assert f"https://live.{region}.posthog.com" in connect_src
+            assert f"https://{region}.i.posthog.com/decide/" in connect_src
+            assert f"https://agent-proxy.{region}.posthog.com" in connect_src
+            # Allowing the other region would hide a request that crossed regions by mistake.
+            assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
 
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
@@ -2900,6 +2929,7 @@ class TestAppCspHeaderName(SimpleTestCase):
         # A customer's site frames each of these. The app policy names only PostHog origins in
         # frame-ancestors, so enforcing it here stops the document rendering on their page.
         assert app_csp_header_name(self._request(path)) == "Content-Security-Policy-Report-Only"
+        assert app_csp_header_name(self._request(path, distinct_id=None)) == "Content-Security-Policy-Report-Only"
 
     @parameterized.expand(
         [
@@ -2928,17 +2958,84 @@ class TestAppCspHeaderName(SimpleTestCase):
         # Local evaluation keeps a flag network call out of every HTML response.
         assert mock_flag.call_args.kwargs["only_evaluate_locally"] is True
 
-    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
-    def test_anonymous_request_stays_report_only(self, mock_flag):
-        # Nothing identifies an anonymous viewer, so the flag cannot bucket them. Login and signup
-        # keep the report-only header until enforcement covers everyone.
-        assert app_csp_header_name(self._request("/login", distinct_id=None)) == "Content-Security-Policy-Report-Only"
-        mock_flag.assert_not_called()
+    @parameterized.expand(
+        [
+            ("login", "/login", None, CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy"),
+            ("signup", "/signup", None, CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy"),
+            ("reset_link", "/reset/abc/def", None, CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy"),
+            (
+                "reset_2fa_link",
+                "/reset_2fa/abc/def",
+                None,
+                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                "Content-Security-Policy",
+            ),
+            (
+                "verify_email_link",
+                "/verify_email/abc/def",
+                None,
+                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                "Content-Security-Policy",
+            ),
+            ("login_without_a_flag", "/login", None, None, "Content-Security-Policy-Report-Only"),
+            (
+                "login_with_the_app_flag",
+                "/login",
+                None,
+                CSP_ENFORCE_APP_POLICY_FLAG,
+                "Content-Security-Policy-Report-Only",
+            ),
+            ("signed_in", "/login", "abc", CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy-Report-Only"),
+            (
+                "other_signed_out_page",
+                "/messaging-preferences/abc",
+                None,
+                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                "Content-Security-Policy-Report-Only",
+            ),
+            (
+                "login_prefix_without_separator",
+                "/loginfoo",
+                None,
+                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                "Content-Security-Policy-Report-Only",
+            ),
+        ]
+    )
+    @patch("posthog.middleware.posthoganalytics.feature_enabled")
+    def test_each_flag_enforces_only_its_own_pages(
+        self,
+        _name: str,
+        path: str,
+        distinct_id: str | None,
+        enabled_flag: str | None,
+        expected: str,
+        mock_flag: MagicMock,
+    ) -> None:
+        mock_flag.side_effect = lambda key, *args, **kwargs: key == enabled_flag
+        assert app_csp_header_name(self._request(path, distinct_id=distinct_id)) == expected
 
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
+    def test_each_signed_out_document_draws_its_own_bucket(self, mock_flag: MagicMock) -> None:
+        app_csp_header_name(self._request("/login", distinct_id=None))
+        app_csp_header_name(self._request("/login", distinct_id=None))
+        # A fixed id would put every signed-out visitor in one bucket, so a rollout percentage
+        # would enforce for everyone or nobody.
+        first, second = (call.args[1] for call in mock_flag.call_args_list)
+        assert first != second
+        assert mock_flag.call_args.kwargs["only_evaluate_locally"] is True
+        assert mock_flag.call_args.kwargs["send_feature_flag_events"] is False
+
+    @parameterized.expand([("signed_in", "abc"), ("signed_out", None)])
     @patch("posthog.middleware.posthoganalytics.feature_enabled", side_effect=Exception("flags unavailable"))
-    def test_a_failing_flag_lookup_leaves_the_policy_report_only(self, _mock_flag):
+    def test_a_failing_flag_lookup_leaves_the_policy_report_only(
+        self, _name: str, distinct_id: str | None, _mock_flag: MagicMock
+    ) -> None:
         # Fail safe: an enforced policy that nobody meant to turn on breaks the page.
-        assert app_csp_header_name(self._request("/")) == "Content-Security-Policy-Report-Only"
+        assert (
+            app_csp_header_name(self._request("/login", distinct_id=distinct_id))
+            == "Content-Security-Policy-Report-Only"
+        )
 
 
 class TestNarrowedAppPolicy(SimpleTestCase):
