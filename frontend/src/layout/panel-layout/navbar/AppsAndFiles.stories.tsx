@@ -25,6 +25,7 @@ const files: FileSystemEntry[] = [
         href: '/insights/signup01',
     },
     { id: 'folder-2', path: 'Product research', type: 'folder' },
+    { id: 'folder-3', path: 'Product research/Ideas', type: 'folder' },
     {
         id: 'notebook-1',
         path: 'Product research/Onboarding notes',
@@ -38,28 +39,33 @@ const starred: FileSystemEntry[] = [
     { id: 'star-1', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
     { id: 'star-2', path: 'Overview', type: 'dashboard', ref: '1', href: '/dashboard/1' },
     { id: 'star-3', path: 'Product research', type: 'folder', ref: 'Product research' },
+    { id: 'star-4', path: 'Ideas', type: 'folder', ref: 'Product research/Ideas' },
 ]
 
 function SidebarStory({
     tab = 'home',
     search = '',
     collapsed = false,
+    overlay = false,
     empty = false,
     recentsCollapsed = false,
 }: {
     tab?: NavExperimentTab
     search?: string
     collapsed?: boolean
+    overlay?: boolean
     empty?: boolean
     recentsCollapsed?: boolean
 }): JSX.Element {
-    const { setNavExperimentTab, toggleLayoutNavCollapsed, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { setNavExperimentTab, toggleLayoutNavCollapsed, clearActivePanelIdentifier, setNavOverlayOpen } =
+        useActions(panelLayoutLogic)
     const { setRecentsCollapsed } = useActions(navRecentsLogic)
     const { setSearch } = useActions(navAppsTabLogic)
     const { loadShortcutsSuccess } = useActions(projectTreeDataLogic)
     useOnMountEffect(() => {
         setNavExperimentTab(tab)
         toggleLayoutNavCollapsed(collapsed)
+        setNavOverlayOpen(overlay)
         clearActivePanelIdentifier()
         setSearch(search)
         setRecentsCollapsed(recentsCollapsed)
@@ -119,6 +125,9 @@ export const Files: Story = { args: { tab: 'files' } }
 export const Search: Story = { args: { search: 'data' } }
 export const NoResults: Story = { args: { search: 'nothing-matches' } }
 export const Collapsed: Story = { args: { collapsed: true } }
+export const FilesCollapsed: Story = { args: { collapsed: true, tab: 'files' } }
+export const AppsOverlay: Story = { args: { collapsed: true, overlay: true } }
+export const FilesOverlay: Story = { args: { collapsed: true, overlay: true, tab: 'files' } }
 export const Narrow: Story = {
     decorators: [
         (Story) => (
