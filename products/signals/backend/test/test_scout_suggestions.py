@@ -17,6 +17,7 @@ from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import AvailableFeature
+from posthog.errors import InternalCHQueryError
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
@@ -659,6 +660,25 @@ class TestReadTeamActivity(ClickhouseTestMixin, BaseTest):
         activity = read_team_activity(self.team.id, window_days=14)
 
         self.assertEqual((activity.event_count, activity.active_days, activity.capped), (0, 0, False))
+
+    @parameterized.expand([("too_many_rows", 158), ("too_many_rows_or_bytes", 396)])
+    def test_a_read_that_hits_the_row_cap_reads_as_capped(self, _name, code):
+        with patch(
+            "products.signals.backend.scout_harness.suggestions.sync_execute",
+            side_effect=InternalCHQueryError("limit for rows exceeded", code=code),
+        ):
+            activity = read_team_activity(self.team.id, window_days=14)
+
+        self.assertTrue(activity.capped)
+        self.assertTrue(team_is_active_enough(activity, SuggestionSettings()))
+
+    def test_any_other_read_failure_is_raised_rather_than_read_as_quiet(self):
+        with patch(
+            "products.signals.backend.scout_harness.suggestions.sync_execute",
+            side_effect=InternalCHQueryError("memory limit exceeded", code=241),
+        ):
+            with self.assertRaises(InternalCHQueryError):
+                read_team_activity(self.team.id, window_days=14)
 
 
 class TestManualSuggestionsDispatch(BaseTest):

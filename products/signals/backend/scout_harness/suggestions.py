@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
+from posthog.errors import InternalCHQueryError
 from posthog.event_usage import groups
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
@@ -74,10 +75,11 @@ MAX_DESCRIPTION_CHARS = SPEC_DESCRIPTION_MAX_LENGTH
 # Resolves a suggestion run to the `signals_scout_suggestions` gateway product.
 SUGGESTIONS_AI_STAGE = "scout_suggestions"
 
-# Row cap on the per-candidate activity read, so the check stays cheap on a large project. A read
-# that hits the cap reports only "at least this many events", which already clears every threshold
-# the check can hold; only a read that finishes under it has exact numbers, and those are the
-# small projects the check is about.
+# Row cap on the per-candidate activity read, so the check stays cheap on a large project. The
+# read refuses at the cap rather than truncating: the cap counts rows read while the query counts
+# the rows that pass the window filter, so a truncated read would come back as a small count that
+# reads like a quiet project. A project whose window does not fit the cap is active whatever the
+# refusal hid, and only a read that finishes has numbers — the small projects the check is about.
 ACTIVITY_READ_MAX_ROWS = 100_000
 
 SuggestionKind = Literal["canonical", "custom"]
@@ -510,6 +512,10 @@ def stamp_requested(team_ids: list[int], now: datetime | None = None) -> None:
 
 LOW_ACTIVITY_SKIP_REASON = "low_activity"
 
+# TOO_MANY_ROWS / TOO_MANY_ROWS_OR_BYTES: what `read_overflow_mode: throw` raises at
+# `ACTIVITY_READ_MAX_ROWS`. Any other failure belongs to the caller's dispatch-anyway path.
+_READ_CAP_ERROR_CODES = (158, 396)
+
 
 @frozen
 class TeamActivity:
@@ -517,7 +523,8 @@ class TeamActivity:
 
     event_count: int
     active_days: int
-    # The read stopped at `ACTIVITY_READ_MAX_ROWS`, so the numbers are a floor, not a count.
+    # The read refused at `ACTIVITY_READ_MAX_ROWS` rather than answer with a truncated count, so
+    # the two fields above hold nothing the check may read.
     capped: bool
 
 
@@ -535,25 +542,32 @@ def read_team_activity(team_id: int, *, window_days: int) -> TeamActivity:
     """Events and distinct active days for a project and its child environments in the window.
 
     Ingestion is environment-scoped while the batch is per canonical project, so the two are
-    counted together. The row cap bounds the read on a large project; past it the numbers say
-    only "at least this many", which already clears every threshold the check can hold.
+    counted together. A read that hits the row cap refuses instead of answering, because a
+    truncated aggregate is indistinguishable from a quiet project: the events table sorts on
+    `toDate(timestamp)`, so the window bound drops rows the cap has already counted, and the
+    spread is then a floor with nothing to mark it as one.
     """
     team_ids = list(Team.objects.filter(Q(id=team_id) | Q(parent_team_id=team_id)).values_list("id", flat=True))
     tag_queries(trigger="signals_scout_suggestions_activity_check")
-    rows = sync_execute(
-        """
-        SELECT count(), uniqExact(toDate(timestamp))
-        FROM events
-        WHERE team_id IN %(team_ids)s
-          AND timestamp >= now() - toIntervalDay(%(window_days)s)
-        """,
-        {"team_ids": team_ids, "window_days": window_days},
-        settings={"max_rows_to_read": ACTIVITY_READ_MAX_ROWS, "read_overflow_mode": "break"},
-        team_id=team_id,
-    )
+    try:
+        rows = sync_execute(
+            """
+            SELECT count(), uniqExact(toDate(timestamp))
+            FROM events
+            WHERE team_id IN %(team_ids)s
+              AND timestamp >= now() - toIntervalDay(%(window_days)s)
+            """,
+            {"team_ids": team_ids, "window_days": window_days},
+            settings={"max_rows_to_read": ACTIVITY_READ_MAX_ROWS, "read_overflow_mode": "throw"},
+            team_id=team_id,
+        )
+    except InternalCHQueryError as error:
+        if error.code not in _READ_CAP_ERROR_CODES:
+            raise
+        return TeamActivity(event_count=ACTIVITY_READ_MAX_ROWS, active_days=0, capped=True)
     event_count = int(rows[0][0]) if rows else 0
     active_days = int(rows[0][1]) if rows else 0
-    return TeamActivity(event_count=event_count, active_days=active_days, capped=event_count >= ACTIVITY_READ_MAX_ROWS)
+    return TeamActivity(event_count=event_count, active_days=active_days, capped=False)
 
 
 def team_is_active_enough(activity: TeamActivity, settings: SuggestionSettings) -> bool:
