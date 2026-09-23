@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, isBreakpoint, kea, listeners, path, reducers } from 'kea'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -285,7 +286,7 @@ export const terminalLogic = kea<terminalLogicType>([
             try {
                 const filesystem = new PosthogFilesystem(String(projectId), controller.signal)
                 cache.filesystem = filesystem
-                new PosthogCommands(String(projectId), controller.signal, filesystem)
+                new PosthogCommands(String(projectId), controller.signal, filesystem, (url) => router.actions.push(url))
                 actions.setStatus('booting')
                 const server = new NinePServer(filesystem, (error) => {
                     if (!controller.signal.aborted) {
@@ -293,14 +294,17 @@ export const terminalLogic = kea<terminalLogicType>([
                     }
                 })
                 const requested = values.requestedFolder
+                const projectTreeRef = values.projectTreeRef
                 const folder =
                     requested !== null
                         ? filesystem.folderPath(requested)
-                        : await filesystem.folderFor(values.projectTreeRef).catch(() => null)
+                        : await filesystem.folderFor(projectTreeRef).catch(() => null)
                 if (controller.signal.aborted) {
                     return
                 }
-                actions.setRequestedFolder(null)
+                if (values.requestedFolder === requested) {
+                    actions.setRequestedFolder(null)
+                }
                 await runtime.start(
                     server,
                     controller.signal,
@@ -308,7 +312,12 @@ export const terminalLogic = kea<terminalLogicType>([
                         if (!controller.signal.aborted) {
                             window.posthogTerminal = agent
                             actions.setStatus('ready')
-                            if (values.requestedFolder !== null) {
+                            if (
+                                values.requestedFolder !== null ||
+                                (values.dockOpen &&
+                                    (values.projectTreeRef?.type !== projectTreeRef?.type ||
+                                        values.projectTreeRef?.ref !== projectTreeRef?.ref))
+                            ) {
                                 actions.followFolder()
                             }
                             disposables.add(() => {

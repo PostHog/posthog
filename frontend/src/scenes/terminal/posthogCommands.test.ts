@@ -41,6 +41,7 @@ jest.mock('products/product_analytics/frontend/generated/api', () => ({
 describe('PostHog terminal commands', () => {
     let commands: PosthogCommands
     let filesystem: PosthogFilesystem
+    const navigate = jest.fn()
     const cwd = '/posthog/files/Research'
     const author = {
         id: 1,
@@ -70,6 +71,7 @@ describe('PostHog terminal commands', () => {
     })
 
     it('completes aliases and JSON arguments without invoking commands', async () => {
+        expect(await commands.execute(['_complete', '1', 'op', 'ph', ''], cwd)).toBe('open')
         expect(await commands.execute(['_complete', '1', 'notebook-g', 'ph', ''], cwd)).toBe('notebook-get')
         expect(await commands.execute(['_complete', '2', '--ti', 'notebook-create', 'notebook-create'], cwd)).toBe(
             '--title'
@@ -78,6 +80,9 @@ describe('PostHog terminal commands', () => {
             '--json'
         )
         expect(await commands.execute(['_complete', '3', '', '--json', 'notebook-create'], cwd)).toBe('')
+        for (const command of ['help', 'tools', 'refresh', 'open']) {
+            expect(await commands.execute(['_complete', '2', '--', command, command], cwd)).toBe('')
+        }
         expect(notebooksCreate).not.toHaveBeenCalled()
         expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
     })
@@ -160,7 +165,37 @@ describe('PostHog terminal commands', () => {
         const signal = new AbortController().signal
         filesystem = new PosthogFilesystem('42', signal)
         await filesystem.load()
-        commands = new PosthogCommands('42', signal, filesystem)
+        commands = new PosthogCommands('42', signal, filesystem, navigate)
+    })
+
+    it.each([
+        [[], '/files?folder=Research'],
+        [['.'], '/files?folder=Research'],
+        [['..'], '/files'],
+        [['Notes.md'], '/notebooks/shortnote'],
+        [['/posthog/api/notebook/shortnote.json'], '/notebooks/shortnote'],
+    ])('opens %j in PostHog', async (args, url) => {
+        await commands.execute(['open', ...args], cwd)
+        expect(navigate).toHaveBeenCalledWith(url)
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
+        expect(mcpServerInstallationsAvailableToolsRetrieve).not.toHaveBeenCalled()
+    })
+
+    it.each([['missing.md'], ['/tmp/local.json'], ['Notes.md', 'another.md']])(
+        'does not navigate for invalid open arguments %j',
+        async (...args) => {
+            await expect(commands.execute(['open', ...args], cwd)).rejects.toThrow()
+            expect(navigate).not.toHaveBeenCalled()
+        }
+    )
+
+    it('does not navigate after the terminal stops while resolving a path', async () => {
+        const controller = new AbortController()
+        commands = new PosthogCommands('42', controller.signal, filesystem, navigate)
+        const opening = commands.execute(['open', 'Notes.md'], cwd)
+        controller.abort()
+        await expect(opening).rejects.toThrow('terminal stopped')
+        expect(navigate).not.toHaveBeenCalled()
     })
 
     it.each([

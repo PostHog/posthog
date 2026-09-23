@@ -7,12 +7,15 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { initKeaTests } from '~/test/init'
 
 import { PosthogFilesystem } from './posthogFilesystem'
 import { terminalDockLogic } from './terminalDockLogic'
 import { terminalLogic } from './terminalLogic'
 import { TerminalRuntime } from './terminalRuntime'
+
+const mockFolderFor = jest.fn<Promise<string | null>, []>()
 
 jest.mock('./terminalRuntime', () => ({
     TerminalRuntime: jest.fn().mockImplementation(() => ({
@@ -35,7 +38,7 @@ jest.mock('./TerminalSession', () => ({
 jest.mock('./posthogFilesystem', () => ({
     PosthogFilesystem: jest.fn().mockImplementation(() => ({
         load: jest.fn(async () => {}),
-        folderFor: jest.fn(async () => null),
+        folderFor: mockFolderFor,
         folderPath: (path: string) => '/posthog/files/' + path,
     })),
 }))
@@ -44,11 +47,16 @@ jest.mock('./posthogCommands', () => ({ PosthogCommands: jest.fn() }))
 describe('terminal lifecycle', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        mockFolderFor.mockReset().mockResolvedValue(null)
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: true })
+        breadcrumbsLogic.mount()
+        jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue(null)
         terminalLogic.mount()
     })
+
+    afterEach(() => jest.restoreAllMocks())
 
     it('does not boot without the flag and stops an active session on revocation', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false })
@@ -102,6 +110,50 @@ describe('terminal lifecycle', () => {
         teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         expect(TerminalRuntime).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        ['lookup', 'request'],
+        ['lookup', 'navigation'],
+        ['boot', 'request'],
+        ['boot', 'navigation'],
+    ])('keeps a newer folder from %s during %s', async (phase, source) => {
+        let resolveFolder!: (folder: string) => void
+        mockFolderFor.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveFolder = resolve
+                })
+        )
+        const projectTreeRef = jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef')
+        projectTreeRef.mockReturnValue({ type: 'folder', ref: 'Original' })
+        terminalDockLogic.actions.setDockOpen(true)
+        terminalLogic.actions.attach(document.createElement('div'))
+        const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
+        let ready!: () => void
+        runtime.start.mockImplementationOnce(async (_server: unknown, _signal: AbortSignal, onReady: () => void) => {
+            ready = onReady
+            if (phase === 'lookup') {
+                ready()
+            }
+        })
+        if (phase === 'boot') {
+            resolveFolder('/posthog/files/Original')
+            await waitFor(() => expect(runtime.start).toHaveBeenCalled())
+        }
+        if (source === 'request') {
+            terminalDockLogic.actions.openInTerminal('Latest')
+        } else {
+            projectTreeRef.mockReturnValue({ type: 'folder', ref: 'Latest' })
+            mockFolderFor.mockResolvedValue('/posthog/files/Latest')
+        }
+        if (phase === 'lookup') {
+            resolveFolder('/posthog/files/Original')
+        } else {
+            ready()
+        }
+        await waitFor(() => expect(runtime.changeDirectory).toHaveBeenCalledWith('/posthog/files/Latest'))
+        expect(terminalDockLogic.values.requestedFolder).toBeNull()
     })
 
     it('restores the command menu opener after the dialog element disappears', () => {

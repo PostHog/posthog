@@ -52,6 +52,7 @@ ph <command> --json -            Read arguments from stdin
 ph refresh                       Reload the project tree and connected tool catalog
 run <file.sql>                    Run SQL and print a Markdown table
 run --help                       Show SQL export formats and examples
+ph open [path]                   Open a project file or folder in PostHog (defaults to .)
 
 Examples:
   ph notebooks-list --limit 10 | jq .results
@@ -143,7 +144,8 @@ export class PosthogCommands {
     constructor(
         private projectId: string,
         private signal: AbortSignal,
-        private filesystem: PosthogFilesystem
+        private filesystem: PosthogFilesystem,
+        private navigate: (url: string) => void
     ) {
         this.toolDirectory = filesystem.directory('tools', filesystem.root)
         const options = { signal }
@@ -379,23 +381,32 @@ export class PosthogCommands {
                     // Keep built-in completion available when the connected tool catalog is unavailable.
                 }
                 return [
-                    ...new Set(['help', 'tools', 'refresh', 'run', ...Object.keys(aliases), ...this.commands.keys()]),
+                    ...new Set([
+                        'help',
+                        'tools',
+                        'refresh',
+                        'run',
+                        'open',
+                        ...Object.keys(aliases),
+                        ...this.commands.keys(),
+                    ]),
                 ]
                     .filter((candidate) => /^[A-Za-z0-9_@/.-]+$/.test(candidate) && candidate.startsWith(prefix))
                     .sort()
                     .join('\n')
             }
             if (prefix.startsWith('--') && previous !== '--json') {
-                const flags =
-                    commandName === 'run'
-                        ? ['--help', '--markdown', '--json', '--csv', '--tsv']
-                        : [
-                              '--help',
-                              '--json',
-                              ...Object.keys(object((await this.find(commandName)).inputSchema.properties)).map(
-                                  (key) => `--${key}`
-                              ),
-                          ]
+                const flags = ['help', 'tools', 'refresh', 'open'].includes(commandName)
+                    ? []
+                    : commandName === 'run'
+                      ? ['--help', '--markdown', '--json', '--csv', '--tsv']
+                      : [
+                            '--help',
+                            '--json',
+                            ...Object.keys(object((await this.find(commandName)).inputSchema.properties)).map(
+                                (key) => `--${key}`
+                            ),
+                        ]
                 return flags
                     .filter((candidate) => /^[A-Za-z0-9_@/.-]+$/.test(candidate) && candidate.startsWith(prefix))
                     .sort()
@@ -431,6 +442,17 @@ export class PosthogCommands {
                 }
             }
             return terminalQueryTable(result, format === '--csv' ? 'csv' : format === '--tsv' ? 'tsv' : 'markdown')
+        }
+        if (name === 'open') {
+            if (rest.length > 1) {
+                throw new Error('Use open with one file or folder path. Quote paths containing spaces.')
+            }
+            const url = await this.filesystem.navigationUrl(rest[0] ?? '.', cwd)
+            if (this.signal.aborted) {
+                throw new Error('The terminal stopped. Start it again before opening a file.')
+            }
+            this.navigate(url)
+            return `Opened ${rest[0] ?? '.'} in PostHog.`
         }
         if (name === 'help' || name === '--help') {
             if (!rest.length) {

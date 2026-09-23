@@ -1,5 +1,23 @@
 import { MAX_TERMINAL_FILE_BYTES, TerminalFilesystem } from './terminalFilesystem'
 
+const OPEN_SCRIPT = String.raw`#!/bin/sh
+set -eu
+if [ "$#" -gt 1 ]; then
+    printf '%s\n' 'Use open with one file or folder path. Quote paths containing spaces.' >&2
+    exit 1
+fi
+if [ "$#" -eq 0 ]; then
+    set -- .
+fi
+target="$1"
+case "$target" in
+    /*) ;;
+    *) target="$PWD/$target" ;;
+esac
+target=$(realpath "$target")
+exec ph open "$target"
+`
+
 export const PH_SCRIPT = String.raw`#!/bin/sh
 set -eu
 set -o pipefail
@@ -7,9 +25,13 @@ temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 trap 'exit 130' HUP INT TERM
 previous=''
+command=''
+if [ "$#" -gt 0 ]; then command="$1"; fi
 for argument in "$@"; do
     original="$argument"
-    { case "$argument" in
+    { if [ "$command" = '_complete' ]; then
+        printf '%s' "$argument"
+    else case "$argument" in
         @*) cat -- "$(printf '%s' "$argument" | cut -c2-)" ;;
         -)
             if [ "$previous" = '--json' ]; then
@@ -19,7 +41,7 @@ for argument in "$@"; do
             fi
             ;;
         *) printf '%s' "$argument" ;;
-    esac; } | base64 | tr -d '\n'
+    esac; fi; } | base64 | tr -d '\n'
     previous="$original"
     printf '\n'
 done > "$temporary/args"
@@ -169,5 +191,6 @@ export class TerminalCommands {
         filesystem.text('ph', bin, PH_SCRIPT)
         filesystem.text('run', bin, RUN_SCRIPT)
         filesystem.text('shellrc', bin, SHELL_RC)
+        filesystem.text('open', bin, OPEN_SCRIPT)
     }
 }

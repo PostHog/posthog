@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+
 import apiMutator from 'lib/api-orval-mutator'
 
 import { fileSystemCreate, fileSystemDestroy, fileSystemList, fileSystemRetrieve } from '~/generated/core/api'
@@ -84,9 +86,42 @@ describe('PostHog filesystem projection', () => {
             count: 1,
             results: [entry('sql1', 'Research/Report', 'insight')],
         })
-        jest.mocked(insightsList).mockResolvedValue({ count: 1, results: [{ short_id: 'sql1' }] } as Awaited<
-            ReturnType<typeof insightsList>
-        >)
+        jest.mocked(insightsList).mockResolvedValue({
+            count: 1,
+            results: [
+                {
+                    id: 1,
+                    short_id: 'sql1',
+                    dashboard_tiles: [],
+                    last_refresh: null,
+                    cache_target_age: null,
+                    next_allowed_client_refresh: null,
+                    result: null,
+                    hasMore: null,
+                    columns: null,
+                    created_at: null,
+                    created_by: { ...MOCK_DEFAULT_BASIC_USER, hedgehog_config: null },
+                    updated_at: '2026-01-01T00:00:00Z',
+                    last_modified_at: '2026-01-01T00:00:00Z',
+                    last_modified_by: { ...MOCK_DEFAULT_BASIC_USER, hedgehog_config: null },
+                    is_sample: false,
+                    effective_restriction_level: 21,
+                    effective_privilege_level: 37,
+                    user_access_level: 'editor',
+                    timezone: 'UTC',
+                    is_cached: false,
+                    query_status: null,
+                    hogql: null,
+                    types: null,
+                    resolved_date_range: {},
+                    query_scan: null,
+                    alerts: [],
+                    filter_override_context: null,
+                    last_viewed_at: null,
+                    search_match_type: null,
+                },
+            ],
+        })
         const original = {
             name: 'Report',
             query: { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select 1', limit: 10 }, full: true },
@@ -273,6 +308,44 @@ describe('PostHog filesystem projection', () => {
             jest.mocked(fileSystemList).mockResolvedValue({ count: 1, results: [entry('13', 'Second', type)] })
             await fresh.loadReference(`/posthog/api/${name}/13.json`, '/')
             expect(fresh.resolveReference(`/posthog/api/${name}/13.json`, '/', type)).toBe('13')
+        }
+    )
+
+    it('resolves navigation from lazy folders and file identities without reading their contents', async () => {
+        const folder = 'Research & notes'
+        const entries = [
+            entry('folder', folder, 'folder'),
+            entry('note1', `${folder}/Notes`),
+            { ...entry('query', `${folder}/Query.sql`, 'insight'), href: '/insights/query' },
+            entry('12', `${folder}/Overview`, 'dashboard'),
+        ]
+        jest.mocked(fileSystemList).mockImplementation(async (_, params) => {
+            const { parent, depth } = params as { parent?: string; depth?: number }
+            const results = entries.filter(
+                (item) =>
+                    item.path.split('/').length === depth && item.path.split('/').slice(0, -1).join('/') === parent
+            )
+            return { count: results.length, results }
+        })
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        expect(await fs.navigationUrl(folder, '/posthog/files')).toBe('/files?folder=Research%20%26%20notes')
+        expect(fileSystemList).toHaveBeenCalledTimes(1)
+        expect(await fs.navigationUrl('Notes.md', `/posthog/files/${folder}`)).toBe('/notebooks/note1')
+        expect(await fs.navigationUrl('Query.sql.json', `/posthog/files/${folder}`)).toBe('/insights/query')
+        expect(await fs.navigationUrl('Overview.json', `/posthog/files/${folder}`)).toBe('/dashboard/12')
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
+        expect(fileSystemRetrieve).not.toHaveBeenCalled()
+    })
+
+    it.each(['https://example.com', '//example.com', '/\\example.com', 'javascript:alert(1)', '/\n/example.com'])(
+        'rejects a file destination outside PostHog: %j',
+        async (href) => {
+            jest.mocked(fileSystemList).mockResolvedValue({
+                count: 1,
+                results: [{ ...entry('link', 'Link', 'unknown'), href }],
+            })
+            const fs = new PosthogFilesystem('42', new AbortController().signal)
+            await expect(fs.navigationUrl('Link.json', '/posthog/files')).rejects.toThrow('no PostHog page')
         }
     )
 
