@@ -68,6 +68,7 @@ export interface inboxUsageLogicValues {
         },
         ValidationErrorType
     >
+    createdPrs: number
     limitPrs: number | null
     percentage: number
     pricePerPrUsd: number | null
@@ -181,12 +182,13 @@ export interface inboxUsageLogicMeta {
         creditsPerPr: (product: BillingProductV2Type | null) => number | null
         pricePerPrUsd: (product: BillingProductV2Type | null) => number | null
         freePrs: (product: BillingProductV2Type | null) => number
-        usedPrs: (
+        createdPrs: (
             product: BillingProductV2Type | null,
             creditsPerPr: number | null,
             refundSummary: SignalReportRefundSummaryResponseApi | null
         ) => number
         refundedPrs: (refundSummary: SignalReportRefundSummaryResponseApi | null) => number
+        usedPrs: (createdPrs: number, refundedPrs: number) => number
         customLimitUsd: (billing: BillingType | null, product: BillingProductV2Type | null) => number | null
         limitPrs: (
             product: BillingProductV2Type | null,
@@ -220,9 +222,9 @@ export type inboxUsageLogicType = MakeLogicType<
 /**
  * Drives the PR-usage widget in the inbox agents rail. Reads the inbox/signals billing product and
  * surfaces usage, limit, and reset date in PRs (the product bills in credits; `display_divisor`
- * converts credits → PRs). Usage stays uncapped and gross so the widget agrees with the billing
- * page. Editing the limit writes a USD spend cap to `custom_limits_usd`, the
- * same mechanism the billing page uses.
+ * converts credits → PRs). Usage is the quota's net count, not capped at the limit, and the widget
+ * names the gross count and refunds so it still reconciles with the billing page. Editing the limit
+ * writes a USD spend cap to `custom_limits_usd`, the same mechanism the billing page uses.
  */
 export const inboxUsageLogic = kea<inboxUsageLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxUsageLogic']),
@@ -244,8 +246,8 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
     loaders(({ values }) => ({
         // Credited-path refund totals for the org's current billing period. Billing usage still
         // contains credited-refunded PRs (the money comes back as an invoice credit, not lower
-        // usage), so the widget keeps them in the count and names them separately. Excluded-path
-        // refunds never reach billing usage and need no adjustment.
+        // usage), so the widget subtracts them to show the count the quota check uses, and names
+        // them next to it. Excluded-path refunds never reach billing usage and need no adjustment.
         // Usage + refund summary are org-wide (billing allocates the free PR tier per org); the
         // widget labels the count accordingly. Revisit if billing ever splits usage per project.
         refundSummary: [
@@ -376,8 +378,8 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             (product: BillingProductV2Type | null): number | null => derivePricePerPrUsd(product),
         ],
         freePrs: [(s) => [s.product], (product: BillingProductV2Type | null): number => deriveFreePrs(product)],
-        // Gross usage on billing's own basis: nothing is netted out and nothing is capped.
-        usedPrs: [
+        // Gross PRs on billing's own basis, so this matches the usage on the billing page.
+        createdPrs: [
             (s) => [s.product, s.creditsPerPr, s.refundSummary],
             (
                 product: BillingProductV2Type | null,
@@ -394,11 +396,20 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 return Math.round(billedCredits / creditsPerPr)
             },
         ],
-        // Credited-path refunds inside `usedPrs`, named next to the count rather than subtracted.
+        // Credited-path refunds stay in billing usage, so they are inside `createdPrs`.
         refundedPrs: [
             (s) => [s.refundSummary],
             (refundSummary: SignalReportRefundSummaryResponseApi | null): number =>
                 refundSummary?.credited_refund_count ?? 0,
+        ],
+        // The PRs that count toward the limit. The quota check subtracts credited refunds from
+        // billing usage (see `_signals_credited_refund_offset` in ee/billing/quota_limiting.py), so
+        // a refund frees a slot. Keep this in step with that check, or the widget reports the org at
+        // its limit while agents still run. Not capped at the limit, because usage can run past it
+        // before the quota cron pauses agents.
+        usedPrs: [
+            (s) => [s.createdPrs, s.refundedPrs],
+            (createdPrs: number, refundedPrs: number): number => Math.max(0, createdPrs - refundedPrs),
         ],
         customLimitUsd: [
             (s) => [s.billing, s.product],

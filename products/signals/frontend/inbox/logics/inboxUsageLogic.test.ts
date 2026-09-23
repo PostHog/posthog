@@ -77,28 +77,43 @@ describe('inboxUsageLogic', () => {
         logic?.unmount()
     })
 
-    // usedPrs must read `max(billing's recorded usage, live billable credits)`, the same gross
-    // total the billing page shows: recorded usage lags up to a day, so a just-created PR (and its
-    // same-day excluded-path refund) is only visible through the live count, while credited-path
-    // refunds stay in that total and are reported through refundedPrs instead. Each row pins one
-    // side of that contract, so netting refunds back out fails here.
+    // createdPrs must read `max(billing's recorded usage, live billable credits)`, the gross total
+    // the billing page shows: recorded usage lags up to a day, so a just-created PR (and its same-day
+    // excluded-path refund) is only visible through the live count. usedPrs must subtract credited
+    // refunds, because the quota check does, so a refund frees a slot. Each row pins one side of that
+    // contract.
     it.each([
-        // [case, billing current_usage, live period credits, credited credits, PRs, refunded PRs]
-        ['counts a just-created PR that billing has not recorded yet', 1500, 3000, 0, 2, 0],
-        ['drops when a same-day refund removes the PR from live usage', 1500, 1500, 0, 1, 0],
-        ['keeps credited-path refunds that billing also keeps', 9000, 9000, 1500, 6, 1],
-    ])('%s', async (_case, currentUsage, periodBillableCredits, creditedCredits, expectedPrs, expectedRefundedPrs) => {
-        logic = await mountWithUsage(currentUsage, {
-            period_billable_credits: periodBillableCredits,
-            credited_credits: creditedCredits,
-        })
+        // [case, billing current_usage, live period credits, credited credits, created, refunded, used]
+        ['counts a just-created PR that billing has not recorded yet', 1500, 3000, 0, 2, 0, 2],
+        ['drops when a same-day refund removes the PR from live usage', 1500, 1500, 0, 1, 0, 1],
+        ['nets credited-path refunds out of the limit count', 9000, 9000, 1500, 6, 1, 5],
+        ['clamps at zero when credited refunds exceed billed usage', 0, 1500, 3000, 1, 2, 0],
+    ])(
+        '%s',
+        async (
+            _case,
+            currentUsage,
+            periodBillableCredits,
+            creditedCredits,
+            expectedCreatedPrs,
+            expectedRefundedPrs,
+            expectedUsedPrs
+        ) => {
+            logic = await mountWithUsage(currentUsage, {
+                period_billable_credits: periodBillableCredits,
+                credited_credits: creditedCredits,
+            })
 
-        expect(logic.values.usedPrs).toBe(expectedPrs)
-        expect(logic.values.refundedPrs).toBe(expectedRefundedPrs)
-    })
+            expect(logic.values).toMatchObject({
+                createdPrs: expectedCreatedPrs,
+                refundedPrs: expectedRefundedPrs,
+                usedPrs: expectedUsedPrs,
+            })
+        }
+    )
 
     // The quota cron reacts after the fact, so usage runs past the limit before agents pause. The
-    // widget must report that overshoot, because the billing page does.
+    // widget must report that overshoot instead of capping it at the limit.
     it('reports usage past the limit instead of capping it', async () => {
         logic = await mountWithUsage(
             53 * CREDITS_PER_PR,

@@ -107,6 +107,7 @@ export const OverLimit: Story = {
     render: () => <StateMocks state={{ subscribed: true, freePrs: 3, usedPrs: 53, limitPrs: 50 }} />,
 }
 
+// Refunded PRs stay in billing usage, so the count drops to 10 and the refund line names the 12.
 export const WithRefundedPrs: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.SIGNALS_PR_REFUNDS] },
     render: () => <StateMocks state={{ subscribed: true, freePrs: 3, usedPrs: 12, limitPrs: 50, refundedPrs: 2 }} />,
