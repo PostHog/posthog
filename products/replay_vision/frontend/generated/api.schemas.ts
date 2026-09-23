@@ -2080,6 +2080,8 @@ export interface SignalScoutConfigApi {
      * @nullable
      */
     readonly status_changed_at: string | null
+    /** Who last moved `status`, when a person did it through this API. Null for a system transition such as an automatic pause, for a row whose status never changed, and for a caller that may not read member identities. Pair it with `status` to say who turned a scout off, instead of only when it went off. */
+    readonly status_changed_by: UserBasicApi | null
     /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again. */
     readonly auto_pause_exempt: boolean
     /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
@@ -2256,7 +2258,7 @@ export interface InlineScanRequestApi {
      * @maxLength 20000
      */
     prompt: string
-    /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt.
+    /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.
      *
      * * `monitor` - Monitor
      * * `classifier` - Classifier
@@ -2411,6 +2413,16 @@ export const WatchFeedReasonEnumApi = {
 } as const
 
 /**
+ * One signal an observation raised, named rather than counted.
+ */
+export interface WatchFeedSignalApi {
+    /** Issue type: `bug`, `crash`, `design_flaw`, or `ux_friction`. */
+    problem_type: string
+    /** The finding in a few words, written by the scan. The full description lives on the signal itself. */
+    headline: string
+}
+
+/**
  * Machine-readable reason an observation made the feed; the frontend renders the copy.
  */
 export interface WatchFeedReasonApi {
@@ -2434,6 +2446,8 @@ export interface WatchFeedReasonApi {
     signals_count?: number | null
     /** Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped. */
     problem_types?: string[]
+    /** Each emitted signal in the order raised, for `signal_emitted`. Carries what the card needs to name the findings instead of counting them. Absent on sessions scanned before this shipped, which carry `problem_types` alone. */
+    signals?: WatchFeedSignalApi[]
     /**
      * The monitor's answer, for `unusual_verdict`.
      * @nullable
@@ -2490,7 +2504,7 @@ export interface WatchFeedItemApi {
  * Response of GET /vision/scanners/watch_feed/.
  */
 export interface WatchFeedResponseApi {
-    /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, then prose that reads as friction, then newest. */
+    /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
     results: WatchFeedItemApi[]
 }
 
@@ -2994,7 +3008,7 @@ export type VisionScannersWatchFeedRetrieveParams = {
      */
     date_to?: string
     /**
-     * Feed items to return, at most 50. The feed is bounded, not paginated.
+     * Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.
      * @minimum 1
      * @maximum 50
      */

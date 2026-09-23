@@ -153,9 +153,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/overview': ['EngineeringAnalytics', 'engineeringAnalytics'],
     '/engineering-analytics/pull-requests': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
-    '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
+    '/engineering-analytics/tests': ['EngineeringAnalytics', 'engineeringAnalyticsTests'],
     '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
-    '/engineering-analytics/health': ['EngineeringAnalytics', 'engineeringAnalyticsHealth'],
+    '/engineering-analytics/deploys': ['EngineeringAnalytics', 'engineeringAnalyticsDeploys'],
     '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
     '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
@@ -285,6 +285,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
+    '/workflows/broadcasts/new': ['Broadcast', 'broadcast'],
+    '/workflows/broadcasts/:id': ['Broadcast', 'broadcast'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
     '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -423,7 +425,12 @@ export const productRedirects: Record<
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
-    '/engineering-analytics': '/engineering-analytics/overview',
+    '/engineering-analytics': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.engineeringAnalytics(), searchParams, hashParams).url,
+    '/engineering-analytics/test-health': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.engineeringAnalyticsTests(), searchParams, hashParams).url,
+    '/engineering-analytics/health': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.engineeringAnalyticsDeploys(), searchParams, hashParams).url,
     '/engineering-analytics/authors': '/engineering-analytics/overview',
     '/error_tracking/:id/fingerprints': (params) =>
         combineUrl(`/error_tracking/${params.id}`, { manageFingerprints: 'true' }).url,
@@ -725,7 +732,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         name: 'Engineering analytics',
         layout: 'app-container',
-        description: 'Pull request and workflow CI health across connected GitHub repos.',
+        description: 'Pull requests, workflows, tests, deploys, and teams across connected GitHub repos.',
         iconType: 'health',
     },
     EngineeringAnalyticsPullRequest: {
@@ -758,7 +765,7 @@ export const productConfiguration: Record<string, any> = {
     },
     EngineeringAnalyticsTeam: {
         projectBased: true,
-        name: 'Team CI health',
+        name: 'Team',
         layout: 'app-container',
         description: "One owning team's merge timing and the before/after signal on its owned tests.",
         iconType: 'health',
@@ -1084,6 +1091,12 @@ export const productConfiguration: Record<string, any> = {
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
+    Broadcast: {
+        name: 'Broadcast',
+        iconType: 'workflows',
+        projectBased: true,
+        description: 'Send a one-time or scheduled email to a group of people',
+    },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1222,8 +1235,8 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
-    dataCatalogMetric: (name: string, tab?: 'definition' | 'tests'): string =>
-        `/data-catalog/metrics/${name}${tab === 'tests' ? '?tab=tests' : ''}`,
+    dataCatalogMetric: (name: string, tab?: 'definition' | 'tests' | 'lineage'): string =>
+        `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     dataOps: (tab?: string): string => {
         const params = new URLSearchParams()
         if (tab) {
@@ -1319,9 +1332,9 @@ export const productUrls = {
     engineeringAnalytics: (): string => '/engineering-analytics/overview',
     engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pull-requests',
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
-    engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
+    engineeringAnalyticsTests: (): string => '/engineering-analytics/tests',
     engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
-    engineeringAnalyticsHealth: (): string => '/engineering-analytics/health',
+    engineeringAnalyticsDeploys: (): string => '/engineering-analytics/deploys',
     engineeringAnalyticsTeam: (ownerTeam: string): string =>
         `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
@@ -1647,6 +1660,9 @@ export const productUrls = {
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
+    broadcasts: (): string => '/workflows/broadcasts',
+    broadcast: (id: string): string => `/workflows/broadcasts/${id}`,
+    broadcastNew: (): string => '/workflows/broadcasts/new',
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1973,6 +1989,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export type ProductTreePath =
     | 'AI gateway'
     | 'Apps'
+    | 'Broadcasts'
     | 'Business knowledge'
     | 'Clusters'
     | 'Code review'
@@ -2051,6 +2068,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
         sceneKey: 'StreamlitApps',
         sceneKeys: ['StreamlitApps', 'StreamlitApp', 'StreamlitAppEdit'],
+    },
+    {
+        path: 'Broadcasts',
+        intents: [ProductKey.WORKFLOWS],
+        href: urls.broadcasts(),
+        type: 'broadcasts',
+        category: ProductItemCategory.TOOLS,
+        iconType: 'broadcasts',
+        iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+        sceneKey: 'Broadcast',
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcast'],
     },
     {
         path: 'Business knowledge',
@@ -2787,7 +2815,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',
-        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate'],
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcast'],
     },
 ]
 

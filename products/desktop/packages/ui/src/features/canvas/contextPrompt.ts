@@ -217,7 +217,7 @@ export interface AgentChoice {
 
 export const GOAL_MEASURE_AGENT: AgentChoice = {
   adapter: "codex",
-  model: "gpt-5.6-luna",
+  model: "gpt-6-luna",
   reasoningLevel: "high",
   runtime: "pi",
 };

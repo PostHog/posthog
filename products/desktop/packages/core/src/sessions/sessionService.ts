@@ -32,6 +32,7 @@ import {
   getCloudUrlFromRegion,
   getConfigOptionByCategory,
   getReasoningEffortOptions,
+  isAnthropicModelId,
   isFatalSessionError,
   isJsonRpcNotification,
   isJsonRpcRequest,
@@ -77,6 +78,10 @@ import type {
 import { extractPostHogObjectReferences } from "../posthog-objects/references";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
+  harnessForModelValue,
+  isValidConfigValue,
+} from "../task-detail/configOptions";
+import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
   FAST_MODE_OPTION_CATEGORY,
 } from "../task-detail/previewConfig";
@@ -102,6 +107,7 @@ import {
 import {
   addMissingCloudRuntimeConfigOptions,
   buildCloudDefaultConfigOptions,
+  buildCloudResumeConfigOptions,
   extractLatestConfigOptionsFromEntries,
 } from "./cloudSessionConfig";
 import {
@@ -6157,6 +6163,37 @@ export class SessionService {
       return true;
     }
 
+    if (session.isCloud && isTerminalStatus(session.cloudStatus)) {
+      if (session.isPromptPending) return false;
+      const option = configOptions[optionIndex];
+      if (!isValidConfigValue(option, value)) return false;
+      if (
+        option.category === "model" &&
+        session.claudeModelAccess === "own-subscription" &&
+        !isAnthropicModelId(value)
+      )
+        return false;
+
+      let nextOptions = configOptions.map((opt) =>
+        opt.id === configId && opt.type === "select"
+          ? { ...opt, currentValue: value }
+          : opt,
+      );
+      if (option.category === "model") {
+        nextOptions = buildCloudResumeConfigOptions(
+          nextOptions,
+          harnessForModelValue(option, value) ?? session.adapter ?? "claude",
+          value,
+        );
+      }
+      // The next prompt starts a new run. The old sandbox can no longer accept settings.
+      this.d.store.updateSession(session.taskRunId, {
+        configOptions: nextOptions,
+      });
+      this.d.setPersistedConfigOptions(session.taskRunId, nextOptions);
+      return true;
+    }
+
     // Optimistic update
     const updatedOptions = configOptions.map((opt) =>
       opt.id === configId
@@ -6492,13 +6529,18 @@ export class SessionService {
     adapter: Adapter,
     initialModel?: string,
     initialReasoningEffort?: string,
+    allHarnessModels = false,
   ): Promise<void> {
-    const cacheKey = `${apiHost}::${adapter}`;
+    const cacheKey = `${apiHost}::${adapter}::${allHarnessModels}`;
     let entry = this.previewConfigOptionsCache.get(cacheKey);
     if (!entry || Date.now() - entry.fetchedAt > 300_000) {
       if (entry) this.previewConfigOptionsCache.delete(cacheKey);
       const promise = this.d.trpc.agent.getPreviewConfigOptions
-        .query({ apiHost, adapter })
+        .query({
+          apiHost,
+          adapter,
+          ...(allHarnessModels ? { allHarnessModels: true } : {}),
+        })
         .catch((err: unknown) => {
           this.d.log.warn(
             "Failed to fetch preview config options for cloud session",
@@ -6522,6 +6564,21 @@ export class SessionService {
     const previewOptions = await entry.promise;
     const session = this.d.store.getSessions()[taskRunId];
     if (!session || session.adapter !== adapter) return;
+    if (!allHarnessModels && isTerminalStatus(session.cloudStatus)) {
+      return this.fetchAndApplyCloudPreviewOptions(
+        taskRunId,
+        apiHost,
+        adapter,
+        initialModel,
+        initialReasoningEffort,
+        true,
+      );
+    }
+    if (
+      allHarnessModels &&
+      (!isTerminalStatus(session.cloudStatus) || session.isPromptPending)
+    )
+      return;
 
     const existingOptions = session.configOptions ?? [];
     const existingModelOption = getConfigOptionByCategory(
@@ -6624,16 +6681,48 @@ export class SessionService {
     if (preferredModel && modelEffortOptions === null) {
       previewCategories.add("thought_level");
     }
-    const merged = [
+    let merged = [
       ...existingOptions.filter(
         (option) => !previewCategories.has(option.category),
       ),
       ...extras,
     ];
+    if (allHarnessModels && preferredModel) {
+      merged = buildCloudResumeConfigOptions(
+        merged,
+        harnessForModelValue(
+          getConfigOptionByCategory(merged, "model"),
+          preferredModel,
+        ) ?? adapter,
+        preferredModel,
+      );
+    }
 
     if (JSON.stringify(existingOptions) === JSON.stringify(merged)) return;
 
     this.d.store.updateSession(taskRunId, { configOptions: merged });
+  }
+
+  async prepareCloudResume(taskId: string): Promise<void> {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session?.isCloud || !isTerminalStatus(session.cloudStatus)) return;
+    try {
+      const auth = await this.getCloudCommandAuth();
+      if (!auth) return;
+      await this.fetchAndApplyCloudPreviewOptions(
+        session.taskRunId,
+        auth.apiHost,
+        session.adapter ?? "claude",
+        undefined,
+        undefined,
+        true,
+      );
+    } catch (error) {
+      this.d.log.warn("Failed to load models for cloud continuation", {
+        taskId,
+        error,
+      });
+    }
   }
 
   /**

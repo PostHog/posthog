@@ -32,6 +32,7 @@ pub struct Counts {
     pub extra_shadow: i64,
     pub uuid: i64,
     pub properties: i64,
+    pub contested: i64,
     pub is_identified: i64,
     pub created_at: i64,
 }
@@ -46,6 +47,7 @@ impl Counts {
             extra_shadow: row.get("extra_shadow"),
             uuid: row.get("uuid"),
             properties: row.get("properties"),
+            contested: row.get("contested"),
             is_identified: row.get("is_identified"),
             created_at: row.get("created_at"),
         }
@@ -133,7 +135,17 @@ impl Verifier {
                     m.distinct_id IS NULL AS extra_shadow,
                     s.distinct_id IS NULL AS missing_shadow,
                     m.uuid          IS DISTINCT FROM s.uuid          AS uuid_diff,
-                    m.properties    IS DISTINCT FROM s.properties    AS properties_diff,
+                    -- Keys every merged-in person also wrote take whichever value arrived last on
+                    -- each backend, so they are checked by candidate below, not by value.
+                    (m.properties - '{{loadgen_anon_seed,$creator_event_uuid}}'::text[])
+                        IS DISTINCT FROM (s.properties - '{{loadgen_anon_seed,$creator_event_uuid}}'::text[]) AS properties_diff,
+                    -- The seed key has a candidate set: the per-id keys of the seeds that reached the person.
+                    (m.properties ? 'loadgen_anon_seed' AND NOT EXISTS (
+                        SELECT 1 FROM jsonb_each_text(m.properties) kv
+                        WHERE left(kv.key, 18) = 'loadgen_anon_seed_' AND kv.value = m.properties->>'loadgen_anon_seed'))
+                    OR (s.properties ? 'loadgen_anon_seed' AND NOT EXISTS (
+                        SELECT 1 FROM jsonb_each_text(s.properties) kv
+                        WHERE left(kv.key, 18) = 'loadgen_anon_seed_' AND kv.value = s.properties->>'loadgen_anon_seed')) AS contested_diff,
                     m.is_identified IS DISTINCT FROM s.is_identified AS is_identified_diff,
                     m.created_at_ms IS DISTINCT FROM s.created_at_ms AS created_at_diff
                 FROM main m FULL OUTER JOIN shadow s ON m.distinct_id = s.distinct_id
@@ -142,11 +154,12 @@ impl Verifier {
                 count(*) FILTER (WHERE NOT extra_shadow) AS main_count,
                 count(*) AS cohort,
                 count(*) FILTER (WHERE extra_shadow OR missing_shadow OR uuid_diff
-                    OR properties_diff OR is_identified_diff OR created_at_diff) AS mismatched,
+                    OR properties_diff OR contested_diff OR is_identified_diff OR created_at_diff) AS mismatched,
                 count(*) FILTER (WHERE missing_shadow) AS missing_shadow,
                 count(*) FILTER (WHERE extra_shadow) AS extra_shadow,
                 count(*) FILTER (WHERE uuid_diff AND NOT missing_shadow AND NOT extra_shadow) AS uuid,
                 count(*) FILTER (WHERE properties_diff AND NOT missing_shadow AND NOT extra_shadow) AS properties,
+                count(*) FILTER (WHERE contested_diff AND NOT missing_shadow AND NOT extra_shadow) AS contested,
                 count(*) FILTER (WHERE is_identified_diff AND NOT missing_shadow AND NOT extra_shadow) AS is_identified,
                 count(*) FILTER (WHERE created_at_diff AND NOT missing_shadow AND NOT extra_shadow) AS created_at
              FROM j"
@@ -233,6 +246,7 @@ fn report_failure(cfg: &VerifyConfig, counts: &Counts) {
         extra_shadow = counts.extra_shadow,
         uuid = counts.uuid,
         properties = counts.properties,
+        contested = counts.contested,
         is_identified = counts.is_identified,
         created_at = counts.created_at,
         deadline_secs,
