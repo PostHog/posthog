@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.core.management import call_command
+from django.db import DEFAULT_DB_ALIAS
 
 from parameterized import parameterized
 from rest_framework import status
@@ -107,6 +108,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             ),
             index_rows=SignalReportSuggestedReviewer.all_teams.all(),
             only_missing=True,
+            using=DEFAULT_DB_ALIAS,
         )
         for _written, _cursor in walk:
             pass

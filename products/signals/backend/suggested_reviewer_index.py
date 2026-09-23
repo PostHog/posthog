@@ -12,7 +12,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from typing import TypeVar
 
-from django.db import transaction
+from django.db import router, transaction
 from django.db.models import Model, Q, QuerySet
 
 import structlog
@@ -113,10 +113,10 @@ def rebuild_suggested_reviewer_index(
     *,
     reviewer_artefacts: QuerySet,
     index_rows: QuerySet,
+    using: str,
     after: str | None = None,
     batch_size: int = _REBUILD_BATCH_SIZE,
     only_missing: bool = False,
-    using: str | None = None,
 ) -> Iterator[tuple[int, str]]:
     """Rebuild index rows from the reviewer artefact log, a batch of reports at a time.
 
@@ -133,14 +133,17 @@ def rebuild_suggested_reviewer_index(
     deleting. A backfill runs that way, because a report the live code has already indexed needs
     no repair.
 
-    `using` pins every read, every write and the per-batch transaction to one database alias. A
-    caller that reads in order to write has to set it, because the routers send an unbound read to
-    the replica once a model is in `READ_REPLICA_OPT_IN`, and a replica that lags by one reviewer
-    write reports a report as unindexed when the primary already has its rows.
+    `using` names the one database alias that every read, every write and each batch transaction
+    runs on, and it overrides an alias either queryset already carries. It is required, and it is
+    the only place an alias is stated, because the two have to agree: a transaction opened on one
+    connection does not cover a delete and an insert issued on another, so a failed insert would
+    leave the delete committed and the report with no rows at all. Routing is not a safe default
+    here either, because the routers send an unbound read to the replica once a model joins
+    `READ_REPLICA_OPT_IN`, and a replica that lags by one reviewer write reports a report as
+    unindexed when the primary already holds its rows.
     """
-    if using is not None:
-        reviewer_artefacts = reviewer_artefacts.using(using)
-        index_rows = index_rows.using(using)
+    reviewer_artefacts = reviewer_artefacts.using(using)
+    index_rows = index_rows.using(using)
     index_model = index_rows.model
     while True:
         batch = reviewer_artefacts if after is None else reviewer_artefacts.filter(report_id__gt=after)
@@ -193,6 +196,10 @@ def rebuild_suggested_reviewer_index_for_team(
             team_id=team_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
         ),
         index_rows=SignalReportSuggestedReviewer.objects.for_team(team_id),
+        # The walk reads in order to write, so it belongs on the write database. Leaving the reads
+        # to the router would send them to the replica once the index model joins
+        # `READ_REPLICA_OPT_IN`.
+        using=router.db_for_write(SignalReportSuggestedReviewer),
         after=after,
         batch_size=batch_size,
         only_missing=only_missing,
