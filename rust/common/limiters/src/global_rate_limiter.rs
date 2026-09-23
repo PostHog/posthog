@@ -207,6 +207,12 @@ pub struct GlobalRateLimiterConfig {
     ///
     /// Set to 0 to sync every key, restoring the pre-floor behavior.
     pub min_sync_floor: u64,
+    /// Accumulated count a `(key, epoch)` entry must reach before it earns a
+    /// Redis write; entries below it keep merging, so nothing is lost. `0`
+    /// disables it (the default); before raising it note the bypass is
+    /// `2 * pods * floor` and `max_write_batch_entries` must cover the held
+    /// working set.
+    pub min_write_floor: u64,
     /// Maximum keys drained from `pending_sync` per tick. The remainder stays
     /// queued for the next tick, so a backlog degrades into staleness instead of
     /// a tick loop that overruns its own interval.
@@ -269,6 +275,13 @@ impl GlobalRateLimiterConfig {
         threshold as f64 / self.window_interval.as_secs_f64()
     }
 
+    /// True when no custom thresholds are loaded, so every key takes the
+    /// global threshold. The write drain checks this once per tick to avoid
+    /// hashing every batched key against an empty map.
+    pub fn has_no_custom_keys(&self) -> bool {
+        self.custom_keys.load().is_empty()
+    }
+
     /// Resolve a lookup key to its custom threshold, if any.
     ///
     /// Snapshots the current custom-key map once (lock-free) and applies the
@@ -301,6 +314,7 @@ impl Default for GlobalRateLimiterConfig {
             local_cache_max_entries: 300_000,
             channel_capacity: 1_000_000,
             min_sync_floor: 10,
+            min_write_floor: 0,
             max_sync_keys_per_tick: 20_000,
             max_keys_per_command: 2_000,
             max_concurrent_commands: 4,
@@ -806,6 +820,34 @@ impl GlobalRateLimiterImpl {
         true
     }
 
+    /// The accumulated count at which a `(key, epoch)` entry earns a Redis
+    /// write, capped so the floor stays small next to the key's own threshold.
+    fn write_floor_from_threshold(config: &GlobalRateLimiterConfig, threshold: u64) -> u64 {
+        if config.min_write_floor == 0 {
+            return 0;
+        }
+        config.min_write_floor.min((threshold / 1000).max(1))
+    }
+
+    /// The floor for one batched key. `global_floor` and `uniform` are computed
+    /// once per tick by the caller: the batch is scanned in full on every tick
+    /// it applies, so resolving a custom threshold per entry would hash every
+    /// key in the batch against the custom map each second.
+    fn write_floor_for(
+        config: &GlobalRateLimiterConfig,
+        key: &str,
+        global_floor: u64,
+        uniform: bool,
+    ) -> u64 {
+        if config.min_write_floor == 0 || uniform {
+            return global_floor;
+        }
+        let threshold = config
+            .resolve_custom(key)
+            .unwrap_or(config.global_threshold);
+        Self::write_floor_from_threshold(config, threshold)
+    }
+
     /// Queue a key for background Redis sync, bounded by
     /// `max_pending_sync_entries`. A dropped request fails open for one round:
     /// the key's next request re-queues it once the backlog drains, and its
@@ -966,7 +1008,11 @@ impl GlobalRateLimiterImpl {
                                 );
                             }
                             None => {
-                                // Channel closed, do final flush and exit
+                                // Channel closed, do final flush and exit.
+                                // This obeys the write floor, so sub-floor
+                                // entries drop on purpose: draining them would
+                                // have every terminating pod dump its held
+                                // working set at Redis at once.
                                 if !write_batch.is_empty() {
                                     Self::tick(
                                         &config, &redis_instances, &cache,
@@ -1066,17 +1112,45 @@ impl GlobalRateLimiterImpl {
         // previous epochs. Purge them instead of spending write commands (and
         // deferral slots) on counts nothing will ever read.
         let min_live_epoch = epoch_from_timestamp(Utc::now(), config.window_interval) - 1;
-        let before_purge = write_batch.len();
-        write_batch.retain(|(_, epoch), _| *epoch >= min_live_epoch);
-        let purged = before_purge - write_batch.len();
-        if purged > 0 {
+
+        // Computed once: the batch is scanned in full whenever the floor
+        // applies, so these must not be resolved per entry.
+        let global_floor = Self::write_floor_from_threshold(config, config.global_threshold);
+        let uniform_floor = config.has_no_custom_keys();
+
+        let mut purged_unwritten = 0u64;
+        let mut purged_below_floor = 0u64;
+        write_batch.retain(|(key, epoch), count| {
+            if *epoch >= min_live_epoch {
+                return true;
+            }
+            // An entry that never cleared the write floor was held back on
+            // purpose, so losing it is the floor working rather than a write
+            // that failed. Keep the two apart: the error counter drives the
+            // pipeline alert.
+            if *count >= Self::write_floor_for(config, key, global_floor, uniform_floor) {
+                purged_unwritten += 1;
+            } else {
+                purged_below_floor += 1;
+            }
+            false
+        });
+        if purged_unwritten > 0 {
             metrics::counter!(
                 GLOBAL_RATE_LIMITER_ERROR_COUNTER,
                 "scope" => scope,
                 "step" => "pipeline",
                 "cause" => "stale_epoch_purged",
             )
-            .increment(purged as u64);
+            .increment(purged_unwritten);
+        }
+        if purged_below_floor > 0 {
+            metrics::counter!(
+                GLOBAL_RATE_LIMITER_SYNC_SKIPPED_COUNTER,
+                "scope" => scope,
+                "reason" => "below_write_floor",
+            )
+            .increment(purged_below_floor);
         }
 
         // Bound the write drain the same way. The deferred remainder stays in
@@ -1084,14 +1158,34 @@ impl GlobalRateLimiterImpl {
         // count is lost -- it lands in the same epoch key up to a few ticks late.
         // Without the bound, a high-cardinality burst produces a write batch
         // whose waves consume the whole tick before reads run.
+        // Yield the floor near the cap: held entries would otherwise carry the
+        // batch to `max_write_batch_entries`, where `absorb_update` drops
+        // brand-new keys outright. Past the mark this drains as it does with
+        // the floor off.
+        let high_water = config.max_write_batch_entries / 5 * 4;
+        let floor_applies = config.min_write_floor > 0 && write_batch.len() < high_water;
+        if config.min_write_floor > 0 && !floor_applies {
+            metrics::counter!(
+                GLOBAL_RATE_LIMITER_SYNC_SKIPPED_COUNTER,
+                "scope" => scope,
+                "reason" => "write_floor_yielded",
+            )
+            .increment(1);
+        }
+
         let writes: HashMap<(String, i64), u64> =
-            if write_batch.len() <= config.max_sync_keys_per_tick {
+            if !floor_applies && write_batch.len() <= config.max_sync_keys_per_tick {
                 std::mem::take(write_batch)
             } else {
                 let drain_keys: Vec<(String, i64)> = write_batch
-                    .keys()
+                    .iter()
+                    .filter(|((key, _), count)| {
+                        !floor_applies
+                            || **count
+                                >= Self::write_floor_for(config, key, global_floor, uniform_floor)
+                    })
+                    .map(|(k, _)| k.clone())
                     .take(config.max_sync_keys_per_tick)
-                    .cloned()
                     .collect();
                 drain_keys
                     .into_iter()
@@ -1563,6 +1657,7 @@ mod tests {
             // suppress every sync. 0 keeps the pre-floor behavior; the floor's
             // own behavior is covered by the dedicated tests below.
             min_sync_floor: 0,
+            min_write_floor: 0,
             max_sync_keys_per_tick: 20_000,
             max_keys_per_command: 2_000,
             max_concurrent_commands: 4,
@@ -2530,6 +2625,191 @@ mod tests {
             Some(&12),
             "existing key at cap must still merge"
         );
+    }
+
+    #[test]
+    fn test_write_floor_stays_small_next_to_the_key_threshold() {
+        // (min_write_floor, threshold, expected effective floor)
+        let cases = [
+            (0, 10_000, 0),   // disabled writes every entry
+            (5, 10_000, 5),   // production shape: the configured floor survives
+            (50, 10_000, 10), // capped at threshold/1000
+            // A low threshold cannot afford a bypass, so the cap collapses the
+            // floor to 1. Without it, each pod could hold back a sizeable
+            // fraction of the limit and the key would never be limited.
+            (5, 100, 1),
+        ];
+        for (configured, threshold, expected) in cases {
+            let config = GlobalRateLimiterConfig {
+                min_write_floor: configured,
+                global_threshold: threshold,
+                ..test_config()
+            };
+            assert_eq!(
+                GlobalRateLimiterImpl::write_floor_from_threshold(&config, threshold),
+                expected,
+                "floor {configured} against threshold {threshold}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_write_floor_yields_before_the_batch_cap() {
+        // The floor must never carry the batch to `max_write_batch_entries`,
+        // where `absorb_update` starts dropping brand-new keys outright.
+        let mock = Arc::new(MockRedisClient::new());
+        let client: Arc<dyn Client + Send + Sync> = mock.clone();
+        let config = GlobalRateLimiterConfig {
+            min_write_floor: 5,
+            global_threshold: 10_000,
+            max_write_batch_entries: 10, // high-water mark is 8
+            ..config_with_floor(0)
+        };
+        let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
+        let pending: Arc<DashSet<String>> = Arc::new(DashSet::new());
+        let epoch = epoch_from_timestamp(Utc::now(), config.window_interval);
+
+        // Under the mark the floor applies and every entry is held.
+        let mut writes: HashMap<(String, i64), u64> = HashMap::new();
+        for i in 0..7 {
+            writes.insert((format!("cold{i}"), epoch), 1);
+        }
+        GlobalRateLimiterImpl::tick(
+            &config,
+            std::slice::from_ref(&client),
+            &cache,
+            &pending,
+            &mut writes,
+            "test",
+            1,
+        )
+        .await;
+        assert_eq!(writes.len(), 7, "under the mark the floor still holds");
+
+        // Crossing the mark, the floor yields and the tick drains as it would
+        // with the floor off, so the batch drops back under the cap.
+        writes.insert(("cold7".to_string(), epoch), 1);
+        GlobalRateLimiterImpl::tick(
+            &config,
+            std::slice::from_ref(&client),
+            &cache,
+            &pending,
+            &mut writes,
+            "test",
+            1,
+        )
+        .await;
+        assert!(
+            writes.is_empty(),
+            "at the high-water mark every entry must drain, floor or not"
+        );
+        assert!(
+            mock.get_calls()
+                .iter()
+                .any(|c| c.op == "batch_incr_by_expire_at"),
+            "the yielded tick must actually write"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_write_floor_defers_counts_until_they_can_matter() {
+        let mock = Arc::new(MockRedisClient::new());
+        let client: Arc<dyn Client + Send + Sync> = mock.clone();
+        let config = GlobalRateLimiterConfig {
+            min_write_floor: 5,
+            // The floor is capped at threshold/1000, so a key needs a
+            // production-sized threshold before a floor of 5 survives the cap.
+            global_threshold: 10_000,
+            ..config_with_floor(0)
+        };
+        let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
+        let pending: Arc<DashSet<String>> = Arc::new(DashSet::new());
+        let epoch = epoch_from_timestamp(Utc::now(), config.window_interval);
+
+        let mut writes: HashMap<(String, i64), u64> = HashMap::new();
+        writes.insert(("cold".to_string(), epoch), 4);
+
+        GlobalRateLimiterImpl::tick(
+            &config,
+            std::slice::from_ref(&client),
+            &cache,
+            &pending,
+            &mut writes,
+            "test",
+            1,
+        )
+        .await;
+
+        assert!(
+            !mock
+                .get_calls()
+                .iter()
+                .any(|c| c.op == "batch_incr_by_expire_at"),
+            "an entry under the floor must not spend a write"
+        );
+        assert_eq!(
+            writes.get(&("cold".to_string(), epoch)),
+            Some(&4),
+            "the held count must stay in the batch, not be dropped"
+        );
+
+        // The same key crosses the floor. The write must carry every event the
+        // key gathered, including the ones held back under the floor: a floor
+        // that dropped them would silently undercount the key for its window.
+        *writes.get_mut(&("cold".to_string(), epoch)).unwrap() += 2;
+        GlobalRateLimiterImpl::tick(
+            &config,
+            std::slice::from_ref(&client),
+            &cache,
+            &pending,
+            &mut writes,
+            "test",
+            1,
+        )
+        .await;
+
+        let written: Vec<String> = mock
+            .get_calls()
+            .into_iter()
+            .filter(|c| c.op == "batch_incr_by_expire_at")
+            .map(|c| c.key)
+            .collect();
+        let redis_key = epoch_key(&config.redis_key_prefix, "cold", epoch);
+        let expire_at = epoch_expire_at(epoch, config.window_interval, config.global_cache_ttl);
+        assert_eq!(written, vec![format!("{redis_key}=6@{expire_at}")]);
+        assert!(writes.is_empty(), "a flushed entry must leave the batch");
+    }
+
+    #[tokio::test]
+    async fn test_write_floor_disabled_writes_every_entry() {
+        let mock = Arc::new(MockRedisClient::new());
+        let client: Arc<dyn Client + Send + Sync> = mock.clone();
+        let config = config_with_floor(0); // min_write_floor defaults to 0
+        let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
+        let pending: Arc<DashSet<String>> = Arc::new(DashSet::new());
+        let epoch = epoch_from_timestamp(Utc::now(), config.window_interval);
+
+        let mut writes: HashMap<(String, i64), u64> = HashMap::new();
+        writes.insert(("single_event".to_string(), epoch), 1);
+
+        GlobalRateLimiterImpl::tick(
+            &config,
+            std::slice::from_ref(&client),
+            &cache,
+            &pending,
+            &mut writes,
+            "test",
+            1,
+        )
+        .await;
+
+        assert!(
+            mock.get_calls()
+                .iter()
+                .any(|c| c.op == "batch_incr_by_expire_at"),
+            "with the floor off a one-event key must still be written"
+        );
+        assert!(writes.is_empty());
     }
 
     #[tokio::test]

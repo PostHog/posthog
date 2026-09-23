@@ -76,6 +76,8 @@ struct LimiterSpec<'a> {
     /// whatever the limiter counts, so an event limiter's floor is in events
     /// and the AI byte limiter's is in bytes.
     min_sync_floor: u64,
+    /// Accumulated count a key must reach before its counts reach Redis.
+    min_write_floor: u64,
     redis_key_prefix: &'a str,
     metrics_scope: &'a str,
     /// Whether to wire the Redis-backed dynamic threshold source.
@@ -129,6 +131,7 @@ impl GlobalRateLimiter {
                 local_cache_max_entries: config
                     .global_rate_limit_token_distinctid_local_cache_max_entries,
                 min_sync_floor: config.global_rate_limit_min_sync_floor,
+                min_write_floor: config.global_rate_limit_min_write_floor,
                 redis_key_prefix: &prefix,
                 metrics_scope: &metrics_scope,
                 enable_dynamic_source: config.global_rate_limit_custom_threshold_key.is_some(),
@@ -156,6 +159,7 @@ impl GlobalRateLimiter {
                 custom_key_scale: 1,
                 local_cache_max_entries: config.global_rate_limit_token_local_cache_max_entries,
                 min_sync_floor: config.global_rate_limit_min_sync_floor,
+                min_write_floor: config.global_rate_limit_min_write_floor,
                 redis_key_prefix: &prefix,
                 metrics_scope: &metrics_scope,
                 // The token-only limiter is not wired to the dynamic refresh
@@ -202,6 +206,7 @@ impl GlobalRateLimiter {
                 // projects sending AI traffic, few enough that syncing all of
                 // them is cheap and accurate enforcement is worth more.
                 min_sync_floor: 0,
+                min_write_floor: 0,
                 redis_key_prefix: AI_BYTES_REDIS_KEY_PREFIX,
                 metrics_scope: &metrics_scope,
                 // Thresholds come from config only; the Django-written blob
@@ -312,6 +317,7 @@ impl GlobalRateLimiter {
             local_cache_max_entries: spec.local_cache_max_entries,
             metrics_scope: spec.metrics_scope.to_string(),
             min_sync_floor: spec.min_sync_floor,
+            min_write_floor: spec.min_write_floor,
             max_sync_keys_per_tick: config.global_rate_limit_max_sync_keys_per_tick,
             max_keys_per_command: config.global_rate_limit_max_keys_per_command,
             max_concurrent_commands: config.global_rate_limit_max_concurrent_commands,

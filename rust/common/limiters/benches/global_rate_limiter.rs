@@ -90,6 +90,7 @@ fn bench_config() -> GlobalRateLimiterConfig {
         // The benchmark measures the hot path against a fully-syncing limiter, so
         // the floor and the per-tick bound are both left wide open.
         min_sync_floor: 0,
+        min_write_floor: 0,
         max_sync_keys_per_tick: 100_000,
         max_keys_per_command: 2_000,
         max_concurrent_commands: 4,

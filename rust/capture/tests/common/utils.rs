@@ -50,6 +50,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     // Integration tests assert on exact limiter behavior at a threshold of
     // 10_000, so every key syncs and every tick drains fully.
     global_rate_limit_min_sync_floor: 0,
+    global_rate_limit_min_write_floor: 0,
     global_rate_limit_max_sync_keys_per_tick: 20_000,
     global_rate_limit_max_keys_per_command: 2_000,
     global_rate_limit_max_concurrent_commands: 4,

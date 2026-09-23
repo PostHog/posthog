@@ -150,6 +150,12 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub global_rate_limit_min_sync_floor: u64,
 
+    /// Accumulated count a key must reach before its counts reach Redis; `0`
+    /// writes every entry. Raise `GLOBAL_RATE_LIMIT_MAX_WRITE_BATCH_ENTRIES`
+    /// with it, and size both against the fleet's maximum pod count.
+    #[envconfig(default = "0")]
+    pub global_rate_limit_min_write_floor: u64,
+
     /// Max keys drained from the pending-sync set per tick. Excess stays queued,
     /// so a backlog shows up as sync staleness rather than a tick that overruns
     /// its interval.

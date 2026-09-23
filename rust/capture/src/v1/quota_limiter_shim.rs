@@ -132,6 +132,7 @@ mod tests {
             global_rate_limit_token_distinctid_overrides_csv: None,
             global_rate_limit_token_distinctid_local_cache_max_entries: 300_000,
             global_rate_limit_min_sync_floor: 0,
+            global_rate_limit_min_write_floor: 0,
             global_rate_limit_max_sync_keys_per_tick: 20_000,
             global_rate_limit_max_keys_per_command: 2_000,
             global_rate_limit_max_concurrent_commands: 4,

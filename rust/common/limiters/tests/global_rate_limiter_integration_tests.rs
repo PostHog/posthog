@@ -58,6 +58,7 @@ fn test_config(test_name: &str) -> GlobalRateLimiterConfig {
         // These tests assert exact Redis counter values against a threshold of
         // 1000, so every key must sync and every tick must drain fully.
         min_sync_floor: 0,
+        min_write_floor: 0,
         max_sync_keys_per_tick: 10_000,
         max_keys_per_command: 2_000,
         max_concurrent_commands: 4,

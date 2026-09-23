@@ -324,11 +324,20 @@ only if you're also changing the window/sync intervals.
   a shorter idle timeout reclaims slots faster, keeping the cache responsive.
 - `local_cache_ttl` acts as an upper bound on how stale an entry can get
   before being forced to re-sync from scratch on next access.
-- **`min_sync_floor` gates reads only.** Every event's count reaches Redis
-  regardless of the floor; the floor only suppresses the `MGET` for keys too far
-  under their threshold to be limited. Writes are bounded separately:
+- **`min_sync_floor` gates reads; `min_write_floor` gates writes.** The read
+  floor suppresses the `MGET` for keys too far under their threshold to be
+  limited. The write floor, off by default, holds an entry in the write batch
+  until its accumulated count reaches the floor, so a key that later matters
+  still flushes everything it gathered. Both trade an allowance: each pod can
+  hold back up to `floor` events for a key, and the write floor holds one entry
+  per live epoch, so an entity hides at most `2 * pods * floor`. Writes are bounded separately as well:
   `absorb_update` merges by `(key, epoch)` per tick, so write volume scales with
   distinct active keys, not event rate.
+- **The write floor yields near `max_write_batch_entries`.** Held entries make
+  the batch carry a working set, and at the cap `absorb_update` refuses new
+  keys outright. Past four fifths of the cap the floor stops applying and the
+  tick drains as it does with the floor off. Size `max_write_batch_entries` for
+  the working set before raising the floor above `0`.
 - `global_cache_ttl` is an enforcement requirement, not only Redis hygiene: the
   previous epoch's key is read for a full window after its last write, and a
   TTL under 2 × `window_interval` zeroes `prev_count` early, understating the
