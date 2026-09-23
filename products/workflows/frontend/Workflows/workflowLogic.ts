@@ -27,7 +27,8 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
-import { hogFlowsCodeRetrieve, hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
+import { hogFlowsCodeCreate, hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
+import type { HogFlowCodeRequestApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { codeManagedReason, isCodeManagedWorkflow } from './codeManagedWorkflow'
@@ -85,6 +86,25 @@ async function writeWorkflowCodeWithGesture(codePromise: Promise<string>): Promi
         return 'copied'
     } catch {
         return 'failed'
+    }
+}
+
+function workflowCodeRequest(workflow: HogFlow): HogFlowCodeRequestApi {
+    const { conversion } = workflow
+    return {
+        name: workflow.name,
+        description: workflow.description,
+        actions: workflow.actions,
+        edges: workflow.edges,
+        variables: workflow.variables ?? [],
+        // The editor allows a conversion event without filters, but the request type requires them.
+        conversion: conversion && {
+            ...conversion,
+            events: conversion.events?.map((event) => ({ ...event, filters: event.filters ?? {} })),
+        },
+        exit_condition: workflow.exit_condition,
+        trigger_masking: workflow.trigger_masking,
+        email_sending_rate_limit: workflow.email_sending_rate_limit,
     }
 }
 
@@ -3076,7 +3096,7 @@ export interface workflowLogicMeta {
             draftActionPending: 'discard' | 'publish' | null,
             workflowSaveDisabledReason: string | null
         ) => string | undefined
-        copyCodeDisabledReason: (logicProps: WorkflowLogicProps, hasUnsavedChanges: boolean) => string | undefined
+        copyCodeDisabledReason: (logicProps: WorkflowLogicProps) => string | undefined
     }
 }
 
@@ -4008,15 +4028,11 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         copyCodeDisabledReason: [
-            (s) => [s.logicProps, s.hasUnsavedChanges],
-            (logicProps: WorkflowLogicProps, hasUnsavedChanges: boolean): string | undefined => {
+            (s) => [s.logicProps],
+            (logicProps: WorkflowLogicProps): string | undefined => {
+                // The code endpoint is a detail route, so a workflow needs an id before it can render.
                 if (!logicProps.id || logicProps.id === 'new') {
                     return 'Save the workflow first'
-                }
-                // The endpoint renders what is stored, so edits still sitting in the form would be
-                // missing from the copied source.
-                if (hasUnsavedChanges) {
-                    return 'Save your changes first'
                 }
                 return undefined
             },
@@ -4184,11 +4200,15 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         copyWorkflowCode: async () => {
-            if (!props.id || props.id === 'new' || values.hasUnsavedChanges || values.copyCodePending) {
+            if (!props.id || props.id === 'new' || values.copyCodePending) {
                 return
             }
             actions.setCopyCodePending(true)
-            const codeResponse = hogFlowsCodeRetrieve(String(values.currentProjectId), props.id)
+            const codeResponse = hogFlowsCodeCreate(
+                String(values.currentProjectId),
+                props.id,
+                workflowCodeRequest(values.workflow)
+            )
             const gestureWrite = canWriteWorkflowCodeWithGesture()
                 ? writeWorkflowCodeWithGesture(codeResponse.then(({ code }) => code))
                 : null
