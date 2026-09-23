@@ -1,9 +1,9 @@
 """The models a task agent run may use, and what each one supports.
 
-This module is the single definition of the run triple — runtime adapter, model, and
-reasoning effort — together with the model each adapter falls back to when a run pins
-none, and what each model costs relative to the rest. Every surface that offers or
-validates a selection derives from here:
+This module is the single definition of how a run is configured: which harness runs it,
+which runtime adapter, model, and reasoning effort it uses, the model each adapter falls
+back to when a run pins none, and what each model costs relative to the rest. Every
+surface that offers or validates a selection derives from here:
 
 - the backend, through ``products.tasks.backend.temporal.process_task.utils``;
 - the web composer and settings, through ``products/tasks/frontend/modelCatalog.generated.ts``;
@@ -25,6 +25,9 @@ from dataclasses import dataclass
 
 CLAUDE = "claude"
 CODEX = "codex"
+
+ACP = "acp"
+PI = "pi"
 
 ANTHROPIC = "anthropic"
 OPENAI = "openai"
@@ -68,6 +71,28 @@ class ModelCost:
 
 
 @dataclass(frozen=True)
+class RuntimeOption:
+    """One entry a harness picker shows.
+
+    The harness and the runtime adapter are not the same choice. The harness says which agent
+    program runs the task; the adapter says which vendor protocol ACP speaks, and Pi has none,
+    so ``runtime_adapter`` is ``None`` there. A picker shows one flat list, so this is where
+    the two choices become one set of entries, once, instead of in each picker.
+    """
+
+    runtime: str
+    runtime_adapter: str | None
+    label: str
+
+
+RUNTIME_OPTIONS: tuple[RuntimeOption, ...] = (
+    RuntimeOption(ACP, CLAUDE, "Claude Code"),
+    RuntimeOption(ACP, CODEX, "Codex"),
+    RuntimeOption(PI, None, "Pi"),
+)
+
+
+@dataclass(frozen=True)
 class CatalogModel:
     """One model a run may use.
 
@@ -87,6 +112,10 @@ class CatalogModel:
 
     ``cost`` is ``None`` where no public price list covers the model, and a picker then shows
     it with no cost rather than a guessed one.
+
+    Both gates fail closed, so clear ``access_flag`` when the rollout reaches everyone. A flag
+    left behind keeps the model away from every caller the flag service cannot answer for, and
+    from every surface that reads flags before they load.
     """
 
     id: str
@@ -106,6 +135,7 @@ _GLM_FLASH_COST = ModelCost(0.15, 0.5)
 _KIMI_COST = ModelCost(3, 15)
 _DEEPSEEK_COST = ModelCost(0.13, 0.26)
 _OPUS_COST = ModelCost(5, 25)
+_OPUS_5_5_COST = ModelCost(4, 20)
 _FABLE_COST = ModelCost(10, 50)
 _SONNET_COST = ModelCost(2, 10)
 _SONNET_4_COST = ModelCost(3, 15)
@@ -113,44 +143,22 @@ _GPT_PRO_COST = ModelCost(5, 30)
 _GPT_MID_COST = ModelCost(2.5, 15)
 _GPT_LIGHT_COST = ModelCost(1, 6)
 _GPT_FRONTIER_COST = ModelCost(10, 50)
+_GPT_6_SOL_COST = ModelCost(2, 10)
+_GPT_6_LUNA_COST = ModelCost(0.1, 0.5)
 
 MODELS: tuple[CatalogModel, ...] = (
     # GLM 5.2 is Cloudflare-served and driven through the `claude` adapter: the LLM gateway
     # exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
     # so the `anthropic` provider is the intended routing rather than a direct Anthropic call.
-    CatalogModel(
-        "@cf/zai-org/glm-5.2",
-        CLAUDE,
-        _GLM,
-        label="GLM-5.2",
-        access_flag="posthog-code-glm-model",
-        cost=_GLM_COST,
-    ),
-    CatalogModel(
-        "zai-org/glm-5.3",
-        CLAUDE,
-        _GLM,
-        label="GLM-5.3",
-        access_flag="posthog-code-glm-53-model",
-        cost=_GLM_COST,
-    ),
-    CatalogModel(
-        "zai-org/glm-5.3-flash",
-        CLAUDE,
-        _GLM,
-        label="GLM-5.3 Flash",
-        access_flag="posthog-code-glm-53-flash-model",
-        cost=_GLM_FLASH_COST,
-    ),
-    CatalogModel(
-        "moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", access_flag="tasks-kimi-k3", cost=_KIMI_COST
-    ),
+    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST),
+    CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", cost=_GLM_COST),
+    CatalogModel("zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", cost=_GLM_FLASH_COST),
+    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", cost=_KIMI_COST),
     CatalogModel(
         "deepseek-ai/deepseek-v4-flash-0731",
         CLAUDE,
         _NO_EFFORT,
         label="DeepSeek V4 Flash",
-        access_flag="posthog-code-deepseek-model",
         cost=_DEEPSEEK_COST,
     ),
     CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD, cost=_OPUS_COST),
@@ -158,6 +166,7 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("claude-opus-4-7", CLAUDE, _EXTENDED, cost=_OPUS_COST),
     CatalogModel("claude-opus-4-8", CLAUDE, _EXTENDED, cost=_OPUS_COST),
     CatalogModel("claude-opus-5", CLAUDE, _EXTENDED, cost=_OPUS_COST),
+    CatalogModel("claude-opus-5-5", CLAUDE, _EXTENDED, cost=_OPUS_5_5_COST),
     CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST),
     CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST),
     CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST),
@@ -170,6 +179,8 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-5.6-terra", CODEX, _THROUGH_MAX, cost=_GPT_MID_COST),
     CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX, cost=_GPT_LIGHT_COST),
     CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST),
+    CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
+    CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST),
 )
 
 # Depths a whole model family exposes, used when no exact id matches. OpenAI ships
@@ -178,6 +189,8 @@ MODELS: tuple[CatalogModel, ...] = (
 # to answer for those too. The longest matching prefix wins, so declaration order is free.
 FAMILY_REASONING_EFFORTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (CODEX, "gpt-6-astra", _THROUGH_MAX),
+    (CODEX, "gpt-6-sol", _THROUGH_MAX),
+    (CODEX, "gpt-6-luna", _THROUGH_MAX),
     (CODEX, "gpt-5.6", _THROUGH_MAX),
     (CODEX, "gpt-5.5", (*_STANDARD, XHIGH)),
 )
@@ -199,6 +212,8 @@ DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
 
 
 RUNTIME_ADAPTERS: tuple[str, ...] = tuple(PROVIDER_BY_RUNTIME_ADAPTER)
+
+RUNTIMES: tuple[str, ...] = tuple(dict.fromkeys(option.runtime for option in RUNTIME_OPTIONS))
 
 # The catalog keyed the two ways it gets read. Built once from MODELS, which stays the
 # only place a model is written down.

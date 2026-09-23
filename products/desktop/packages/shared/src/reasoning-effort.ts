@@ -45,17 +45,17 @@ export interface CapabilityNotch {
 const CLAUDE_CAPABILITY_LADDER: readonly CapabilityNotch[] = [
   { model: "claude-sonnet-5", effort: "medium" },
   { model: "claude-sonnet-5", effort: "high" },
-  { model: "claude-opus-5", effort: "medium" },
-  { model: "claude-opus-5", effort: "xhigh" },
+  { model: "claude-opus-5-5", effort: "medium" },
+  { model: "claude-opus-5-5", effort: "xhigh" },
   { model: "claude-fable-5-1", effort: "max" },
 ];
 
 const CODEX_CAPABILITY_LADDER: readonly CapabilityNotch[] = [
-  { model: "gpt-5.6-terra", effort: "low" },
-  { model: "gpt-5.6-sol", effort: "low" },
-  { model: "gpt-5.6-sol", effort: "medium" },
-  { model: "gpt-5.6-sol", effort: "high" },
-  { model: "gpt-5.6-sol", effort: "xhigh" },
+  { model: "gpt-6-luna", effort: "low" },
+  { model: "gpt-6-sol", effort: "low" },
+  { model: "gpt-6-sol", effort: "medium" },
+  { model: "gpt-6-sol", effort: "high" },
+  { model: "gpt-6-sol", effort: "xhigh" },
   { model: "gpt-6-astra", effort: "max" },
 ];
 
@@ -71,6 +71,7 @@ const MODELS_WITH_1M_CONTEXT = new Set([
   "claude-opus-4-7",
   "claude-opus-4-8",
   "claude-opus-5",
+  "claude-opus-5-5",
   "claude-sonnet-4-6",
   "claude-sonnet-5",
   "claude-fable-5",
@@ -87,6 +88,7 @@ const MODELS_WITH_FAST_MODE = new Set([
   "claude-opus-4-7",
   "claude-opus-4-8",
   "claude-opus-5",
+  "claude-opus-5-5",
 ]);
 
 export function supportsFastMode(modelId: string): boolean {

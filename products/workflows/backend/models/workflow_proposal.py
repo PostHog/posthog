@@ -1,0 +1,111 @@
+from typing import Any
+
+from django.db import models
+
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.utils import UUIDTModel
+
+
+class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
+    """A change to a workflow that an agent proposes and a human resolves.
+
+    Approving one stages its content into the workflow's `draft` — the same move as restoring a
+    revision — so nothing here can reach the live config without a human publishing it.
+
+    Behind the `self-optimising-workflows` flag. Only PostHog's own scout files one, so the row
+    records no author; `source_id` names the run or finding it came from, so a retry lands on the
+    row it already made.
+    """
+
+    class Status(models.TextChoices):
+        SUGGESTED = "suggested", "Suggested"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        APPLIED = "applied", "Applied"
+
+    OPEN_STATUSES = (Status.SUGGESTED,)
+
+    class Meta:
+        constraints = [
+            # An MCP retry or a re-emitted finding resolves to the same proposal instead of stacking
+            # duplicates in a human's queue. Only fenced when the producer named itself; a blank
+            # name is no name, so blanks never collide with each other.
+            models.UniqueConstraint(
+                fields=["hog_flow", "source_id"],
+                condition=models.Q(source_id__isnull=False) & ~models.Q(source_id=""),
+                name="unique_workflow_proposal_source",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "hog_flow", "status"], name="workflow_proposal_status_idx"),
+        ]
+
+    # db_constraint=False on team/resolved_by: a real FK constraint to a hot table
+    # (posthog_team, posthog_user) takes a parent-table lock on creation; enforcement stays app-level.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    hog_flow = models.ForeignKey("workflows.HogFlow", on_delete=models.CASCADE, related_name="proposals")
+
+    title = models.CharField(max_length=200, help_text="Short summary of the proposed change.")
+    rationale = models.TextField(help_text="Why the producer thinks this change is worth making.")
+    content = models.JSONField(
+        help_text=(
+            "The proposed change as a partial workflow content snapshot: only the content fields it "
+            "changes, and within `actions` only the steps it changes, each carrying its `id` and only "
+            "the fields that change. Approving merges it over the live content to build the staged draft."
+        )
+    )
+    step_id = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        help_text=(
+            "The workflow step this is about. Set for a change to one step: the evidence and the "
+            "outcome then read that step's metrics, so a change to one email in a sequence is not "
+            "measured against the rest. Null only for a change that spans the workflow, such as its "
+            "exit condition or a step being taken out, which is measured on the workflow's own numbers."
+        ),
+    )
+    base_version = models.IntegerField(
+        help_text=(
+            "Live workflow version this was authored against. Approving compares the steps and fields "
+            "this changes against that version to tell whether somebody else already changed them."
+        )
+    )
+    evidence = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "The numbers behind the proposal: the metric, its current and target value, the window, and "
+            "the query that produced them."
+        ),
+    )
+
+    status = models.CharField(max_length=20, choices=Status, default=Status.SUGGESTED)
+    source_id = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        help_text="Stable id of the producing agent run or finding, e.g. 'run:<run id>:finding:<finding id>'.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="resolved_workflow_proposals",
+    )
+    applied_version = models.IntegerField(
+        null=True, blank=True, help_text="Workflow version the approved change went live as."
+    )
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Mirrors the workflow's team, as HogFlowRevision does: fail-closed reads filter on this row's team_id.
+        self.team_id = self.hog_flow.team_id
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"WorkflowProposal {self.hog_flow_id} ({self.status}): {self.title}"

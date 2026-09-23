@@ -95,6 +95,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
     '/alerts': ['Alerts', 'alerts'],
+    '/debug/precompute': ['PrecomputeDebug', 'precomputeDebug'],
     '/data-management/annotations': ['Annotations', 'annotations'],
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
@@ -141,6 +142,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'DataWarehouseSourceSchema',
         'dataWarehouseSourceSchema',
     ],
+    '/data-management/warehouse-destinations': ['WarehouseDestinations', 'warehouseDestinations'],
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
     '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
@@ -151,9 +153,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/overview': ['EngineeringAnalytics', 'engineeringAnalytics'],
     '/engineering-analytics/pull-requests': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
-    '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
+    '/engineering-analytics/tests': ['EngineeringAnalytics', 'engineeringAnalyticsTests'],
     '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
-    '/engineering-analytics/health': ['EngineeringAnalytics', 'engineeringAnalyticsHealth'],
+    '/engineering-analytics/deploys': ['EngineeringAnalytics', 'engineeringAnalyticsDeploys'],
     '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
     '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
@@ -173,7 +175,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
-    '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/experiments': ['Experiments', 'experiments'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
@@ -284,6 +285,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
+    '/workflows/broadcasts/new': ['Broadcast', 'broadcast'],
+    '/workflows/broadcasts/:id': ['Broadcast', 'broadcast'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
     '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -422,8 +425,15 @@ export const productRedirects: Record<
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
-    '/engineering-analytics': '/engineering-analytics/overview',
+    '/engineering-analytics': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.engineeringAnalytics(), searchParams, hashParams).url,
+    '/engineering-analytics/test-health': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.engineeringAnalyticsTests(), searchParams, hashParams).url,
+    '/engineering-analytics/health': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.engineeringAnalyticsDeploys(), searchParams, hashParams).url,
     '/engineering-analytics/authors': '/engineering-analytics/overview',
+    '/error_tracking/:id/fingerprints': (params) =>
+        combineUrl(`/error_tracking/${params.id}`, { manageFingerprints: 'true' }).url,
     '/error_tracking/configuration': (_params, searchParams, hashParams) =>
         configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
     '/error_tracking/configuration/:tab': (params, searchParams, hashParams) =>
@@ -572,6 +582,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'inbox',
         description: 'Monitor insight metrics and get notified when conditions are met.',
     },
+    PrecomputeDebug: {
+        projectBased: true,
+        name: 'Precompute debug',
+        description: 'Staff-only view of stored precompute hashes, buckets, and TTLs.',
+        layout: 'app-container',
+        iconType: 'web_analytics',
+    },
     Annotations: {
         name: 'Annotations',
         projectBased: true,
@@ -687,6 +704,12 @@ export const productConfiguration: Record<string, any> = {
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
     DataWarehouseSourceConnect: { projectBased: true, name: 'Connect data warehouse source' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
+    WarehouseDestinations: {
+        projectBased: true,
+        name: 'Warehouse destinations',
+        description: 'Manage where your warehouse sources write the rows they sync.',
+        iconType: 'data_warehouse',
+    },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -709,7 +732,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         name: 'Engineering analytics',
         layout: 'app-container',
-        description: 'Pull request and workflow CI health across connected GitHub repos.',
+        description: 'Pull requests, workflows, tests, deploys, and teams across connected GitHub repos.',
         iconType: 'health',
     },
     EngineeringAnalyticsPullRequest: {
@@ -742,7 +765,7 @@ export const productConfiguration: Record<string, any> = {
     },
     EngineeringAnalyticsTeam: {
         projectBased: true,
-        name: 'Team CI health',
+        name: 'Team',
         layout: 'app-container',
         description: "One owning team's merge timing and the before/after signal on its owned tests.",
         iconType: 'health',
@@ -755,7 +778,6 @@ export const productConfiguration: Record<string, any> = {
         docsHref: 'https://posthog.com/docs/error-tracking',
     },
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
-    ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     ErrorTrackingFingerprint: { projectBased: true, name: 'Error tracking fingerprint' },
     Experiments: {
         projectBased: true,
@@ -1069,6 +1091,12 @@ export const productConfiguration: Record<string, any> = {
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
+    Broadcast: {
+        name: 'Broadcast',
+        iconType: 'workflows',
+        projectBased: true,
+        description: 'Send a one-time or scheduled email to a group of people',
+    },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1157,6 +1185,7 @@ export const productUrls = {
         `/ai-observability/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     alert: (alertId: string): string => `/alerts?alert_type=insights&alert_id=${alertId}`,
     alerts: (): string => '/alerts',
+    precomputeDebug: (): string => `/debug/precompute`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     businessKnowledge: (): string => '/business-knowledge',
@@ -1206,8 +1235,8 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
-    dataCatalogMetric: (name: string, tab?: 'definition' | 'tests'): string =>
-        `/data-catalog/metrics/${name}${tab === 'tests' ? '?tab=tests' : ''}`,
+    dataCatalogMetric: (name: string, tab?: 'definition' | 'tests' | 'lineage'): string =>
+        `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     dataOps: (tab?: string): string => {
         const params = new URLSearchParams()
         if (tab) {
@@ -1255,6 +1284,7 @@ export const productUrls = {
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
     },
+    warehouseDestinations: (): string => '/data-management/warehouse-destinations',
     dataWarehouseSourceConnect: (kind?: string): string =>
         `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
@@ -1302,9 +1332,9 @@ export const productUrls = {
     engineeringAnalytics: (): string => '/engineering-analytics/overview',
     engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pull-requests',
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
-    engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
+    engineeringAnalyticsTests: (): string => '/engineering-analytics/tests',
     engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
-    engineeringAnalyticsHealth: (): string => '/engineering-analytics/health',
+    engineeringAnalyticsDeploys: (): string => '/engineering-analytics/deploys',
     engineeringAnalyticsTeam: (ownerTeam: string): string =>
         `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
@@ -1331,7 +1361,6 @@ export const productUrls = {
             utm_medium?: string
         } = {}
     ): string => combineUrl(`/error_tracking/${id}`, params).url,
-    errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
     errorTrackingFingerprint: (
         fingerprint: string,
         params: {
@@ -1631,6 +1660,9 @@ export const productUrls = {
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
+    broadcasts: (): string => '/workflows/broadcasts',
+    broadcast: (id: string): string => `/workflows/broadcasts/${id}`,
+    broadcastNew: (): string => '/workflows/broadcasts/new',
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1957,6 +1989,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export type ProductTreePath =
     | 'AI gateway'
     | 'Apps'
+    | 'Broadcasts'
     | 'Business knowledge'
     | 'Clusters'
     | 'Code review'
@@ -2035,6 +2068,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
         sceneKey: 'StreamlitApps',
         sceneKeys: ['StreamlitApps', 'StreamlitApp', 'StreamlitAppEdit'],
+    },
+    {
+        path: 'Broadcasts',
+        intents: [ProductKey.WORKFLOWS],
+        href: urls.broadcasts(),
+        type: 'broadcasts',
+        category: ProductItemCategory.TOOLS,
+        iconType: 'broadcasts',
+        iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+        sceneKey: 'Broadcast',
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcast'],
     },
     {
         path: 'Business knowledge',
@@ -2148,6 +2192,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'DataWarehouseSourceNew',
             'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
+            'WarehouseDestinations',
         ],
     },
     {
@@ -2240,12 +2285,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         href: urls.errorTracking(),
         sceneKey: 'ErrorTracking',
-        sceneKeys: [
-            'ErrorTracking',
-            'ErrorTrackingIssue',
-            'ErrorTrackingIssueFingerprints',
-            'ErrorTrackingFingerprint',
-        ],
+        sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingFingerprint'],
     },
     {
         path: 'Evaluations',
@@ -2775,7 +2815,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',
-        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate'],
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcast'],
     },
 ]
 
@@ -2882,6 +2922,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'DataWarehouseSourceNew',
             'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
+            'WarehouseDestinations',
         ],
     },
     {
@@ -2936,6 +2977,15 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.transformations(),
         sceneKey: 'Transformations',
         sceneKeys: ['Transformations'],
+    },
+    {
+        path: 'Warehouse destinations',
+        category: 'Pipeline',
+        iconType: 'data_warehouse',
+        href: urls.warehouseDestinations(),
+        flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
+        sceneKey: 'WarehouseDestinations',
+        sceneKeys: ['WarehouseDestinations'],
     },
     {
         path: 'Warehouse properties',

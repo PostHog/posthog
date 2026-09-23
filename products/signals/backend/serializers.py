@@ -52,6 +52,7 @@ from .models import (
     SignalReportArtefact,
     SignalReportAssignment,
     SignalReportCheck,
+    SignalReportPullRequest,
     SignalReportRefund,
     SignalReportTrackerIssue,
     SignalReportWorkState,
@@ -519,6 +520,18 @@ class SignalReportPullRequestSerializer(serializers.Serializer):
         choices=SignalReportAssignment.PrState.choices, help_text="Latest known GitHub state."
     )
     merged = serializers.BooleanField(help_text="Whether this PR merged.")
+    review_decision = serializers.ChoiceField(
+        choices=SignalReportPullRequest.ReviewDecision.choices,
+        allow_null=True,
+        help_text=(
+            "Current GitHub code review decision: approved, changes_requested, or review_required. "
+            "Null when GitHub does not provide a review decision."
+        ),
+    )
+    merged_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When GitHub reports that this pull request merged. Null when it has not merged or the time is unavailable.",
+    )
     attached_by = serializers.SerializerMethodField(
         help_text="Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task."
     )
@@ -1640,11 +1653,13 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "status",
             "config",
             "next_run_at",
+            "soak_minutes",
             "run_interval_minutes",
             "runs_remaining",
             "expires_at",
             "last_run_at",
             "last_outcome",
+            "dispatched_at",
             "consecutive_errors",
             "created_at",
             "updated_at",
@@ -1654,13 +1669,37 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "title": {"help_text": "Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`."},
             "rationale": {"help_text": "Why the author set the check."},
             "kind": {"help_text": "How the check is evaluated."},
-            "status": {"help_text": "`active` while the check still runs; every other value is terminal."},
-            "next_run_at": {"help_text": "When the coordinator next evaluates the check."},
+            "status": {
+                "help_text": (
+                    "`pending` while the check waits for the report to resolve, `active` while it still runs; "
+                    "every other value is terminal."
+                )
+            },
+            "next_run_at": {
+                "help_text": (
+                    "When the coordinator next evaluates the check. Provisional while the check is `pending`: "
+                    "the report resolving is what sets it."
+                )
+            },
+            "soak_minutes": {
+                "help_text": (
+                    "How long after the report resolves a `pending` check waits before its first run. "
+                    "Null on a check that named its own `next_run_at`."
+                )
+            },
             "run_interval_minutes": {"help_text": "Gap between runs for a recurring check; null for a one-shot."},
             "runs_remaining": {"help_text": "Evaluations still owed before the check retires as passed."},
             "expires_at": {"help_text": "Horizon after which the check retires without running again."},
             "last_run_at": {"help_text": "When the check last ran; null before its first run."},
             "last_outcome": {"help_text": "Verdict of the most recent run."},
+            "dispatched_at": {
+                "help_text": (
+                    "When the `agent` check's scout run started, cleared as soon as a verdict is recorded. "
+                    "A non-null value is what tells a reader the check is running rather than waiting, "
+                    "because dispatch also pushes `next_run_at` out to the result window. "
+                    "Always null on a `metric_threshold` check, which is measured in the tick that collects it."
+                )
+            },
             "consecutive_errors": {"help_text": "Runs that could not be measured since the last clean one."},
         }
 

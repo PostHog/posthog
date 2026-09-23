@@ -65,6 +65,20 @@ from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
+def _stored_metric_result(*significant: bool | None) -> dict[str, Any]:
+    # The shape recalculation stores: significance lives on each variant, and the legacy
+    # top-level field stays null. A variant's significance is null when validation stopped the
+    # analysis, for example on too few samples.
+    return {
+        "significant": None,
+        "baseline": {"key": "control", "number_of_samples": 100},
+        "variant_results": [
+            {"key": f"test_{index}", "number_of_samples": 100, "significant": variant_significant}
+            for index, variant_significant in enumerate(significant)
+        ],
+    }
+
+
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
 # and to continue allowing it here keeps test setup simple (instead of creating events before)
 class TestExperimentService(APIBaseTest):
@@ -285,6 +299,73 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert experiment.only_count_matured_users is False
+
+    # ------------------------------------------------------------------
+    # Minimum detectable effect defaults
+    # ------------------------------------------------------------------
+
+    def _set_default_minimum_detectable_effect(self, value: int | None) -> None:
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_minimum_detectable_effect = value
+        config.save()
+
+    def test_minimum_detectable_effect_defaults_from_team(self):
+        self._set_default_minimum_detectable_effect(10)
+
+        self._create_flag(key="mde-default")
+        service = self._service()
+
+        experiment = service.create_experiment(name="MDE Default", feature_flag_key="mde-default")
+
+        assert experiment.running_time_calculation == {"minimum_detectable_effect": 10}
+
+    def test_minimum_detectable_effect_keeps_provided_value(self):
+        self._set_default_minimum_detectable_effect(10)
+
+        self._create_flag(key="mde-provided")
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="MDE Provided",
+            feature_flag_key="mde-provided",
+            running_time_calculation={"minimum_detectable_effect": 5},
+        )
+
+        assert experiment.running_time_calculation == {"minimum_detectable_effect": 5}
+
+    def test_minimum_detectable_effect_not_stored_without_team_default(self):
+        self._set_default_minimum_detectable_effect(None)
+
+        self._create_flag(key="mde-unset")
+        service = self._service()
+
+        experiment = service.create_experiment(name="MDE Unset", feature_flag_key="mde-unset")
+
+        assert "minimum_detectable_effect" not in (experiment.running_time_calculation or {})
+
+    @parameterized.expand(
+        [
+            ("duplicate",),
+            ("copy_to_project",),
+        ]
+    )
+    def test_minimum_detectable_effect_does_not_apply_to_clone(self, clone_mode: str):
+        self._create_flag(key=f"mde-source-{clone_mode}")
+        service = self._service()
+        source = service.create_experiment(name="MDE Source", feature_flag_key=f"mde-source-{clone_mode}")
+
+        self._set_default_minimum_detectable_effect(10)
+
+        if clone_mode == "duplicate":
+            clone = service.duplicate_experiment(source)
+        else:
+            target_team = Team.objects.create(organization=self.organization, name="MDE Target Team")
+            target_config = get_or_create_team_extension(target_team, TeamExperimentsConfig)
+            target_config.default_minimum_detectable_effect = 10
+            target_config.save()
+            clone = service.copy_experiment_to_project(source, target_team)
+
+        assert "minimum_detectable_effect" not in (clone.running_time_calculation or {})
 
     # ------------------------------------------------------------------
     # Metric fingerprints
@@ -3350,7 +3431,7 @@ class TestExperimentService(APIBaseTest):
             query_from=experiment.start_date,
             query_to=timezone.now(),
             status=ExperimentMetricResult.Status.COMPLETED,
-            result={"significant": True, "variants": []},
+            result=_stored_metric_result(True),
             completed_at=timezone.now(),
         )
 
@@ -3454,8 +3535,11 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("significant", {"significant": True, "variants": []}, "Primary metric: significant"),
-            ("inconclusive", {"significant": False, "variants": []}, "Primary metric: inconclusive"),
+            ("significant", _stored_metric_result(True), "Primary metric: significant"),
+            ("inconclusive", _stored_metric_result(False), "Primary metric: inconclusive"),
+            ("not_analyzed", _stored_metric_result(None), ""),
+            ("one_of_many_significant", _stored_metric_result(False, True), "Primary metric: significant"),
+            ("analyzed_variants_decide", _stored_metric_result(None, False), "Primary metric: inconclusive"),
             ("no_result", None, ""),
         ]
     )
@@ -5531,6 +5615,7 @@ class TestExperimentService(APIBaseTest):
             service.update_experiment(experiment, update_data)
         self.assertIn("legacy metric formats", str(cm.exception))
         self.assertIn(f"Cannot update: {expected_field_in_error}", str(cm.exception))
+        self.assertIn(f"/experiments/{experiment.id}/migrate", str(cm.exception))
 
     @parameterized.expand(
         [

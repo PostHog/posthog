@@ -1,10 +1,12 @@
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, OperationalError, connection, transaction
 from django.db.models import Model
@@ -26,6 +28,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
     MISSING_PRIMARY_KEYS_RAW_ERROR,
     REPARTITION_HOLD_MAX_AGE,
+    STAGED_CURSOR_PENDING_LIMIT,
     ExternalDataSchema,
     apply_incremental_lookback,
     complete_schema_run,
@@ -1126,9 +1129,21 @@ class TestStagedIncrementalCursor:
         )
         return schema
 
+    @contextmanager
+    def _staged_in_memory(self, schema: ExternalDataSchema) -> Iterator[None]:
+        def apply(schema_id: Any, team_id: Any, *, mutate: Any, **_: Any) -> dict[str, Any]:
+            mutate(schema.sync_type_config)
+            return schema.sync_type_config
+
+        with patch(
+            "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
+            side_effect=apply,
+        ):
+            yield
+
     def test_stage_writes_run_uuid_and_last_value(self) -> None:
         schema = self._make_schema()
-        with patch.object(schema, "save"):
+        with self._staged_in_memory(schema):
             schema.stage_incremental_field_value("run-1", 42)
         staged = schema.sync_type_config["incremental_staged"]
         assert staged == {"run_uuid": "run-1", "last_value": 42}
@@ -1137,7 +1152,7 @@ class TestStagedIncrementalCursor:
         # A datetime-typed epoch cursor must round-trip as a number, not "1718377611", so the next
         # run's read-back doesn't feed a numeric string into dateutil and crash.
         schema = self._make_schema(incremental_field_type=IncrementalFieldType.DateTime)
-        with patch.object(schema, "save"):
+        with self._staged_in_memory(schema):
             schema.stage_incremental_field_value("run-1", 1718377611)
         assert schema.sync_type_config["incremental_staged"]["last_value"] == 1718377611
 
@@ -1148,23 +1163,150 @@ class TestStagedIncrementalCursor:
 
     def test_stage_writes_earliest_value(self) -> None:
         schema = self._make_schema()
-        with patch.object(schema, "save"):
+        with self._staged_in_memory(schema):
             schema.stage_incremental_field_value("run-1", None, earliest_value=10)
         staged = schema.sync_type_config["incremental_staged"]
         assert staged == {"run_uuid": "run-1", "earliest_value": 10}
 
     def test_stage_overwrites_when_different_run_uuid(self) -> None:
         schema = self._make_schema(incremental_staged={"run_uuid": "old", "last_value": 1, "earliest_value": 5})
-        with patch.object(schema, "save"):
+        with self._staged_in_memory(schema):
             schema.stage_incremental_field_value("run-2", 99)
         staged = schema.sync_type_config["incremental_staged"]
         assert staged["run_uuid"] == "run-2"
         assert staged["last_value"] == 99
         assert "earliest_value" not in staged
+        assert schema.sync_type_config["incremental_staged_pending"] == [
+            {"run_uuid": "old", "last_value": 1, "earliest_value": 5}
+        ]
+
+    def test_stage_does_not_park_a_cursor_that_holds_no_value(self) -> None:
+        schema = self._make_schema(incremental_staged={"run_uuid": "run-1"})
+        with self._staged_in_memory(schema):
+            schema.stage_incremental_field_value("run-2", 99)
+        assert "incremental_staged_pending" not in schema.sync_type_config
+
+    def test_stage_continues_a_parked_cursor_for_the_same_run(self) -> None:
+        schema = self._make_schema(
+            incremental_staged={"run_uuid": "run-2", "earliest_value": 3},
+            incremental_staged_pending=[{"run_uuid": "run-1", "earliest_value": 5}],
+        )
+        with self._staged_in_memory(schema):
+            schema.stage_incremental_field_value("run-1", 42)
+        assert schema.sync_type_config["incremental_staged"] == {
+            "run_uuid": "run-1",
+            "earliest_value": 5,
+            "last_value": 42,
+        }
+        assert schema.sync_type_config["incremental_staged_pending"] == [{"run_uuid": "run-2", "earliest_value": 3}]
+
+    def test_parked_cursors_stay_bounded(self) -> None:
+        schema = self._make_schema()
+        with self._staged_in_memory(schema):
+            for index in range(STAGED_CURSOR_PENDING_LIMIT + 5):
+                schema.stage_incremental_field_value(f"run-{index}", index)
+        pending = schema.sync_type_config["incremental_staged_pending"]
+        assert len(pending) == STAGED_CURSOR_PENDING_LIMIT
+        assert pending[0]["run_uuid"] == "run-4"
+        assert pending[-1]["run_uuid"] == f"run-{STAGED_CURSOR_PENDING_LIMIT + 3}"
+        assert schema.sync_type_config["incremental_staged"]["run_uuid"] == f"run-{STAGED_CURSOR_PENDING_LIMIT + 4}"
+
+    def test_promote_reads_a_parked_cursor(self) -> None:
+        schema = self._make_schema(
+            incremental_staged={"run_uuid": "run-2", "last_value": 10},
+            incremental_staged_pending=[{"run_uuid": "run-1", "last_value": 42}],
+        )
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == 42
+        assert schema.sync_type_config["incremental_staged"] == {"run_uuid": "run-2", "last_value": 10}
+        assert "incremental_staged_pending" not in schema.sync_type_config
+
+    def test_promote_never_moves_last_value_backwards(self) -> None:
+        schema = self._make_schema(
+            incremental_field_last_value=99,
+            incremental_staged_pending=[{"run_uuid": "run-1", "last_value": 42}],
+        )
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == 99
+
+    def test_promote_never_moves_earliest_value_forwards(self) -> None:
+        schema = self._make_schema(
+            incremental_field_earliest_value=5,
+            incremental_staged_pending=[{"run_uuid": "run-1", "earliest_value": 40}],
+        )
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_earliest_value"] == 5
+
+    def test_promote_advances_earliest_value_backwards(self) -> None:
+        schema = self._make_schema(
+            incremental_field_earliest_value=40,
+            incremental_staged={"run_uuid": "run-1", "earliest_value": 5},
+        )
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_earliest_value"] == 5
+
+    @parameterized.expand(
+        [
+            ("older_epoch_keeps_iso", IncrementalFieldType.DateTime, "2026-06-14T00:00:00+00:00", 1767225600),
+            ("older_iso_keeps_epoch", IncrementalFieldType.DateTime, 1781395200, "2026-01-01T00:00:00+00:00"),
+            ("older_epoch_keeps_naive_iso", IncrementalFieldType.DateTime, "2026-06-14T00:00:00", 1767225600),
+            ("older_epoch_keeps_date", IncrementalFieldType.Date, "2026-06-14", 1767225600),
+            (
+                "older_objectid_keeps_newer",
+                IncrementalFieldType.ObjectID,
+                "65f0c0c0a1b2c3d4e5f60002",
+                "65f0c0c0a1b2c3d4e5f60001",
+            ),
+        ]
+    )
+    def test_promote_never_moves_last_value_backwards_across_cursor_encodings(
+        self, _name: str, field_type: IncrementalFieldType, current: Any, older: Any
+    ) -> None:
+        schema = self._make_schema(
+            incremental_field_type=field_type,
+            incremental_field_last_value=current,
+            incremental_staged={"run_uuid": "run-1", "last_value": older},
+        )
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == current
+
+    def test_promote_advances_an_epoch_cursor_to_a_newer_iso_cursor(self) -> None:
+        schema = self._make_schema(
+            incremental_field_type=IncrementalFieldType.DateTime,
+            incremental_field_last_value=1767225600,
+            incremental_staged={"run_uuid": "run-1", "last_value": "2026-06-14T00:00:00+00:00"},
+        )
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T00:00:00+00:00"
+
+    def test_promote_keeps_newest_when_cursors_cannot_be_ordered(self) -> None:
+        schema = self._make_schema(
+            incremental_field_type=None,
+            incremental_field_last_value="aaa",
+            incremental_staged={"run_uuid": "run-1", "last_value": "bbb"},
+        )
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-1") is True
+        assert schema.sync_type_config["incremental_field_last_value"] == "bbb"
+
+    def test_promote_rejects_a_run_uuid_with_no_slot_anywhere(self) -> None:
+        schema = self._make_schema(
+            incremental_staged={"run_uuid": "run-2", "last_value": 10},
+            incremental_staged_pending=[{"run_uuid": "run-1", "last_value": 42}],
+        )
+        with self._staged_in_memory(schema):
+            assert schema.promote_staged_incremental_values("run-WRONG") is False
+        assert "incremental_field_last_value" not in schema.sync_type_config
 
     def test_stage_merges_when_same_run_uuid(self) -> None:
         schema = self._make_schema()
-        with patch.object(schema, "save"):
+        with self._staged_in_memory(schema):
             schema.stage_incremental_field_value("run-1", None, earliest_value=10)
             schema.stage_incremental_field_value("run-1", 42)
         staged = schema.sync_type_config["incremental_staged"]
@@ -1172,7 +1314,7 @@ class TestStagedIncrementalCursor:
 
     def test_promote_moves_last_value_to_live(self) -> None:
         schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 42})
-        with patch.object(schema, "save"):
+        with self._staged_in_memory(schema):
             result = schema.promote_staged_incremental_values("run-1")
         assert result is True
         assert schema.sync_type_config["incremental_field_last_value"] == 42
@@ -1180,29 +1322,72 @@ class TestStagedIncrementalCursor:
 
     def test_promote_moves_earliest_value_to_live(self) -> None:
         schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "earliest_value": 5})
-        with patch.object(schema, "save"):
+        with self._staged_in_memory(schema):
             result = schema.promote_staged_incremental_values("run-1")
         assert result is True
         assert schema.sync_type_config["incremental_field_earliest_value"] == 5
 
     def test_promote_rejects_wrong_run_uuid(self) -> None:
         schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 42})
-        with patch.object(schema, "save"):
+        with self._staged_in_memory(schema):
             result = schema.promote_staged_incremental_values("run-WRONG")
         assert result is False
         assert "incremental_field_last_value" not in schema.sync_type_config
 
     def test_promote_returns_false_when_no_staged(self) -> None:
         schema = self._make_schema()
-        with patch.object(schema, "save"):
+        with self._staged_in_memory(schema):
             result = schema.promote_staged_incremental_values("run-1")
         assert result is False
 
     def test_reset_pipeline_clears_staged(self) -> None:
-        schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 42})
+        schema = self._make_schema(
+            incremental_staged={"run_uuid": "run-1", "last_value": 42},
+            incremental_staged_pending=[{"run_uuid": "run-0", "last_value": 1}],
+        )
         with patch.object(schema, "save"):
             schema.update_sync_type_config_for_reset_pipeline()
         assert "incremental_staged" not in schema.sync_type_config
+        assert "incremental_staged_pending" not in schema.sync_type_config
+
+
+class TestStagedIncrementalCursorStaleWriters(BaseTest):
+    def test_two_stale_instances_of_one_run_keep_each_others_entries(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="events",
+            sync_type_config={"incremental_field_type": IncrementalFieldType.Integer},
+        )
+        outgoing = ExternalDataSchema.objects.get(id=schema.id)
+        incoming = ExternalDataSchema.objects.get(id=schema.id)
+
+        outgoing.stage_incremental_field_value("run-a1", None, earliest_value=5)
+        incoming.stage_incremental_field_value("run-a2", None, earliest_value=7)
+        outgoing.stage_incremental_field_value("run-a1", 42)
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_staged"] == {
+            "run_uuid": "run-a1",
+            "earliest_value": 5,
+            "last_value": 42,
+        }
+        assert schema.sync_type_config["incremental_staged_pending"] == [{"run_uuid": "run-a2", "earliest_value": 7}]
+
+        assert schema.promote_staged_incremental_values("run-a1") is True
+        assert schema.promote_staged_incremental_values("run-a2") is True
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_field_last_value"] == 42
+        assert schema.sync_type_config["incremental_field_earliest_value"] == 5
+        assert "incremental_staged" not in schema.sync_type_config
+        assert "incremental_staged_pending" not in schema.sync_type_config
 
 
 class TestSSHTunnelPortValidation(SimpleTestCase):
@@ -1374,3 +1559,57 @@ class TestMergeConnectionMetadata(BaseTest):
 
         source.refresh_from_db()
         assert source.updated_at == before
+
+
+class TestDeleteTable(BaseTest):
+    def _schema(self) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type="Postgres",
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="orders",
+            format="Parquet",
+            external_data_source=source,
+        )
+        return ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name="orders",
+            table=table,
+            status=ExternalDataSchema.Status.COMPLETED,
+            last_synced_at=timezone.now(),
+        )
+
+    @parameterized.expand(
+        [
+            # s3fs raises FileNotFoundError when the prefix holds no objects. The files are
+            # already gone, so the delete succeeded and nothing needs reporting.
+            ("prefix_already_gone", FileNotFoundError("s3://bucket/prefix"), False),
+            ("access_denied", PermissionError("Access Denied"), True),
+        ]
+    )
+    def test_the_teardown_finishes_when_the_s3_delete_fails(
+        self, _name: str, error: Exception, expected_reported: bool
+    ) -> None:
+        schema = self._schema()
+        table_id = schema.table_id
+        assert table_id is not None
+        client = MagicMock()
+        client.delete.side_effect = error
+
+        with (
+            patch("products.data_warehouse.backend.facade.api.get_s3_client", return_value=client),
+            patch("products.warehouse_sources.backend.models.external_data_schema.capture_exception") as capture,
+        ):
+            schema.delete_table()
+
+        assert capture.called is expected_reported
+        schema.refresh_from_db()
+        assert schema.table_id is None
+        assert schema.status is None
+        assert schema.last_synced_at is None
+        assert DataWarehouseTable.objects.get(id=table_id).deleted is True
