@@ -14,6 +14,13 @@ if _common_path not in sys.path:
 
 def main():
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+
+    # Experimental: serve first-party bytecode from one compressed archive (see common/bytecode_archive).
+    _archive = os.environ.get("POSTHOG_BYTECODE_ARCHIVE")
+    if _archive:
+        import bytecode_archive
+
+        bytecode_archive.install(_archive)
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
