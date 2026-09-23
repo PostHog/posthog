@@ -97,20 +97,22 @@ fn dry_run_report(config: &LokiImportConfig) -> Result<()> {
     }
 
     let hits = mapper.hits(&sample);
-    let first = sample.first().map(|entry| mapper.map(entry));
+    let mapped: Vec<_> = sample.iter().map(|entry| mapper.map(entry)).collect();
+    // First record that actually carried each field. Reading only the first record would report
+    // NOT FOUND for a field most records have, in the output built to prevent exactly that.
     let samples = [
         (
             "service_name",
-            first.as_ref().and_then(|r| r.service_name.clone()),
+            mapped.iter().find_map(|r| r.service_name.clone()),
         ),
         (
             "severity",
-            first
-                .as_ref()
-                .and_then(|r| r.severity.as_ref().map(|(text, _)| text.clone())),
+            mapped
+                .iter()
+                .find_map(|r| r.severity.as_ref().map(|(text, _)| text.clone())),
         ),
-        ("trace_id", first.as_ref().and_then(|r| r.trace_id.clone())),
-        ("span_id", first.as_ref().and_then(|r| r.span_id.clone())),
+        ("trace_id", mapped.iter().find_map(|r| r.trace_id.clone())),
+        ("span_id", mapped.iter().find_map(|r| r.span_id.clone())),
     ];
 
     let sample_bytes: u64 = sample.iter().map(|entry| entry.line.len() as u64).sum();
