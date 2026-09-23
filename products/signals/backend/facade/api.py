@@ -55,6 +55,49 @@ MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 MAX_SIGNAL_REMEDIATION_TOKENS = 16000
 
 
+def is_scout_trial_task(*, team_id: int, task_id: uuid.UUID) -> bool:
+    return (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(task_run__task_id=task_id, metadata__scout_trial__version=1)
+        .exists()
+    )
+
+
+@frozen
+class ScoutTrialSkill:
+    name: str
+    version: int
+    body: str = dataclasses.field(repr=False)
+
+
+def get_scout_trial_skill_override(*, team_id: int, task_id: uuid.UUID) -> ScoutTrialSkill | None:
+    from products.signals.backend.scout_harness.trial_launch import (
+        read_trial_launch,  # noqa: PLC0415 -- trial tools import the shared Signals facade
+    )
+
+    run = (
+        SignalScoutRun.objects.for_team(team_id)
+        .select_related("task_run__task")
+        .filter(task_run__task_id=task_id, metadata__scout_trial__version=1)
+        .first()
+    )
+    if run is None:
+        return None
+    marker = (run.metadata or {})["scout_trial"]
+    launch_id = marker.get("launch_id")
+    if (
+        not isinstance(launch_id, str)
+        or run.task_run.task.origin_product != "signals_scout"
+        or run.task_run.task.origin_key != f"scout-trial:{launch_id}"
+        or (run.task_run.state or {}).get("scout_trial") != marker
+    ):
+        return None
+    launch = read_trial_launch(team_id, launch_id)
+    if launch.skill_name != run.skill_name or launch.skill_version != run.skill_version:
+        return None
+    return ScoutTrialSkill(name=launch.skill_name, version=launch.skill_version, body=launch.skill_body)
+
+
 @dataclasses.dataclass(frozen=True)
 class SignalSourceTypesState:
     """configured = any bundle row exists; all_enabled = every type is currently enabled."""

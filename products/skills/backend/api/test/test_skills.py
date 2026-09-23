@@ -21,6 +21,9 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.scout_harness.trial_launch import TrialLaunch
+from products.tasks.backend.models import Task, TaskRun
 
 from ...api.community_publish_services import (
     CommunitySkillPublishError,
@@ -2652,6 +2655,147 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
         )
         assert response.status_code == status.HTTP_201_CREATED
+
+
+class TestScoutTrialSkillAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.operator = User.objects.create_and_join(self.organization, "trial-reader@example.com", "pw")
+        self.source = LLMSkill.objects.create(
+            team=self.team, name="signals-scout-example", description="d", body="saved source", is_latest=False
+        )
+        self.current = LLMSkill.objects.create(
+            team=self.team, name=self.source.name, description="d", body="current source", version=2
+        )
+        LLMSkillFile.objects.create(skill=self.source, path="guide.md", content="saved guide")
+        LLMSkillFile.objects.create(skill=self.current, path="guide.md", content="current guide")
+        self.launch = TrialLaunch(
+            id=uuid.uuid4(),
+            team_id=self.team.id,
+            context_id=uuid.uuid4(),
+            config_id=uuid.uuid4(),
+            user_id=self.operator.id,
+            created_at=timezone.now(),
+            skill_name=self.source.name,
+            skill_version=1,
+            skill_body="candidate instructions",
+            runtime_adapter="codex",
+            model="gpt-5.6-sol",
+            reasoning_effort="medium",
+            request_hash="fixture",
+        )
+        marker = {
+            "version": 1,
+            "launch_id": str(self.launch.id),
+            "context_id": str(self.launch.context_id),
+            "variant": "",
+        }
+        self.task = Task.objects.create(
+            team=self.team,
+            title="scout",
+            description="scout",
+            origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+            origin_key=f"scout-trial:{self.launch.id}",
+            created_by=self.operator,
+        )
+        self.task_run = TaskRun.objects.create(
+            task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"scout_trial": marker}
+        )
+        SignalScoutRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=self.task_run,
+            skill_name=self.source.name,
+            skill_version=1,
+            metadata={"scout_trial": marker},
+        )
+        application = OAuthApplication.objects.create(
+            name="Scout reader",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.operator,
+        )
+        self.token = OAuthAccessToken.objects.create(
+            user=self.operator,
+            application=application,
+            token="pha_trial_skill_test",
+            scope="llm_skill:read signal_scout_internal:write scout_experiment_internal:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+            sandbox_task_id=self.task.id,
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token.token}")
+
+    def _url(self, suffix: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/name/{self.source.name}{suffix}"
+
+    @parameterized.expand([("latest", ""), ("explicit_current", "version=2&")])
+    def test_bound_scout_reads_its_candidate_and_pinned_files(self, _label: str, query: str) -> None:
+        LLMSkill.objects.create(team=self.team, name="another-skill", description="d", body="other instructions")
+        with patch("posthog.storage.object_storage.read", return_value=self.launch.model_dump_json()):
+            first = self.client.get(self._url(f"?{query}body_length=10"))
+            rest = self.client.get(self._url("?body_offset=10"))
+            guide = self.client.get(self._url(f"/files/guide.md?{query}"))
+            other = self.client.get(
+                f"/api/environments/{self.team.id}/llm_skills/name/another-skill?launch_id={uuid.uuid4()}"
+            )
+
+        assert first.status_code == rest.status_code == guide.status_code == status.HTTP_200_OK
+        assert first.json()["body"] + rest.json()["body"] == self.launch.skill_body
+        assert first.json()["body_total_length"] == len(self.launch.skill_body)
+        assert first.json()["body_next_offset"] == 10
+        assert first.json()["version"] == 1
+        assert guide.json()["content"] == "saved guide"
+        assert other.status_code == status.HTTP_200_OK
+        assert other.json()["body"] == "other instructions"
+        self.source.refresh_from_db()
+        self.current.refresh_from_db()
+        assert self.source.body == "saved source"
+        assert self.current.body == "current source"
+
+    def test_regular_scout_reads_current_source(self) -> None:
+        self.token.scope = "llm_skill:read signal_scout_internal:write"
+        self.token.save(update_fields=["scope"])
+        with patch("posthog.storage.object_storage.read") as storage_read:
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["body"] == "current source"
+        storage_read.assert_not_called()
+
+    @parameterized.expand([("current",), ("source",)])
+    def test_private_prompt_keeps_object_access_checks(self, blocked: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        AccessControl.objects.create(team=self.team, resource="llm_skill", resource_id=None, access_level="viewer")
+        AccessControl.objects.create(
+            team=self.team, resource="llm_skill", resource_id=str(getattr(self, blocked).id), access_level="none"
+        )
+        cache.clear()
+        with patch("posthog.storage.object_storage.read", return_value=self.launch.model_dump_json()):
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand([("different_task",), ("untrusted_state",)])
+    def test_private_prompt_rejects_unbound_identity(self, mismatch: str) -> None:
+        if mismatch == "different_task":
+            self.token.sandbox_task_id = uuid.uuid4()
+            self.token.save(update_fields=["sandbox_task_id"])
+        else:
+            self.task_run.state = {"scout_trial": {"version": 1}}
+            self.task_run.save(update_fields=["state"])
+        with patch("posthog.storage.object_storage.read") as storage_read:
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        storage_read.assert_not_called()
 
 
 class TestLLMSkillOwners(APIBaseTest):

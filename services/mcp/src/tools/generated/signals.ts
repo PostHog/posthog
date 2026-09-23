@@ -1472,6 +1472,72 @@ const scoutReportChecksList = (): ToolBase<
     },
 })
 
+const ScoutTrialCreateSchema = () => {
+    const SignalsScoutConfigTrialBody = orvalSchemas.SignalsScoutConfigTrialBody()
+    const SignalsScoutConfigTrialParams = orvalSchemas.SignalsScoutConfigTrialParams()
+    return SignalsScoutConfigTrialParams.omit({ project_id: true }).extend(SignalsScoutConfigTrialBody.shape)
+}
+
+const scoutTrialCreate = (): ToolBase<ReturnType<typeof ScoutTrialCreateSchema>, unknown> => ({
+    name: 'scout-trial-create',
+    schema: ScoutTrialCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutTrialCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.launch_id !== undefined) {
+            body['launch_id'] = params.launch_id
+        }
+        if (params.context_id !== undefined) {
+            body['context_id'] = params.context_id
+        }
+        if (params.variant !== undefined) {
+            body['variant'] = params.variant
+        }
+        if (params.skill_body !== undefined) {
+            body['skill_body'] = params.skill_body
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.reasoning_effort !== undefined) {
+            body['reasoning_effort'] = params.reasoning_effort
+        }
+        if (params.note !== undefined) {
+            body['note'] = params.note
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ScoutTrialGetSchema = () => {
+    const SignalsScoutConfigTrialResultParams = orvalSchemas.SignalsScoutConfigTrialResultParams()
+    const SignalsScoutConfigTrialResultQueryParams = orvalSchemas.SignalsScoutConfigTrialResultQueryParams()
+    return SignalsScoutConfigTrialResultParams.omit({ project_id: true }).extend(
+        SignalsScoutConfigTrialResultQueryParams.shape
+    )
+}
+
+const scoutTrialGet = (): ToolBase<ReturnType<typeof ScoutTrialGetSchema>, Schemas.ScoutTrialResult> => ({
+    name: 'scout-trial-get',
+    schema: ScoutTrialGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutTrialGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutTrialResult>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial-result/`,
+            query: {
+                launch_id: params.launch_id,
+            },
+        })
+        return result
+    },
+})
+
 const ScoutRunNowSchema = () => {
     const SignalsScoutConfigRunBody = orvalSchemas.SignalsScoutConfigRunBody()
     const SignalsScoutConfigRunParams = orvalSchemas.SignalsScoutConfigRunParams()
@@ -2411,6 +2477,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-report-check-create': scoutReportCheckCreate,
     'scout-report-check-list': scoutReportCheckList,
     'scout-report-checks-list': scoutReportChecksList,
+    'scout-trial-create': scoutTrialCreate,
+    'scout-trial-get': scoutTrialGet,
     'scout-run-now': scoutRunNow,
     'scout-runs-emission-reports': scoutRunsEmissionReports,
     'scout-runs-emissions-list': scoutRunsEmissionsList,

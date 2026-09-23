@@ -13,6 +13,7 @@ from django.db import transaction
 
 from pydantic import BaseModel
 
+from posthog.llm.gateway_client import GatewayNotConfiguredError, get_private_scout_gateway_url
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
@@ -1343,7 +1344,7 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     return env_vars
 
 
-def run_gateway_env_vars(ctx, task) -> dict[str, str]:
+def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, str]:
     """The gateway routing/mint env for one run, derived from its server-side context.
 
     Every sandbox provisioning path calls this rather than spelling out the kwargs, so
@@ -1351,6 +1352,19 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
+    if task.is_scout_experiment is True:
+        gateway_url = get_private_scout_gateway_url()
+        if ctx.claude_model_access == "own-subscription":
+            raise GatewayNotConfiguredError("Scout trials require the private gateway, not subscription credentials")
+        return {
+            "LLM_GATEWAY_URL": gateway_url,
+            "AI_GATEWAY_URL": "",
+            "AI_GATEWAY_PRODUCTS": "",
+            "AI_GATEWAY_TOKEN": "",
+            "AI_GATEWAY_TOKEN_CAP_USD": "",
+            "AI_GATEWAY_PRODUCT": "",
+            "AI_GATEWAY_AI_STAGE": "",
+        }
     if ctx.claude_model_access == "own-subscription":
         return {}
     try:

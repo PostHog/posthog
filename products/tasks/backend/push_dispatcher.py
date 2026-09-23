@@ -285,6 +285,8 @@ def _enqueue_user(
     body: str,
     data: dict[str, str],
 ) -> None:
+    if task.is_scout_experiment:
+        return
     distinct_id = user.distinct_id or f"user_{user.id}"
     try:
         flag_enabled = posthoganalytics.feature_enabled(

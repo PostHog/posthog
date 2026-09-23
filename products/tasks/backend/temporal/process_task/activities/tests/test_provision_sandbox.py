@@ -62,6 +62,20 @@ def _context_for_desktop_bootstrap(
     )
 
 
+@pytest.mark.parametrize("is_trial", [False, True])
+@override_settings(DEBUG=False)
+def test_private_trial_keeps_the_pinned_model_after_overload(mocker, is_trial: bool) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.state = {"scout_trial": {"version": 1}} if is_trial else {}
+    for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+        mocker.patch.object(provision_sandbox_module, name, return_value={})
+    mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
+
+    environment = provision_sandbox_module._build_environment_variables(context, mocker.Mock(), "", "fake-token")
+
+    assert environment.get("POSTHOG_DISABLE_MODEL_FALLBACK") == ("1" if is_trial else None)
+
+
 def test_prepares_desktop_workspace_for_posthog_dev_stack_task(mocker):
     sandbox = mocker.Mock()
     sandbox.config.image_fallback = None

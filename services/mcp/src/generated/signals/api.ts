@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 48 enabled ops
+ * PostHog API - MCP 50 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1296,6 +1296,74 @@ export const SignalsScoutConfigRunBody = () => zod
     .describe(
         'Request body for an on-demand (`run now`) scout dispatch.\n\nEvery field is optional: a plain trigger sends no body at all.'
     )
+
+/**
+ * Run a prompt, model, or effort variant against live data with private memory and report capture.
+ * @summary Run a private scout variant
+ */
+export const SignalsScoutConfigTrialParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsScoutConfigTrialBodyVariantMax = 100
+
+export const signalsScoutConfigTrialBodySkillBodyMax = 100000
+
+export const signalsScoutConfigTrialBodyModelMax = 200
+
+export const signalsScoutConfigTrialBodyReasoningEffortMax = 20
+
+export const signalsScoutConfigTrialBodyNoteMax = 1000
+
+export const SignalsScoutConfigTrialBody = () => zod.object({
+    launch_id: zod.string().describe('Unique launch ID. Reuse it only when retrying this exact request.'),
+    context_id: zod.string().optional().describe('Saved starting context from a previous launch in this comparison.'),
+    variant: zod
+        .string()
+        .max(signalsScoutConfigTrialBodyVariantMax)
+        .optional()
+        .describe('Operator label for this variant.'),
+    skill_body: zod
+        .string()
+        .max(signalsScoutConfigTrialBodySkillBodyMax)
+        .optional()
+        .describe('Replacement skill body for this run. Supporting files and tool permissions stay pinned.'),
+    model: zod.string().max(signalsScoutConfigTrialBodyModelMax).optional().describe('Model identifier for this run.'),
+    reasoning_effort: zod
+        .string()
+        .max(signalsScoutConfigTrialBodyReasoningEffortMax)
+        .optional()
+        .describe(
+            'Reasoning effort supported by the selected model. Required when the saved source has no pinned effort.'
+        ),
+    note: zod
+        .string()
+        .max(signalsScoutConfigTrialBodyNoteMax)
+        .optional()
+        .describe('Common investigation note, saved before applying any variant overrides.'),
+})
+
+/**
+ * Read a trial's existing run status and its privately captured reports and memory changes.
+ * @summary Read a private scout trial result
+ */
+export const SignalsScoutConfigTrialResultParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const SignalsScoutConfigTrialResultQueryParams = () => zod.object({
+    launch_id: zod.string().describe('Launch identity returned by the trial action.'),
+})
 
 /**
  * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.

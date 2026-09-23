@@ -5,29 +5,39 @@ import ast
 import json
 import random
 import asyncio
+from collections.abc import AsyncIterator, Callable
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
 from django.db import OperationalError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import pytest_asyncio
-from asgiref.sync import sync_to_async
+import posthoganalytics
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
-from temporalio.exceptions import ActivityError, TimeoutError, TimeoutType
+from pydantic import JsonValue
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ActivityError, TimeoutError, TimeoutType, WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import ActivityEnvironment
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
@@ -82,15 +92,18 @@ from products.signals.backend.scout_harness.skill_loader import (
     resolve_scout_acting_user_id,
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
+from products.signals.backend.scout_harness.trial_launch import TrialContext, TrialLaunch, trial_capabilities
+from products.signals.backend.scout_harness.trial_result import get_trial_workflow_status
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutInput,
     RunSignalsScoutOutput,
     RunSignalsScoutWorkflow,
     run_signals_scout_activity,
+    start_trial_signals_scout_run,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import AgentTurnFailed
+from products.tasks.backend.facade.agents import AgentTurnFailed, CustomPromptSandboxContext
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable
 
 if TYPE_CHECKING:
@@ -119,6 +132,16 @@ async def ateam(aorganization):
     with team_scope(team.id, canonical=True):
         yield team
     await sync_to_async(team.delete)()
+
+
+@pytest_asyncio.fixture
+async def atrial_operator(ateam: Team) -> AsyncIterator[User]:
+    user = await database_sync_to_async(User.objects.create)(email=f"trial-{uuid7()}@example.com")
+    await database_sync_to_async(OrganizationMembership.objects.create)(
+        organization_id=ateam.organization_id, user=user
+    )
+    yield user
+    await database_sync_to_async(user.delete)()
 
 
 @pytest_asyncio.fixture
@@ -1432,17 +1455,128 @@ def _make_fake_session(team: Team, summary_text: str = "ok") -> tuple[MagicMock,
     return session, result
 
 
+class TestTrialDispatch(SimpleTestCase):
+    @parameterized.expand([False, True])
+    def test_worker_lookup_failure_keeps_trial_exceptions_private(self, is_trial: bool) -> None:
+        captures: list[str | None] = []
+
+        def fail_lookup(_team_id: int) -> None:
+            error = ValueError("synthetic lookup failure")
+            captures.append(posthoganalytics.capture_exception(error, distinct_id="synthetic"))
+            raise error
+
+        with patch.multiple(
+            posthoganalytics,
+            default_client=None,
+            disabled=False,
+            send=False,
+            enable_local_evaluation=False,
+            enable_exception_autocapture=False,
+            log_captured_exceptions=False,
+        ):
+            client = posthoganalytics.setup()
+            try:
+                with patch("products.signals.backend.scout_harness.runner._get_team", side_effect=fail_lookup):
+                    with self.assertRaisesRegex(ValueError, "synthetic lookup failure"):
+                        async_to_sync(arun_signals_scout)(
+                            team_id=123,
+                            skill_name="signals-scout-example",
+                            trial_launch_id=str(uuid7()) if is_trial else None,
+                        )
+                self.assertEqual(len(captures), 1)
+                self.assertEqual(captures[0] is None, is_trial)
+                self.assertIsNot(get_query_tags().is_scout_experiment, True)
+            finally:
+                client.shutdown()
+
+    @parameterized.expand([False, True])
+    def test_retry_keeps_the_launch_identity_after_completion(self, already_completed: bool) -> None:
+        client = MagicMock()
+        client.start_workflow = AsyncMock(
+            side_effect=WorkflowAlreadyStartedError("trial", "scout") if already_completed else None
+        )
+        launch_id = str(uuid7())
+        first = start_trial_signals_scout_run(
+            client, team_id=123, skill_name="signals-scout-example", launch_id=launch_id
+        )
+        second = start_trial_signals_scout_run(
+            client, team_id=123, skill_name="signals-scout-example", launch_id=launch_id
+        )
+        assert first == second
+        for call in client.start_workflow.call_args_list:
+            assert call.kwargs["id"] == first
+            assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.REJECT_DUPLICATE
+            assert call.kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.USE_EXISTING
+            assert call.args[1].trial_launch_id == launch_id
+
+    @parameterized.expand(
+        [
+            ("starting", WorkflowExecutionStatus.RUNNING, None, None, None, "pending"),
+            ("rejected", WorkflowExecutionStatus.COMPLETED, None, "quota_limited", None, "skipped"),
+            ("early_failure", WorkflowExecutionStatus.COMPLETED, "failed", None, None, "failed"),
+            ("completed", WorkflowExecutionStatus.COMPLETED, "completed", None, "run-id", "completed"),
+            ("unfinished", WorkflowExecutionStatus.COMPLETED, "in_progress", None, "run-id", "failed"),
+            ("worker_failure", WorkflowExecutionStatus.FAILED, None, None, None, "failed"),
+            ("cancelled", WorkflowExecutionStatus.CANCELED, None, None, None, "cancelled"),
+            ("terminated", WorkflowExecutionStatus.TERMINATED, None, None, None, "cancelled"),
+            ("timeout", WorkflowExecutionStatus.TIMED_OUT, None, None, None, "failed"),
+        ]
+    )
+    def test_reports_workflow_outcome_when_the_task_has_not_finished(
+        self,
+        _label: str,
+        workflow_status: WorkflowExecutionStatus,
+        run_status: str | None,
+        skip_reason: str | None,
+        run_id: str | None,
+        expected_status: str,
+    ) -> None:
+        launch_id = uuid7()
+        client = MagicMock()
+        handle = client.get_workflow_handle.return_value
+        handle.describe = AsyncMock(return_value=SimpleNamespace(status=workflow_status))
+        handle.result = AsyncMock(
+            return_value=RunSignalsScoutOutput(
+                run_id=run_id,
+                task_run_id=None,
+                status=run_status,
+                runtime_s=0,
+                skill_name="signals-scout-example",
+                skill_version=1,
+                skip_reason=skip_reason,
+            )
+        )
+        with patch("products.signals.backend.scout_harness.trial_result.async_connect", AsyncMock(return_value=client)):
+            result = get_trial_workflow_status(team_id=123, launch_id=launch_id)
+
+        assert result.status == expected_status
+        assert result.run_id == run_id
+        assert bool(result.error) is (expected_status not in {"pending", "completed"})
+        if skip_reason:
+            assert result.error and skip_reason in result.error
+        assert client.get_workflow_handle.call_args.args[0] == f"signals-scout-trial-123-{launch_id}"
+        if workflow_status != WorkflowExecutionStatus.COMPLETED:
+            handle.result.assert_not_called()
+
+    @parameterized.expand(
+        [("missing", RPCStatusCode.NOT_FOUND, "not_started"), ("unavailable", RPCStatusCode.UNAVAILABLE, "unknown")]
+    )
+    def test_status_lookup_distinguishes_missing_launch_from_temporal_outage(
+        self, _label: str, code: RPCStatusCode, expected_status: str
+    ) -> None:
+        client = MagicMock()
+        client.get_workflow_handle.return_value.describe = AsyncMock(side_effect=RPCError("unavailable", code, b""))
+        with patch("products.signals.backend.scout_harness.trial_result.async_connect", AsyncMock(return_value=client)):
+            result = get_trial_workflow_status(team_id=123, launch_id=uuid7())
+        assert result.status == expected_status
+        assert result.error is not None
+
+
 def _fake_start_invoking_hook(session: MagicMock, result: object):
-    """Stand-in for `MultiTurnSession.start` that fires the `on_task_run_created` hook.
 
-    The real `start` awaits the hook (creating the SignalScoutRun bridge row) after the
-    TaskRun exists but before the first agent turn. A plain `return_value` mock would skip
-    that, so the bridge row would never be created — mirror the real contract here.
-    """
-
-    async def _start(*args, on_task_run_created=None, **kwargs):
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
+    async def _start(*args, before_task_dispatch=None, **kwargs):
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
         return session, result
 
     return _start
@@ -1496,6 +1630,151 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("runtime_drift", [False, True])
+@time_machine.travel("2026-09-01T12:00:00Z", tick=False)
+@override_settings(
+    SCOUT_LIVE_TRIALS_ENABLED=True,
+    SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+    SCOUT_LIVE_TRIALS_GATEWAY_URL="https://gateway.example.com",
+)
+async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_scout(
+    ateam: Team, aerrors_skill: LLMSkill, atrial_operator: User, runtime_drift: bool
+) -> None:
+    await database_sync_to_async(LLMSkill.objects.filter(pk=aerrors_skill.pk).update)(allowed_tools=["emit_report"])
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(
+        team=ateam,
+        skill_name=aerrors_skill.name,
+        consecutive_failure_count=4,
+        status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+        pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        enabled=False,
+    )
+    user = atrial_operator
+    context = TrialContext(
+        id=uuid7(),
+        team_id=ateam.id,
+        config_id=config.id,
+        user_id=user.id,
+        created_at=timezone.now(),
+        skill_name=aerrors_skill.name,
+        skill_version=1,
+        skill_body="scout",
+        skill_origin="custom",
+        allowed_tools=["emit_report"],
+        capabilities=trial_capabilities(config),
+        runtime_adapter="codex",
+        model="gpt-5.6-sol",
+        reasoning_effort="medium",
+    )
+    launch = TrialLaunch(
+        id=uuid7(),
+        team_id=ateam.id,
+        context_id=context.id,
+        config_id=config.id,
+        user_id=user.id,
+        created_at=timezone.now(),
+        skill_name=aerrors_skill.name,
+        skill_version=1,
+        skill_body="candidate procedure",
+        runtime_adapter="codex",
+        model="gpt-5.6-sol",
+        reasoning_effort="high",
+        request_hash="test",
+    )
+    production_task_run = await database_sync_to_async(_make_task_run)(ateam)
+    await database_sync_to_async(type(production_task_run).objects.filter(pk=production_task_run.pk).update)(
+        status="in_progress"
+    )
+    await database_sync_to_async(SignalScoutRun.objects.create)(
+        team=ateam,
+        scout_config=config,
+        task_run=production_task_run,
+        skill_name=aerrors_skill.name,
+        skill_version=1,
+    )
+    captured: list[dict[str, object]] = []
+    session, result = await database_sync_to_async(_make_fake_session)(ateam)
+
+    async def start_session(
+        *, before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None], origin_key: str, **kwargs: object
+    ) -> tuple[MagicMock, object]:
+        captured.append(kwargs)
+        task = await database_sync_to_async(lambda: session.task_run.task)()
+        task.origin_key = origin_key
+        await database_sync_to_async(task.save)(update_fields=["origin_key"])
+        session.task_run.state = {
+            "runtime_adapter": "codex",
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "medium" if runtime_drift else "high",
+            "token_usage": {"input_tokens": 100, "output_tokens": 20},
+        }
+        session.task_run.status = "in_progress"
+        await database_sync_to_async(session.task_run.save)(update_fields=["state", "status"])
+        initial_state = await database_sync_to_async(before_task_dispatch)(session.task_run.id)
+        assert initial_state is not None
+        session.task_run.state = {**session.task_run.state, **initial_state}
+        await database_sync_to_async(session.task_run.save)(update_fields=["state"])
+        persisted = await database_sync_to_async(type(session.task_run).objects.get)(pk=session.task_run.pk)
+        assert persisted.state is not None
+        assert persisted.state["scout_trial"]["launch_id"] == str(launch.id)
+        assert "scout_trial_private" in persisted.state
+        return session, result
+
+    def read_document(key: str, **kwargs: object) -> str:
+        return context.model_dump_json() if "/contexts/" in key else launch.model_dump_json()
+
+    async def end_session(*, status: str = "completed", error: str | None = None) -> None:
+        await database_sync_to_async(type(session.task_run).objects.filter(pk=session.task_run.pk).update)(
+            status=status
+        )
+
+    session.end.side_effect = end_session
+    with (
+        patch("posthog.storage.object_storage.read", side_effect=read_document),
+        patch("posthog.storage.object_storage.write") as export,
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start_session),
+        patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", return_value="env-id"),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        outcome = await arun_signals_scout(
+            team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
+        )
+        replay = await arun_signals_scout(
+            team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
+        )
+
+    assert outcome.status == ("failed" if runtime_drift else "completed")
+    assert replay.run_id == outcome.run_id
+    assert len(captured) == 1
+    sandbox_context = captured[0]["context"]
+    assert isinstance(sandbox_context, CustomPromptSandboxContext)
+    assert sandbox_context.model == "gpt-5.6-sol"
+    assert sandbox_context.reasoning_effort == "high"
+    assert sandbox_context.posthog_mcp_scopes == "signals_scout_experiment"
+    bridge = await SignalScoutRun.objects.aget(id=outcome.run_id)
+    assert bridge.metadata is not None
+    assert bridge.metadata["scout_trial"]["context_id"] == str(context.id)
+    assert bridge.metadata["reasoning_effort"] == "high"
+    export.assert_called_once()
+    assert export.call_args.args[0] == f"signals/scout-trials/{ateam.id}/results/{bridge.id}.json"
+    saved_result = json.loads(export.call_args.args[1])
+    assert saved_result["valid_comparison"] is not runtime_drift
+    assert saved_result["status"] == outcome.status
+    assert saved_result["token_usage"] == {"input_tokens": 100, "output_tokens": 20}
+    assert saved_result["private_state"]["invalid_reason"] == saved_result["invalid_reason"]
+    assert "skill_body" not in saved_result
+    await database_sync_to_async(config.refresh_from_db)()
+    assert config.consecutive_failure_count == 4
+    assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+    assert config.last_run_at is None
+    assert await SignalScoutRun.objects.filter(team=ateam).acount() == 2
+    assert not [
+        call for call in capture.call_args_list if call.kwargs.get("event", "").startswith("signals_scout_run_")
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
     # Scouts pass a `scout:<skill>` ai_stage to the sandbox session so every $ai_generation
     # carries it, letting scout spend be split out of the ai_product='signals' bucket (scouts
@@ -1504,10 +1783,10 @@ async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
-    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+    async def _capture_start(*args, before_task_dispatch=None, **kwargs):
         captured.update(kwargs)
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
         return session, result
 
     with (
@@ -1544,10 +1823,10 @@ async def test_run_acts_as_the_skill_creator_when_one_resolves(ateam, aorganizat
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
-    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+    async def _capture_start(*args, before_task_dispatch=None, **kwargs):
         captured.update(kwargs)
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
         return session, result
 
     with (
@@ -1586,10 +1865,10 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
 
     await database_sync_to_async(_seed_config, thread_sensitive=False)()
 
-    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+    async def _capture_start(*args, before_task_dispatch=None, **kwargs):
         captured.update(kwargs)
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
         return session, result
 
     with (
@@ -1641,10 +1920,10 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
 
     await database_sync_to_async(_seed_config, thread_sensitive=False)()
 
-    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+    async def _capture_start(*args, before_task_dispatch=None, **kwargs):
         captured.update(kwargs)
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
         return session, result
 
     with (
@@ -1721,10 +2000,10 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
 
     await database_sync_to_async(_seed_config, thread_sensitive=False)()
 
-    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+    async def _capture_start(*args, before_task_dispatch=None, **kwargs):
         captured.update(kwargs)
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
         return session, result
 
     with (
@@ -1777,10 +2056,10 @@ async def test_catalog_nudge_follows_the_projects_approved_metrics(ateam, aerror
     )
     captured: dict = {}
 
-    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+    async def _capture_start(*args, before_task_dispatch=None, **kwargs):
         captured.update(kwargs)
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
         return session, result
 
     names_mock = MagicMock(side_effect=names) if isinstance(names, Exception) else MagicMock(return_value=names)
@@ -1825,10 +2104,10 @@ async def test_mounted_mcp_server_names_reach_the_prompt(ateam, aerrors_skill, r
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
-    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+    async def _capture_start(*args, before_task_dispatch=None, **kwargs):
         captured.update(kwargs)
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
         return session, result
 
     names_mock = (
@@ -2089,10 +2368,10 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
-    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+    async def _capture_start(*args, before_task_dispatch=None, **kwargs):
         captured.update(kwargs)
-        if on_task_run_created is not None:
-            await on_task_run_created(session.task_run)
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
         return session, result
 
     with (
@@ -2231,7 +2510,7 @@ async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_successful_run_captures_run_started_event(ateam, aerrors_skill):
-    # The started marker fires once the TaskRun + bridge row exist (the on_task_run_created
+    # The started marker fires once the TaskRun + bridge row exist (the before_task_dispatch
     # hook), so it counts only runs that actually start. Pairs with the finished event for
     # event-derived throughput / stall detection with no warehouse lag.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
@@ -2603,7 +2882,8 @@ async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerrors_skill):
+@pytest.mark.parametrize("is_trial", [False, True])
+async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerrors_skill, is_trial):
     TaskRun = apps.get_model("tasks", "TaskRun")
     # An IN_PROGRESS run orphaned by a crashed worker must not block the lane forever. The
     # stale-run self-heal fails any run older than STALE_RUN_CUTOFF_S before the skip-if-running
@@ -2623,6 +2903,7 @@ async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerr
         scout_config=config,
         skill_name="signals-scout-errors",
         skill_version=1,
+        metadata={"scout_trial": {"version": 1}} if is_trial else {},
     )
 
     spawn_calls: list[dict] = []
@@ -2643,7 +2924,7 @@ async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerr
     assert result.skip_reason is None
     # The stale run is now terminal.
     reaped = await database_sync_to_async(TaskRun.objects.get)(id=task_run.id)
-    assert reaped.status == TaskRun.Status.FAILED
+    assert reaped.status == (TaskRun.Status.IN_PROGRESS if is_trial else TaskRun.Status.FAILED)
 
 
 @pytest.mark.asyncio
@@ -2824,8 +3105,9 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
         (SelfDrivingQuotaGate(limited=True, enforced=False), False, None),
     ],
 )
+@pytest.mark.parametrize("is_trial", [False, True])
 async def test_activity_skips_run_attributed_to_the_limit_that_fired(
-    ateam, quota_gate, daily_limited, expected_skip_reason
+    ateam, quota_gate, daily_limited, expected_skip_reason, is_trial
 ):
     fake_arun = AsyncMock(
         return_value=RunResult(
@@ -2858,24 +3140,29 @@ async def test_activity_skips_run_attributed_to_the_limit_that_fired(
         env = ActivityEnvironment()
         output = await env.run(
             run_signals_scout_activity,
-            RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
+            RunSignalsScoutInput(
+                team_id=ateam.id,
+                skill_name="signals-scout-errors",
+                trial_launch_id=str(uuid7()) if is_trial else None,
+            ),
         )
 
     assert output.skip_reason == expected_skip_reason
     if expected_skip_reason is None:
         fake_arun.assert_called_once()
+        assert output.last_message == (None if is_trial else "ok")
     else:
         fake_arun.assert_not_called()
         assert output.run_id is None
         assert output.status is None
     # Each capture tracks its own gate: it fires whenever that limit binds, even when the other
     # one wins the single-status run counter, and a dark-launch pause is reported without blocking.
-    if quota_gate.limited:
+    if quota_gate.limited and not is_trial:
         assert capture_quota.call_args.kwargs["stage"] == "scout_run"
         assert capture_quota.call_args.kwargs["enforced"] is quota_gate.enforced
     else:
         capture_quota.assert_not_called()
-    if daily_limited:
+    if daily_limited and not is_trial:
         assert capture_daily.call_args.kwargs["stage"] == "scout_run"
     else:
         capture_daily.assert_not_called()
@@ -3046,7 +3333,7 @@ class TestRunRowProvenanceStamps(BaseTest):
         config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
         run = _create_run_row(
             run_id=uuid7(),
-            task_run=_make_task_run(self.team),
+            task_run_id=_make_task_run(self.team).id,
             team=self.team,
             config=config,
             skill=self._skill(allowed_tools=allowed_tools, origin=origin),
@@ -3069,7 +3356,7 @@ class TestRunRowProvenanceStamps(BaseTest):
         config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
         run = _create_run_row(
             run_id=uuid7(),
-            task_run=_make_task_run(self.team),
+            task_run_id=_make_task_run(self.team).id,
             team=self.team,
             config=config,
             skill=self._skill(allowed_tools=["emit_report"], origin="custom"),
@@ -3083,7 +3370,7 @@ class TestRunRowProvenanceStamps(BaseTest):
         skill = self._skill(allowed_tools=["emit_report"], origin="custom")
         steered = _create_run_row(
             run_id=uuid7(),
-            task_run=_make_task_run(self.team),
+            task_run_id=_make_task_run(self.team).id,
             team=self.team,
             config=config,
             skill=skill,
@@ -3093,7 +3380,7 @@ class TestRunRowProvenanceStamps(BaseTest):
 
         scheduled = _create_run_row(
             run_id=uuid7(),
-            task_run=_make_task_run(self.team),
+            task_run_id=_make_task_run(self.team).id,
             team=self.team,
             config=config,
             skill=skill,

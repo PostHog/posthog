@@ -973,6 +973,40 @@ tools:
         description:
             'DEPRECATED: renamed to scout-report-check-list. This alias forwards to the same endpoint and will be
             removed. Call scout-report-check-list directly with the same arguments.'
+    scout-trial-create:
+        operation: signals_scout_config_trial
+        enabled: true
+        scopes:
+            - signal_scout:write
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Run a private scout variant
+        description: >
+            Launch one prompt, model, or effort variant of an existing scout against live data.
+            Memory changes and authored reports stay private to the run. The source scout is unchanged.
+            Requires a deployment configured for private trial capture and skill editor access.
+            Reuse launch_id only to retry the exact same request. Reuse the returned context_id for
+            other variants and repetitions so their initial memory, notes, and source settings match.
+            Poll scout-trial-get for results. Unsupported write actions invalidate the comparison.
+    scout-trial-get:
+        operation: signals_scout_config_trial_result
+        enabled: true
+        scopes:
+            - signal_scout:write
+            - llm_skill:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read a private scout result
+        description: >
+            Read an operator-owned trial's status, privately captured report payloads, proposed edits,
+            and memory changes. These combine saved context with protected execution state and are
+            available only through this API, not SQL. A null cost means unknown. Sandbox agents cannot
+            use this tool to inspect trials. Use the returned task and run IDs with ordinary log tools.
     scout-run-now:
         operation: signals_scout_config_run
         enabled: true

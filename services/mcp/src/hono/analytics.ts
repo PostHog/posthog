@@ -16,6 +16,7 @@ import {
 } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
+import { isPrivateScoutTrialTool, isTaskContentReadTool } from '@/lib/tool-privacy'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
@@ -44,6 +45,7 @@ function buildBaseProperties(
     const properties: Record<string, unknown> = {
         $ai_product: 'mcp',
         is_impersonated: state.isImpersonated === true,
+        suppress_analytics: state.suppressAnalytics === true,
         // The same property `posthog/event_usage.py` stamps on product events, so an MCP call
         // and the API work it causes land in one breakdown. Distinct from `$mcp_source`, which
         // names the emitting SDK rather than the surface.
@@ -156,6 +158,12 @@ export async function trackToolCall(
     analyticsMeta?: ToolCallAnalyticsMeta,
     servedDescription?: string
 ): Promise<void> {
+    // Operator tokens are ordinary tokens, but comparison details must stay out of scout-readable analytics.
+    if (isPrivateScoutTrialTool(toolName) || isPrivateScoutTrialTool(extraProperties?.$mcp_exec_target_tool)) {
+        return
+    }
+    const captureIntent =
+        !isTaskContentReadTool(toolName) && !isTaskContentReadTool(extraProperties?.$mcp_exec_target_tool)
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
@@ -193,8 +201,8 @@ export async function trackToolCall(
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
-            ...(analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
-            ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
+            ...(captureIntent && analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
+            ...(captureIntent && analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
             ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
             ...(analyticsMeta?.llmModelSource ? { llmModelSource: analyticsMeta.llmModelSource } : {}),
             properties: {
@@ -210,6 +218,7 @@ export async function trackToolCall(
                 ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
                 ...extraProperties,
                 is_impersonated: state.isImpersonated === true,
+                suppress_analytics: state.suppressAnalytics === true,
             },
         })
     } catch {
@@ -305,6 +314,10 @@ function isMetadataQuery(query: string): boolean {
 const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
+    // Ordinary operator credentials can retrieve private scout transcripts through Tasks APIs.
+    if (isPrivateScoutTrialTool(toolName) || isTaskContentReadTool(toolName)) {
+        return false
+    }
     // A proxied third-party tool's args and result are the vendor's content — an issue
     // body, a support ticket, a CRM record — passing through our gateway on its way
     // somewhere else. Key-based redaction only catches credential-shaped fields, so
@@ -473,6 +486,7 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
             event: '$mcp_auth_failed',
             properties: {
                 $ai_product: 'mcp',
+                suppress_analytics: props.suppressAnalytics === true,
                 // Resolved without scopes — the request never authenticated, so nothing can
                 // vouch for a declared consumer and anything unproven lands as `mcp`.
                 source: resolveEventSource({

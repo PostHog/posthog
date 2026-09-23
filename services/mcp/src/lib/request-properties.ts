@@ -9,6 +9,8 @@ export type Transport = 'streamable-http' | 'sse'
 export type RequestProperties = {
     userHash: string
     apiToken: string
+    // Assigned after token introspection; never parsed from a caller header or query parameter.
+    suppressAnalytics?: boolean
     sessionId?: string | undefined
     features?: string[] | undefined
     tools?: string[] | undefined

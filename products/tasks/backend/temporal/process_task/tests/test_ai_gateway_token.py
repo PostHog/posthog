@@ -5,13 +5,16 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models import Organization, Team
 
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
-from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN
+from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN, Task
 from products.tasks.backend.temporal.process_task import utils
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     _PRODUCT_ALLOWED_MODELS,
@@ -500,6 +503,60 @@ class TestProvisioningBoundaries:
         with patch.object(utils, "mint_scoped_token") as mint:
             assert utils.run_gateway_env_vars(ctx, self._task()) == {}
         mint.assert_not_called()
+
+    @pytest.mark.parametrize("origin_product", ["signals_scout", "user_created"])
+    @pytest.mark.parametrize("origin_key", ["scout-trial:11111111-1111-1111-1111-111111111111", "ordinary"])
+    @override_settings(
+        SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+        SCOUT_LIVE_TRIALS_GATEWAY_URL="https://private-gateway.example/",
+    )
+    def test_private_gateway_requires_the_server_task_origin(self, origin_product: str, origin_key: str) -> None:
+        ctx = self._ctx()
+        ctx.state["scout_trial"] = {"id": "caller-supplied"}
+        task = Task(origin_product=origin_product, origin_key=origin_key)
+
+        with patch.object(utils, "ai_gateway_env_vars", return_value={}) as ordinary_route:
+            out = utils.run_gateway_env_vars(ctx, task)
+
+        if task.is_scout_experiment:
+            assert out == {
+                "LLM_GATEWAY_URL": "https://private-gateway.example",
+                "AI_GATEWAY_URL": "",
+                "AI_GATEWAY_PRODUCTS": "",
+                "AI_GATEWAY_TOKEN": "",
+                "AI_GATEWAY_TOKEN_CAP_USD": "",
+                "AI_GATEWAY_PRODUCT": "",
+                "AI_GATEWAY_AI_STAGE": "",
+            }
+            ordinary_route.assert_not_called()
+        else:
+            assert out == {}
+            ordinary_route.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("private_capture", "gateway_url", "model_access"),
+        [
+            (False, "https://private-gateway.example", "posthog-gateway"),
+            (True, "", "posthog-gateway"),
+            (True, "https://private-gateway.example", "own-subscription"),
+        ],
+    )
+    def test_trial_cannot_fall_back_to_an_ordinary_gateway(
+        self, private_capture: bool, gateway_url: str, model_access: str
+    ) -> None:
+        ctx = self._ctx()
+        ctx.claude_model_access = model_access
+        task = Task(origin_product="signals_scout", origin_key="scout-trial:11111111-1111-1111-1111-111111111111")
+
+        with (
+            override_settings(
+                SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=private_capture, SCOUT_LIVE_TRIALS_GATEWAY_URL=gateway_url
+            ),
+            patch.object(utils, "ai_gateway_env_vars") as ordinary_route,
+        ):
+            with pytest.raises(GatewayNotConfiguredError):
+                utils.run_gateway_env_vars(ctx, task)
+        ordinary_route.assert_not_called()
 
     def test_snapshot_builder_uses_the_shared_derivation(self, mint_settings):
         from products.tasks.backend.temporal.process_task import utils

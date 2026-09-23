@@ -10,7 +10,7 @@ from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
 from django.utils.functional import Promise
 
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -621,9 +621,17 @@ class Task(DeletedMetaFields, models.Model):
             return None
         return [str(i) for i in ids] if isinstance(ids, list) else []
 
+    @property
+    def is_scout_experiment(self) -> bool:
+        return self.origin_product == self.OriginProduct.SIGNALS_SCOUT and (self.origin_key or "").startswith(
+            "scout-trial:"
+        )
+
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
     ) -> None:
+        if self.is_scout_experiment:
+            return
         # capture_fn lets Celery callers pass a ph_scoped_capture client — the module-level
         # posthoganalytics.capture silently drops events in workers (see posthog.ph_client).
         try:
@@ -1018,7 +1026,7 @@ class Task(DeletedMetaFields, models.Model):
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
     ) -> tuple["Task", dict[str, Any]]:
-        """Create the Task row and assemble the initial run's `extra_state`.
+        """Prepare an unsaved Task and the initial run's `extra_state`.
 
         Shared by `create_and_run` (which then creates and dispatches the run) and
         `create_without_run` (which discards the run state). One path keeps the
@@ -1129,7 +1137,7 @@ class Task(DeletedMetaFields, models.Model):
             if mcp_gateway_server_ids is not None:
                 initial_state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY] = [str(i) for i in mcp_gateway_server_ids]
 
-        task = Task.objects.create(
+        task = Task(
             team=team,
             title=title,
             title_manually_set=title_manually_set,
@@ -1329,6 +1337,7 @@ class Task(DeletedMetaFields, models.Model):
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
         )
+        task.save()
         return task
 
     @staticmethod
@@ -1382,6 +1391,7 @@ class Task(DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
     ) -> "Task":
         from products.tasks.backend.logic.services.workflow_dispatch import (
             WorkflowDispatchOptions,
@@ -1454,6 +1464,7 @@ class Task(DeletedMetaFields, models.Model):
         }
 
         with transaction.atomic():
+            task.save()
             task_run = task.create_run(
                 mode=mode,
                 extra_state=run_extra_state or None,
@@ -1461,6 +1472,11 @@ class Task(DeletedMetaFields, models.Model):
                 acting_user_id=user_id,
                 scheduled_at=scheduled_at,
             )
+            if before_task_dispatch is not None:
+                initial_state = before_task_dispatch(task_run.id)
+                if initial_state is not None:
+                    task_run.state = {**task_run.state, **initial_state}
+                    task_run.save(update_fields=["state", "updated_at"])
 
             if start_workflow and scheduled_at is None:
                 # Defer the fire-and-forget workflow start until the creating transaction commits.
@@ -2972,6 +2988,8 @@ class TaskRun(models.Model):
         work — but the outcome is reported so callers tracking event loss can count it.
         """
         try:
+            if self.task.is_scout_experiment:
+                return False
             # The override lets the PR webhook attribute pr_merged to the GitHub user who
             # actually merged, rather than the task's assigned user.
             distinct_id = distinct_id_override or (

@@ -63,6 +63,9 @@ import type {
     ScoutSuggestionItemApi,
     ScoutSuggestionRefreshApi,
     ScoutSuggestionSetApi,
+    ScoutTrialLaunchApi,
+    ScoutTrialResultApi,
+    ScoutTrialStartedApi,
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportArtefactApi,
@@ -108,6 +111,7 @@ import type {
     SignalsReportsPrCiStatusesParams,
     SignalsScoutConfigListParams,
     SignalsScoutConfigSyncParams,
+    SignalsScoutConfigTrialResultParams,
     SignalsScoutMembersListParams,
     SignalsScoutNotesListParams,
     SignalsScoutProjectProfileGetParams,
@@ -1192,6 +1196,64 @@ export const signalsScoutConfigRun = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalScoutManualRunRequestApi),
+    })
+}
+
+export const getSignalsScoutConfigTrialUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/trial/`
+}
+
+/**
+ * Run a prompt, model, or effort variant against live data with private memory and report capture.
+ * @summary Run a private scout variant
+ */
+export const signalsScoutConfigTrial = async (
+    projectId: string,
+    id: string,
+    scoutTrialLaunchApi: ScoutTrialLaunchApi,
+    options?: RequestInit
+): Promise<ScoutTrialStartedApi> => {
+    return apiMutator<ScoutTrialStartedApi>(getSignalsScoutConfigTrialUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutTrialLaunchApi),
+    })
+}
+
+export const getSignalsScoutConfigTrialResultUrl = (
+    projectId: string,
+    id: string,
+    params: SignalsScoutConfigTrialResultParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/configs/${id}/trial-result/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/configs/${id}/trial-result/`
+}
+
+/**
+ * Read a trial's existing run status and its privately captured reports and memory changes.
+ * @summary Read a private scout trial result
+ */
+export const signalsScoutConfigTrialResult = async (
+    projectId: string,
+    id: string,
+    params: SignalsScoutConfigTrialResultParams,
+    options?: RequestInit
+): Promise<ScoutTrialResultApi> => {
+    return apiMutator<ScoutTrialResultApi>(getSignalsScoutConfigTrialResultUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

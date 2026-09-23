@@ -86879,6 +86879,38 @@ export namespace Schemas {
       items: ScoutSuggestionItem[];
     }
 
+    export interface ScoutTrialLaunch {
+      /** Unique launch ID. Reuse it only when retrying this exact request. */
+      launch_id: string;
+      /** Saved starting context from a previous launch in this comparison. */
+      context_id?: string;
+      /**
+         * Operator label for this variant.
+         * @maxLength 100
+         */
+      variant?: string;
+      /**
+         * Replacement skill body for this run. Supporting files and tool permissions stay pinned.
+         * @maxLength 100000
+         */
+      skill_body?: string;
+      /**
+         * Model identifier for this run.
+         * @maxLength 200
+         */
+      model?: string;
+      /**
+         * Reasoning effort supported by the selected model. Required when the saved source has no pinned effort.
+         * @maxLength 20
+         */
+      reasoning_effort?: string;
+      /**
+         * Common investigation note, saved before applying any variant overrides.
+         * @maxLength 1000
+         */
+      note?: string;
+    }
+
     /**
      * `SignalScratchpad` projection used by `search-memory` and `remember`.
      */
@@ -86917,6 +86949,137 @@ export namespace Schemas {
          * @nullable
          */
       created_by_run_url?: string | null;
+    }
+
+    /**
+     * Private memory replacements and deleted keys for this run.
+     */
+    export type ScoutTrialResultMemory = {[key: string]: ScratchpadEntry | null};
+
+    export type TrialReportDocument = {[key: string]: JsonValue};
+
+    export type TrialReportPayload = {[key: string]: JsonValue};
+
+    export type TrialReportEditsItem = {[key: string]: JsonValue};
+
+    export type TrialReportOperatorMetadata = {[key: string]: JsonValue};
+
+    export type TrialReportEvidenceItem = {[key: string]: JsonValue};
+
+    export type TrialReportArtefactsItem = {[key: string]: JsonValue};
+
+    export interface TrialReport {
+      id: string;
+      source_report_id?: string | null;
+      document: TrialReportDocument;
+      payload?: TrialReportPayload;
+      edits?: TrialReportEditsItem[];
+      operator_metadata?: TrialReportOperatorMetadata;
+      evidence?: TrialReportEvidenceItem[];
+      artefacts?: TrialReportArtefactsItem[];
+      content_revision_count?: number;
+      corroboration_count?: number;
+    }
+
+    export interface ScoutTrialResult {
+      /** Launch identity. */
+      launch_id: string;
+      /** Saved starting context identity. */
+      context_id: string;
+      /** Resolved model identifier. */
+      model: string;
+      /** Resolved reasoning effort. */
+      reasoning_effort: string;
+      /** Hash of the skill body delivered to this run. */
+      skill_body_sha256: string;
+      /**
+         * Private object-storage result reference, when exported.
+         * @nullable
+         */
+      result_key: string | null;
+      /**
+         * Whether the durable export needs a retry; inline results remain available.
+         * @nullable
+         */
+      export_error: string | null;
+      /**
+         * Execution start time.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * Execution completion time.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * Scout run identity once the sandbox is prepared.
+         * @nullable
+         */
+      run_id: string | null;
+      /**
+         * Task identity for existing log and cancellation tools.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Task execution identity for logs and usage.
+         * @nullable
+         */
+      task_run_id: string | null;
+      /** Execution status, or pending while the workflow prepares the run. */
+      status: string;
+      /**
+         * Underlying task status; cancel an active task if its workflow failed.
+         * @nullable
+         */
+      task_status: string | null;
+      /**
+         * Setup or workflow failure, including failures before a task was created.
+         * @nullable
+         */
+      error: string | null;
+      /** Scout close-out summary. */
+      summary: string;
+      /**
+         * Why this execution cannot be used for comparison.
+         * @nullable
+         */
+      invalid_reason: string | null;
+      /** Privately captured report creations and edits. */
+      reports: TrialReport[];
+      /** Private memory replacements and deleted keys for this run. */
+      memory: ScoutTrialResultMemory;
+      /**
+         * Attributed model cost when available; null means unknown.
+         * @nullable
+         */
+      cost_usd: number | null;
+      /**
+         * Input tokens reported by the agent runtime.
+         * @nullable
+         */
+      input_tokens: number | null;
+      /**
+         * Output tokens reported by the agent runtime.
+         * @nullable
+         */
+      output_tokens: number | null;
+    }
+
+    export interface ScoutTrialStarted {
+      /** Retry-stable launch identity. */
+      launch_id: string;
+      /** Starting context to reuse across variants and repetitions. */
+      context_id: string;
+      /** Workflow dispatch identity. */
+      workflow_id: string;
+      /** Resolved model identifier. */
+      model: string;
+      /** Resolved reasoning effort. */
+      reasoning_effort: string;
+      /** Operator label for this variant. */
+      variant: string;
     }
 
     /**
@@ -111953,6 +112116,13 @@ export namespace Schemas {
      * @minLength 1
      */
     tags?: string;
+    };
+
+    export type SignalsScoutConfigTrialResultParams = {
+    /**
+     * Launch identity returned by the trial action.
+     */
+    launch_id: string;
     };
 
     export type SignalsScoutConfigSyncParams = {

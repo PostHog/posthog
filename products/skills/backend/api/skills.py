@@ -18,7 +18,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import BasePermission
 from rest_framework.renderers import BaseRenderer
@@ -47,6 +47,7 @@ from posthog.renderers import SafeJSONRenderer
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.signals.backend.facade.api import get_scout_trial_skill_override
 
 from ..marketplace.adapters import (
     MARKETPLACE_NAME,
@@ -689,6 +690,26 @@ class LLMSkillViewSet(
             return self._skill_not_found_response(skill_name)
         return None
 
+    def _apply_trial_skill(self, request: Request, skill: LLMSkill) -> LLMSkill:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return skill
+        token = authenticator.access_token
+        if "scout_experiment_internal:read" not in (token.scope or "").split():
+            return skill
+        if token.sandbox_task_id is None:
+            raise PermissionDenied()
+        trial_skill = get_scout_trial_skill_override(team_id=self.team.id, task_id=token.sandbox_task_id)
+        if trial_skill is None:
+            raise PermissionDenied()
+        if trial_skill.name != skill.name:
+            return skill
+        pinned = self._load_skill_with_object_access(request, skill.name, trial_skill.version)
+        if pinned is None:
+            raise NotFound()
+        pinned.body = trial_skill.body
+        return pinned
+
     def _handle_skill_write_error(self, err: Exception, skill_name: str) -> Response | None:
         """Render the error responses shared by create_file / delete_file / rename_file.
 
@@ -1015,6 +1036,8 @@ class LLMSkillViewSet(
 
         if skill is None:
             return self._skill_not_found_response(skill_name, version)
+
+        skill = self._apply_trial_skill(request, skill)
 
         # Cap the first page when the caller doesn't page explicitly, so body_next_offset is a
         # valid continuation offset even when the full body would be truncated in transit.
@@ -1876,6 +1899,8 @@ class LLMSkillViewSet(
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
             return self._skill_not_found_response(skill_name, version)
+
+        skill = self._apply_trial_skill(request, skill)
 
         file_path = file_path.rstrip("/")
         normalized = file_path.replace("\\", "/")

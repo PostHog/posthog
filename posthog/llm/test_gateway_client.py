@@ -1,4 +1,5 @@
 import json
+import asyncio
 from typing import get_args
 
 import pytest
@@ -6,6 +7,10 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from asgiref.sync import async_to_sync, sync_to_async
+
+from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.llm import gateway_client
 from posthog.llm.gateway_client import (
     AIGatewayConfig,
     GatewayNotConfiguredError,
@@ -19,6 +24,7 @@ from posthog.llm.gateway_client import (
     get_async_anthropic_gateway_client,
     get_async_llm_client,
     get_llm_client,
+    private_scout_gateway,
     resolve_ai_gateway_config,
     team_trace_id,
 )
@@ -519,3 +525,98 @@ class TestBuildAIGatewayAnthropicClient:
             with pytest.raises(ValueError, match="AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"):
                 build_ai_gateway_anthropic_client(ai_product="aio_stamphog")
         mock_get_anthropic.assert_not_called()
+
+
+class TestPrivateScoutGateway:
+    @pytest.mark.parametrize(
+        ("builder", "sdk", "suffix"),
+        [
+            ("get_llm_client", "OpenAI", "/signals/v1"),
+            ("get_async_llm_client", "AsyncOpenAI", "/signals/v1"),
+            ("get_anthropic_gateway_client", "Anthropic", "/signals"),
+            ("get_async_anthropic_gateway_client", "AsyncAnthropic", "/signals"),
+            ("build_openai_client", "OpenAI", "/signals/v1"),
+            ("build_async_openai_client", "AsyncOpenAI", "/signals/v1"),
+            ("build_anthropic_client", "Anthropic", "/signals"),
+            ("build_async_anthropic_client", "AsyncAnthropic", "/signals"),
+        ],
+    )
+    @override_settings(
+        SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+        SCOUT_LIVE_TRIALS_GATEWAY_URL="https://private-gateway.example/",
+        AI_GATEWAY_URL=AI_GATEWAY_URL,
+        AI_GATEWAY_API_KEY=AI_GATEWAY_KEY,
+        LLM_GATEWAY_URL="",
+        LLM_GATEWAY_API_KEY="test-key",
+    )
+    def test_every_builder_uses_private_gateway_even_when_go_is_configured(
+        self, builder: str, sdk: str, suffix: str
+    ) -> None:
+        with patch.object(gateway_client, sdk) as client, private_scout_gateway():
+            getattr(gateway_client, builder)(product="signals")
+        assert client.call_args.kwargs["base_url"] == f"https://private-gateway.example{suffix}"
+        assert client.call_args.kwargs["api_key"] == "test-key"
+
+    @pytest.mark.parametrize(
+        ("enabled", "url"),
+        [
+            (False, "https://private-gateway.example"),
+            (True, ""),
+            (True, "private-gateway.example"),
+            (True, "https://user:password@private-gateway.example"),
+            (True, "https://private-gateway.example?destination=elsewhere"),
+            (True, "https://private-gateway.example#fragment"),
+        ],
+    )
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    def test_invalid_private_config_fails_before_building_any_client(self, enabled: bool, url: str) -> None:
+        with (
+            override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=enabled, SCOUT_LIVE_TRIALS_GATEWAY_URL=url),
+            patch.object(gateway_client, "OpenAI") as client,
+        ):
+            with pytest.raises(GatewayNotConfiguredError), private_scout_gateway():
+                build_openai_client("signals")
+        client.assert_not_called()
+        assert resolve_ai_gateway_config() == AIGatewayConfig(url=AI_GATEWAY_URL, api_key=AI_GATEWAY_KEY)
+
+    @override_settings(
+        SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+        SCOUT_LIVE_TRIALS_GATEWAY_URL="https://private-gateway.example",
+        AI_GATEWAY_URL=AI_GATEWAY_URL,
+        AI_GATEWAY_API_KEY=AI_GATEWAY_KEY,
+    )
+    def test_context_crosses_async_bridges_and_isolates_concurrent_calls(self) -> None:
+        async def read_config() -> AIGatewayConfig | None:
+            await asyncio.sleep(0)
+            return await sync_to_async(resolve_ai_gateway_config)()
+
+        async def run_concurrently() -> None:
+            async def trial() -> AIGatewayConfig | None:
+                with private_scout_gateway():
+                    assert await sync_to_async(lambda: get_query_tags().is_scout_experiment)() is True
+                    return await read_config()
+
+            trial_config, ordinary_config = await asyncio.gather(trial(), read_config())
+            assert trial_config is None
+            assert ordinary_config == AIGatewayConfig(url=AI_GATEWAY_URL, api_key=AI_GATEWAY_KEY)
+
+        async_to_sync(run_concurrently)()
+        with pytest.raises(RuntimeError), private_scout_gateway():
+            with private_scout_gateway():
+                assert async_to_sync(read_config)() is None
+            assert resolve_ai_gateway_config() is None
+            raise RuntimeError("validation failed")
+        assert resolve_ai_gateway_config() == AIGatewayConfig(url=AI_GATEWAY_URL, api_key=AI_GATEWAY_KEY)
+        assert get_query_tags().is_scout_experiment is not True
+
+    @override_settings(
+        SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+        SCOUT_LIVE_TRIALS_GATEWAY_URL="https://private-gateway.example",
+        AI_GATEWAY_URL=AI_GATEWAY_URL,
+        AI_GATEWAY_API_KEY=AI_GATEWAY_KEY,
+    )
+    def test_go_only_client_cannot_escape_private_context(self) -> None:
+        with patch.object(gateway_client, "Anthropic") as client, private_scout_gateway():
+            with pytest.raises(ValueError, match="AI_GATEWAY_URL"):
+                build_ai_gateway_anthropic_client()
+        client.assert_not_called()

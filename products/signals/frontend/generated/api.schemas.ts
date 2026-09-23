@@ -3355,6 +3355,211 @@ export interface SignalScoutManualRunApi {
     started: boolean
 }
 
+export interface ScoutTrialLaunchApi {
+    /** Unique launch ID. Reuse it only when retrying this exact request. */
+    launch_id: string
+    /** Saved starting context from a previous launch in this comparison. */
+    context_id?: string
+    /**
+     * Operator label for this variant.
+     * @maxLength 100
+     */
+    variant?: string
+    /**
+     * Replacement skill body for this run. Supporting files and tool permissions stay pinned.
+     * @maxLength 100000
+     */
+    skill_body?: string
+    /**
+     * Model identifier for this run.
+     * @maxLength 200
+     */
+    model?: string
+    /**
+     * Reasoning effort supported by the selected model. Required when the saved source has no pinned effort.
+     * @maxLength 20
+     */
+    reasoning_effort?: string
+    /**
+     * Common investigation note, saved before applying any variant overrides.
+     * @maxLength 1000
+     */
+    note?: string
+}
+
+export interface ScoutTrialStartedApi {
+    /** Retry-stable launch identity. */
+    launch_id: string
+    /** Starting context to reuse across variants and repetitions. */
+    context_id: string
+    /** Workflow dispatch identity. */
+    workflow_id: string
+    /** Resolved model identifier. */
+    model: string
+    /** Resolved reasoning effort. */
+    reasoning_effort: string
+    /** Operator label for this variant. */
+    variant: string
+}
+
+/**
+ * `SignalScratchpad` projection used by `search-memory` and `remember`.
+ */
+export interface ScratchpadEntryApi {
+    /** Agent-chosen semantic key, unique per team. */
+    key: string
+    /** Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set. */
+    content: string
+    /**
+     * ISO-8601 creation timestamp.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * ISO-8601 last-write timestamp.
+     * @nullable
+     */
+    updated_at: string | null
+    /**
+     * ISO-8601 expiry, or null for a durable memory that stays until it's forgotten.
+     * @nullable
+     */
+    expires_at?: string | null
+    /**
+     * Scout run that wrote this entry, or null when a report-pipeline stage or a human wrote it.
+     * @nullable
+     */
+    created_by_run_id: string | null
+    /**
+     * Who created this entry: the canonical skill name of the scout that wrote it (e.g. `signals-scout-apm`), or the report-pipeline stage that did (`pipeline:report-research`, `pipeline:implementation`). Null if human-authored.
+     * @nullable
+     */
+    created_by_skill?: string | null
+    /**
+     * Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.
+     * @nullable
+     */
+    created_by_run_url?: string | null
+}
+
+/**
+ * Private memory replacements and deleted keys for this run.
+ */
+export type ScoutTrialResultApiMemory = { [key: string]: ScratchpadEntryApi | null }
+
+export interface JsonValueApi {}
+
+export type TrialReportApiDocument = { [key: string]: JsonValueApi }
+
+export type TrialReportApiPayload = { [key: string]: JsonValueApi }
+
+export type TrialReportApiEditsItem = { [key: string]: JsonValueApi }
+
+export type TrialReportApiOperatorMetadata = { [key: string]: JsonValueApi }
+
+export type TrialReportApiEvidenceItem = { [key: string]: JsonValueApi }
+
+export type TrialReportApiArtefactsItem = { [key: string]: JsonValueApi }
+
+export interface TrialReportApi {
+    id: string
+    source_report_id?: string | null
+    document: TrialReportApiDocument
+    payload?: TrialReportApiPayload
+    edits?: TrialReportApiEditsItem[]
+    operator_metadata?: TrialReportApiOperatorMetadata
+    evidence?: TrialReportApiEvidenceItem[]
+    artefacts?: TrialReportApiArtefactsItem[]
+    content_revision_count?: number
+    corroboration_count?: number
+}
+
+export interface ScoutTrialResultApi {
+    /** Launch identity. */
+    launch_id: string
+    /** Saved starting context identity. */
+    context_id: string
+    /** Resolved model identifier. */
+    model: string
+    /** Resolved reasoning effort. */
+    reasoning_effort: string
+    /** Hash of the skill body delivered to this run. */
+    skill_body_sha256: string
+    /**
+     * Private object-storage result reference, when exported.
+     * @nullable
+     */
+    result_key: string | null
+    /**
+     * Whether the durable export needs a retry; inline results remain available.
+     * @nullable
+     */
+    export_error: string | null
+    /**
+     * Execution start time.
+     * @nullable
+     */
+    started_at: string | null
+    /**
+     * Execution completion time.
+     * @nullable
+     */
+    completed_at: string | null
+    /**
+     * Scout run identity once the sandbox is prepared.
+     * @nullable
+     */
+    run_id: string | null
+    /**
+     * Task identity for existing log and cancellation tools.
+     * @nullable
+     */
+    task_id: string | null
+    /**
+     * Task execution identity for logs and usage.
+     * @nullable
+     */
+    task_run_id: string | null
+    /** Execution status, or pending while the workflow prepares the run. */
+    status: string
+    /**
+     * Underlying task status; cancel an active task if its workflow failed.
+     * @nullable
+     */
+    task_status: string | null
+    /**
+     * Setup or workflow failure, including failures before a task was created.
+     * @nullable
+     */
+    error: string | null
+    /** Scout close-out summary. */
+    summary: string
+    /**
+     * Why this execution cannot be used for comparison.
+     * @nullable
+     */
+    invalid_reason: string | null
+    /** Privately captured report creations and edits. */
+    reports: TrialReportApi[]
+    /** Private memory replacements and deleted keys for this run. */
+    memory: ScoutTrialResultApiMemory
+    /**
+     * Attributed model cost when available; null means unknown.
+     * @nullable
+     */
+    cost_usd: number | null
+    /**
+     * Input tokens reported by the agent runtime.
+     * @nullable
+     */
+    input_tokens: number | null
+    /**
+     * Output tokens reported by the agent runtime.
+     * @nullable
+     */
+    output_tokens: number | null
+}
+
 /**
  * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
  */
@@ -5308,46 +5513,6 @@ export interface ScoutRunTokenCostsApi {
 }
 
 /**
- * `SignalScratchpad` projection used by `search-memory` and `remember`.
- */
-export interface ScratchpadEntryApi {
-    /** Agent-chosen semantic key, unique per team. */
-    key: string
-    /** Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set. */
-    content: string
-    /**
-     * ISO-8601 creation timestamp.
-     * @nullable
-     */
-    created_at: string | null
-    /**
-     * ISO-8601 last-write timestamp.
-     * @nullable
-     */
-    updated_at: string | null
-    /**
-     * ISO-8601 expiry, or null for a durable memory that stays until it's forgotten.
-     * @nullable
-     */
-    expires_at?: string | null
-    /**
-     * Scout run that wrote this entry, or null when a report-pipeline stage or a human wrote it.
-     * @nullable
-     */
-    created_by_run_id: string | null
-    /**
-     * Who created this entry: the canonical skill name of the scout that wrote it (e.g. `signals-scout-apm`), or the report-pipeline stage that did (`pipeline:report-research`, `pipeline:implementation`). Null if human-authored.
-     * @nullable
-     */
-    created_by_skill?: string | null
-    /**
-     * Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.
-     * @nullable
-     */
-    created_by_run_url?: string | null
-}
-
-/**
  * Request body for `remember`.
  */
 export interface RememberRequestApi {
@@ -5970,6 +6135,13 @@ export type SignalsScoutConfigListParams = {
      * @minLength 1
      */
     tags?: string
+}
+
+export type SignalsScoutConfigTrialResultParams = {
+    /**
+     * Launch identity returned by the trial action.
+     */
+    launch_id: string
 }
 
 export type SignalsScoutConfigSyncParams = {

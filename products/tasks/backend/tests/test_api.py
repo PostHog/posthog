@@ -22,10 +22,15 @@ from django.utils import timezone as django_timezone
 
 import jwt
 import requests
+import posthoganalytics
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import APIException
+from rest_framework.response import Response
 from rest_framework.test import APIClient
+from rest_framework.views import APIView
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
@@ -87,6 +92,7 @@ from products.tasks.backend.models import (
     TaskClientProvenance,
     TaskPin,
     TaskRun,
+    TaskSearchDocument,
     TaskSession,
     TaskThreadMessage,
     TaskThreadMessageMention,
@@ -330,6 +336,140 @@ class TestBuiltInAgentTaskAccess(BaseTaskAPITest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert Task.objects.filter(title="Child task").exists()
+
+
+class TestScoutTrialTaskVisibility(BaseTaskAPITest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.ordinary_task = self.create_task()
+        self.trial_tasks = [
+            Task.objects.create(
+                team=self.team,
+                created_by=self.user,
+                title="Saved scout result",
+                description="Inspect recent activity",
+                origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+                origin_key=f"scout-trial:{uuid.uuid4()}",
+                repository=f"example/scout-{index}",
+            )
+            for index in range(2)
+        ]
+        self.trial_runs = [
+            TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                state={"scout_trial": {"id": "private"}, "scout_trial_private": {"reports": []}},
+            )
+            for task in self.trial_tasks
+        ]
+        for task in self.trial_tasks:
+            TaskPin.objects.create(user=self.user, task=task)
+            TaskSearchDocument.objects.for_team(self.team.id).create(
+                team=self.team,
+                task=task,
+                kind=TaskSearchDocument.Kind.TASK,
+                source_key=str(task.id),
+                title=task.title,
+                search_text="saved scout result",
+            )
+
+    @parameterized.expand([("ordinary", False, True), ("trial", True, True), ("legacy", False, False)])
+    def test_sandbox_discovery_and_direct_access_exclude_other_trials(
+        self, _name: str, is_trial: bool, bound: bool
+    ) -> None:
+        own_task = self.trial_tasks[0] if is_trial else self.ordinary_task
+        client = self._sandbox_oauth_client(own_task.id, bound=bound, internal_scope=True)
+        visible_trial_ids = {str(own_task.id)} if is_trial else set()
+        all_trial_ids = {str(task.id) for task in self.trial_tasks}
+        base = "/api/projects/@current/tasks/"
+
+        response = client.get(base)
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in response.json()["results"]} & all_trial_ids == visible_trial_ids
+        response = client.get(f"{base}search/?q=saved")
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["task_id"] for row in response.json()} == visible_trial_ids
+        response = client.post(f"{base}summaries/", {"ids": list(all_trial_ids)}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in response.json()["results"]} == visible_trial_ids
+        response = client.get(f"{base}pinned/")
+        assert response.status_code == status.HTTP_200_OK
+        assert set(response.json()["task_ids"]) == visible_trial_ids
+        response = client.get(f"{base}repositories/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["repositories"] == ([own_task.repository] if is_trial else [])
+
+        sibling, sibling_run = self.trial_tasks[1], self.trial_runs[1]
+        for path in (
+            f"{base}{sibling.id}/",
+            f"{base}{sibling.id}/runs/",
+            f"{base}{sibling.id}/runs/{sibling_run.id}/",
+            f"{base}{sibling.id}/runs/{sibling_run.id}/logs/",
+            f"{base}{sibling.id}/runs/{sibling_run.id}/session_logs/",
+            f"{base}{sibling.id}/runs/{sibling_run.id}/living_artifacts/",
+        ):
+            with self.subTest(path=path):
+                assert client.get(path).status_code == status.HTTP_404_NOT_FOUND
+
+        own_response = client.get(f"{base}{own_task.id}/")
+        assert own_response.status_code == status.HTTP_200_OK
+        assert own_response.json()["origin_key"] is None
+
+    def test_own_sandbox_and_operator_can_read_trial_without_exposing_private_state(self) -> None:
+        task, run = self.trial_tasks[0], self.trial_runs[0]
+        agent = self._sandbox_oauth_client(task.id, internal_scope=True)
+        base = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
+        for client in (agent, self.client):
+            response = client.get(base)
+            assert response.status_code == status.HTTP_200_OK
+            assert "scout_trial" not in response.json()["state"]
+            assert "scout_trial_private" not in response.json()["state"]
+            with patch.object(tasks_facade, "read_task_run_logs", return_value=""):
+                assert client.get(f"{base}logs/").status_code == status.HTTP_200_OK
+                assert client.get(f"{base}session_logs/").status_code == status.HTTP_200_OK
+
+    @parameterized.expand([("ordinary", False, False), ("private", True, False), ("sibling", True, True)])
+    def test_log_read_exception_capture_uses_verified_task(self, _name: str, is_trial: bool, sandbox: bool) -> None:
+        task = self.trial_tasks[0] if is_trial else self.ordinary_task
+        run = self.trial_runs[0] if is_trial else TaskRun.objects.create(team=self.team, task=task)
+        reader = self._sandbox_oauth_client(self.ordinary_task.id, internal_scope=True) if sandbox else self.client
+        captures: list[str | None] = []
+        exception_handler = APIView().get_exception_handler()
+
+        def capture_error(error: Exception, context: dict[str, Any]) -> Response | None:
+            captures.append(posthoganalytics.capture_exception(error, distinct_id="synthetic"))
+            return exception_handler(error, context)
+
+        with patch.multiple(
+            posthoganalytics,
+            default_client=None,
+            disabled=False,
+            send=False,
+            enable_local_evaluation=False,
+            enable_exception_autocapture=False,
+            log_captured_exceptions=False,
+        ):
+            sdk = posthoganalytics.setup()
+            try:
+                with (
+                    patch.object(
+                        tasks_facade, "read_task_run_logs", side_effect=APIException("Synthetic read failure")
+                    ) as read,
+                    patch(
+                        "products.tasks.backend.presentation.views.api.TaskRunViewSet.get_exception_handler",
+                        return_value=capture_error,
+                    ),
+                ):
+                    response = reader.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/session_logs/")
+                assert response.status_code == (
+                    status.HTTP_404_NOT_FOUND if sandbox else status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                assert read.call_count == (0 if sandbox else 1)
+                assert len(captures) == 1
+                assert (captures[0] is None) == is_trial
+                assert get_query_tags().is_scout_experiment is not True
+            finally:
+                sdk.shutdown()
 
 
 class TestTaskCreatorScoping(BaseTaskAPITest):
@@ -6409,6 +6549,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
+        trial_context = {"version": 1, "launch_id": "synthetic-launch"}
+        trial_private = {"reports": {"synthetic-report": {"title": "Saved finding"}}}
         credential_target = self.create_organization_user("credential-target")
         task = self.create_task()
         system_prompt = {"type": "preset", "preset": "claude_code", "append": "Server-owned instructions"}
@@ -6429,6 +6571,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             state={
+                "scout_trial": trial_context,
+                "scout_trial_private": trial_private,
                 "github_credential_source": "caller_token",
                 "systemPrompt": system_prompt,
                 "claude_model_access": "own-subscription",
@@ -6498,6 +6642,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
                 "state": {
+                    "scout_trial": {"version": 2},
+                    "scout_trial_private": {"reports": {}},
                     "github_credential_source": "server_integration",
                     "systemPrompt": "Caller-controlled instructions",
                     "claude_model_access": "posthog-gateway",
@@ -6628,6 +6774,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["run_source"] == "manual"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
+        assert run.state["scout_trial"] == trial_context
+        assert run.state["scout_trial_private"] == trial_private
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
         response = self.client.patch(
@@ -6635,6 +6783,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {},
                 "state_remove_keys": [
+                    "scout_trial",
+                    "scout_trial_private",
                     "systemPrompt",
                     "claude_model_access",
                     "claude_subscription_user_id",
@@ -6729,15 +6879,26 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["run_source"] == "manual"
         assert "scratch" not in run.state  # non-protected key removed
         assert run.state["systemPrompt"] == system_prompt
+        assert run.state["scout_trial"] == trial_context
+        assert run.state["scout_trial_private"] == trial_private
 
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
-            {"state_append": {"systemPrompt": "Caller-controlled instructions", "scratch": "ok"}},
+            {
+                "state_append": {
+                    "systemPrompt": "Caller-controlled instructions",
+                    "scratch": "ok",
+                    "scout_trial": {"version": 2},
+                    "scout_trial_private": {"reports": {}},
+                }
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
         assert run.state["systemPrompt"] == system_prompt
+        assert run.state["scout_trial"] == trial_context
+        assert run.state["scout_trial_private"] == trial_private
         assert run.state["scratch"] == ["ok"]
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")

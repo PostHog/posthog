@@ -276,6 +276,9 @@ class TestFacadeReadsAndMappers(TestCase):
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
+                "scout_trial": {"id": "private-trial"},
+                "scout_trial_private": {"reports": [{"title": "Saved candidate"}]},
+                "posthog_mcp_scopes": "signals_scout_experiment",
                 "task_summary": "Private workflow context",
             },
         )
@@ -292,6 +295,9 @@ class TestFacadeReadsAndMappers(TestCase):
         assert ("store_skills" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
+        assert "scout_trial" not in detail.state
+        assert "scout_trial_private" not in detail.state
+        assert "posthog_mcp_scopes" not in detail.state
         assert detail.task_summary == ("Private workflow context" if include_agent_state else None)
 
     def test_get_task_run_maps_all_fields(self):

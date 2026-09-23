@@ -2621,7 +2621,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "organization": self.context.organization_id,
                 "project": self.context.team_uuid,
             },
-            capture_analytics=capture_analytics,
+            capture_analytics=capture_analytics and not bool((self.context.state or {}).get("scout_trial")),
         )
         await workflow.execute_activity(
             track_workflow_event,

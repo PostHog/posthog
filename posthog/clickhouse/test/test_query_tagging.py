@@ -188,14 +188,14 @@ async def test_async_tasks_have_isolated_tags():
 
     async def task_a():
         # Task A sets its tags first
-        tag_queries(team_id=100, user_id=1)
+        tag_queries(team_id=100, user_id=1, is_scout_experiment=True)
         task_a_set_tags.set()
 
         # Wait for Task B to set its tags
         await task_b_set_tags.wait()
 
         tags = get_query_tags()
-        results["task_a"] = {"team_id": tags.team_id, "user_id": tags.user_id}
+        results["task_a"] = {"team_id": tags.team_id, "user_id": tags.user_id, "private": tags.is_scout_experiment}
 
     async def task_b():
         # Wait for Task A to set its tags first
@@ -206,7 +206,7 @@ async def test_async_tasks_have_isolated_tags():
         task_b_set_tags.set()
 
         tags = get_query_tags()
-        results["task_b"] = {"team_id": tags.team_id, "user_id": tags.user_id}
+        results["task_b"] = {"team_id": tags.team_id, "user_id": tags.user_id, "private": tags.is_scout_experiment}
 
     task_a_handle = asyncio.create_task(task_a())
     task_b_handle = asyncio.create_task(task_b())
@@ -217,9 +217,11 @@ async def test_async_tasks_have_isolated_tags():
     # Each task should see its own values, not contaminated by the other
     assert results["task_a"]["team_id"] == 100
     assert results["task_a"]["user_id"] == 1
+    assert results["task_a"]["private"] is True
 
     assert results["task_b"]["team_id"] == 200
     assert results["task_b"]["user_id"] == 2
+    assert results["task_b"]["private"] is None
 
 
 @pytest.mark.asyncio

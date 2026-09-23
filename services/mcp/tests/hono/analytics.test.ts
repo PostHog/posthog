@@ -104,29 +104,64 @@ describe('Hono MCP analytics contexts', () => {
         expect(mockCapture).not.toHaveBeenCalled()
     })
 
+    it.each(['scout-trial-create', 'scout-trial-get'])(
+        'excludes exec discovery metadata for %s with ordinary operator credentials',
+        async (targetTool) => {
+            await trackToolCall(
+                'exec',
+                12,
+                false,
+                makeState({ suppressAnalytics: false }),
+                { $mcp_exec_verb: 'info', $mcp_exec_target_tool: targetTool },
+                { intent: 'Compare synthetic scout variants' }
+            )
+
+            expect(mockCaptureToolCall).not.toHaveBeenCalled()
+            expect(mockCapture).not.toHaveBeenCalled()
+        }
+    )
+
     it.each([
         { impersonated: true, isError: false },
         { impersonated: true, isError: true },
         { impersonated: false, isError: false },
         { impersonated: false, isError: true },
     ])('passes impersonated=$impersonated to the SDK with isError=$isError', async ({ impersonated, isError }) => {
-        const state = makeState({ isImpersonated: impersonated })
+        const state = makeState({ isImpersonated: impersonated, suppressAnalytics: impersonated })
 
-        await trackToolCall('user-get', 12, isError, state, { is_impersonated: !impersonated })
+        await trackToolCall('user-get', 12, isError, state, {
+            is_impersonated: !impersonated,
+            suppress_analytics: !impersonated,
+        })
         await trackInitEvent(state)
         await trackToolsList(['user-get'], state)
+        await trackExecuteSqlGeneration('execute-sql', { query: 'SELECT 1' }, state, { durationMs: 12, isError })
+        await trackToolSpan('user-get', state, { input: {}, output: {}, durationMs: 12, isError })
+        await trackSkillInvoked(state, { source: 'posthog', skill: 'test-skill', readKind: 'skill' })
 
         expect(mockCaptureToolCall).toHaveBeenCalledWith(
             expect.objectContaining({
                 toolName: 'user-get',
                 isError,
-                properties: expect.objectContaining({ is_impersonated: impersonated }),
+                properties: expect.objectContaining({
+                    is_impersonated: impersonated,
+                    suppress_analytics: impersonated,
+                }),
             })
         )
         for (const capture of [mockCaptureInitialize, mockCaptureToolsList]) {
             expect(capture).toHaveBeenCalledWith(
-                expect.objectContaining({ properties: expect.objectContaining({ is_impersonated: impersonated }) })
+                expect.objectContaining({
+                    properties: expect.objectContaining({
+                        is_impersonated: impersonated,
+                        suppress_analytics: impersonated,
+                    }),
+                })
             )
+        }
+        expect(mockCapture).toHaveBeenCalledTimes(3)
+        for (const [event] of mockCapture.mock.calls) {
+            expect(event.properties.suppress_analytics).toBe(impersonated)
         }
     })
 

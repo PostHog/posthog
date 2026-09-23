@@ -61,6 +61,7 @@ export class StateManager {
                 scoped_teams: scoped_teams ?? [],
                 scoped_organizations: scoped_organizations ?? [],
                 is_impersonated: false,
+                suppress_analytics: false,
             }
         }
 
@@ -97,6 +98,8 @@ export class StateManager {
             scoped_teams: scoped_teams ?? [],
             scoped_organizations: scoped_organizations ?? [],
             is_impersonated: introspectionResult.data.is_impersonated === true,
+            // Only server-minted sandbox tokens can carry this scope; request headers cannot opt out.
+            suppress_analytics: (scope ?? '').split(' ').includes('scout_experiment_internal:read'),
         }
     }
 
@@ -194,13 +197,13 @@ export class StateManager {
                         `[StateManager] Scoped org ${organizationId} projects lookup returned 404 (org not accessible to this user or deleted); falling back to org-only context`
                     )
                 } else {
-                    this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
+                    await this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
                         organization_id: organizationId,
                     })
                 }
             }
         } catch (error) {
-            this._reportException(error, 'default_org_project_projects_list_threw', {
+            await this._reportException(error, 'default_org_project_projects_list_threw', {
                 organization_id: organizationId,
             })
         }
@@ -217,9 +220,20 @@ export class StateManager {
         return error instanceof PostHogApiError && error.status === 404
     }
 
-    private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
+    private async _reportException(
+        error: unknown,
+        context: string,
+        extra: Record<string, unknown> = {}
+    ): Promise<void> {
         try {
-            getPostHogClient().captureException(error, undefined, { tag: 'mcp', team: 'posthog_ai', context, ...extra })
+            const apiKey = await this.getApiKey()
+            getPostHogClient().captureException(error, undefined, {
+                tag: 'mcp',
+                team: 'posthog_ai',
+                context,
+                ...extra,
+                suppress_analytics: apiKey.suppress_analytics === true,
+            })
         } catch {
             // Never let observability break the request.
         }

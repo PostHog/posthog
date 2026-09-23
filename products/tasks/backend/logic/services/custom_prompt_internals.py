@@ -7,11 +7,13 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
 
 from asgiref.sync import sync_to_async
+from pydantic import JsonValue
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
@@ -252,7 +254,7 @@ class AgentTurnFailed(RuntimeError):
         return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 
 
-async def create_task_and_trigger(
+async def _create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
     branch: str | None = None,
@@ -266,7 +268,9 @@ async def create_task_and_trigger(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
-):
+    origin_key: str | None = None,
+    before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
+) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
     # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
@@ -277,6 +281,7 @@ async def create_task_and_trigger(
     extra_run_state: dict[str, Any] | None = None
     if context.mcp_exclude_tools:
         extra_run_state = {"mcp_exclude_tools": list(context.mcp_exclude_tools)}
+
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
@@ -310,12 +315,46 @@ async def create_task_and_trigger(
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         interaction_origin=context.interaction_origin,
         extra_run_state=extra_run_state,
+        origin_key=origin_key,
+        before_task_dispatch=before_task_dispatch,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
-    if not task_run:
+    if task_run is None:
         raise RuntimeError("Task.create_and_run did not produce a TaskRun")
     return task, task_run
+
+
+async def create_task_and_trigger(
+    description: str,
+    context: CustomPromptSandboxContext,
+    branch: str | None = None,
+    step_name: str = "",
+    origin_product: Task.OriginProduct | None = None,
+    signal_report_id: str | None = None,
+    ai_stage: str | None = None,
+    ai_agent_name: str | None = None,
+    internal: bool = False,
+    workflow_id_prefix: str | None = None,
+    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+    mcp_credential_owner_id: int | None = None,
+    mcp_gateway_server_ids: list[str] | None = None,
+):
+    return await _create_task_and_trigger(
+        description,
+        context,
+        branch=branch,
+        step_name=step_name,
+        origin_product=origin_product,
+        signal_report_id=signal_report_id,
+        ai_stage=ai_stage,
+        ai_agent_name=ai_agent_name,
+        internal=internal,
+        workflow_id_prefix=workflow_id_prefix,
+        mcp_builtin_agent_key=mcp_builtin_agent_key,
+        mcp_credential_owner_id=mcp_credential_owner_id,
+        mcp_gateway_server_ids=mcp_gateway_server_ids,
+    )
 
 
 async def _refresh_task_run(task_run_id) -> TaskRun:

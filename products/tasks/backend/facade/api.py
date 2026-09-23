@@ -798,7 +798,7 @@ def _task_detail_to_dto(
         latest_run_id=latest_run_id,
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
-        origin_key=task.origin_key,
+        origin_key=None if task.is_scout_experiment else task.origin_key,
     )
 
 
@@ -2453,6 +2453,8 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "scout_trial",
+        "scout_trial_private",
         "run_source",
         "pr_base_branch",
         "github_credential_source",
@@ -5864,8 +5866,26 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
     return _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id).exists()
 
 
-def list_pinned_task_ids(team_id: int, user_id: int) -> list[UUID]:
-    visible_tasks = _visible_task_qs(team_id, user_id).values("id")
+def scout_trial_task_ids(team_id: int, *, visible_task_id: UUID | None = None) -> tuple[UUID, ...]:
+    tasks = Task.objects.filter(
+        team_id=team_id, origin_product=Task.OriginProduct.SIGNALS_SCOUT, origin_key__startswith="scout-trial:"
+    )
+    if visible_task_id is not None:
+        tasks = tasks.exclude(id=visible_task_id)
+    return tuple(tasks.values_list("id", flat=True))
+
+
+def is_scout_trial_task(task_id: str | UUID, team_id: int) -> bool:
+    return Task.objects.filter(
+        id=task_id,
+        team_id=team_id,
+        origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        origin_key__startswith="scout-trial:",
+    ).exists()
+
+
+def list_pinned_task_ids(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[UUID]:
+    visible_tasks = _visible_task_qs(team_id, user_id).exclude(id__in=exclude_task_ids).values("id")
     return list(
         TaskPin.objects.filter(user_id=user_id, task_id__in=Subquery(visible_tasks))
         .order_by("-pinned_at")
@@ -6183,12 +6203,16 @@ def search_tasks(
     *,
     limit: int = 20,
     bypass_visibility: bool = False,
+    exclude_task_ids: Iterable[UUID] = (),
 ) -> list[dict]:
     normalized = query.strip().lower()
     if not normalized:
         return []
     visible_task_ids = (
-        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).filter(internal=False).values("id")
+        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility)
+        .filter(internal=False)
+        .exclude(id__in=exclude_task_ids)
+        .values("id")
     )
     visibility = Q(task_id__in=Subquery(visible_task_ids)) | (
         Q(task__isnull=True, channel__deleted=False) & Channel.visible_to_q(user_id, relation="channel")
@@ -6238,9 +6262,13 @@ def inaccessible_repositories_via_integration(team_id: int, integration_id: int,
     return _inaccessible_repositories_via_integration(team_id, integration_id, repositories)
 
 
-def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
+def list_task_repositories(team_id: int, user_id: int | None, *, exclude_task_ids: Iterable[UUID] = ()) -> list[str]:
     """Distinct repositories used by non-deleted, non-internal visible tasks for the team."""
-    tasks = Task.objects.filter(team_id=team_id, deleted=False, internal=False).filter(task_visibility_q(user_id))
+    tasks = (
+        Task.objects.filter(team_id=team_id, deleted=False, internal=False)
+        .filter(task_visibility_q(user_id))
+        .exclude(id__in=exclude_task_ids)
+    )
     plural = (
         tasks.exclude(repositories=[])
         .annotate(repository_name=Func(F("repositories"), function="unnest", output_field=CharField()))
@@ -6279,7 +6307,13 @@ def _latest_run_summary(
 
 
 def get_task_summaries(
-    team_id: int, user_id: int | None, *, ids: list, limit: int | None = None, offset: int = 0
+    team_id: int,
+    user_id: int | None,
+    *,
+    ids: list,
+    limit: int | None = None,
+    offset: int = 0,
+    exclude_task_ids: Iterable[UUID] = (),
 ) -> tuple[list[contracts.TaskSummaryDTO], int]:
     """Summary fields for the requested tasks, mirroring ``TaskViewSet.summaries``."""
     from django.db.models.functions import JSONObject  # noqa: PLC0415
@@ -6324,6 +6358,7 @@ def get_task_summaries(
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
         .filter(task_visibility_q(user_id))
+        .exclude(id__in=exclude_task_ids)
         .annotate(
             _latest_run=Subquery(latest_run.values("_data")[:1]),
             _latest_pr_run=Subquery(latest_pr_run.values("_pr")[:1]),
@@ -9856,6 +9891,7 @@ def list_mentions(
         # Legacy turn_complete rows are hidden from threads (see list_thread_messages),
         # so their indexed mentions must not surface notifications pointing at them.
     ).exclude(message__event="turn_complete")
+    qs = qs.exclude(task__origin_product=Task.OriginProduct.SIGNALS_SCOUT, task__origin_key__startswith="scout-trial:")
     if since is not None:
         qs = qs.filter(created_at__gt=since)
     mentions = qs.select_related("message__author", "task__channel").order_by("-created_at")[:limit]

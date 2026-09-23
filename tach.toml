@@ -868,6 +868,8 @@ path = "products.skills"
 depends_on = [
     "ee",
     "posthog",
+    # Facade-only: authenticated scout runs read their pinned skill variant.
+    "products.signals",
     "products.ai_observability", "products.access_control",
 ]
 layer = "modules"

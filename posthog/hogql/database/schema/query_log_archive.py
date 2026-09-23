@@ -1,4 +1,4 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
@@ -13,6 +13,9 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
 )
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
     "event_date": DateDatabaseField(
@@ -254,6 +257,15 @@ class RawQueryLogArchiveTable(Table):
 
     def to_printed_clickhouse(self, context) -> str:
         return "query_log_archive"
+
+    def to_printed_clickhouse_table_ref(self, context: "HogQLContext", use_logical_alias: bool = True) -> str:
+        # Keep private activity in operator logs without exposing the raw log metadata through HogQL.
+        # Archive fields are ALIAS columns, so the nested * must include them.
+        table = (
+            "(SELECT * FROM query_log_archive WHERE NOT JSONExtractBool(toString(log_comment), 'is_scout_experiment') "
+            "SETTINGS asterisk_include_alias_columns = 1)"
+        )
+        return f"{table} AS query_log_archive" if use_logical_alias else table
 
     def to_printed_hogql(self) -> str:
         return "raw_query_log"

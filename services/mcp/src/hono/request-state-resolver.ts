@@ -43,6 +43,7 @@ export interface ResolvedState {
     toolFeatureFlags: EvaluatedFlags | undefined
     apiKeyScopes: string[]
     isImpersonated?: boolean
+    suppressAnalytics?: boolean
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -182,6 +183,7 @@ export class RequestStateResolver {
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
+        props.suppressAnalytics = _apiKey?.suppress_analytics === true
 
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
@@ -270,6 +272,7 @@ export class RequestStateResolver {
             toolFeatureFlags,
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
+            suppressAnalytics: props.suppressAnalytics,
             oauthClientId,
             clientProfile,
             requestContext,
