@@ -1500,20 +1500,17 @@ class CSPMiddleware:
 
             admin_report_endpoint = csp_report_endpoint()
             if admin_report_endpoint:
-                csp_parts += [f"report-uri {admin_report_endpoint}", "report-to posthog"]
                 # Without a distinct_id the report endpoint mints a new one for every report, so a
-                # single staff session reads as a crowd of users. Only this header carries it, as in
-                # the app policy below.
+                # single staff session reads as a crowd of users.
                 user = getattr(request, "user", None)
                 distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
                 reporting_endpoint = (
                     csp_report_endpoint(distinct_id=distinct_id) if distinct_id else admin_report_endpoint
                 )
-                # Browsers only deliver crash reports to the endpoint named `default`; the CSP
-                # `report-to posthog` directive keeps routing violations to `posthog`.
-                response.headers["Reporting-Endpoints"] = (
-                    f'posthog="{reporting_endpoint}", default="{reporting_endpoint}"'
-                )
+                # The policy has no `report-to` directive. The app policy below gives the reason.
+                csp_parts.append(f"report-uri {reporting_endpoint}")
+                # Browsers only deliver crash reports to the endpoint named `default`.
+                response.headers["Reporting-Endpoints"] = f'default="{reporting_endpoint}"'
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
         elif "Content-Security-Policy" in response.headers:
             # The view picked this policy for this document: a canvas artifact runs untrusted code,
@@ -1685,16 +1682,21 @@ class CSPMiddleware:
                 shadow_uri = csp_report_endpoint(sample_rate=sample_rate, v=NARROWED_APP_POLICY_REPORT_VERSION)
                 shadow_parts = [*narrowed_app_policy(csp_parts, replacements), f"report-uri {shadow_uri}"]
             if report_uri:
-                csp_parts += [f"report-uri {report_uri}", "report-to posthog"]
                 report_endpoint = report_uri
                 if distinct_id:
-                    # Crash reports arrive after the tab already died, so the report body is the
-                    # only chance to attribute them; carrying the distinct_id in the endpoint URL
-                    # ties the event to the person instead of a random per-report id.
+                    # A report body never names the person, and a crash report arrives after the tab
+                    # already died, so only the URL can carry the distinct_id. Without it, the report
+                    # endpoint mints a random id for every report.
                     report_endpoint = csp_report_endpoint(sample_rate=sample_rate, distinct_id=distinct_id)
-                # Browsers only deliver crash reports to the endpoint named `default`; the CSP
-                # `report-to posthog` directive keeps routing violations to `posthog`.
-                response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
+                # The policy has no `report-to` directive, even though CSP3 marks `report-uri` as
+                # deprecated. While a policy names `report-to`, browsers ignore its `report-uri` and
+                # send reports only through the Reporting API. That API drops violations raised in
+                # about:blank and srcdoc frames, because those documents inherit this policy but not
+                # the Reporting-Endpoints header. Without `report-to`, browsers send those violations
+                # to `report-uri`.
+                csp_parts.append(f"report-uri {report_endpoint}")
+                # Browsers only deliver crash reports to the endpoint named `default`.
+                response.headers["Reporting-Endpoints"] = f'default="{report_endpoint}"'
             header_name = app_csp_header_name(request)
             response.headers[header_name] = "; ".join(csp_parts)
             if shadow_parts:

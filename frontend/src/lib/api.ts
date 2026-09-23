@@ -225,7 +225,6 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
-import type { BulkAddOptOutsResultApi, BulkOptOutEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -1931,10 +1930,6 @@ export class ApiRequest {
         return this.teamProjectDetail().addPathComponent('messaging_categories')
     }
 
-    public messagingCategory(categoryId: string): ApiRequest {
-        return this.messagingCategories().addPathComponent(categoryId)
-    }
-
     public messagingCategoriesImportFromCustomerIO(): ApiRequest {
         return this.messagingCategories().addPathComponent('import_from_customerio')
     }
@@ -1963,20 +1958,10 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent('remove_track_config')
     }
 
-    public messagingPreferences(): ApiRequest {
-        return this.teamProjectDetail().addPathComponent('messaging_preferences')
-    }
-
-    public messagingPreferencesLink(): ApiRequest {
-        return this.messagingPreferences().addPathComponent('generate_link')
-    }
-
     public messagingPreferencesExportOptOutsCsv(): ApiRequest {
-        return this.messagingPreferences().addPathComponent('export_opt_outs_csv')
-    }
-
-    public messagingPreferencesBulkAddOptOuts(): ApiRequest {
-        return this.messagingPreferences().addPathComponent('bulk_add_opt_outs')
+        return this.teamProjectDetail()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('export_opt_outs_csv')
     }
 
     public hogFlows(): ApiRequest {
@@ -6390,45 +6375,14 @@ const api = {
         ): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
         },
-
-        // Messaging Categories
-        async getCategories(params?: { category_type?: string }): Promise<PaginatedResponse<any>> {
-            return await new ApiRequest()
-                .messagingCategories()
-                .withQueryString(toParams(params || {}))
-                .get()
-        },
-        async getCategory(categoryId: string): Promise<any> {
-            return await new ApiRequest().messagingCategory(categoryId).get()
-        },
-        async createCategory(data: any): Promise<any> {
-            return await new ApiRequest().messagingCategories().create({ data })
-        },
-        async updateCategory(categoryId: string, data: any): Promise<any> {
-            return await new ApiRequest().messagingCategory(categoryId).update({ data })
-        },
-        async deleteCategory(categoryId: string): Promise<void> {
-            return await new ApiRequest().messagingCategory(categoryId).delete()
-        },
-        async generateMessagingPreferencesLink(recipient?: string): Promise<string | null> {
-            const response = await new ApiRequest().messagingPreferencesLink().create({
-                data: {
-                    recipient,
-                },
-            })
-            return response.preferences_url || null
-        },
+        // The generated client's export function forces the response through JSON parsing (see
+        // frontend/src/lib/api-orval-mutator.ts), which breaks the CSV blob this endpoint streams back.
         async exportOptOutsCsv(categoryKey?: string): Promise<Blob> {
             const response = await new ApiRequest()
                 .messagingPreferencesExportOptOutsCsv()
                 .withQueryString({ category_key: categoryKey })
                 .getResponse()
             return await response.blob()
-        },
-        async bulkAddOptOuts(optOuts: BulkOptOutEntryApi[], categoryKey?: string): Promise<BulkAddOptOutsResultApi> {
-            return await new ApiRequest().messagingPreferencesBulkAddOptOuts().create({
-                data: { opt_outs: optOuts, category_key: categoryKey },
-            })
         },
     },
     hogFlows: {
