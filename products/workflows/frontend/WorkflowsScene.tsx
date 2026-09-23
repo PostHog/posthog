@@ -24,6 +24,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
+import { BroadcastsFeaturePreview } from './Broadcasts/BroadcastsFeaturePreview'
 import { BroadcastsTable } from './Broadcasts/BroadcastsTable'
 import { MessageChannels } from './Channels/MessageChannels'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
@@ -216,7 +217,12 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         {
             label: 'Broadcasts',
             key: 'broadcasts',
-            content: <BroadcastsTable />,
+            content: (
+                <>
+                    <BroadcastsFeaturePreview />
+                    <BroadcastsTable />
+                </>
+            ),
             link: urls.workflows('broadcasts'),
         },
         {

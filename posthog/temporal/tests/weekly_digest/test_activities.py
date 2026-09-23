@@ -1,21 +1,44 @@
 import json
+import inspect
+import dataclasses
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
-from uuid import UUID, uuid4
+from typing import Any
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import _create_event, flush_persons_and_events
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
-import pytest_asyncio
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
+import fakeredis
+from asgiref.sync import sync_to_async
+from temporalio import activity
+
+from posthog.models.messaging import MessagingRecord
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_notification_lock import OrganizationMemberNotificationLock
+from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.temporal.weekly_digest.activities import (
+    DIGEST_PAYLOAD_SIZE_LIMIT,
+    NEW_ERROR_ISSUES_PER_TEAM_LIMIT,
+    ActivityCancelled,
+    UploadDeadlineExceeded,
     _cut_team_id_ranges,
     _query_team_usage_trends,
+    _redis_url,
     _teams_in_range,
     _usage_trend_metric,
-    count_organizations,
     generate_dashboard_lookup,
+    generate_error_issue_lookup,
     generate_event_definition_lookup,
     generate_experiment_completed_lookup,
     generate_experiment_launched_lookup,
@@ -30,6 +53,7 @@ from posthog.temporal.weekly_digest.activities import (
     generate_user_notification_lookup,
     send_weekly_digest_batch,
 )
+from posthog.temporal.weekly_digest.keys import TeamDataKey, UserDataKey, org_digest_key, team_data_key, user_data_key
 from posthog.temporal.weekly_digest.queries import query_team_ids_for_digest, query_teams_for_digest
 from posthog.temporal.weekly_digest.types import (
     DEFAULT_PRODUCT_SUGGESTION_TEXT,
@@ -42,106 +66,77 @@ from posthog.temporal.weekly_digest.types import (
     UsageTrends,
 )
 
-from products.growth.backend.product_push.selection import project_uses_product
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.error_tracking.backend.facade.testing import create_issue
+from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.growth.backend.models import ProductPushCampaign
+from products.surveys.backend.models import Survey
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+
+DJANGO_REDIS_URL = "redis://django-cache.example.com:6379"
 
 
-class MockRedis:
-    """Mock Redis client for testing."""
-
-    def __init__(self):
-        self.data = {}
-        self.sets = {}
-        self.ttls = {}
-
-    async def setex(self, key: str, ttl: int, value: str) -> None:
-        self.data[key] = value
-        self.ttls[key] = ttl
-
-    async def get(self, key: str) -> str | None:
-        return self.data.get(key)
-
-    async def mget(self, keys: list[str]) -> list[str | None]:
-        return [self.data.get(key) for key in keys]
-
-    async def sadd(self, key: str, *values) -> None:
-        if key not in self.sets:
-            self.sets[key] = set()
-        self.sets[key].update(values)
-
-    async def smembers(self, key: str) -> set:
-        return self.sets.get(key, set())
-
-    async def expire(self, key: str, ttl: int) -> None:
-        self.ttls[key] = ttl
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        pass
+def run_sync(activity_fn: Callable[..., Any], *args: Any) -> Any:
+    # Activities are `@asyncify` wrappers around a sync body. Calling the body directly keeps the
+    # test on the fast transactional database, which a thread-hopping coroutine could not see.
+    return inspect.unwrap(activity_fn)(*args)
 
 
-class MockAsyncQuerySet:
-    """Mock Django async queryset for testing."""
+class FakeRedisServers:
+    def __init__(self, common: CommonInput) -> None:
+        self._servers = {
+            _redis_url(common): fakeredis.FakeServer(),
+            common.django_redis_url: fakeredis.FakeServer(),
+        }
+        self.digest = fakeredis.FakeRedis(server=self._servers[_redis_url(common)], decode_responses=True)
+        self.django_cache = fakeredis.FakeRedis(server=self._servers[common.django_redis_url])
 
-    def __init__(self, items):
-        self.items = items
-
-    def filter(self, id__gte: int, id__lt: int):
-        return MockAsyncQuerySet([item for item in self.items if id__gte <= item.id < id__lt])
-
-    def __getitem__(self, key):
-        """Support slicing operations."""
-        if isinstance(key, slice):
-            return MockAsyncQuerySet(self.items[key])
-        return self.items[key]
-
-    def __aiter__(self):
-        """Support async iteration."""
-        return self
-
-    async def __anext__(self):
-        """Async iterator implementation."""
-        if not hasattr(self, "_iter"):
-            self._iter = iter(self.items)
-        try:
-            return next(self._iter)
-        except StopIteration:
-            delattr(self, "_iter")
-            raise StopAsyncIteration
+    def from_url(self, url: str, **kwargs: Any) -> fakeredis.FakeRedis:
+        return fakeredis.FakeRedis(server=self._servers[url], decode_responses="decode_responses=true" in url)
 
 
 @pytest.fixture
-def mock_redis():
-    """Fixture providing a mock Redis instance."""
-    return MockRedis()
-
-
-@pytest.fixture
-def common_input():
-    """Fixture providing common input parameters."""
+def common_input() -> CommonInput:
     return CommonInput(
         redis_ttl=3600 * 24 * 3,
-        redis_host="localhost",
+        redis_host="digest-redis.example.com",
         redis_port=6379,
         batch_size=10,
-        django_redis_url="redis://localhost:6379",
+        django_redis_url=DJANGO_REDIS_URL,
     )
 
 
 @pytest.fixture
-def digest():
-    """Fixture providing a test digest."""
-    period_end = datetime.now(UTC)
-    period_start = period_end - timedelta(days=7)
-    return Digest(key="test-digest", period_start=period_start, period_end=period_end)
+def redis_servers(common_input: CommonInput) -> Iterator[FakeRedisServers]:
+    servers = FakeRedisServers(common_input)
+    with patch("posthog.temporal.weekly_digest.activities.redis.Redis.from_url", side_effect=servers.from_url):
+        yield servers
 
 
-@pytest_asyncio.fixture(autouse=True)
-async def mock_heartbeater():
-    """Auto-fixture to mock Heartbeater for all tests."""
-    with patch("posthog.temporal.weekly_digest.activities.Heartbeater"):
+@pytest.fixture
+def digest() -> Digest:
+    # Rows created during the test carry `auto_now_add` timestamps, so the window ends after now.
+    period_end = datetime.now(UTC) + timedelta(hours=1)
+    return Digest(key="test-digest", period_start=period_end - timedelta(days=7), period_end=period_end)
+
+
+@pytest.fixture(autouse=True)
+def mock_heartbeater() -> Iterator[None]:
+    # HeartbeaterSync reads the activity context, which the sync bodies do not have under test.
+    with patch("posthog.temporal.weekly_digest.activities.HeartbeaterSync"):
         yield
+
+
+def batch_input(team: Team, digest: Digest, common: CommonInput) -> GenerateDigestDataBatchInput:
+    return GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=team.id, end=team.id + 1), digest=digest, common=common
+    )
+
+
+def create_user(organization: Organization, email: str, **fields: Any) -> User:
+    return User.objects.create_and_join(organization, email, None, **fields)
 
 
 @pytest.mark.django_db
@@ -169,808 +164,594 @@ def test_team_id_ranges_page_every_digest_team_exactly_once(organization, digest
     assert paged == expected
 
 
-@pytest.mark.asyncio
-async def test_count_organizations():
-    """Test counting organizations for digest."""
-    mock_queryset = AsyncMock()
-    mock_queryset.acount = AsyncMock(return_value=15)
-
-    with patch("posthog.temporal.weekly_digest.activities.query_orgs_for_digest", return_value=mock_queryset):
-        result = await count_organizations()
-
-    assert result == 15
-    mock_queryset.acount.assert_called_once()
+def _make_dashboards(team: Team, other_team: Team, digest: Digest) -> list[str]:
+    Dashboard.objects.create(team=team, name="New dashboard")
+    Dashboard.objects.create(team=team, name="Generated Dashboard: onboarding")
+    Dashboard.objects.create(team=other_team, name="Other team's dashboard")
+    old = Dashboard.objects.create(team=team, name="Old dashboard")
+    Dashboard.objects.filter(id=old.id).update(created_at=digest.period_start - timedelta(days=1))
+    return ["New dashboard"]
 
 
-@pytest.mark.asyncio
-async def test_generate_dashboard_lookup(mock_redis, common_input, digest):
-    """Test generating dashboard lookup with mock Redis."""
-    input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+def _make_event_definitions(team: Team, other_team: Team, digest: Digest) -> list[str]:
+    EventDefinition.objects.create(team=team, name="new_event", created_at=timezone.now())
+    EventDefinition.objects.create(team=other_team, name="other_event", created_at=timezone.now())
+    EventDefinition.objects.create(team=team, name="old_event", created_at=digest.period_start - timedelta(days=1))
+    return ["new_event"]
+
+
+def _make_experiment(team: Team, name: str, **fields: Any) -> Experiment:
+    flag = FeatureFlag.objects.create(
+        team=team, key=f"flag-{uuid4().hex[:8]}", name=f"Feature Flag for Experiment {name}"
+    )
+    return Experiment.objects.create(team=team, feature_flag=flag, name=name, **fields)
+
+
+def _make_experiments_launched(team: Team, other_team: Team, digest: Digest) -> list[str]:
+    in_window = digest.period_end - timedelta(days=1)
+    _make_experiment(team, "Launched", start_date=in_window)
+    _make_experiment(team, "Launched and completed", start_date=in_window, end_date=in_window)
+    _make_experiment(team, "Launched earlier", start_date=digest.period_start - timedelta(days=1))
+    _make_experiment(other_team, "Other team's launch", start_date=in_window)
+    return ["Launched"]
+
+
+def _make_experiments_completed(team: Team, other_team: Team, digest: Digest) -> list[str]:
+    in_window = digest.period_end - timedelta(days=1)
+    _make_experiment(team, "Completed", start_date=digest.period_start - timedelta(days=30), end_date=in_window)
+    _make_experiment(team, "Still running", start_date=in_window)
+    _make_experiment(other_team, "Other team's completion", start_date=in_window, end_date=in_window)
+    return ["Completed"]
+
+
+def _make_external_data_source(team: Team, source_type: str, **fields: Any) -> ExternalDataSource:
+    return ExternalDataSource.objects.create(
+        team=team,
+        source_id=str(uuid4()),
+        connection_id=str(uuid4()),
+        status="Completed",
+        source_type=source_type,
+        **fields,
     )
 
-    # Mock teams
-    mock_team_1 = MagicMock()
-    mock_team_1.id = 1
-    mock_team_2 = MagicMock()
-    mock_team_2.id = 2
 
-    # Mock dashboards
-    mock_dashboards = [
-        {"team_id": 1, "name": "Dashboard 1", "id": 101},
-        {"team_id": 1, "name": "Dashboard 2", "id": 102},
-    ]
-
-    mock_team_queryset = MockAsyncQuerySet([mock_team_1, mock_team_2])
-    mock_dashboard_queryset = MagicMock()
-
-    async def mock_queryset_to_list(qs):
-        if qs == mock_dashboard_queryset:
-            return mock_dashboards
-        return []
-
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch(
-            "posthog.temporal.weekly_digest.activities.query_new_dashboards", return_value=mock_dashboard_queryset
-        ):
-            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
-                with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                    await generate_dashboard_lookup(input_data)
-
-    # Verify data was stored in Redis
-    assert f"{digest.key}-dashboards-1" in mock_redis.data
-    assert mock_redis.ttls[f"{digest.key}-dashboards-1"] == common_input.redis_ttl
+def _make_external_data_sources(team: Team, other_team: Team, digest: Digest) -> list[str]:
+    _make_external_data_source(team, "Stripe")
+    _make_external_data_source(team, "Hubspot", deleted=True)
+    _make_external_data_source(other_team, "Zendesk")
+    old = _make_external_data_source(team, "Postgres")
+    ExternalDataSource.objects.filter(id=old.id).update(created_at=digest.period_start - timedelta(days=1))
+    return ["Stripe"]
 
 
-@pytest.mark.asyncio
-async def test_generate_event_definition_lookup(mock_redis, common_input, digest):
-    """Test generating event definition lookup with mock Redis."""
-    input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+def _make_feature_flags(team: Team, other_team: Team, digest: Digest) -> list[str]:
+    FeatureFlag.objects.create(team=team, key="new-flag", name="New flag")
+    FeatureFlag.objects.create(team=team, key="exp-flag", name="Feature Flag for Experiment checkout")
+    FeatureFlag.objects.create(team=team, key="survey-flag", name="Targeting flag for survey NPS")
+    FeatureFlag.objects.create(team=other_team, key="other-flag", name="Other team's flag")
+    FeatureFlag.objects.create(
+        team=team, key="old-flag", name="Old flag", created_at=digest.period_start - timedelta(days=1)
+    )
+    return ["New flag"]
+
+
+def _make_survey(team: Team, name: str, **fields: Any) -> Survey:
+    return Survey.objects.create(
+        team=team, name=name, type="popover", questions=[{"type": "open", "id": "q1", "question": "Why?"}], **fields
     )
 
-    mock_team = MagicMock()
-    mock_team.id = 1
 
-    mock_events = [
-        {"team_id": 1, "name": "pageview", "id": str(uuid4())},
-        {"team_id": 1, "name": "click", "id": str(uuid4())},
-    ]
-
-    mock_team_queryset = MockAsyncQuerySet([mock_team])
-
-    mock_event_queryset = MagicMock()
-
-    async def mock_queryset_to_list(qs):
-        if qs == mock_event_queryset:
-            return mock_events
-        return []
-
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch(
-            "posthog.temporal.weekly_digest.activities.query_new_event_definitions", return_value=mock_event_queryset
-        ):
-            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
-                with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                    await generate_event_definition_lookup(input_data)
-
-    assert f"{digest.key}-event-definitions-1" in mock_redis.data
-
-
-@pytest.mark.asyncio
-async def test_generate_experiment_launched_lookup(mock_redis, common_input, digest):
-    """Test generating experiment launched lookup with mock Redis."""
-    input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
-    )
-
-    mock_team = MagicMock()
-    mock_team.id = 1
-
-    mock_experiments = [
-        {"team_id": 1, "name": "Experiment A", "id": 1, "start_date": datetime.now(UTC)},
-        {"team_id": 1, "name": "Experiment B", "id": 2, "start_date": datetime.now(UTC)},
-    ]
-
-    mock_team_queryset = MockAsyncQuerySet([mock_team])
-
-    mock_experiment_queryset = MagicMock()
-
-    async def mock_queryset_to_list(qs):
-        if qs == mock_experiment_queryset:
-            return mock_experiments
-        return []
-
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch(
-            "posthog.temporal.weekly_digest.activities.query_experiments_launched",
-            return_value=mock_experiment_queryset,
-        ):
-            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
-                with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                    await generate_experiment_launched_lookup(input_data)
-
-    assert f"{digest.key}-experiments-launched-1" in mock_redis.data
-
-
-@pytest.mark.asyncio
-async def test_generate_experiment_completed_lookup(mock_redis, common_input, digest):
-    """Test generating experiment completed lookup with mock Redis."""
-    input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
-    )
-
-    mock_team = MagicMock()
-    mock_team.id = 1
-
-    mock_experiments = [
-        {
-            "team_id": 1,
-            "name": "Completed Experiment",
-            "id": 1,
-            "start_date": datetime.now(UTC) - timedelta(days=14),
-            "end_date": datetime.now(UTC) - timedelta(days=1),
-        }
-    ]
-
-    mock_team_queryset = MockAsyncQuerySet([mock_team])
-
-    mock_experiment_queryset = MagicMock()
-
-    async def mock_queryset_to_list(qs):
-        if qs == mock_experiment_queryset:
-            return mock_experiments
-        return []
-
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch(
-            "posthog.temporal.weekly_digest.activities.query_experiments_completed",
-            return_value=mock_experiment_queryset,
-        ):
-            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
-                with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                    await generate_experiment_completed_lookup(input_data)
-
-    assert f"{digest.key}-experiments-completed-1" in mock_redis.data
-
-
-@pytest.mark.asyncio
-async def test_generate_external_data_source_lookup(mock_redis, common_input, digest):
-    """Test generating external data source lookup with mock Redis."""
-    input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
-    )
-
-    mock_team = MagicMock()
-    mock_team.id = 1
-
-    mock_sources = [{"team_id": 1, "source_type": "stripe", "id": str(uuid4())}]
-
-    mock_team_queryset = MockAsyncQuerySet([mock_team])
-
-    mock_source_queryset = MagicMock()
-
-    async def mock_queryset_to_list(qs):
-        if qs == mock_source_queryset:
-            return mock_sources
-        return []
-
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch(
-            "posthog.temporal.weekly_digest.activities.query_new_external_data_sources",
-            return_value=mock_source_queryset,
-        ):
-            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
-                with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                    await generate_external_data_source_lookup(input_data)
-
-    assert f"{digest.key}-external-data-sources-1" in mock_redis.data
-
-
-@pytest.mark.asyncio
-async def test_generate_feature_flag_lookup(mock_redis, common_input, digest):
-    """Test generating feature flag lookup with mock Redis."""
-    input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
-    )
-
-    mock_team = MagicMock()
-    mock_team.id = 1
-
-    mock_flags = [
-        {"team_id": 1, "name": "New Feature", "id": 1, "key": "new-feature"},
-        {"team_id": 1, "name": "Beta Feature", "id": 2, "key": "beta-feature"},
-    ]
-
-    mock_team_queryset = MockAsyncQuerySet([mock_team])
-
-    mock_flag_queryset = MagicMock()
-
-    async def mock_queryset_to_list(qs):
-        if qs == mock_flag_queryset:
-            return mock_flags
-        return []
-
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch(
-            "posthog.temporal.weekly_digest.activities.query_new_feature_flags", return_value=mock_flag_queryset
-        ):
-            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
-                with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                    await generate_feature_flag_lookup(input_data)
-
-    assert f"{digest.key}-feature-flags-1" in mock_redis.data
-
-
-@pytest.mark.asyncio
-async def test_generate_survey_lookup(mock_redis, common_input, digest):
-    """Test generating survey lookup with mock Redis."""
-    input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
-    )
-
-    mock_team = MagicMock()
-    mock_team.id = 1
-
-    mock_surveys = [
-        {
-            "team_id": 1,
-            "name": "Customer Satisfaction",
-            "id": str(uuid4()),
-            "description": "How satisfied are you?",
-            "start_date": datetime.now(UTC),
-        }
-    ]
-
-    mock_team_queryset = MockAsyncQuerySet([mock_team])
-
-    mock_survey_queryset = MagicMock()
-
-    async def mock_queryset_to_list(qs):
-        if qs == mock_survey_queryset:
-            return mock_surveys
-        return []
-
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch(
-            "posthog.temporal.weekly_digest.activities.query_surveys_launched", return_value=mock_survey_queryset
-        ):
-            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
-                with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                    await generate_survey_lookup(input_data)
-
-    assert f"{digest.key}-surveys-launched-1" in mock_redis.data
-
-
-@pytest.mark.asyncio
-async def test_generate_filter_lookup(mock_redis, common_input, digest):
-    """Test generating filter lookup with mock Redis and playlist counts."""
-    input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
-    )
-
-    mock_team = MagicMock()
-    mock_team.id = 1
-
-    mock_filters = [
-        {"name": "High Value Users", "short_id": "abc123", "view_count": 5},
-        {"name": "Error Tracking", "short_id": "def456", "view_count": 3},
-    ]
-
-    # Mock playlist count data
-    mock_django_redis = MockRedis()
-    await mock_django_redis.setex(
-        "posthog:1:playlist:abc123:count",
-        3600,
-        '{"session_ids": ["session1", "session2"], "has_more": false, "previous_ids": null, "refreshed_at": "2024-01-01T00:00:00Z", "error_count": 0, "errored_at": null}',
-    )
-    await mock_django_redis.setex(
-        "posthog:1:playlist:def456:count",
-        3600,
-        '{"session_ids": ["session3"], "has_more": true, "previous_ids": null, "refreshed_at": "2024-01-01T00:00:00Z", "error_count": 0, "errored_at": null}',
-    )
-
-    mock_team_queryset = MockAsyncQuerySet([mock_team])
-
-    mock_filter_queryset = MagicMock()
-
-    async def mock_queryset_to_list(qs):
-        if qs == mock_filter_queryset:
-            return mock_filters
-        return []
-
-    def mock_redis_from_url(url):
-        if "django" in url.lower() or url == common_input.django_redis_url:
-            return mock_django_redis
-        return mock_redis
-
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch("posthog.temporal.weekly_digest.activities.query_saved_filters", return_value=mock_filter_queryset):
-            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
-                with patch("posthog.temporal.weekly_digest.activities.redis.from_url", side_effect=mock_redis_from_url):
-                    await generate_filter_lookup(input_data)
-
-    assert f"{digest.key}-saved-filters-1" in mock_redis.data
-
-
-@pytest.mark.asyncio
-async def test_generate_recording_lookup(mock_redis, common_input, digest):
-    """Test generating recording lookup with mock Redis and ClickHouse."""
-    input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
-    )
-
-    mock_team = MagicMock()
-    mock_team.id = 1
-
-    mock_ch_response = AsyncMock()
-    mock_ch_response.content.read = AsyncMock(
-        return_value=b'{"meta": [], "data": [{"recording_count": 10}], "statistics": {}, "rows": 1}'
-    )
-    mock_ch_response.__aenter__ = AsyncMock(return_value=mock_ch_response)
-    mock_ch_response.__aexit__ = AsyncMock(return_value=None)
-
-    mock_team_queryset = MockAsyncQuerySet([mock_team])
-
-    mock_ch_client = AsyncMock()
-    mock_ch_client.aget_query = MagicMock(return_value=mock_ch_response)
-    mock_ch_client.__aenter__ = AsyncMock(return_value=mock_ch_client)
-    mock_ch_client.__aexit__ = AsyncMock(return_value=None)
-
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch("posthog.temporal.weekly_digest.activities.get_ch_client", return_value=mock_ch_client):
-            with patch("posthog.temporal.weekly_digest.activities.database_sync_to_async") as mock_sync:
-                mock_sync.return_value = AsyncMock(return_value=30)
-                with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                    await generate_recording_lookup(input_data)
-
-    assert f"{digest.key}-expiring-recordings-1" in mock_redis.data
-
-
-@pytest.mark.asyncio
-async def test_generate_user_notification_lookup(mock_redis, common_input, digest):
-    """Test generating user notification lookup with mock Redis."""
-    input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
-    )
-
-    mock_team = MagicMock()
-    mock_team.id = 1
-
-    mock_user_1 = MagicMock()
-    mock_user_1.id = 100
-
-    mock_user_2 = MagicMock()
-    mock_user_2.id = 101
-
-    # Create a sync function that database_sync_to_async will wrap
-    def sync_all_users_with_access():
-        return [mock_user_1, mock_user_2]
-
-    mock_team.all_users_with_access = sync_all_users_with_access
-
-    mock_team_queryset = MockAsyncQuerySet([mock_team])
-
-    # Create an async generator function
-    async def async_user_generator():
-        for user in [mock_user_1, mock_user_2]:
-            yield user
-
-    # Create a coroutine that returns the async generator
-    async def async_wrapper():
-        return async_user_generator()
-
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch("posthog.temporal.weekly_digest.activities.should_send_notification", return_value=True):
-            with patch("posthog.temporal.weekly_digest.activities.database_sync_to_async") as mock_sync:
-                # database_sync_to_async(fn)() should return an awaitable that yields an async generator
-                mock_sync.return_value = async_wrapper
-                with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                    await generate_user_notification_lookup(input_data)
-
-    # Verify user notification sets were created
-    assert f"{digest.key}-user-notify-100" in mock_redis.sets
-    assert f"{digest.key}-user-notify-101" in mock_redis.sets
-    assert 1 in mock_redis.sets[f"{digest.key}-user-notify-100"]
-    assert 1 in mock_redis.sets[f"{digest.key}-user-notify-101"]
-
-
-@pytest.mark.asyncio
-async def test_generate_organization_digest_batch(mock_redis, common_input, digest):
-    """Test generating organization digest batch with mock Redis."""
-    batch = (0, 1)
-    input_data = GenerateOrganizationDigestInput(batch=batch, digest=digest, common=common_input)
-
-    mock_org = MagicMock()
-    mock_org.id = UUID("12345678-1234-1234-1234-123456789abc")
-    mock_org.name = "Test Organization"
-    mock_org.created_at = datetime.now(UTC)
-
-    mock_team = MagicMock()
-    mock_team.id = 1
-    mock_team.name = "Test Team"
-
-    # Pre-populate Redis with team digest data
-    await mock_redis.setex(f"{digest.key}-dashboards-1", 3600, "[]")
-    await mock_redis.setex(f"{digest.key}-event-definitions-1", 3600, "[]")
-    await mock_redis.setex(f"{digest.key}-experiments-launched-1", 3600, "[]")
-    await mock_redis.setex(f"{digest.key}-experiments-completed-1", 3600, "[]")
-    await mock_redis.setex(f"{digest.key}-external-data-sources-1", 3600, "[]")
-    await mock_redis.setex(f"{digest.key}-feature-flags-1", 3600, "[]")
-    await mock_redis.setex(f"{digest.key}-saved-filters-1", 3600, "[]")
-    await mock_redis.setex(f"{digest.key}-expiring-recordings-1", 3600, '{"recording_count": 0}')
-    await mock_redis.setex(f"{digest.key}-surveys-launched-1", 3600, "[]")
-
-    mock_org_queryset = MockAsyncQuerySet([mock_org])
-    mock_team_queryset = MockAsyncQuerySet([mock_team])
-
-    with patch("posthog.temporal.weekly_digest.activities.query_orgs_for_digest", return_value=mock_org_queryset):
-        with patch("posthog.temporal.weekly_digest.activities.query_org_teams", return_value=mock_team_queryset):
-            with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                await generate_organization_digest_batch(input_data)
-
-    # Verify organization digest was created
-    assert f"{digest.key}-{mock_org.id}" in mock_redis.data
-
-
-@pytest.mark.asyncio
-async def test_send_weekly_digest_batch(mock_redis, common_input, digest):
-    """Test sending weekly digest batch with mock Redis and PostHog client."""
-    batch = (0, 1)
-    input_data = SendWeeklyDigestBatchInput(
-        batch=batch, dry_run=False, allow_already_sent=False, digest=digest, common=common_input
-    )
-
-    mock_org = MagicMock()
-    mock_org.id = UUID("12345678-1234-1234-1234-123456789abc")
-    mock_org.name = "Test Organization"
-
-    mock_member = MagicMock()
-    mock_user = MagicMock()
-    mock_user.id = 100
-    mock_user.distinct_id = "user-100"
-    mock_user.email = "test@example.com"
-    mock_member.user = mock_user
-
-    # Pre-populate Redis with organization digest
-    org_digest_json = """{
-        "id": "12345678-1234-1234-1234-123456789abc",
-        "name": "Test Organization",
-        "created_at": "2024-01-01T00:00:00Z",
-        "team_digests": [
-            {
-                "id": 1,
-                "name": "Test Team",
-                "dashboards": [{"name": "Test Dashboard", "id": 1}],
-                "event_definitions": [],
-                "experiments_launched": [
-                    {"name": "Experiment A", "id": 1, "start_date": "2024-01-01T00:00:00Z"},
-                    {"name": "Experiment B", "id": 2, "start_date": "2024-01-01T00:00:00Z"}
-                ],
-                "experiments_completed": [],
-                "external_data_sources": [
-                    {"source_type": "stripe", "id": "12345678-1234-1234-1234-123456789abc"}
-                ],
-                "feature_flags": [],
-                "filters": [],
-                "expiring_recordings": {"recording_count": 0},
-                "surveys_launched": []
-            }
-        ]
-    }"""
-    await mock_redis.setex(f"{digest.key}-{mock_org.id}", 3600, org_digest_json)
-
-    # Add user notification
-    await mock_redis.sadd(f"{digest.key}-user-notify-100", "1")
-
-    mock_org_queryset = MockAsyncQuerySet([mock_org])
-    mock_member_queryset = MockAsyncQuerySet([mock_member])
-
-    mock_ph_client = MagicMock()
-    mock_ph_client.capture = MagicMock()
-
-    mock_messaging_record = MagicMock()
-    mock_messaging_record.sent_at = None
-
-    mock_messaging_objects = MagicMock()
-    mock_messaging_objects.aget_or_create = AsyncMock(return_value=(mock_messaging_record, True))
-    mock_messaging_objects.abulk_update = AsyncMock()
-
-    with patch("posthog.temporal.weekly_digest.activities.query_orgs_for_digest", return_value=mock_org_queryset):
-        with patch("posthog.temporal.weekly_digest.activities.query_org_members", return_value=mock_member_queryset):
-            with patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=mock_ph_client):
-                with patch("posthog.temporal.weekly_digest.activities.MessagingRecord.objects", mock_messaging_objects):
-                    with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                        await send_weekly_digest_batch(input_data)
-
-    # Verify PostHog client was called
-    mock_ph_client.capture.assert_called_once()
-
-    # Verify messaging record was updated
-    mock_messaging_objects.abulk_update.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest):
-    """Test sending weekly digest batch in dry run mode."""
-    batch = (0, 1)
-    input_data = SendWeeklyDigestBatchInput(
-        batch=batch, dry_run=True, allow_already_sent=False, digest=digest, common=common_input
-    )
-
-    mock_org = MagicMock()
-    mock_org.id = UUID("12345678-1234-1234-1234-123456789abc")
-    mock_org.name = "Test Organization"
-
-    mock_member = MagicMock()
-    mock_user = MagicMock()
-    mock_user.id = 100
-    mock_user.distinct_id = "user-100"
-    mock_user.email = "test@example.com"
-    mock_member.user = mock_user
-
-    # Pre-populate Redis with organization digest
-    org_digest_json = """{
-        "id": "12345678-1234-1234-1234-123456789abc",
-        "name": "Test Organization",
-        "created_at": "2024-01-01T00:00:00Z",
-        "team_digests": [
-            {
-                "id": 1,
-                "name": "Test Team",
-                "dashboards": [{"name": "Test Dashboard", "id": 1}],
-                "event_definitions": [],
-                "experiments_launched": [
-                    {"name": "Experiment A", "id": 1, "start_date": "2024-01-01T00:00:00Z"},
-                    {"name": "Experiment B", "id": 2, "start_date": "2024-01-01T00:00:00Z"}
-                ],
-                "experiments_completed": [],
-                "external_data_sources": [
-                    {"source_type": "stripe", "id": "12345678-1234-1234-1234-123456789abc"}
-                ],
-                "feature_flags": [],
-                "filters": [],
-                "expiring_recordings": {"recording_count": 0},
-                "surveys_launched": []
-            }
-        ]
-    }"""
-    await mock_redis.setex(f"{digest.key}-{mock_org.id}", 3600, org_digest_json)
-
-    # Add user notification
-    await mock_redis.sadd(f"{digest.key}-user-notify-100", "1")
-
-    mock_org_queryset = MockAsyncQuerySet([mock_org])
-    mock_member_queryset = MockAsyncQuerySet([mock_member])
-
-    mock_ph_client = MagicMock()
-    mock_ph_client.capture = MagicMock()
-
-    mock_messaging_record = MagicMock()
-    mock_messaging_record.sent_at = None
-
-    mock_messaging_objects = MagicMock()
-    mock_messaging_objects.aget_or_create = AsyncMock(return_value=(mock_messaging_record, True))
-
-    with patch("posthog.temporal.weekly_digest.activities.query_orgs_for_digest", return_value=mock_org_queryset):
-        with patch("posthog.temporal.weekly_digest.activities.query_org_members", return_value=mock_member_queryset):
-            with patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=mock_ph_client):
-                with patch("posthog.temporal.weekly_digest.activities.MessagingRecord.objects", mock_messaging_objects):
-                    with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                        await send_weekly_digest_batch(input_data)
-
-    # In dry run mode, PostHog client should not be called
-    mock_ph_client.capture.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_generate_product_suggestion_lookup(mock_redis, common_input, digest):
-    """Test that an org's active product push campaign becomes one suggestion per opted-in user."""
-    input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
-    )
-
-    organization_id = UUID("12345678-1234-1234-1234-123456789abc")
-    mock_team = MagicMock()
-    mock_team.id = 1
-    mock_team.project_id = 1
-    mock_team.organization_id = organization_id
-
-    mock_user = MagicMock()
-    mock_user.id = 100
-    mock_user.allow_sidebar_suggestions = True
-
-    # Opted out of suggestions, so the campaign must not reach them.
-    mock_opted_out_user = MagicMock()
-    mock_opted_out_user.id = 101
-    mock_opted_out_user.allow_sidebar_suggestions = False
-
-    campaigns = [{"product_key": "session_replay", "reason_text": "Give replay a go"}]
-
-    mock_team_queryset = MockAsyncQuerySet([mock_team])
-
-    async def async_user_generator():
-        for user in [mock_user, mock_opted_out_user]:
-            yield user
-
-    async def users_wrapper():
-        return async_user_generator()
-
-    async def project_uses_product_wrapper(*args, **kwargs):
-        return False
-
-    def fake_database_sync_to_async(fn):
-        # The activity wraps two different sync callables; dispatch on which one.
-        if fn is project_uses_product:
-            return project_uses_product_wrapper
-        return users_wrapper
-
-    async def mock_queryset_to_list(qs):
-        return campaigns
-
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch("posthog.temporal.weekly_digest.activities.query_org_product_push_campaigns"):
-            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
-                with patch(
-                    "posthog.temporal.weekly_digest.activities.database_sync_to_async",
-                    side_effect=fake_database_sync_to_async,
-                ):
-                    with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                        await generate_product_suggestion_lookup(input_data)
-
-    assert f"{digest.key}-product-suggestion-101" not in mock_redis.data
-
-    stored_data = json.loads(mock_redis.data[f"{digest.key}-product-suggestion-100"])
-    assert stored_data["team_id"] == mock_team.id
-    assert stored_data["product_path"] == "Session replay"
-    assert stored_data["reason_text"] == "Give replay a go"
-
-
-@pytest.mark.asyncio
-async def test_generate_product_suggestion_lookup_skips_projects_already_using_the_product(
-    mock_redis, common_input, digest
+def _make_surveys(team: Team, other_team: Team, digest: Digest) -> list[str]:
+    in_window = digest.period_end - timedelta(days=1)
+    _make_survey(team, "Launched survey", start_date=in_window)
+    _make_survey(team, "Draft survey")
+    _make_survey(team, "Old survey", start_date=digest.period_start - timedelta(days=1))
+    _make_survey(other_team, "Other team's survey", start_date=in_window)
+    return ["Launched survey"]
+
+
+def _make_error_issues(team: Team, other_team: Team, digest: Digest) -> list[str]:
+    # One more than the cap, oldest first, so the cap must keep the newest ones.
+    for index in range(NEW_ERROR_ISSUES_PER_TEAM_LIMIT + 1):
+        create_issue(
+            team_id=team.id, name=f"issue {index}", created_at=digest.period_start + timedelta(hours=index + 1)
+        )
+    create_issue(team_id=other_team.id, name="other team's issue", created_at=digest.period_end - timedelta(hours=1))
+    create_issue(team_id=team.id, name="old issue", created_at=digest.period_start - timedelta(days=1))
+    return [f"issue {index}" for index in range(1, NEW_ERROR_ISSUES_PER_TEAM_LIMIT + 1)]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "activity_fn,key_kind,payload_field,make_rows",
+    [
+        (generate_dashboard_lookup, TeamDataKey.DASHBOARDS, "name", _make_dashboards),
+        (generate_event_definition_lookup, TeamDataKey.EVENT_DEFINITIONS, "name", _make_event_definitions),
+        (generate_experiment_launched_lookup, TeamDataKey.EXPERIMENTS_LAUNCHED, "name", _make_experiments_launched),
+        (generate_experiment_completed_lookup, TeamDataKey.EXPERIMENTS_COMPLETED, "name", _make_experiments_completed),
+        (
+            generate_external_data_source_lookup,
+            TeamDataKey.EXTERNAL_DATA_SOURCES,
+            "source_type",
+            _make_external_data_sources,
+        ),
+        (generate_feature_flag_lookup, TeamDataKey.FEATURE_FLAGS, "name", _make_feature_flags),
+        (generate_survey_lookup, TeamDataKey.SURVEYS_LAUNCHED, "name", _make_surveys),
+        (generate_error_issue_lookup, TeamDataKey.ERROR_ISSUES, "name", _make_error_issues),
+    ],
+)
+def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
+    activity_fn, key_kind, payload_field, make_rows, organization, team, redis_servers, common_input, digest
 ):
-    """Test that a project already using the pushed product isn't nudged about it."""
-    input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    quiet_team = _make_team(organization, "quiet team")
+    other_team = _make_team(organization, "other team")
+    expected = make_rows(team, other_team, digest)
+    # Left over from an earlier attempt of the same digest; the quiet team has no rows anymore.
+    redis_servers.digest.set(team_data_key(digest.key, key_kind, quiet_team.id), "[]")
+
+    run_sync(
+        activity_fn,
+        GenerateDigestDataBatchInput(
+            team_id_range=TeamIdRange(start=team.id, end=other_team.id), digest=digest, common=common_input
+        ),
     )
 
-    mock_team = MagicMock()
-    mock_team.id = 1
-    mock_team.project_id = 1
-    mock_team.organization_id = UUID("12345678-1234-1234-1234-123456789abc")
-
-    mock_user = MagicMock()
-    mock_user.id = 100
-    mock_user.allow_sidebar_suggestions = True
-
-    async def async_user_generator():
-        yield mock_user
-
-    async def users_wrapper():
-        return async_user_generator()
-
-    async def project_uses_product_wrapper(*args, **kwargs):
-        return True
-
-    def fake_database_sync_to_async(fn):
-        if fn is project_uses_product:
-            return project_uses_product_wrapper
-        return users_wrapper
-
-    async def mock_queryset_to_list(qs):
-        return [{"product_key": "session_replay", "reason_text": None}]
-
-    with patch(
-        "posthog.temporal.weekly_digest.activities.query_teams_for_digest",
-        return_value=MockAsyncQuerySet([mock_team]),
-    ):
-        with patch("posthog.temporal.weekly_digest.activities.query_org_product_push_campaigns"):
-            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
-                with patch(
-                    "posthog.temporal.weekly_digest.activities.database_sync_to_async",
-                    side_effect=fake_database_sync_to_async,
-                ):
-                    with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                        await generate_product_suggestion_lookup(input_data)
-
-    assert mock_redis.data == {}
+    key = team_data_key(digest.key, key_kind, team.id)
+    stored = json.loads(redis_servers.digest.get(key))
+    assert sorted(row[payload_field] for row in stored) == sorted(expected)
+    assert 0 < redis_servers.digest.ttl(key) <= common_input.redis_ttl
+    # The quiet team is in range with nothing new, so its stale key goes; the other team is out of range.
+    assert team.id < quiet_team.id < other_team.id
+    assert redis_servers.digest.keys(f"{digest.key}-{key_kind}-*") == [key]
 
 
-@pytest.mark.asyncio
-async def test_send_weekly_digest_batch_with_product_suggestion(mock_redis, common_input, digest):
-    """Test sending weekly digest batch includes single product suggestion in payload."""
-    batch = (0, 1)
-    input_data = SendWeeklyDigestBatchInput(
-        batch=batch, dry_run=True, allow_already_sent=False, digest=digest, common=common_input
+def _run_lookup(activity_fn: Callable[..., Any]) -> Callable[[TeamIdRange, Digest, CommonInput], None]:
+    return lambda team_range, digest, common: run_sync(
+        activity_fn, GenerateDigestDataBatchInput(team_id_range=team_range, digest=digest, common=common)
     )
 
-    mock_org = MagicMock()
-    mock_org.id = UUID("12345678-1234-1234-1234-123456789abc")
-    mock_org.name = "Test Organization"
 
-    mock_member = MagicMock()
-    mock_user = MagicMock()
-    mock_user.id = 100
-    mock_user.distinct_id = "user-100"
-    mock_user.email = "test@example.com"
-    mock_member.user = mock_user
+def _run_organization_digest_batch(team_range: TeamIdRange, digest: Digest, common: CommonInput) -> None:
+    run_sync(
+        generate_organization_digest_batch,
+        GenerateOrganizationDigestInput(batch=(0, Organization.objects.count()), digest=digest, common=common),
+    )
 
-    # Pre-populate Redis with organization digest
-    org_digest_json = """{
-        "id": "12345678-1234-1234-1234-123456789abc",
-        "name": "Test Organization",
-        "created_at": "2024-01-01T00:00:00Z",
-        "team_digests": [
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "run_activity,make_row",
+    [
+        (_run_lookup(generate_dashboard_lookup), lambda team: Dashboard.objects.create(team=team, name="Dashboard")),
+        (_run_lookup(generate_error_issue_lookup), lambda team: create_issue(team_id=team.id, name="issue")),
+        (
+            _run_lookup(generate_filter_lookup),
+            lambda team: SessionRecordingPlaylist.objects.create(team=team, name="Filter", type="filters"),
+        ),
+        (_run_organization_digest_batch, lambda team: None),
+    ],
+)
+def test_batch_activities_run_a_fixed_number_of_queries_per_range(
+    run_activity, make_row, organization, team, redis_servers, common_input, digest
+):
+    # Each activity runs a fixed set of range-wide queries, so adding teams to the range adds no queries.
+    def queries_for(team_count: int) -> int:
+        teams = [team, *(_make_team(organization, f"team {index}") for index in range(team_count - 1))]
+        for extra_team in teams:
+            make_row(extra_team)
+        team_range = TeamIdRange(start=team.id, end=max(extra_team.id for extra_team in teams) + 1)
+        with CaptureQueriesContext(connection) as queries:
+            run_activity(team_range, digest, common_input)
+        return len(queries)
+
+    assert queries_for(1) == queries_for(4)
+
+
+@pytest.mark.django_db
+def test_generate_filter_lookup_orders_filters_by_cached_recording_count(team, redis_servers, common_input, digest):
+    quiet = SessionRecordingPlaylist.objects.create(team=team, name="Quiet filter", type="filters")
+    busy = SessionRecordingPlaylist.objects.create(team=team, name="Busy filter", type="filters")
+    SessionRecordingPlaylist.objects.create(team=team, name="A collection", type="collection")
+    SessionRecordingPlaylist.objects.create(team=team, name="Deleted filter", type="filters", deleted=True)
+    SessionRecordingPlaylist.objects.create(team=team, name="", derived_name="(Untitled)", type="filters")
+    redis_servers.django_cache.set(
+        f"{PLAYLIST_COUNT_REDIS_PREFIX}{busy.short_id}",
+        json.dumps(
             {
-                "id": 1,
-                "name": "Test Team",
-                "dashboards": [{"name": "Test Dashboard", "id": 1}],
-                "event_definitions": [],
-                "experiments_launched": [
-                    {"name": "Experiment A", "id": 1, "start_date": "2024-01-01T00:00:00Z"},
-                    {"name": "Experiment B", "id": 2, "start_date": "2024-01-01T00:00:00Z"}
-                ],
-                "experiments_completed": [],
-                "external_data_sources": [
-                    {"source_type": "stripe", "id": "12345678-1234-1234-1234-123456789abc"}
-                ],
-                "feature_flags": [],
-                "filters": [],
-                "expiring_recordings": {"recording_count": 0},
-                "surveys_launched": []
+                "session_ids": ["s1", "s2", "s3"],
+                "has_more": True,
+                "previous_ids": None,
+                "refreshed_at": timezone.now().isoformat(),
+                "error_count": 0,
+                "errored_at": None,
             }
-        ]
-    }"""
-    await mock_redis.setex(f"{digest.key}-{mock_org.id}", 3600, org_digest_json)
+        ),
+    )
+    redis_servers.django_cache.set(f"{PLAYLIST_COUNT_REDIS_PREFIX}{quiet.short_id}", "not json")
 
-    # Add user notification
-    await mock_redis.sadd(f"{digest.key}-user-notify-100", "1")
+    run_sync(generate_filter_lookup, batch_input(team, digest, common_input))
 
-    # Add single product suggestion for user 100 (team_id matches the team in the digest)
-    suggestion_json = '{"team_id": 1, "product_path": "Error tracking", "reason_text": null}'
-    await mock_redis.setex(f"{digest.key}-product-suggestion-100", 3600, suggestion_json)
+    stored = json.loads(redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.SAVED_FILTERS, team.id)))
+    assert [(f["name"], f["recording_count"], f["more_available"]) for f in stored] == [
+        ("Busy filter", 3, True),
+        ("Quiet filter", 0, False),
+    ]
 
-    mock_org_queryset = MockAsyncQuerySet([mock_org])
-    mock_member_queryset = MockAsyncQuerySet([mock_member])
 
-    mock_ph_client = MagicMock()
-    mock_ph_client.capture = MagicMock()
+@pytest.mark.django_db
+def test_generate_recording_lookup_counts_expiring_sessions_per_team(
+    organization, team, redis_servers, common_input, digest
+):
+    other_team = _make_team(organization, "other team")
+    quiet_team = _make_team(organization, "quiet team")
+    now = datetime.now(UTC)
+    # 30-day retention: sessions started 25 days ago expire in 5 days, inside the 10-day threshold.
+    for session_id in ("expiring-1", "expiring-2"):
+        produce_replay_summary(
+            team_id=team.id,
+            session_id=session_id,
+            first_timestamp=now - timedelta(days=25),
+            last_timestamp=now - timedelta(days=25),
+            retention_period_days=30,
+            ensure_analytics_event_in_session=False,
+        )
+    # Started 5 days ago, so it has 25 days left and is not about to expire.
+    produce_replay_summary(
+        team_id=team.id,
+        session_id="fresh",
+        first_timestamp=now - timedelta(days=5),
+        last_timestamp=now - timedelta(days=5),
+        retention_period_days=30,
+        ensure_analytics_event_in_session=False,
+    )
+    # Left over from an earlier attempt of the same digest; the quiet team has no sessions.
+    redis_servers.digest.set(
+        team_data_key(digest.key, TeamDataKey.EXPIRING_RECORDINGS, quiet_team.id), json.dumps({"recording_count": 9})
+    )
+    produce_replay_summary(
+        team_id=other_team.id,
+        session_id="other-expiring",
+        first_timestamp=now - timedelta(days=25),
+        last_timestamp=now - timedelta(days=25),
+        retention_period_days=30,
+        ensure_analytics_event_in_session=False,
+    )
 
-    mock_messaging_record = MagicMock()
-    mock_messaging_record.sent_at = None
+    run_sync(
+        generate_recording_lookup,
+        GenerateDigestDataBatchInput(
+            team_id_range=TeamIdRange(start=team.id, end=quiet_team.id + 1), digest=digest, common=common_input
+        ),
+    )
 
-    mock_messaging_objects = MagicMock()
-    mock_messaging_objects.aget_or_create = AsyncMock(return_value=(mock_messaging_record, True))
+    def stored_count(for_team: Team) -> dict | None:
+        raw = redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.EXPIRING_RECORDINGS, for_team.id))
+        return json.loads(raw) if raw else None
 
-    captured_payload = {}
+    assert stored_count(team) == {"recording_count": 2}
+    assert stored_count(other_team) == {"recording_count": 1}
+    assert stored_count(quiet_team) is None
 
-    # Capture the logged payload in dry run mode
-    with patch("posthog.temporal.weekly_digest.activities.query_orgs_for_digest", return_value=mock_org_queryset):
-        with patch("posthog.temporal.weekly_digest.activities.query_org_members", return_value=mock_member_queryset):
-            with patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=mock_ph_client):
-                with patch("posthog.temporal.weekly_digest.activities.MessagingRecord.objects", mock_messaging_objects):
-                    with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                        with patch("posthog.temporal.weekly_digest.activities.LOGGER") as mock_logger:
-                            mock_bound_logger = MagicMock()
-                            mock_logger.bind.return_value = mock_bound_logger
 
-                            def capture_info(*args, **kwargs):
-                                if "digest" in kwargs:
-                                    captured_payload.update(kwargs["digest"])
+def _make_team(organization: Organization, name: str) -> Team:
+    return Team.objects.create(organization=organization, name=name)
 
-                            mock_bound_logger.info = capture_info
-                            await send_weekly_digest_batch(input_data)
 
-    # Verify single product suggestion was included in the team's report
-    assert "teams" in captured_payload
-    teams = captured_payload["teams"]
-    assert len(teams) == 1
-    team_report = teams[0]["report"]
-    assert "new_product_suggestion" in team_report
-    suggestion = team_report["new_product_suggestion"]
-    assert suggestion["product_path"] == "Error tracking"
-    assert suggestion["reason_text"] == DEFAULT_PRODUCT_SUGGESTION_TEXT
+@pytest.mark.django_db
+def test_generate_user_notification_lookup_respects_settings_and_organization_locks(
+    organization, team, redis_servers, common_input, digest
+):
+    muted_team = _make_team(organization, "muted for one user")
+    everyone = create_user(organization, "everyone@example.com")
+    muted_one = create_user(
+        organization,
+        "muted-one@example.com",
+        partial_notification_settings={"project_weekly_digest_disabled": {str(muted_team.id): True}},
+    )
+    muted_all = create_user(
+        organization, "muted-all@example.com", partial_notification_settings={"all_weekly_digest_disabled": True}
+    )
+    locked = create_user(organization, "locked@example.com")
+    OrganizationMemberNotificationLock.objects.create(
+        organization=organization,
+        organization_membership=OrganizationMembership.objects.get(user=locked, organization=organization),
+        setting="project_weekly_digest_disabled",
+        scope_id=str(team.id),
+        locked_value=True,
+    )
+    create_user(organization, "inactive@example.com", is_active=False)
+
+    run_sync(
+        generate_user_notification_lookup,
+        GenerateDigestDataBatchInput(
+            team_id_range=TeamIdRange(start=team.id, end=muted_team.id + 1), digest=digest, common=common_input
+        ),
+    )
+
+    def notify_teams(user: User) -> set[int]:
+        key = user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, user.id)
+        return {int(team_id) for team_id in redis_servers.digest.smembers(key)}
+
+    assert notify_teams(everyone) == {team.id, muted_team.id}
+    assert notify_teams(muted_one) == {team.id}
+    assert notify_teams(muted_all) == set()
+    assert notify_teams(locked) == {muted_team.id}
+    assert set(redis_servers.digest.keys(f"{digest.key}-{UserDataKey.NOTIFY_TEAMS}-*")) == {
+        user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, user.id) for user in [everyone, muted_one, locked]
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_generate_user_notification_lookup_activity_runs_the_settings_check_off_the_event_loop(
+    activity_environment, organization, team, redis_servers, common_input, digest
+):
+    # The activity runs on the event loop the way the worker calls it. `should_send_notification`
+    # queries Postgres, which Django refuses from a coroutine, so a body that stays on the loop
+    # skips every team and writes no notification set at all.
+    user = await sync_to_async(create_user)(organization, "member@example.com")
+
+    await activity_environment.run(generate_user_notification_lookup, batch_input(team, digest, common_input))
+
+    assert redis_servers.digest.smembers(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, user.id)) == {str(team.id)}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("project_already_uses_product", [False, True])
+def test_generate_product_suggestion_lookup_targets_opted_in_users_of_projects_without_the_product(
+    project_already_uses_product, organization, team, redis_servers, common_input, digest
+):
+    ProductPushCampaign.objects.create(
+        organization=organization,
+        product_key="session_replay",
+        status=ProductPushCampaign.Status.ACTIVE,
+        started_at=timezone.now() - timedelta(days=1),
+        reason_text="Give replay a go",
+    )
+    opted_in = create_user(organization, "opted-in@example.com")
+    create_user(organization, "opted-out@example.com", allow_sidebar_suggestions=False)
+    if project_already_uses_product:
+        ProductIntent.objects.create(team=team, product_type="session_replay", activated_at=timezone.now())
+
+    run_sync(generate_product_suggestion_lookup, batch_input(team, digest, common_input))
+
+    suggestion_keys = redis_servers.digest.keys(f"{digest.key}-{UserDataKey.PRODUCT_SUGGESTION}-*")
+    if project_already_uses_product:
+        assert suggestion_keys == []
+        return
+
+    assert suggestion_keys == [user_data_key(digest.key, UserDataKey.PRODUCT_SUGGESTION, opted_in.id)]
+    stored = json.loads(redis_servers.digest.get(suggestion_keys[0]))
+    assert stored == {"team_id": team.id, "product_path": "Session replay", "reason_text": "Give replay a go"}
+
+
+@pytest.mark.django_db
+def test_generate_organization_digest_batch_defaults_missing_team_data(
+    organization, team, redis_servers, common_input, digest
+):
+    silent_team = _make_team(organization, "silent team")
+    Team.objects.create(organization=organization, name="demo team", is_demo=True)
+    broken_organization = Organization.objects.create(name="broken org")
+    broken_team = _make_team(broken_organization, "broken team")
+    redis_servers.digest.set(team_data_key(digest.key, TeamDataKey.DASHBOARDS, broken_team.id), "not json")
+    redis_servers.digest.set(
+        team_data_key(digest.key, TeamDataKey.DASHBOARDS, team.id), json.dumps([{"name": "Dashboard", "id": 1}])
+    )
+    redis_servers.digest.set(
+        team_data_key(digest.key, TeamDataKey.EXPIRING_RECORDINGS, team.id), json.dumps({"recording_count": 7})
+    )
+    run_sync(
+        generate_organization_digest_batch,
+        GenerateOrganizationDigestInput(batch=(0, Organization.objects.count()), digest=digest, common=common_input),
+    )
+
+    # One organization's malformed value skips that organization only.
+    assert redis_servers.digest.get(org_digest_key(digest.key, broken_organization.id)) is None
+    stored = json.loads(redis_servers.digest.get(org_digest_key(digest.key, organization.id)))
+    assert stored["name"] == organization.name
+    assert [td["id"] for td in stored["team_digests"]] == sorted([team.id, silent_team.id])
+    by_team = {td["id"]: td for td in stored["team_digests"]}
+    assert by_team[team.id]["dashboards"] == [{"name": "Dashboard", "id": 1}]
+    assert by_team[team.id]["expiring_recordings"] == {"recording_count": 7}
+    assert by_team[silent_team.id]["dashboards"] == []
+    assert by_team[silent_team.id]["expiring_recordings"] == {"recording_count": 0}
+    assert by_team[silent_team.id]["usage_trends"] == {"metrics": []}
+
+
+def _org_digest_json(organization: Organization, team: Team) -> str:
+    return json.dumps(
+        {
+            "id": str(organization.id),
+            "name": organization.name,
+            "created_at": "2024-01-01T00:00:00Z",
+            "team_digests": [
+                {
+                    "id": team.id,
+                    "name": team.name,
+                    "dashboards": [{"name": "Test Dashboard", "id": 1}],
+                    "event_definitions": [],
+                    "experiments_launched": [
+                        {"name": "Experiment A", "id": 1, "start_date": "2024-01-01T00:00:00Z"},
+                        {"name": "Experiment B", "id": 2, "start_date": "2024-01-01T00:00:00Z"},
+                    ],
+                    "experiments_completed": [],
+                    "external_data_sources": [{"source_type": "stripe", "id": str(uuid4())}],
+                    "feature_flags": [],
+                    "filters": [],
+                    "expiring_recordings": {"recording_count": 0},
+                    "surveys_launched": [],
+                }
+            ],
+        }
+    )
+
+
+def _send_input(
+    organization: Organization, digest: Digest, common: CommonInput, dry_run: bool
+) -> SendWeeklyDigestBatchInput:
+    organization_index = list(Organization.objects.order_by("id").values_list("id", flat=True)).index(organization.id)
+    return SendWeeklyDigestBatchInput(
+        batch=(organization_index, organization_index + 1),
+        dry_run=dry_run,
+        allow_already_sent=False,
+        digest=digest,
+        common=common,
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "dry_run,already_sent,expected_captures",
+    [
+        (False, False, 1),
+        (True, False, 0),
+        (False, True, 0),
+    ],
+)
+def test_send_weekly_digest_batch_emails_subscribed_members_once(
+    dry_run, already_sent, expected_captures, organization, team, redis_servers, common_input, digest
+):
+    subscribed = create_user(organization, "subscribed@example.com")
+    create_user(organization, "unsubscribed@example.com")
+    redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
+    redis_servers.digest.sadd(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, subscribed.id), team.id)
+    redis_servers.digest.set(
+        user_data_key(digest.key, UserDataKey.PRODUCT_SUGGESTION, subscribed.id),
+        json.dumps({"team_id": team.id, "product_path": "Error tracking", "reason_text": None}),
+    )
+    if already_sent:
+        record, _ = MessagingRecord.objects.get_or_create(raw_email=f"org_{organization.id}", campaign_key=digest.key)
+        record.sent_at = timezone.now()
+        record.save()
+    ph_client = MagicMock()
+
+    with patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=ph_client):
+        run_sync(send_weekly_digest_batch, _send_input(organization, digest, common_input, dry_run=dry_run))
+
+    assert ph_client.capture.call_count == expected_captures
+    assert ph_client.shutdown.called
+    record = MessagingRecord.objects.get(campaign_key=digest.key)
+    # A dry run must not stamp the record, or the real run that follows would skip the organization.
+    assert (record.sent_at is not None) is (not dry_run)
+    if expected_captures == 0:
+        return
+
+    method_names = [name for name, _, _ in ph_client.method_calls]
+    assert method_names.index("capture") < method_names.index("flush")
+
+    capture = ph_client.capture.call_args.kwargs
+    assert capture["distinct_id"] == subscribed.distinct_id
+    assert capture["event"] == "transactional email"
+    assert capture["groups"]["organization"] == str(organization.id)
+    (team_payload,) = capture["properties"]["teams"]
+    assert team_payload["team_id"] == team.id
+    assert team_payload["report"]["new_product_suggestion"] == {
+        "product_path": "Error tracking",
+        "reason_text": DEFAULT_PRODUCT_SUGGESTION_TEXT,
+    }
+
+
+@activity.defn(name="send-weekly-digest-batch-body", no_thread_cancel_exception=True)
+def send_weekly_digest_batch_body(input: SendWeeklyDigestBatchInput) -> None:
+    # Runs the sync body under a test activity context. Without the thread cancel exception, cancelling
+    # only sets the cancellation event, which is all a worker thread behind `@asyncify` receives.
+    inspect.unwrap(send_weekly_digest_batch)(input)
+
+
+@pytest.mark.django_db
+def test_send_weekly_digest_batch_stops_sending_once_the_activity_is_cancelled(
+    activity_environment, organization, team, redis_servers, common_input, digest
+):
+    members = [create_user(organization, f"member-{index}@example.com") for index in range(3)]
+    redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
+    for member in members:
+        redis_servers.digest.sadd(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, member.id), team.id)
+    ph_client = MagicMock()
+    ph_client.capture.side_effect = lambda **_: activity_environment.cancel()
+
+    with (
+        patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=ph_client),
+        pytest.raises(ActivityCancelled),
+    ):
+        activity_environment.run(
+            send_weekly_digest_batch_body, _send_input(organization, digest, common_input, dry_run=False)
+        )
+
+    assert ph_client.capture.call_count == 1
+    # A queued event is unconfirmed until a drain finishes, so the cancelled attempt leaves the record unsent.
+    assert MessagingRecord.objects.get(campaign_key=digest.key).sent_at is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "drop,expected_captures",
+    [
+        ("failed_upload", 1),
+        ("queue_full", 1),
+        ("oversized", 0),
+    ],
+)
+def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dropped(
+    drop, expected_captures, organization, team, redis_servers, common_input, digest
+):
+    subscribed = create_user(organization, "subscribed@example.com")
+    redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
+    redis_servers.digest.sadd(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, subscribed.id), team.id)
+    ph_client = MagicMock()
+
+    def make_client(**kwargs: Any) -> MagicMock:
+        if drop == "failed_upload":
+            # The SDK reports a failed upload through on_error while flush drains the queue.
+            def flush(**_: Any) -> None:
+                kwargs["on_error"](
+                    RuntimeError("upload failed"), [{"properties": {"organization_id": str(organization.id)}}]
+                )
+
+            ph_client.flush.side_effect = flush
+        elif drop == "queue_full":
+            ph_client.capture.return_value = None
+        return ph_client
+
+    with (
+        patch("posthog.temporal.weekly_digest.activities.get_ph_client", side_effect=make_client),
+        patch(
+            "posthog.temporal.weekly_digest.activities.DIGEST_PAYLOAD_SIZE_LIMIT",
+            100 if drop == "oversized" else DIGEST_PAYLOAD_SIZE_LIMIT,
+        ),
+    ):
+        run_sync(send_weekly_digest_batch, _send_input(organization, digest, common_input, dry_run=False))
+
+    assert ph_client.capture.call_count == expected_captures
+    assert ph_client.shutdown.called
+    record = MessagingRecord.objects.get(campaign_key=digest.key)
+    assert record.sent_at is None
+
+
+@pytest.mark.django_db
+def test_send_weekly_digest_batch_leaves_organization_unsent_when_the_attempt_runs_out_of_time(
+    activity_environment, organization, team, redis_servers, common_input, digest
+):
+    subscribed = create_user(organization, "subscribed@example.com")
+    redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
+    redis_servers.digest.sadd(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, subscribed.id), team.id)
+    ph_client = MagicMock()
+    activity_environment.info = dataclasses.replace(
+        activity_environment.info,
+        started_time=datetime.now(UTC) - timedelta(minutes=30),
+        start_to_close_timeout=timedelta(minutes=30),
+    )
+
+    with (
+        patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=ph_client),
+        pytest.raises(UploadDeadlineExceeded),
+    ):
+        activity_environment.run(
+            send_weekly_digest_batch_body, _send_input(organization, digest, common_input, dry_run=False)
+        )
+
+    assert ph_client.capture.call_count == 1
+    assert ph_client.shutdown.called
+    assert MessagingRecord.objects.get(campaign_key=digest.key).sent_at is None
 
 
 @pytest.mark.parametrize(
@@ -1025,7 +806,7 @@ def test_query_team_usage_trends_windows_persons_and_test_accounts(team):
     )
     flush_persons_and_events()
 
-    result = _query_team_usage_trends(team.id, period_start, period_end)
+    result = _query_team_usage_trends(team, period_start, period_end)
 
     assert result is not None
     events, users = result.metrics
@@ -1033,7 +814,37 @@ def test_query_team_usage_trends_windows_persons_and_test_accounts(team):
     assert (users.label, users.current, users.previous) == ("Active users", 2, 1)
 
 
-@pytest.mark.asyncio
+@pytest.mark.django_db
+def test_generate_usage_trends_lookup_queries_only_teams_with_events(
+    organization, team, redis_servers, common_input, digest
+):
+    idle_team = _make_team(organization, "idle team")
+    _create_event(team=team, event="$pageview", distinct_id="a", timestamp=digest.period_end - timedelta(days=1))
+    _create_event(team=idle_team, event="$pageview", distinct_id="b", timestamp=digest.period_start - timedelta(days=1))
+    flush_persons_and_events()
+    # Left over from an earlier attempt of the same digest; the idle team has no events this week.
+    redis_servers.digest.set(team_data_key(digest.key, TeamDataKey.USAGE_TRENDS, idle_team.id), '{"metrics": []}')
+
+    with patch(
+        "posthog.temporal.weekly_digest.activities._query_team_usage_trends", wraps=_query_team_usage_trends
+    ) as query_team_usage_trends:
+        run_sync(
+            generate_usage_trends_lookup,
+            GenerateDigestDataBatchInput(
+                team_id_range=TeamIdRange(start=team.id, end=idle_team.id + 1), digest=digest, common=common_input
+            ),
+        )
+
+    assert [call.args[0].id for call in query_team_usage_trends.call_args_list] == [team.id]
+    stored = json.loads(redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.USAGE_TRENDS, team.id)))
+    assert [(metric["label"], metric["current"]) for metric in stored["metrics"]] == [
+        ("Events", 1),
+        ("Active users", 1),
+    ]
+    assert redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.USAGE_TRENDS, idle_team.id)) is None
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "side_effects,should_raise",
     [
@@ -1043,22 +854,24 @@ def test_query_team_usage_trends_windows_persons_and_test_accounts(team):
         ([Exception("boom"), UsageTrends(metrics=[])], False),
     ],
 )
-async def test_generate_usage_trends_lookup_raises_only_when_every_team_fails(
-    side_effects, should_raise, mock_redis, common_input, digest
+def test_generate_usage_trends_lookup_raises_only_when_every_team_fails(
+    side_effects, should_raise, organization, team, redis_servers, common_input, digest
 ):
+    second_team = _make_team(organization, "second team")
     input_data = GenerateDigestDataBatchInput(
-        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+        team_id_range=TeamIdRange(start=team.id, end=second_team.id + 1), digest=digest, common=common_input
     )
-    team_1, team_2 = MagicMock(), MagicMock()
-    team_1.id, team_2.id = 1, 2
-    mock_team_queryset = MockAsyncQuerySet([team_1, team_2])
 
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch("posthog.temporal.weekly_digest.activities.database_sync_to_async") as mock_sync:
-            mock_sync.return_value = AsyncMock(side_effect=side_effects)
-            with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                if should_raise:
-                    with pytest.raises(RuntimeError):
-                        await generate_usage_trends_lookup(input_data)
-                else:
-                    await generate_usage_trends_lookup(input_data)
+    with (
+        patch("posthog.temporal.weekly_digest.activities._active_team_ids", return_value={team.id, second_team.id}),
+        patch("posthog.temporal.weekly_digest.activities._query_team_usage_trends", side_effect=side_effects),
+    ):
+        if should_raise:
+            with pytest.raises(RuntimeError):
+                run_sync(generate_usage_trends_lookup, input_data)
+        else:
+            run_sync(generate_usage_trends_lookup, input_data)
+            assert (
+                redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.USAGE_TRENDS, second_team.id))
+                is not None
+            )
