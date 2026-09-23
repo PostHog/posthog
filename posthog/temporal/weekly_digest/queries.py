@@ -7,7 +7,6 @@ from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
-from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade.api import query_new_error_issues as query_new_error_issues
@@ -169,8 +168,3 @@ def query_org_product_push_campaigns(organization_id: str, period_end: datetime)
         .order_by("-started_at")
         .values("product_key", "reason_text")
     )
-
-
-@database_sync_to_async
-def queryset_to_list(qs: QuerySet):
-    return list(qs)
