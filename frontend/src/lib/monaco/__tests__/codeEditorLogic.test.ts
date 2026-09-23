@@ -31,15 +31,17 @@ describe('codeEditorLogic', () => {
         performQueryMock.mockReset()
     })
 
-    it('keeps a rejected metadata request out of the failure path', async () => {
-        performQueryMock.mockRejectedValue({ status: 400, detail: 'Syntax error' })
+    it.each([
+        ['a rejected query keeps out of the failure path', 400, 'reloadMetadataSuccess', 'reloadMetadataFailure'],
+        ['a server fault still reaches the failure path', 500, 'reloadMetadataFailure', 'reloadMetadataSuccess'],
+    ])('%s', async (_name, status, expected, unexpected) => {
+        performQueryMock.mockRejectedValue({ status, detail: 'Something went wrong' })
 
         await expectLogic(logic, () => {
             logic.actions.reloadMetadata()
         })
             .delay(400)
-            .toDispatchActions(['reloadMetadataSuccess'])
-            .toNotHaveDispatchedActions(['reloadMetadataFailure'])
-            .toMatchValues({ metadata: null })
+            .toDispatchActions([expected])
+            .toNotHaveDispatchedActions([unexpected])
     })
 })

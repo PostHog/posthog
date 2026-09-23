@@ -195,10 +195,13 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                 { recursion: false }
                             )
                         )
-                    } catch {
-                        // A query the server rejects outright is an editing state, not an app fault.
-                        // Keep the markers from the last good response instead of raising to the
-                        // unexpected-error handler.
+                    } catch (error: any) {
+                        // A query the server rejects is an editing state, not an app fault. Keep the
+                        // markers from the last good response instead of reporting an exception.
+                        // Every other failure still goes to the loader's failure path.
+                        if (error?.status !== 400) {
+                            throw error
+                        }
                         return values.metadata
                     }
                     breakpoint()

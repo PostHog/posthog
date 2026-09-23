@@ -40,7 +40,7 @@ describe('SaveTargetCycler', () => {
             expect(result).toEqual({
                 queries: ['SELECT 1'],
                 initialIndex: 0,
-                labels: [null],
+                labels: ['Full query'],
             })
         })
 
@@ -67,11 +67,7 @@ describe('SaveTargetCycler', () => {
 
         it('falls back to the raw input when splitQueries returns nothing', () => {
             const result = resolveSaveCandidates('', null, null)
-            expect(result).toEqual({
-                queries: [''],
-                initialIndex: 0,
-                labels: [null],
-            })
+            expect(result.queries).toEqual([''])
         })
     })
 

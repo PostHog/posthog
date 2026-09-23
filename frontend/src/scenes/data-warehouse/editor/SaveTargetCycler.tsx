@@ -9,8 +9,8 @@ import { findQueryAtCursor, splitQueries } from 'lib/monaco/multiQueryUtils'
 export interface SaveCandidates {
     queries: string[]
     initialIndex: number
-    /** Label for each candidate, index-aligned with `queries`. Null hides the label. */
-    labels: (string | null)[]
+    /** Label for each candidate, index-aligned with `queries`. */
+    labels: string[]
 }
 
 const STATEMENT_START = /^(select|with|show|explain|describe|insert|delete|update|create|alter|drop|use|set)\b/i
@@ -27,7 +27,7 @@ function resolveEditorCandidates(queryInput: string, cursorOffset: number | null
         return {
             queries: [split[0]?.query ?? queryInput],
             initialIndex: 0,
-            labels: [null],
+            labels: ['Full query'],
         }
     }
 
@@ -70,7 +70,7 @@ export function resolveSaveCandidates(
     return {
         queries: [selection, ...editorCandidates.queries],
         initialIndex: STATEMENT_START.test(selection) ? 0 : editorCandidates.initialIndex + 1,
-        labels: ['Selection', ...editorCandidates.labels.map((label) => label ?? 'Full query')],
+        labels: ['Selection', ...editorCandidates.labels],
     }
 }
 
@@ -109,7 +109,8 @@ export function SaveTargetCycler({ candidates, onChange, children }: SaveTargetC
 
     const safeIndex = Math.min(index, candidates.queries.length - 1)
     const multi = candidates.queries.length > 1
-    const label = candidates.labels[safeIndex] ?? null
+    // A single candidate is whatever the editor holds, so naming it tells the reader nothing.
+    const label = multi ? candidates.labels[safeIndex] : null
 
     if (!label && !children) {
         return null
