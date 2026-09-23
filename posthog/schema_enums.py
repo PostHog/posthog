@@ -1064,6 +1064,7 @@ class DetectorType(StrEnum):
     LOF = "lof"
     OCSVM = "ocsvm"
     PCA = "pca"
+    LLM = "llm"
 
 
 class DistanceFunc(StrEnum):
@@ -2243,6 +2244,12 @@ class PlanningStepStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+class PredicateFixAction(StrEnum):
+    EDIT_QUERY = "edit_query"
+    EDIT_PROPERTY_TYPE = "edit_property_type"
+    MATERIALIZE = "materialize"
 
 
 class PredicateIndexVerdict(StrEnum):

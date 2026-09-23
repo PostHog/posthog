@@ -5975,6 +5975,24 @@ export namespace Schemas {
       start?: number | null;
     }
 
+    export type PredicateFixAction = typeof PredicateFixAction[keyof typeof PredicateFixAction];
+
+
+    export const PredicateFixAction = {
+      EditQuery: 'edit_query',
+      EditPropertyType: 'edit_property_type',
+      Materialize: 'materialize',
+    } as const;
+
+    export interface PredicateQuickfix {
+      /** Character offset in the query where the replaced range ends. */
+      end: number;
+      /** Character offset in the query where the replaced range starts. */
+      start: number;
+      /** Replacement text, substituted for the range verbatim. */
+      text: string;
+    }
+
     export type PredicateScope = typeof PredicateScope[keyof typeof PredicateScope];
 
 
@@ -5997,15 +6015,21 @@ export namespace Schemas {
     } as const;
 
     export interface PredicateIndexUsage {
+      /** Instruction for an AI rewrite of the query, set when a query edit would help. */
+      ai_fix_prompt?: string | null;
       column_name?: string | null;
       end?: number | null;
+      /** Prose advice for a reader. */
       fix?: string | null;
+      fix_action?: PredicateFixAction | null;
       message: string;
       /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
       operator: string;
       /** Type the value is physically stored as. */
       physical_type: string;
       property_name: string;
+      /** A deterministic query edit that unblocks the index. */
+      quickfix?: PredicateQuickfix | null;
       scope: PredicateScope;
       /** Type the property definition declares. */
       semantic_type: string;
@@ -10444,10 +10468,27 @@ export namespace Schemas {
       type: EnsembleDetectorConfigType;
     }
 
+    export type LLMDetectorConfigType = typeof LLMDetectorConfigType[keyof typeof LLMDetectorConfigType];
+
+
+    export const LLMDetectorConfigType = {
+      Llm: 'llm',
+    } as const;
+
+    export interface LLMDetectorConfig {
+      /** What counts as unusual or interesting for this metric, in your own words. Optional. */
+      instructions?: string | null;
+      /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
+      threshold?: number | null;
+      type: LLMDetectorConfigType;
+      /** How many recent points the model is shown (default: 90) */
+      window?: number | null;
+    }
+
     /**
      * Detector configuration types
      */
-    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
+    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig | LLMDetectorConfig;
 
     /**
      * * `real_time` - real_time
@@ -10503,6 +10544,11 @@ export namespace Schemas {
       readonly insight_short_id: string;
       /** Display name of the insight monitored by this alert. */
       readonly insight_display_name: string;
+      /**
+         * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+         * @nullable
+         */
+      readonly llm_detector_available: boolean | null;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -10661,7 +10707,7 @@ export namespace Schemas {
       data: number[];
       /** Date labels for each point. */
       dates: string[];
-      /** Anomaly score for each point (null if insufficient data). */
+      /** Score for each point. Null can mean insufficient data or a valid unscored point. AI previews report model confidence only for points flagged by an anomaly verdict; all other points are null, including every point in a normal verdict. */
       scores: (number | null)[];
       /** Indices of points flagged as anomalies. */
       triggered_indices: number[];
@@ -13682,8 +13728,11 @@ export namespace Schemas {
       end_at?: string | null;
       /** The 10 most recent runs of this batch export, ordered newest first. */
       readonly latest_runs: readonly BatchExportRun[];
-      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-      hogql_query?: string;
+      /**
+         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+         * @nullable
+         */
+      hogql_query?: string | null;
       /** A schema of custom fields to select when exporting data. */
       readonly schema: unknown;
       filters?: unknown;
@@ -14507,7 +14556,7 @@ export namespace Schemas {
     export interface BatchExportRequest {
       /** Human-readable name for the batch export. */
       name: string;
-      /** Which data model to export (events, persons, sessions).
+      /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
        *
        * * `events` - Events
        * * `persons` - Persons
@@ -14526,8 +14575,11 @@ export namespace Schemas {
       interval: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
-      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-      hogql_query?: string;
+      /**
+         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+         * @nullable
+         */
+      hogql_query?: string | null;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
@@ -19446,6 +19498,126 @@ export namespace Schemas {
     }
 
     /**
+     * * `goal` - Goal
+     * * `feature` - Feature
+     */
+    export type SpaceSetupKindEnum = typeof SpaceSetupKindEnum[keyof typeof SpaceSetupKindEnum];
+
+
+    export const SpaceSetupKindEnum = {
+      Goal: 'goal',
+      Feature: 'feature',
+    } as const;
+
+    /**
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month
+     */
+    export type SpaceGoalPeriodEnum = typeof SpaceGoalPeriodEnum[keyof typeof SpaceGoalPeriodEnum];
+
+
+    export const SpaceGoalPeriodEnum = {
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+    } as const;
+
+    /**
+     * * `at_least` - At least
+     * * `at_most` - At most
+     */
+    export type SpaceGoalDirectionEnum = typeof SpaceGoalDirectionEnum[keyof typeof SpaceGoalDirectionEnum];
+
+
+    export const SpaceGoalDirectionEnum = {
+      AtLeast: 'at_least',
+      AtMost: 'at_most',
+    } as const;
+
+    /**
+     * The metric a goal space should move.
+     */
+    export interface SpaceGoalWrite {
+      /**
+         * The goal in one or two sentences, e.g. 'Increase the weekly activation rate'.
+         * @maxLength 2000
+         */
+      statement: string;
+      /** How often the metric is measured.
+       *
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      period?: SpaceGoalPeriodEnum;
+      /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
+       *
+       * * `at_least` - At least
+       * * `at_most` - At most */
+      direction?: SpaceGoalDirectionEnum;
+      /**
+         * Target value as typed, e.g. '20%' or '1500'.
+         * @maxLength 64
+         * @nullable
+         */
+      target?: string | null;
+      /**
+         * Date the target should be reached.
+         * @nullable
+         */
+      deadline?: string | null;
+      /**
+         * Short id of an existing insight that measures the goal, when there is one.
+         * @maxLength 64
+         * @nullable
+         */
+      insight_short_id?: string | null;
+    }
+
+    /**
+     * The feature a feature space is set up around.
+     */
+    export interface SpaceFeatureWrite {
+      /**
+         * Feature name as people call it.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * What the feature does, in a sentence.
+         * @maxLength 2000
+         */
+      description?: string;
+      /**
+         * Key of the feature flag that gates it, if any.
+         * @maxLength 400
+         * @nullable
+         */
+      flag_key?: string | null;
+    }
+
+    /**
+     * Request body for starting the task that sets a space up for a goal or a feature.
+     */
+    export interface ChannelSetupWrite {
+      /** What the space is set up for.
+       *
+       * * `goal` - Goal
+       * * `feature` - Feature */
+      kind: SpaceSetupKindEnum;
+      /** Required when kind is 'goal'. */
+      goal?: SpaceGoalWrite;
+      /** Required when kind is 'feature'. */
+      feature?: SpaceFeatureWrite;
+      /**
+         * Repository the loops work in, as 'owner/name'. Defaults to the channel's first repository.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+    }
+
+    /**
      * Request body for starring/unstarring a channel for the requesting user.
      */
     export interface ChannelStarWrite {
@@ -19798,7 +19970,7 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
-      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
@@ -20215,7 +20387,7 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
-      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
@@ -22436,8 +22608,12 @@ export namespace Schemas {
     export interface FileDownloadHogQLRequest {
       file: FileDownloadDestinationFileConfig;
       model: FileDownloadHogQLRequestModel;
-      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
+      /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
+      data_interval_start?: string;
+      /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
+      data_interval_end?: string;
     }
 
     export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest | FileDownloadHogQLRequest;
@@ -30803,6 +30979,120 @@ export namespace Schemas {
     export interface DayItem {
       label: string;
       value: string | number;
+    }
+
+    /**
+     * * `noul` - Yes or no
+     * * `choice` - Multiple choice
+     * * `score` - Rating scale
+     */
+    export type DecisionQuestionTypeEnum = typeof DecisionQuestionTypeEnum[keyof typeof DecisionQuestionTypeEnum];
+
+
+    export const DecisionQuestionTypeEnum = {
+      Noul: 'noul',
+      Choice: 'choice',
+      Score: 'score',
+    } as const;
+
+    /**
+     * For a multiple choice question, the options keyed by name. For a rating question, the scale labels in order from lowest to highest, at least two. Omitted for a yes/no question.
+     */
+    export type DecisionQuestionCriteria = {[key: string]: string} | string[];
+
+    export interface DecisionQuestion {
+      /** What kind of answer to produce: a yes/no probability, one of the given options, or a rating.
+       *
+       * * `noul` - Yes or no
+       * * `choice` - Multiple choice
+       * * `score` - Rating scale */
+      type: DecisionQuestionTypeEnum;
+      /**
+         * The question to ask about the state, phrased for the model.
+         * @maxLength 2000
+         */
+      instructions: string;
+      /** For a multiple choice question, the options keyed by name. For a rating question, the scale labels in order from lowest to highest, at least two. Omitted for a yes/no question. */
+      criteria?: DecisionQuestionCriteria;
+    }
+
+    /**
+     * The questions to ask, keyed by an id of your choice, at most 32 per request. Answers come back under the same ids.
+     */
+    export type DecideRequestQuestions = {[key: string]: DecisionQuestion};
+
+    export interface DecideRequest {
+      /**
+         * The text the questions are about, for example a support ticket or a session summary.
+         * @maxLength 65536
+         */
+      state: string;
+      /** The questions to ask, keyed by an id of your choice, at most 32 per request. Answers come back under the same ids. */
+      questions: DecideRequestQuestions;
+      /**
+         * The decision model to ask, as a gateway model id.
+         * @maxLength 200
+         */
+      model?: string;
+    }
+
+    /**
+     * For multiple choice and rating questions, the probability of each option.
+     * @nullable
+     */
+    export type DecisionAnswerProbabilities = {[key: string]: number} | null;
+
+    export interface DecisionAnswer {
+      /** The question type answered.
+       *
+       * * `noul` - Yes or no
+       * * `choice` - Multiple choice
+       * * `score` - Rating scale */
+      type: DecisionQuestionTypeEnum;
+      /**
+         * For a yes/no question, the probability of yes.
+         * @nullable
+         */
+      probability: number | null;
+      /**
+         * For a multiple choice question, the option chosen.
+         * @nullable
+         */
+      choice: string | null;
+      /**
+         * For a rating question, the expected rating.
+         * @nullable
+         */
+      score: number | null;
+      /**
+         * How far the chosen option stands out from the rest, from 0 (a coin flip) to 1.
+         * @nullable
+         */
+      confidence: number | null;
+      /**
+         * For multiple choice and rating questions, the probability of each option.
+         * @nullable
+         */
+      probabilities: DecisionAnswerProbabilities;
+    }
+
+    /**
+     * One answer per question, under the ids the request used.
+     */
+    export type DecideResponseAnswers = {[key: string]: DecisionAnswer};
+
+    export interface DecideResponse {
+      /** The model that answered, as the serving host names it. */
+      model: string;
+      /** One answer per question, under the ids the request used. */
+      answers: DecideResponseAnswers;
+      /** Tokens the model read, which is what the request is billed on. */
+      input_tokens: number;
+      /**
+         * Time the model spent answering, if reported.
+         * @nullable
+         */
+      latency_ms: number | null;
     }
 
     /**
@@ -46039,11 +46329,11 @@ export namespace Schemas {
       model: FileDownloadBatchExportOnDemandModelEnum;
       include?: string[];
       exclude?: string[];
-      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query?: string;
-      /** Start of the data interval to export */
+      /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
       data_interval_start?: string;
-      /** End of the data interval to export */
+      /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
       data_interval_end?: string;
     }
 
@@ -46065,8 +46355,12 @@ export namespace Schemas {
        *
        * * `hogql` - hogql */
       model: FileDownloadHogQLModelEnum;
-      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
+      /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
+      data_interval_start?: string;
+      /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
+      data_interval_end?: string;
     }
 
     /**
@@ -46074,7 +46368,7 @@ export namespace Schemas {
      */
     export interface FileDownloadCountRowsResponse {
       /**
-         * Number of rows the query returns now. A HogQL batch export runs its query as of the time the export starts, so a run started now would export this many rows.
+         * Number of rows the query returns with the supplied interval bounds. Data arriving between counting and exporting can change the result.
          * @minimum 0
          */
       count: number;
@@ -46136,6 +46430,19 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    export interface FileSystemHomeFolder {
+      /**
+         * The user's home folder ID, or null if deleted.
+         * @nullable
+         */
+      readonly id: string | null;
+      /**
+         * The current path of the user's home folder.
+         * @nullable
+         */
+      readonly path: string | null;
     }
 
     export interface FileSystemShortcut {
@@ -48124,10 +48431,10 @@ export namespace Schemas {
      * * `minute` - minute
      * * `hour` - hour
      */
-    export type PeriodEnum = typeof PeriodEnum[keyof typeof PeriodEnum];
+    export type HogFlowEmailSendingRateLimitPeriodEnum = typeof HogFlowEmailSendingRateLimitPeriodEnum[keyof typeof HogFlowEmailSendingRateLimitPeriodEnum];
 
 
-    export const PeriodEnum = {
+    export const HogFlowEmailSendingRateLimitPeriodEnum = {
       Minute: 'minute',
       Hour: 'hour',
     } as const;
@@ -48143,7 +48450,7 @@ export namespace Schemas {
        *
        * * `minute` - minute
        * * `hour` - hour */
-      period: PeriodEnum;
+      period: HogFlowEmailSendingRateLimitPeriodEnum;
     }
 
     /**
@@ -48215,7 +48522,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -48274,7 +48581,7 @@ export namespace Schemas {
        * * `random_cohort_branch` - random_cohort_branch
        * * `exit` - exit */
       type: HogFlowActionTypeEnum;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -51426,9 +51733,11 @@ export namespace Schemas {
 
     export interface MCPToolTopUsersQuery {
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolTopUsersQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolTopUsersQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -51474,9 +51783,11 @@ export namespace Schemas {
 
     export interface MCPToolFailuresQuery {
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolFailuresQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolFailuresQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -51528,9 +51839,11 @@ export namespace Schemas {
       errorStatus?: string | null;
       /** Raw $mcp_error_type bucket; "unknown" selects errored events without an error type. */
       errorType: string;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolFailureOccurrencesQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolFailureOccurrencesQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -51575,9 +51888,11 @@ export namespace Schemas {
 
     export interface MCPToolStatsQuery {
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolStatsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolStatsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -51620,11 +51935,13 @@ export namespace Schemas {
 
     export interface MCPToolDailyStatsQuery {
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       /** Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day. */
       interval?: IntervalType | null;
       kind?: 'MCPToolDailyStatsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolDailyStatsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -51914,9 +52231,11 @@ export namespace Schemas {
 
     export interface MCPToolDescriptionsQuery {
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolDescriptionsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolDescriptionsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -51958,9 +52277,11 @@ export namespace Schemas {
 
     export interface MCPToolSampleIntentsQuery {
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolSampleIntentsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolSampleIntentsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -52006,11 +52327,13 @@ export namespace Schemas {
 
     export interface MCPToolNeighborsQuery {
       dateRange?: DateRange | null;
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPToolNeighborsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Whether to count tools called immediately before or after the target tool. */
       neighborDirection: NeighborDirection;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolNeighborsQueryResponse | null;
       tags?: QueryLogTags | null;
       /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
@@ -53578,6 +53901,35 @@ export namespace Schemas {
       readonly always_include: boolean;
     }
 
+    /**
+     * * `unknown` - Unknown
+     * * `safe` - Safe
+     * * `unsafe` - Unsafe
+     */
+    export type SafetyVerdictEnum = typeof SafetyVerdictEnum[keyof typeof SafetyVerdictEnum];
+
+
+    export const SafetyVerdictEnum = {
+      Unknown: 'unknown',
+      Safe: 'safe',
+      Unsafe: 'unsafe',
+    } as const;
+
+    export interface KnowledgeSourceDocument {
+      /** Document id. */
+      readonly id: string;
+      /** Fetched page URL after redirects. Empty for text and file documents. */
+      readonly url: string;
+      /** Page title extracted while indexing. Falls back to empty when the page had none. */
+      readonly title: string;
+      /** Content-safety verdict. Only `safe` documents are included in search. `unknown` is still waiting on classification.
+       *
+       * * `unknown` - Unknown
+       * * `safe` - Safe
+       * * `unsafe` - Unsafe */
+      readonly safety_verdict: SafetyVerdictEnum;
+    }
+
     export interface KustomerConversationSignalExtra {
       status: string | null;
       priority: string | null;
@@ -53701,6 +54053,18 @@ export namespace Schemas {
      */
     export type LLMPromptListConfig = { [key: string]: unknown } | null;
 
+    export interface LLMPromptResolvedReference {
+      /** Name of the referenced prompt that was spliced in. */
+      name: string;
+      /** Exact version whose content was spliced in. */
+      version: number;
+      /**
+         * Label the reference used, or null when it pinned a version directly.
+         * @nullable
+         */
+      label: string | null;
+    }
+
     export interface LLMPromptList {
       readonly id: string;
       /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
@@ -53734,6 +54098,8 @@ export namespace Schemas {
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
       readonly all_labels: readonly LLMPromptLabelSummary[];
+      /** @nullable */
+      readonly resolved_references: readonly LLMPromptResolvedReference[] | null;
     }
 
     /**
@@ -53741,18 +54107,6 @@ export namespace Schemas {
      * @nullable
      */
     export type LLMPromptPublicConfig = { [key: string]: unknown } | null;
-
-    export interface LLMPromptResolvedReference {
-      /** Name of the referenced prompt that was spliced in. */
-      name: string;
-      /** Exact version whose content was spliced in. */
-      version: number;
-      /**
-         * Label the reference used, or null when it pinned a version directly.
-         * @nullable
-         */
-      label: string | null;
-    }
 
     export interface LLMPromptPublic {
       id: string;
@@ -60530,18 +60884,6 @@ export namespace Schemas {
       Number9: 9,
     } as const;
 
-    /**
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist
-     */
-    export type OrganizationDefaultExperimentStatsMethodEnum = typeof OrganizationDefaultExperimentStatsMethodEnum[keyof typeof OrganizationDefaultExperimentStatsMethodEnum];
-
-
-    export const OrganizationDefaultExperimentStatsMethodEnum = {
-      Bayesian: 'bayesian',
-      Frequentist: 'frequentist',
-    } as const;
-
     export interface Organization {
       readonly id: string;
       /** @maxLength 64 */
@@ -60606,11 +60948,6 @@ export namespace Schemas {
       readonly is_ai_training_cta_shown: boolean | null;
       /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
       readonly has_signed_baa: boolean;
-      /** Default statistical method for new experiments in this organization.
-       *
-       * * `bayesian` - Bayesian
-       * * `frequentist` - Frequentist */
-      default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnum | BlankEnum | null;
       /** Default setting for 'Discard client IP data' for new projects in this organization. */
       default_anonymize_ips?: boolean;
       /**
@@ -62436,6 +62773,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: KnowledgeGapSuggestion[];
+    }
+
+    export interface PaginatedKnowledgeSourceDocumentList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: KnowledgeSourceDocument[];
     }
 
     export interface PaginatedKnowledgeSourceList {
@@ -65211,7 +65557,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint.
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -65220,7 +65566,7 @@ export namespace Schemas {
       source_product: SignalSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
       config?: SignalSourceConfigConfig;
       readonly created_at: string;
       readonly updated_at: string;
@@ -68660,6 +69006,11 @@ export namespace Schemas {
       /** Display name of the insight monitored by this alert. */
       readonly insight_display_name?: string;
       /**
+         * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+         * @nullable
+         */
+      readonly llm_detector_available?: boolean | null;
+      /**
          * Human-readable name for the alert.
          * @maxLength 255
          */
@@ -68912,7 +69263,7 @@ export namespace Schemas {
     export interface PatchedBatchExportRequest {
       /** Human-readable name for the batch export. */
       name?: string;
-      /** Which data model to export (events, persons, sessions).
+      /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
        *
        * * `events` - Events
        * * `persons` - Persons
@@ -68931,8 +69282,11 @@ export namespace Schemas {
       interval?: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
-      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-      hogql_query?: string;
+      /**
+         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+         * @nullable
+         */
+      hogql_query?: string | null;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
@@ -73175,11 +73529,6 @@ export namespace Schemas {
       readonly is_ai_training_cta_shown?: boolean | null;
       /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
       readonly has_signed_baa?: boolean;
-      /** Default statistical method for new experiments in this organization.
-       *
-       * * `bayesian` - Bayesian
-       * * `frequentist` - Frequentist */
-      default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnum | BlankEnum | null;
       /** Default setting for 'Discard client IP data' for new projects in this organization. */
       default_anonymize_ips?: boolean;
       /**
@@ -75249,7 +75598,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint.
      */
     export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -75258,7 +75607,7 @@ export namespace Schemas {
       source_product?: SignalSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
       config?: PatchedSignalSourceConfigConfig;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -76288,6 +76637,7 @@ export namespace Schemas {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
+     * * `space_setup` - Space Setup
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -76314,6 +76664,7 @@ export namespace Schemas {
       SignalsChat: 'signals_chat',
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
+      SpaceSetup: 'space_setup',
     } as const;
 
     /**
@@ -76370,7 +76721,8 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
-       * * `workflow` - Workflow */
+       * * `workflow` - Workflow
+       * * `space_setup` - Space Setup */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -81955,6 +82307,32 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    export interface QueryResponseAlternative53 {
+      columns?: string[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: ErrorTrackingCorrelatedIssue[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
     export type QueryResponseAlternative54CredibleIntervals = {[key: string]: number[]};
 
     export type QueryResponseAlternative54InsightItemItem = { [key: string]: unknown };
@@ -83250,7 +83628,7 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | unknown | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative56 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107 | QueryResponseAlternative108 | QueryResponseAlternative109 | QueryResponseAlternative110 | QueryResponseAlternative111 | QueryResponseAlternative112 | QueryResponseAlternative113;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | unknown | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative56 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107 | QueryResponseAlternative108 | QueryResponseAlternative109 | QueryResponseAlternative110 | QueryResponseAlternative111 | QueryResponseAlternative112 | QueryResponseAlternative113;
 
     export interface QueryScanResponse {
       analysis?: QueryScanAnalysis | null;
@@ -86842,6 +87220,20 @@ export namespace Schemas {
     }
 
     /**
+     * One team a member belongs to, from the project's synced team roster.
+     */
+    export interface ScoutMemberTeam {
+      /** Where the team is defined, for example `github`. Today every team comes from GitHub. */
+      provider: string;
+      /** The team's slug, lowercased. For example `team-desktop`. */
+      slug: string;
+      /** The team's display name. For example `Team Desktop`. */
+      name: string;
+      /** True when this member maintains the team. Prefer maintainers when you pick reviewers for a team, and treat false as 'not known to maintain it': some rosters sync without roles. */
+      is_maintainer: boolean;
+    }
+
+    /**
      * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
      */
     export interface ScoutMember {
@@ -86858,6 +87250,8 @@ export namespace Schemas {
          * @nullable
          */
       github_login: string | null;
+      /** The teams this member is on, from the project's synced team roster. Empty when no roster is synced, or when the member has no linked GitHub account, since the roster is keyed on that login. The roster is a periodic snapshot, so it can lag the live team. */
+      teams: ScoutMemberTeam[];
     }
 
     /**
@@ -87037,6 +87431,7 @@ export namespace Schemas {
      * * `stale` - Stale
      * * `failed` - Failed
      * * `empty` - Empty
+     * * `low_activity` - Low activity
      */
     export type SignalScoutSuggestionSetStatusEnum = typeof SignalScoutSuggestionSetStatusEnum[keyof typeof SignalScoutSuggestionSetStatusEnum];
 
@@ -87046,15 +87441,17 @@ export namespace Schemas {
       Stale: 'stale',
       Failed: 'failed',
       Empty: 'empty',
+      LowActivity: 'low_activity',
     } as const;
 
     export interface ScoutSuggestionSet {
-      /** `fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet.
+      /** `fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet. `low_activity`: the project was too quiet to scan, so nothing was generated.
        *
        * * `fresh` - Fresh
        * * `stale` - Stale
        * * `failed` - Failed
-       * * `empty` - Empty */
+       * * `empty` - Empty
+       * * `low_activity` - Low activity */
       status: SignalScoutSuggestionSetStatusEnum;
       /**
          * When the current batch was generated; null before the first run.
@@ -93184,6 +93581,13 @@ export namespace Schemas {
     }
 
     /**
+     * The setup task that was started for the channel.
+     */
+    export interface SpaceSetupStartedDTO {
+      task_id: string;
+    }
+
+    /**
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -95053,7 +95457,8 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
-       * * `workflow` - Workflow */
+       * * `workflow` - Workflow
+       * * `space_setup` - Space Setup */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -95671,7 +96076,7 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
-      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
@@ -96642,7 +97047,8 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
-       * * `workflow` - Workflow */
+       * * `workflow` - Workflow
+       * * `space_setup` - Space Setup */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -104508,6 +104914,10 @@ export namespace Schemas {
 
     export type BusinessKnowledgeSourcesListParams = {
     /**
+     * Filter by who added the source: human (you added it) or learned (from a resolved support ticket).
+     */
+    added_by?: BusinessKnowledgeSourcesListAddedBy;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -104525,6 +104935,14 @@ export namespace Schemas {
     source_type?: BusinessKnowledgeSourcesListSourceType;
     };
 
+    export type BusinessKnowledgeSourcesListAddedBy = typeof BusinessKnowledgeSourcesListAddedBy[keyof typeof BusinessKnowledgeSourcesListAddedBy];
+
+
+    export const BusinessKnowledgeSourcesListAddedBy = {
+      Human: 'human',
+      Learned: 'learned',
+    } as const;
+
     export type BusinessKnowledgeSourcesListSourceType = typeof BusinessKnowledgeSourcesListSourceType[keyof typeof BusinessKnowledgeSourcesListSourceType];
 
 
@@ -104533,6 +104951,17 @@ export namespace Schemas {
       Text: 'text',
       Url: 'url',
     } as const;
+
+    export type BusinessKnowledgeSourcesDocumentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type BusinessKnowledgeSourcesTextRetrieve200 = {
       text?: string;
@@ -110418,6 +110847,10 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled results with full content. Set to false to get the raw text with the reference tags.
+     */
+    resolve?: boolean;
+    /**
      * Optional substring filter applied to prompt names and prompt content.
      */
     search?: string;
@@ -111066,6 +111499,10 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean;
+    /**
      * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
      * @minimum 1
      * @maximum 500
@@ -111080,6 +111517,10 @@ export namespace Schemas {
      * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
      */
     order_by?: string;
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string;
     /**
      * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
      */
@@ -111099,6 +111540,10 @@ export namespace Schemas {
      */
     date_from?: string;
     /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean;
+    /**
      * Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.
      * @minimum 1
      * @maximum 500
@@ -111109,6 +111554,21 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string;
+    };
+
+    export type McpAnalyticsSessionsActivityOverviewParams = {
+    /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean;
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string;
     };
 
     export type McpGatewayAuditListParams = {
@@ -112682,6 +113142,11 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * Team slug (case-insensitive, no `@org/` prefix), for example `team-desktop`. Narrows the roster to the members on that team, maintainers first, so a slug from a scout note, CODEOWNERS, or an owners file resolves to people you can route to. Returns an error, not an empty list, when the project has no synced team roster or the roster holds no rows for the slug.
+     * @minLength 1
+     */
+    team?: string;
     };
 
     export type SignalsScoutNotesListParams = {
@@ -113371,6 +113836,7 @@ export namespace Schemas {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
+     * * `space_setup` - Space Setup
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -113513,6 +113979,7 @@ export namespace Schemas {
       SignalsChat: 'signals_chat',
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
+      SpaceSetup: 'space_setup',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];

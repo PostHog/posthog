@@ -1,1 +1,1 @@
-0151_scout_config_retired_pause_reason
+0152_alter_signalscoutsuggestionset_status
