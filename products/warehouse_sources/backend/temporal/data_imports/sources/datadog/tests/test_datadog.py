@@ -417,6 +417,17 @@ class TestDatadogSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
+    def test_unknown_endpoint_is_named_in_the_error(self) -> None:
+        with pytest.raises(ValueError, match="Unknown Datadog endpoint: not_a_table"):
+            datadog_source(
+                site="datadoghq.com",
+                api_key="api",
+                app_key="app",
+                endpoint="not_a_table",
+                logger=mock.MagicMock(),
+                resumable_source_manager=mock.MagicMock(),
+            )
+
 
 class TestGetRowsResume:
     def _run(

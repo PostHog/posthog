@@ -361,6 +361,15 @@ def _fan_out_rows(
                 yield child_batch
 
 
+def _endpoint_config(endpoint: str) -> DatadogEndpointConfig:
+    # A schema row can outlive the catalog entry that created it — an endpoint dropped from the
+    # catalog, or a schema created by a newer deploy than the worker running the sync.
+    config = DATADOG_ENDPOINTS.get(endpoint)
+    if config is None:
+        raise ValueError(f"Unknown Datadog endpoint: {endpoint}")
+    return config
+
+
 def get_rows(
     site: Optional[str],
     api_key: str,
@@ -371,7 +380,7 @@ def get_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    config = DATADOG_ENDPOINTS[endpoint]
+    config = _endpoint_config(endpoint)
     headers = _get_headers(api_key, app_key)
     host = base_url(site)
     # One tracked session reused across pages and retries; credentials are redacted from logged
@@ -416,7 +425,7 @@ def datadog_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    config = DATADOG_ENDPOINTS[endpoint]
+    config = _endpoint_config(endpoint)
 
     return SourceResponse(
         name=endpoint,
