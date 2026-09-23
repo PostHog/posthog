@@ -23,8 +23,10 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
-import { OsShell } from './os/shell/OsShell'
 import { sceneLogic } from './sceneLogic'
+
+// Loaded only with the os-shell flag on, so the desktop and its images stay out of everyone else's bundle.
+const OsShell = lazyWithRetry(() => import('./os/shell/OsShell').then(({ OsShell }) => ({ default: OsShell })))
 
 const TerminalDock = lazyWithRetry(() =>
     import('./terminal/TerminalDock').then(({ TerminalDock }) => ({ default: TerminalDock }))
@@ -47,7 +49,13 @@ export default function AuthenticatedShell({ children }: { children: React.React
             <div className="contents isolate">
                 {/* The OS shell opens the current URL in a window frame, so the scene renders there
                     and not in this page. */}
-                {mode === 'os' ? <OsShell /> : <Navigation sceneConfig={sceneConfig}>{children}</Navigation>}
+                {mode === 'os' ? (
+                    <Suspense fallback={null}>
+                        <OsShell />
+                    </Suspense>
+                ) : (
+                    <Navigation sceneConfig={sceneConfig}>{children}</Navigation>
+                )}
                 <GlobalModals />
                 <GlobalShortcuts />
                 {featureFlags[FEATURE_FLAGS.POSTHOG_TERMINAL] && (
