@@ -3768,6 +3768,22 @@ snapshots:
         hash: v1.k794b7964.e6a7236cbaa1a5530b0852dcd8b96a5e5ede18d51fff382fd2fbc0ed38499629.keu2JbNJYulSkSEQ0u0Mf9BgTGq-AwusNFvYRVoWt9s
     layout-apps-and-files--search--light:
         hash: v1.k794b7964.a85d66153be5eac425203199a972841836cb4304db9e4fddae78fc2989e860f9.xOCcUQ4og59re2zFHEUSv6tDnAxW4f-nj9TBxlmXz3w
+    layout-apps-app-tooltip--dark--dark:
+        hash: v1.k794b7964.52ba01b050e579d7c600df08497a2dfab2dba9cf670553e032afce3819d6d00d.4TCn-X9vJ_FhNwb6WjhB2V_zEkQCnG4FoEE7hf6L9-o
+    layout-apps-app-tooltip--dark--light:
+        hash: v1.k794b7964.417a2d56a0422336f9efc43030a7cdae3f122cf78e3fbbad82601aef1cf74ad4.GzperVKz3nFp11HKgg_JzdNuxUVZJpmkcceN_uRXU90
+    layout-apps-app-tooltip--group--dark:
+        hash: v1.k794b7964.cc4132fcaed3783a4a3c47285151e300ab3eb34e33cea95baeb1bd3f78acb016.1SxBAHglfl3kz8BLVFa2e8sgiRNgxsTYJ6EjErp4ChY
+    layout-apps-app-tooltip--group--light:
+        hash: v1.k794b7964.895e59c1f4cdf1e389c481da36861b257ad57867f197f3b5959dfb458d506f97.tkjRKbDLufF5M3aFHU-Lk4AjZbply-wqhnEGQWdhoaA
+    layout-apps-app-tooltip--replay--dark:
+        hash: v1.k794b7964.b37017f4341e1d0ec831d9059b50e25057ffb2c3d9a5fdb8adceda44eb368056.93ynxBmYnvfumttTefVN_YVSKFD92ZGObDlmrclXSd0
+    layout-apps-app-tooltip--replay--light:
+        hash: v1.k794b7964.7a2dd15cd78019b2c965d3ba20ae56fde8d7f1a96f13b13f0f99def766e4d878.2f0BS7pHq8KUjj_xHcIwW_65ESpicQLBPih9GOLK6iQ
+    layout-apps-app-tooltip--sql--dark:
+        hash: v1.k794b7964.52ba01b050e579d7c600df08497a2dfab2dba9cf670553e032afce3819d6d00d.3aMN43n3xOgF5_2noQ0WET35p2S_eiSQc0RPE_fFmw0
+    layout-apps-app-tooltip--sql--light:
+        hash: v1.k794b7964.417a2d56a0422336f9efc43030a7cdae3f122cf78e3fbbad82601aef1cf74ad4.vJZOOKfKKvbdiUHLkKnQELItxF23-RSFz5zpD_ZTRPI
     layout-flat-nav-browse--default--dark:
         hash: v1.k794b7964.5d1f1b535bb3492e1ecdfa3e1acac30e856bcacb109136cf4b88654a8fa2bfcb.N4pOX84PDiTGfw5A6cgk634GGZ5U2Z-1QQNM82ZTp8Y
     layout-flat-nav-browse--default--light:
