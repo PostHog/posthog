@@ -293,6 +293,27 @@ class TestPaymentsPagination:
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_when_has_more_is_true_but_the_cursor_is_unchanged(self, MockSession):
+        # A buggy or exhausted keyset can echo the same cursor back while still claiming
+        # more pages exist. Without an equality check the walk would re-request that page
+        # forever instead of stopping.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _payments_response([{"id": "p1"}], next_cursor="cur_1", has_more=True),
+                _payments_response([{"id": "p1"}], next_cursor="cur_1", has_more=True),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("payments", manager))
+
+        assert [r["id"] for r in rows] == ["p1", "p1"]
+        assert session.send.call_count == 2
+        manager.save_state.assert_called_once_with(DeelResumeConfig(cursor="cur_1"))
+
 
 class TestTimeOffsPagination:
     @mock.patch(CLIENT_SESSION_PATCH)

@@ -67,9 +67,10 @@ class DeelCursorPaginator(BasePaginator):
     """Keyset paginator for Deel's cursor endpoints.
 
     The next cursor's body path and the query param that sends it back vary per endpoint.
-    Terminate when the response carries no next cursor, publishes a false "has more" flag, OR
-    returns no rows — Deel can echo a stale cursor on an exhausted keyset, so an empty page must
-    stop the walk rather than loop.
+    Terminate when the response carries no next cursor, publishes a false "has more" flag,
+    returns no rows, OR echoes back the same cursor it was just sent — Deel can return a stale
+    or unchanged cursor on an exhausted keyset while still claiming more pages exist, so both
+    an empty page and a repeated cursor must stop the walk rather than loop forever.
     """
 
     def __init__(
@@ -107,7 +108,7 @@ class DeelCursorPaginator(BasePaginator):
             self._has_next_page = False
             return
         next_cursor = _find(body, self.cursor_path)
-        if next_cursor:
+        if next_cursor and str(next_cursor) != self._cursor:
             self._cursor = str(next_cursor)
             self._has_next_page = True
         else:
