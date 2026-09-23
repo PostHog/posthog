@@ -9900,6 +9900,14 @@ snapshots:
         hash: v1.k794b7964.a08eefe3f8b95c0cee0659fb050cd3114778edb6a3755fdfe7b95460e031e425.Sodxn6zMfktliL0TqxWRzmRFMPymrVZSrGH4ryLJKRc
     scenes-app-marketing-analytics-dashboard-change-value-cell--unavailable--light:
         hash: v1.k794b7964.077208274eef6634c72fb949f22e3cfc5ce4ee6ed110883744ddc6c598e2997c.8WkzjKlIOrwhI2hYPh3FKHnwWIsSzE39LASNS1SaTo8
+    scenes-app-marketing-analytics-freshness--behind--dark:
+        hash: v1.k794b7964.24e00c5991fdda65218358c71de110f4e94c84f483b6b550225da1bf405f1511.76cXtLdLAt40yxKRi1qT71n8DdikUm3oiMTL8IWwDwI
+    scenes-app-marketing-analytics-freshness--behind--light:
+        hash: v1.k794b7964.b2d8e1c949197fcff85a43871f4a08868e399426f5b0deed1836de54f5694a4a.iJ0Icp8ZeVBvNrPdrwS1Zbq4yUADXJxuyRWy2YKQdnY
+    scenes-app-marketing-analytics-freshness--fresh--dark:
+        hash: v1.k794b7964.71ad45e65a5513ff7088e026d8ffb2bf891fb1effddb0e9dbd95ba78b597c3b1.0e6bNu95d2bH_NlZmGGW7oiHJ__aHNSxqzRcxMUA4xM
+    scenes-app-marketing-analytics-freshness--fresh--light:
+        hash: v1.k794b7964.b8d9453c270c310350d2bcf30cdb54cae4da19b8877e8d3206160478eb2dda94.dJpt6MIMxg7mOxiHC6PoqwTGwMfiGrln7SheHTKHTcU
     scenes-app-max-ai-logs-query-tool--no-matches--dark:
         hash: v1.k794b7964.c231a64a00f6dfc8bf5b88c3dab624bad88d347b96be0b2e6b0cc14e1c10e1cc.ScE515QePrAYrJB-UWn5sakLt5cKxQKQQrx_n_uJERI
     scenes-app-max-ai-logs-query-tool--no-matches--light:
