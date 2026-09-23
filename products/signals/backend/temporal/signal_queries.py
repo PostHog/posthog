@@ -11,6 +11,7 @@ import temporalio
 from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import DocumentKey, async_get_recently_seen_documents, emit_embedding_request
@@ -794,6 +795,12 @@ def fetch_report_ids_for_scout_prefix(team: Team, scout_prefix: str) -> set[str]
 # fetch_report_ids_for_search_terms — synchronous, for the viewset list filter
 # ---------------------------------------------------------------------------
 
+# The caller treats this leg as best-effort and degrades to the report's own content when it fails,
+# so it must not hold a web worker for the 60-second HogQL default: the inbox runs one of these per
+# section per typed search. `throw` spends the cap on that documented degrade path rather than on a
+# silently partial report-id set.
+_SEARCH_EVIDENCE_MAX_EXECUTION_TIME_SECONDS = 10
+
 
 def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
     """Return the set of report IDs whose evidence matches every one of `terms`.
@@ -846,6 +853,9 @@ def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
         query=ch_query,
         team=team,
         placeholders=placeholders,
+        settings=HogQLGlobalSettings(
+            max_execution_time=_SEARCH_EVIDENCE_MAX_EXECUTION_TIME_SECONDS, timeout_overflow_mode="throw"
+        ),
     )
 
     return {row[0] for row in (result.results or []) if row[0]}
