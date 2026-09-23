@@ -144,18 +144,28 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                 source: { name: 'Test', url: '' },
             }
 
-            // Loading a person should NOT automatically set emailAddressOverride
+            // Loading a person should NOT automatically set emailAddressOverride.
+            // The input still shows that person's email until the field is edited.
             await expectLogic(logic, () => {
                 logic.actions.loadSamplePersonByDistinctIdSuccess(globalsWithEmail)
             }).toMatchValues({
-                emailAddressOverride: null, // Should remain null, not automatically set
+                emailAddressOverride: null,
+                emailInput: 'new@example.com',
             })
 
-            // Only manual setting should update it
+            // Clearing the field must stay empty. An empty string is an edit, not "no override".
+            await expectLogic(logic, () => {
+                logic.actions.setEmailAddressOverride('')
+            }).toMatchValues({
+                emailAddressOverride: '',
+                emailInput: '',
+            })
+
             await expectLogic(logic, () => {
                 logic.actions.setEmailAddressOverride('manual@example.com')
             }).toMatchValues({
                 emailAddressOverride: 'manual@example.com',
+                emailInput: 'manual@example.com',
             })
         })
     })
