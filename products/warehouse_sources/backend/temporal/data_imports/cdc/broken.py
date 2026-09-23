@@ -127,6 +127,11 @@ def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
         if (config.get("cdc_broken") or {}).get("reason") == SELF_MANAGED_LAG_REASON:
             config.pop("cdc_broken")
 
+    marked = ExternalDataSchema.objects.filter(
+        team_id=source.team_id, source=source, sync_type_config__cdc_broken__reason=SELF_MANAGED_LAG_REASON
+    )
+    if not marked.exists():
+        return 0
     # Source lock first, the order mark_cdc_broken takes, so a concurrent re-mark cannot interleave.
     with transaction.atomic():
         locked = ExternalDataSource.objects.select_for_update(of=("self",)).get(id=source.id, team_id=source.team_id)

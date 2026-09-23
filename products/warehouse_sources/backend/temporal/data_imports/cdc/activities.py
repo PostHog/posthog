@@ -2119,9 +2119,14 @@ def cleanup_orphan_slots_activity() -> None:
                     threshold_mb=cdc_config.lag_warning_threshold_mb,
                 )
             elif cdc_config.management_mode == "self_managed":
-                cleared = clear_recovered_self_managed_lag(source)
-                if cleared:
-                    source_log.info("slot_lag_recovered_self_managed", lag_mb=round(lag_mb, 1), schemas=cleared)
+                try:
+                    cleared = clear_recovered_self_managed_lag(source)
+                    if cleared:
+                        source_log.info("slot_lag_recovered_self_managed", lag_mb=round(lag_mb, 1), schemas=cleared)
+                except Exception:
+                    source_log.exception("failed_to_clear_recovered_lag")
+                    metrics.get_sweeper_source_errors_metric().add(1)
+                    sources_errored += 1
 
             source_log.info(
                 "slot_lag_checked",

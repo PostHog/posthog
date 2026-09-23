@@ -345,9 +345,6 @@ def create_external_data_job_model_activity(
             pipeline_version = ExternalDataJob.PipelineVersion.V3
             _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
-        # Persist the Running status only after the job row exists: a Running schema with no job
-        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
-        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
         # Only v3 runs deliver to destinations; v2 has no per-batch queue to carry the ids.
         destination_ids: list[str] = []
         if pipeline_version == ExternalDataJob.PipelineVersion.V3 and is_multi_destination_enabled(
@@ -363,6 +360,9 @@ def create_external_data_job_model_activity(
             schema_snapshot=_build_schema_snapshot(schema),
             destination_ids=destination_ids,
         )
+        # Persist the Running status only after the job row exists: a Running schema with no job
+        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
+        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
         mark_schema_running_unless_halted(schema)
 
         logger.info(
