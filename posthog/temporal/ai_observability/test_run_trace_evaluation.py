@@ -404,9 +404,10 @@ class TestFetchTraceForEvaluation:
 
         with (
             time_machine.travel(FROZEN_NOW, tick=False),
+            # The preflight count, then the renderable-event count.
             patch(
                 "posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events",
-                side_effect=lambda *args, renderable_only=False, **kwargs: 0 if renderable_only else 1,
+                side_effect=[1, 0],
             ),
             patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
         ):
@@ -425,9 +426,10 @@ class TestFetchTraceForEvaluation:
         # trace. Grading the remainder would hide the missing generations from the judge.
         with (
             time_machine.travel(FROZEN_NOW, tick=False),
+            # The preflight count, then the renderable-event count.
             patch(
                 "posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events",
-                side_effect=lambda *args, renderable_only=False, **kwargs: 3 if renderable_only else 1,
+                side_effect=[1, 3],
             ),
             patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
         ):

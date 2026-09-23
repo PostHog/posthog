@@ -101,30 +101,31 @@ MAX_TRACE_EVAL_EVENTS = 500
 # much, so we cap lower to bound cost. Over budget, the formatter uniformly samples lines.
 JUDGE_TRACE_MAX_CHARS = 150_000
 
-# Written against ai_events; query_ai_events rewrites it for the events table when ai_events
-# returns nothing. HAVING makes a zero count return no rows, which both triggers the events-table
-# fallback and keeps "no events" distinguishable without a second query.
-_TRACE_EVENT_COUNT_SQL = """
+_TRACE_EVENT_NAMES = ("$ai_span", "$ai_generation", "$ai_embedding", "$ai_metric", "$ai_feedback", "$ai_trace")
+
+# The runner drops the `$ai_trace` root row from `LLMTrace.events`, so it can never contribute a
+# line to the judge transcript.
+_RENDERABLE_TRACE_EVENT_NAMES = tuple(name for name in _TRACE_EVENT_NAMES if name != "$ai_trace")
+
+
+def _event_names_clause(event_names: tuple[str, ...]) -> str:
+    return ", ".join(f"'{name}'" for name in event_names)
+
+
+def _trace_event_count_sql(event_names: tuple[str, ...]) -> str:
+    """Count query written against ai_events; query_ai_events rewrites it for the events table when
+    ai_events returns nothing. HAVING makes a zero count return no rows, which both triggers the
+    events-table fallback and keeps "no events" distinguishable without a second query."""
+    return f"""
 SELECT count() AS event_count
 FROM posthog.ai_events AS ai_events
-WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-  AND trace_id = {trace_id}
-  AND timestamp >= {date_from}
-  AND timestamp <= {date_to}
+WHERE event IN ({_event_names_clause(event_names)})
+  AND trace_id = {{trace_id}}
+  AND timestamp >= {{date_from}}
+  AND timestamp <= {{date_to}}
 HAVING event_count > 0
 """
 
-# Same count over the events that can reach `LLMTrace.events`. The `$ai_trace` root row is left out
-# because the runner drops it, so it can never contribute a line to the judge transcript.
-_RENDERABLE_TRACE_EVENT_COUNT_SQL = """
-SELECT count() AS event_count
-FROM posthog.ai_events AS ai_events
-WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback')
-  AND trace_id = {trace_id}
-  AND timestamp >= {date_from}
-  AND timestamp <= {date_to}
-HAVING event_count > 0
-"""
 
 _SKIP_REASONING = {
     "trace_not_found": "No trace events were found within the evaluation window; evaluation skipped.",
@@ -184,10 +185,15 @@ class TraceFetchOutcome:
 
 
 def _count_trace_events(
-    team: Team, trace_id: str, date_from: datetime, date_to: datetime, *, renderable_only: bool = False
+    team: Team,
+    trace_id: str,
+    date_from: datetime,
+    date_to: datetime,
+    *,
+    event_names: tuple[str, ...] = _TRACE_EVENT_NAMES,
 ) -> int:
     result = query_ai_events(
-        query=parse_select(_RENDERABLE_TRACE_EVENT_COUNT_SQL if renderable_only else _TRACE_EVENT_COUNT_SQL),
+        query=parse_select(_trace_event_count_sql(event_names)),
         placeholders={
             "trace_id": ast.Constant(value=trace_id),
             "date_from": ast.Constant(value=date_from),
@@ -205,7 +211,7 @@ def _count_trace_events(
 _TRACE_PAYLOAD_BYTES_SQL = f"""
 SELECT {PAYLOAD_BYTES_EXPR} AS payload_bytes
 FROM posthog.ai_events AS ai_events
-WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+WHERE event IN ({_event_names_clause(_TRACE_EVENT_NAMES)})
   AND trace_id = {{trace_id}}
   AND timestamp >= {{date_from}}
   AND timestamp <= {{date_to}}
@@ -229,22 +235,19 @@ def _sum_trace_payload_bytes(team: Team, trace_id: str, date_from: datetime, dat
     return int(result.results[0][0] or 0)
 
 
-def _nothing_to_grade(team: Team, trace: LLMTrace, trace_id: str, date_from: datetime, date_to: datetime) -> bool:
+def _nothing_to_grade(team: Team, trace: LLMTrace, date_from: datetime, date_to: datetime) -> bool:
     """Decide whether a trace that came back with no events still carries something to grade.
 
-    The count preflight includes the `$ai_trace` root row, which the runner drops from `events`, so
-    a non-zero count does not promise a transcript. The formatter falls back to the trace-level
-    input and output when the hierarchy is empty, so a root-only trace grades fine. Without either,
-    the judge would receive the trace name alone and grade nothing.
+    The formatter falls back to the trace-level input and output when the hierarchy is empty, so a
+    root-only trace grades fine. Without either, the judge receives the trace name alone.
 
-    A renderable event the fetch did not return means `ai_events` served a partial trace: the count
-    falls back to the shared events table when `ai_events` holds no renderable row, so the two reads
-    disagree only when the generations exist somewhere the fetch did not look. Those generations are
-    what the judge needs, so a partial read counts as a miss rather than an answer.
+    A renderable event the fetch did not return means `ai_events` served a partial trace. This count
+    falls back to the shared events table when `ai_events` holds no renderable row, so it finds the
+    generations the fetch did not see. Those generations are what the judge needs.
     """
     if not trace.inputState and not trace.outputState:
         return True
-    return _count_trace_events(team, trace_id, date_from, date_to, renderable_only=True) > 0
+    return _count_trace_events(team, trace.id, date_from, date_to, event_names=_RENDERABLE_TRACE_EVENT_NAMES) > 0
 
 
 def _fetch_trace(
@@ -288,7 +291,9 @@ def _fetch_trace(
     if not response.results:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     trace = response.results[0]
-    if not trace.events and _nothing_to_grade(team, trace, trace_id, date_from, date_to):
+    # The count preflight above includes the `$ai_trace` root row, so a non-zero count does not
+    # promise a transcript.
+    if not trace.events and _nothing_to_grade(team, trace, date_from, date_to):
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     return TraceFetchOutcome(trace=trace, skip_reason=None, event_count=event_count)
 
