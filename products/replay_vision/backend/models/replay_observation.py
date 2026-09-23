@@ -118,8 +118,7 @@ class ReplayObservation(UUIDModel):
     completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    # Unused since the media backfill sweep was removed: nothing writes them and nothing reads them. Dropped
-    # in a follow-up migration, so do not build on them.
+    # DEPRECATED: These fields supported the media-backfill sweep. No code reads or writes them.
     media_render_attempts = models.PositiveSmallIntegerField(default=0, db_default=0)
     media_render_attempted_at = models.DateTimeField(null=True, blank=True)
 
@@ -149,7 +148,7 @@ class ReplayObservation(UUIDModel):
             ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
-            # Served the media backfill's cross-team walk, which is gone. Dropped in a follow-up migration.
+            # DEPRECATED: This index supported the media-backfill cross-team walk. No query needs it.
             models.Index(
                 fields=["-created_at"],
                 name="rlo_succeeded_created_idx",
