@@ -5,9 +5,11 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getRecentSlackChannelIds } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -15,8 +17,11 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, IntegrationType, SubscriptionType } from '~/types'
 
+import type { SubscriptionContextApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 import { newSubscriptionTargetLogic } from '../../scenes/newSubscriptionTargetLogic'
-import { subscriptionLogic } from './subscriptionLogic'
+import { subscriptionLogic, SubscriptionLogicProps } from './subscriptionLogic'
+import { MAX_SELECTED_CONTEXTS } from './utils'
 
 jest.mock('posthog-js')
 
@@ -38,6 +43,17 @@ const TEAMS_WEBHOOK_URLS = [
     'https://tenant.environment.api.powerplatform.com:443/powerautomate/automations/direct/cluster/workflows/id',
     'https://tenant.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/id',
 ]
+
+const DASHBOARD_CONTEXT: SubscriptionContextApi = {
+    dashboard_id: 9,
+    dashboard_name: 'Activation overview',
+}
+
+const INSIGHT_CONTEXT: SubscriptionContextApi = {
+    insight_id: 12,
+    insight_short_id: 'signup-conversion',
+    insight_name: 'Signup conversion',
+}
 
 export const fixtureSubscriptionResponse = (id: number, args: Partial<SubscriptionType> = {}): SubscriptionType =>
     ({
@@ -62,7 +78,7 @@ describe('subscriptionLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1),
+                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1),
                 '/api/projects/:team/subscriptions/1/deliveries/': {
                     next: null,
                     previous: null,
@@ -76,13 +92,15 @@ describe('subscriptionLogic', () => {
                 },
             },
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => [
+                '/api/projects/:team/subscriptions': async ({ request }) => [
                     200,
                     { id: 42, ...((await request.json()) as Partial<SubscriptionType>) } as SubscriptionType,
                 ],
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXTS]: true })
         userLogic.mount()
         userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         newLogic = subscriptionLogic({
@@ -145,7 +163,7 @@ describe('subscriptionLogic', () => {
     it('uses the UTC weekday for legacy weekly subscriptions', async () => {
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
                     frequency: 'weekly',
                     start_date: '2024-01-01T00:30:00Z',
                     byweekday: null,
@@ -163,7 +181,7 @@ describe('subscriptionLogic', () => {
     it('removes hidden weekday constraints from daily subscriptions with intervals greater than one', async () => {
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
                     frequency: 'daily',
                     interval: 2,
                     byweekday: ['monday', 'wednesday'],
@@ -733,7 +751,11 @@ describe('subscriptionLogic', () => {
         ],
     ])('records the channel recency for %s', async (_label, subscription, expectedIds) => {
         await expectLogic(newLogic, () => {
-            newLogic.actions.submitSubscriptionSuccess(subscription as SubscriptionType)
+            newLogic.actions.submitSubscriptionSuccess({
+                ...newLogic.values.subscription,
+                ...subscription,
+                contexts: [],
+            })
         }).toFinishListeners()
 
         expect(getRecentSlackChannelIds(7)).toEqual(expectedIds)
@@ -747,7 +769,11 @@ describe('subscriptionLogic', () => {
         targetLogic.actions.chooseInsight('abc123' as InsightShortId, 'Weekly signups')
 
         await expectLogic(newLogic, () => {
-            newLogic.actions.submitSubscriptionSuccess({ target_type: 'email' } as SubscriptionType)
+            newLogic.actions.submitSubscriptionSuccess({
+                ...newLogic.values.subscription,
+                target_type: 'email',
+                contexts: [],
+            })
         }).toFinishListeners()
 
         expect(targetLogic.values.target).toBeNull()
@@ -796,7 +822,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, { id: 42, ...capturedBody } as SubscriptionType]
                 },
@@ -818,6 +844,230 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.dashboard).toBeUndefined()
         expect(capturedBody?.insight).toBeUndefined()
     })
+
+    it('keeps generated context values typed, rejects duplicates, caps additions, and totals reads', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/insights/': ({ request }) => {
+                    const dashboards = new URL(request.url).searchParams.get('dashboards')
+                    return [200, { count: dashboards === `[${DASHBOARD_CONTEXT.dashboard_id}]` ? 4 : 2, results: [] }]
+                },
+            },
+        })
+        const contextLogic = subscriptionLogic({ id: 'new' })
+        contextLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(contextLogic).toFinishListeners()
+
+        contextLogic.actions.addContext(DASHBOARD_CONTEXT)
+        contextLogic.actions.addContext(DASHBOARD_CONTEXT)
+        contextLogic.actions.addContext(INSIGHT_CONTEXT)
+        for (let index = 0; (contextLogic.values.subscription.contexts ?? []).length < MAX_SELECTED_CONTEXTS; index++) {
+            contextLogic.actions.addContext({
+                insight_id: 100 + index,
+                insight_short_id: `filler-${index}`,
+                insight_name: `Filler ${index}`,
+            })
+        }
+        contextLogic.actions.addContext({
+            dashboard_id: 14,
+            dashboard_name: 'Overflow dashboard',
+        })
+        await expectLogic(contextLogic).toFinishListeners()
+
+        const contexts = contextLogic.values.subscription.contexts
+        expect(contexts).toHaveLength(MAX_SELECTED_CONTEXTS)
+        expect(contexts[0]).toEqual(DASHBOARD_CONTEXT)
+        expect(contexts[1]).toEqual(INSIGHT_CONTEXT)
+        expect(contexts.some((context) => 'dashboard_id' in context && context.dashboard_id === 14)).toBe(false)
+        expect(contextLogic.values.contextInsightCounts).toEqual({ [DASHBOARD_CONTEXT.dashboard_id]: 4 })
+        expect(contextLogic.values.contextReadTotal).toBe(4 + MAX_SELECTED_CONTEXTS - 1)
+
+        contextLogic.actions.removeContext(INSIGHT_CONTEXT)
+        await expectLogic(contextLogic).toFinishListeners()
+        const remaining = contextLogic.values.subscription.contexts
+        expect(remaining).toHaveLength(MAX_SELECTED_CONTEXTS - 1)
+        expect(remaining[0]).toEqual(DASHBOARD_CONTEXT)
+        expect(remaining.some((context) => 'insight_id' in context && context.insight_id === 7)).toBe(false)
+        contextLogic.unmount()
+    })
+
+    it('clears a server context error after the context selection changes', async () => {
+        let createRequests = 0
+        useMocks({
+            post: {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
+                    createRequests += 1
+                    const body = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 46, ...body } as SubscriptionType]
+                },
+            },
+        })
+        const contextLogic = subscriptionLogic({ id: 'new' })
+        contextLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(contextLogic).toFinishListeners()
+        contextLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Summarize activation',
+            title: 'Activation report',
+            target_type: 'email',
+            target_value: 'reports@example.com',
+        })
+
+        contextLogic.actions.setSubscriptionManualErrors({ contexts: 'This context is no longer available' })
+        contextLogic.actions.addContext(DASHBOARD_CONTEXT)
+        await expectLogic(contextLogic).toFinishListeners()
+        expect(contextLogic.values.subscriptionManualErrors.contexts).toBeUndefined()
+
+        contextLogic.actions.setSubscriptionManualErrors({ contexts: 'This context is no longer available' })
+        contextLogic.actions.removeContext(DASHBOARD_CONTEXT)
+        contextLogic.actions.submitSubscription()
+        await expectLogic(contextLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(contextLogic.values.subscriptionManualErrors.contexts).toBeUndefined()
+        expect(createRequests).toBe(1)
+        contextLogic.unmount()
+    })
+
+    it('submits the exact unified context array without traditional AI root targets', async () => {
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            post: {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 44, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const contextLogic = subscriptionLogic({ dashboardId: 9, dashboardName: 'Activation overview', id: 'new' })
+        contextLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(contextLogic).toFinishListeners()
+        contextLogic.actions.addContext(DASHBOARD_CONTEXT)
+        contextLogic.actions.addContext(INSIGHT_CONTEXT)
+        contextLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Compare activation and signup conversion',
+            title: 'Activation report',
+            target_type: 'email',
+            target_value: 'reports@example.com',
+        })
+
+        contextLogic.actions.submitSubscription()
+        await expectLogic(contextLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.contexts).toEqual([{ dashboard_id: 9 }, { insight_id: 12 }])
+        expect(capturedBody?.dashboard).toBeUndefined()
+        expect(capturedBody?.insight).toBeUndefined()
+        expect(capturedBody).not.toHaveProperty('context_dashboards')
+        expect(capturedBody).not.toHaveProperty('context_insights')
+        expect(capturedBody).not.toHaveProperty('context_items')
+        contextLogic.unmount()
+    })
+
+    it('omits contexts while the rollout flag is disabled', async () => {
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            post: {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 45, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXTS]: false })
+        const contextLogic = subscriptionLogic({ id: 'new' })
+        contextLogic.mount()
+        contextLogic.actions.addContext(DASHBOARD_CONTEXT)
+        contextLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Summarize activation',
+            title: 'Activation report',
+            target_type: 'email',
+            target_value: 'reports@example.com',
+        })
+
+        contextLogic.actions.submitSubscription()
+        await expectLogic(contextLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody).not.toHaveProperty('contexts')
+        contextLogic.unmount()
+    })
+
+    it('hydrates edit context and submits an explicit empty array to clear it', async () => {
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            get: {
+                '/api/projects/:team/subscriptions/1': {
+                    ...fixtureSubscriptionResponse(1, {
+                        resource_type: 'ai_prompt',
+                        prompt: 'Compare activation and signup conversion',
+                    }),
+                    contexts: [DASHBOARD_CONTEXT, INSIGHT_CONTEXT],
+                },
+            },
+            patch: {
+                '/api/projects/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { ...fixtureSubscriptionResponse(1), ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const editLogic = subscriptionLogic({ id: 1 })
+        editLogic.mount()
+        router.actions.push('/subscriptions/1/edit')
+        await expectLogic(editLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
+
+        expect(editLogic.values.subscription.contexts).toEqual([DASHBOARD_CONTEXT, INSIGHT_CONTEXT])
+        editLogic.actions.removeContext(DASHBOARD_CONTEXT)
+        editLogic.actions.removeContext(INSIGHT_CONTEXT)
+        editLogic.actions.submitSubscription()
+        await expectLogic(editLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.contexts).toEqual([])
+        editLogic.unmount()
+    })
+
+    it.each<[string, SubscriptionLogicProps, string, SubscriptionContextApi]>([
+        [
+            'dashboard',
+            { id: 'new', dashboardId: 9, dashboardName: 'Activation overview' },
+            '/dashboard/9/subscriptions/new',
+            DASHBOARD_CONTEXT,
+        ],
+        [
+            'insight',
+            { id: 'new', insightShortId: 'signup-conversion' as InsightShortId, insightName: 'Signup conversion' },
+            '/insights/signup-conversion/subscriptions/new',
+            INSIGHT_CONTEXT,
+        ],
+    ])(
+        'prefills the current %s only after a new subscription becomes an AI report',
+        async (_, props, path, context) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team/insights/': { results: [{ id: 12 }] },
+                },
+            })
+            const contextLogic = subscriptionLogic(props)
+            contextLogic.mount()
+            router.actions.push(path)
+            await expectLogic(contextLogic).toFinishAllListeners()
+
+            expect(contextLogic.values.subscription.contexts).toEqual([])
+            expect(contextLogic.values.subscription.dashboard).toBeUndefined()
+            expect(contextLogic.values.subscription.insight).toBeUndefined()
+
+            contextLogic.actions.setSubscriptionValue('resource_type', 'ai_prompt')
+            await expectLogic(contextLogic).toFinishAllListeners()
+
+            expect(contextLogic.values.subscription.contexts).toEqual([context])
+            expect(contextLogic.values.subscription.dashboard).toBeUndefined()
+            expect(contextLogic.values.subscription.insight).toBeUndefined()
+            contextLogic.unmount()
+        }
+    )
 
     it.each<[string, string, string | undefined]>([
         ...TEAMS_WEBHOOK_URLS.map((url): [string, string, string | undefined] => [
@@ -867,7 +1117,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, { id: 44, ...capturedBody } as SubscriptionType]
                 },
@@ -899,13 +1149,13 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
                     target_type: 'teams',
                     target_value: 'prod-12.westeurope.logic.azure.com',
                 }),
             },
             patch: {
-                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                '/api/projects/:team/subscriptions/1': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, fixtureSubscriptionResponse(1, { target_type: 'teams' })]
                 },
@@ -979,7 +1229,7 @@ describe('subscriptionLogic', () => {
     it('asks for a URL again once the Teams webhook is being replaced', async () => {
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
                     target_type: 'teams',
                     target_value: 'prod-12.westeurope.logic.azure.com',
                 }),
@@ -996,13 +1246,140 @@ describe('subscriptionLogic', () => {
         expect(existingLogic.values.subscriptionValidationErrors.target_value).toBe('A webhook URL is required')
     })
 
+    it('waits for an in-flight context prefill before it builds the create payload', async () => {
+        // Submitting while the insight lookup is still running must not save the report without the
+        // context the prefill is about to add.
+        let releaseInsightLookup: () => void = () => {}
+        const insightLookup = new Promise<void>((resolve) => {
+            releaseInsightLookup = resolve
+        })
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team/insights/': async () => {
+                    await insightLookup
+                    return [200, { results: [{ id: 12 }] }]
+                },
+            },
+            post: {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 45, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        const raceLogic = subscriptionLogic({
+            id: 'new',
+            insightShortId: 'signup-conversion' as InsightShortId,
+            insightName: 'Signup conversion',
+        })
+        raceLogic.mount()
+        router.actions.push('/insights/signup-conversion/subscriptions/new')
+        await expectLogic(raceLogic).toFinishAllListeners()
+
+        raceLogic.actions.setSubscriptionValue('resource_type', 'ai_prompt')
+        raceLogic.actions.setSubscriptionValues({
+            prompt: 'Compare activation and signup conversion',
+            title: 'Activation report',
+            target_type: 'email',
+            target_value: 'reports@example.com',
+        })
+        expect(raceLogic.values.subscription.contexts).toEqual([])
+
+        raceLogic.actions.submitSubscription()
+        releaseInsightLookup()
+        await expectLogic(raceLogic).toFinishAllListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.contexts).toEqual([{ insight_id: 12 }])
+        raceLogic.unmount()
+    })
+
+    it('creates one subscription when the create button is clicked twice during a context prefill', async () => {
+        // The submit button is not in its loading state while the prefill waits, so a second click
+        // gets through. Each create also sends a test report, so the superseded submit must not
+        // reach the API.
+        let releaseInsightLookup: () => void = () => {}
+        const insightLookup = new Promise<void>((resolve) => {
+            releaseInsightLookup = resolve
+        })
+        let createCount = 0
+        useMocks({
+            get: {
+                '/api/environments/:team/insights/': async () => {
+                    await insightLookup
+                    return [200, { results: [{ id: 12 }] }]
+                },
+            },
+            post: {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
+                    createCount += 1
+                    return [
+                        200,
+                        { id: 46, ...((await request.json()) as Partial<SubscriptionType>) } as SubscriptionType,
+                    ]
+                },
+            },
+        })
+        const doubleSubmitLogic = subscriptionLogic({
+            id: 'new',
+            insightShortId: 'signup-conversion' as InsightShortId,
+            insightName: 'Signup conversion',
+        })
+        doubleSubmitLogic.mount()
+        router.actions.push('/insights/signup-conversion/subscriptions/new')
+        await expectLogic(doubleSubmitLogic).toFinishAllListeners()
+
+        doubleSubmitLogic.actions.setSubscriptionValue('resource_type', 'ai_prompt')
+        doubleSubmitLogic.actions.setSubscriptionValues({
+            prompt: 'Compare activation and signup conversion',
+            title: 'Activation report',
+            target_type: 'email',
+            target_value: 'reports@example.com',
+        })
+
+        doubleSubmitLogic.actions.submitSubscription()
+        doubleSubmitLogic.actions.submitSubscription()
+        releaseInsightLookup()
+        await expectLogic(doubleSubmitLogic).toFinishAllListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(createCount).toBe(1)
+        doubleSubmitLogic.unmount()
+    })
+
+    it('does not report a failed context prefill after the form unmounts', async () => {
+        let rejectInsightLookup: (error: Error) => void = () => {}
+        const insightLookup = new Promise<never>((_, reject) => {
+            rejectInsightLookup = reject
+        })
+        useMocks({
+            get: {
+                '/api/environments/:team/insights/': async () => await insightLookup,
+            },
+        })
+        const transientLogic = subscriptionLogic({
+            id: 'new',
+            insightShortId: 'signup-conversion' as InsightShortId,
+            insightName: 'Signup conversion',
+        })
+        transientLogic.mount()
+        router.actions.push('/insights/signup-conversion/subscriptions/new')
+        await expectLogic(transientLogic).toFinishAllListeners()
+
+        transientLogic.actions.setSubscriptionValue('resource_type', 'ai_prompt')
+        transientLogic.unmount()
+        rejectInsightLookup(new Error('lookup failed'))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
     it('drops a stale prompt when saving a non-AI subscription', async () => {
         // Toggling resource_type back to insight after typing a prompt leaves it in form state;
         // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, { id: 43, ...capturedBody } as SubscriptionType]
                 },
@@ -1028,7 +1405,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, { id: 44, ...capturedBody } as SubscriptionType]
                 },
@@ -1060,7 +1437,7 @@ describe('subscriptionLogic', () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
-                '/api/environments/:team/subscriptions': async ({ request }) => {
+                '/api/projects/:team/subscriptions': async ({ request }) => {
                     capturedBody = (await request.json()) as Partial<SubscriptionType>
                     return [200, { id: 51, ...capturedBody } as SubscriptionType]
                 },
