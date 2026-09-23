@@ -153,6 +153,7 @@ from products.signals.backend.report_merge import (
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_search import report_search_predicate, report_search_terms
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.serializers import (
@@ -204,6 +205,7 @@ from products.signals.backend.temporal.signal_queries import (
     fetch_live_report_ids_for_source_ids,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
+    fetch_report_ids_for_search_terms,
     fetch_report_ids_for_source_products,
     fetch_signals_for_report_sync,
 )
@@ -1218,10 +1220,35 @@ class SignalReportViewSet(
         raise serializers.ValidationError({"count_only": f"Invalid value: {raw!r}. Allowed: true, false."})
 
     def _apply_signal_report_search_filter(self, queryset):
-        search = self.request.query_params.get("search")
+        """Free-text search over what a report says and what it was built from.
+
+        Deduplication depends on this: a caller looking for the report it is about to file again
+        searches for the entity, not for the title someone else wrote. So the search covers the
+        report's own prose, its work-log notes, and its evidence in ClickHouse, and matches the
+        terms independently — see `report_search`.
+        """
+        search = (self.request.query_params.get("search") or "").strip()
         if not search:
             return queryset
-        return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+        terms = report_search_terms(search)
+        if not terms:
+            # Nothing but punctuation. Keep the caller's string intact rather than matching every
+            # report, and leave it to Postgres, which escapes the wildcards ClickHouse would not.
+            return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+        return queryset.filter(report_search_predicate(terms, self._search_evidence_report_ids(terms)))
+
+    def _search_evidence_report_ids(self, terms: list[str]) -> set[str]:
+        """Reports whose ClickHouse evidence matches, or none when that lookup is unavailable.
+
+        The inbox searches on every keystroke, so a ClickHouse fault degrades the search to the
+        report's own content instead of failing the list outright.
+        """
+        try:
+            return fetch_report_ids_for_search_terms(self.team, terms)
+        except Exception as exc:
+            capture_exception(exc)
+            logger.warning("signals_report_search_evidence_unavailable", team_id=self.team.pk, exc_info=True)
+            return set()
 
     def _apply_signal_report_source_product_filter(self, queryset):
         source_product_filter = self.request.query_params.get("source_product")
@@ -1962,7 +1989,13 @@ class SignalReportViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Case-insensitive substring match against report title and summary.",
+                description=(
+                    "Case-insensitive free-text search across a report's title, summary, work-log notes, "
+                    "and the evidence it was built from (observation prose and source ids). Punctuation and "
+                    "underscores split the query into terms, so `$web_vitals` also finds a report titled "
+                    "\"Web Vitals\". Each term must match the report, but they can match different parts of "
+                    "it, so terms of your own wording find a report worded differently."
+                ),
             ),
             OpenApiParameter(
                 name="channel_id",

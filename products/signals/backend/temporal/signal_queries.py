@@ -791,6 +791,67 @@ def fetch_report_ids_for_scout_prefix(team: Team, scout_prefix: str) -> set[str]
 
 
 # ---------------------------------------------------------------------------
+# fetch_report_ids_for_search_terms — synchronous, for the viewset list filter
+# ---------------------------------------------------------------------------
+
+
+def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
+    """Return the set of report IDs whose evidence matches every one of `terms`.
+
+    A report's evidence lives in ClickHouse, not Postgres: each signal carries the observation
+    prose as `content` and the emitter's own record id as `metadata.source_id`. Deduplication
+    against the inbox fails without this, because a caller searches for the entity it is looking
+    at — an event name, an endpoint, a ticket id — and that identifier often appears only in the
+    evidence, never in the title or the summary a later pass rewrote.
+
+    Each term must appear in the description or the source id of the same report, but not
+    necessarily in the same signal, so a caller that names two aspects of one finding still
+    matches. Matching is case-insensitive substring, and the terms carry no LIKE wildcards
+    because `report_search_terms` keeps only letters and digits.
+
+    Same dedup, ordering, and cap semantics as `fetch_report_ids_for_scout_names`.
+    """
+    if not terms:
+        return set()
+
+    term_conditions = "\n          AND ".join(
+        f"(description ILIKE {{term_{index}}} OR source_id ILIKE {{term_{index}}})" for index in range(len(terms))
+    )
+    ch_query = f"""
+        SELECT report_id
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'report_id') as report_id,
+                JSONExtractBool(metadata, 'deleted') as is_deleted,
+                JSONExtractString(metadata, 'source_id') as source_id,
+                content as description,
+                timestamp
+            FROM ({_deduped_signals_subquery()})
+        )
+        WHERE NOT is_deleted
+          AND report_id != ''
+          AND {term_conditions}
+        GROUP BY report_id
+        ORDER BY max(timestamp) DESC
+        LIMIT {_REPORT_ID_FILTER_CAP}
+    """
+
+    placeholders: dict[str, ast.Expr] = {"model_name": ast.Constant(value=EMBEDDING_MODEL.value)}
+    for index, term in enumerate(terms):
+        placeholders[f"term_{index}"] = ast.Constant(value=f"%{term}%")
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFilterBySearchTerms",
+        query=ch_query,
+        team=team,
+        placeholders=placeholders,
+    )
+
+    return {row[0] for row in (result.results or []) if row[0]}
+
+
+# ---------------------------------------------------------------------------
 # fetch_report_ids_for_source_ids — synchronous, for the scout reverse lookup
 # ---------------------------------------------------------------------------
 

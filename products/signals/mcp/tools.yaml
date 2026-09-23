@@ -219,9 +219,13 @@ tools:
         description: >
             List signal reports for the current project. A signal report is a cluster of related observations (signals)
             that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering
-            by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text
-            search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers,
-            `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick
+            by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed),
+            free-text `search`, source_product (e.g. error_tracking, session_replay), suggested_reviewers,
+            `unclaimed`, and `assignee=me`. `search` covers a report's title, summary, work-log notes, and the
+            evidence it was built from (observation prose and source ids). Punctuation and underscores split the
+            query into terms that each have to match, but they can match different parts of the report: so
+            `$web_vitals` also finds a report titled "Web Vitals", and your own wording finds a report worded
+            differently. Claimed reports remain actionable and visible; use `unclaimed=true` to pick
             work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently
             suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status. Do this
             when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` /

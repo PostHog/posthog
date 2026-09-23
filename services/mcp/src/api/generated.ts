@@ -111812,7 +111812,7 @@ export namespace Schemas {
      */
     scout_prefix?: string;
     /**
-     * Case-insensitive substring match against report title and summary.
+     * Case-insensitive free-text search across a report's title, summary, work-log notes, and the evidence it was built from (observation prose and source ids). Punctuation and underscores split the query into terms, so `$web_vitals` also finds a report titled "Web Vitals". Each term must match the report, but they can match different parts of it, so terms of your own wording find a report worded differently.
      */
     search?: string;
     /**
