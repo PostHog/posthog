@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from contextlib import ExitStack
 from typing import Any
 
 import pytest
@@ -1939,6 +1940,49 @@ class TestStripJsonFence:
         assert _strip_json_fence(input_text) == expected
 
 
+class TestUtilityCallsUseStructuredOutput:
+    @parameterized.expand(
+        [
+            ("classify", CLASSIFY_MODULE, "classify"),
+            ("refine", REFINE_QUERIES_MODULE, "refine"),
+            ("validate", VALIDATE_MODULE, "validate"),
+            ("safety", SAFETY_FILTER_MODULE, "safety"),
+            ("review", REVIEW_REPLY_MODULE, "review"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_sends_json_schema(self, _name: str, module: str, kind: str) -> None:
+        client = _mock_gateway_client("{}")
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{module}.get_async_anthropic_gateway_client", return_value=client))
+            if kind == "validate":
+                stack.enter_context(patch(f"{VALIDATE_MODULE}._hydrate_chunks", return_value=[]))
+            if kind == "classify":
+                await _classify(ClassifyInput(team_id=1, ticket_context="how do I install"))
+            elif kind == "refine":
+                await _refine_queries(RefineQueriesInput(team_id=1, ticket_context="how do I install"))
+            elif kind == "validate":
+                await _validate(
+                    ValidateInput(
+                        team_id=1,
+                        ticket_context="how do I install",
+                        reply="Use the docs.",
+                        citations=[],
+                        chunk_ids=[],
+                    )
+                )
+            elif kind == "safety":
+                await _safety_filter(SafetyFilterInput(team_id=1, ticket_context="how do I install"))
+            else:
+                await _review_reply(
+                    ReviewReplyInput(team_id=1, ticket_context="how do I install", reply="Use the docs.")
+                )
+
+        fmt = client.messages.create.call_args.kwargs["output_config"]["format"]
+        assert fmt["type"] == "json_schema"
+        assert fmt["schema"]["additionalProperties"] is False
+
+
 def _mock_gateway_client(text: str) -> MagicMock:
     """Build a mock Anthropic gateway client whose messages.create returns `text`."""
     block = MagicMock()
@@ -1949,6 +1993,29 @@ def _mock_gateway_client(text: str) -> MagicMock:
     client = MagicMock()
     client.messages.create = AsyncMock(return_value=message)
     return client
+
+
+class TestRefineQueryParse:
+    @parameterized.expand(
+        [
+            ("lines", "query one\nquery two", [], ["query one", "query two"]),
+            ("json_queries", '{"queries": ["install", "sdk"]}', [], ["install", "sdk"]),
+            ("json_string_field", '{"queries": "install"}', [], ["install"]),
+            ("empty_object", "{}", [], ["help"]),
+            ("empty_object_keeps_seeds", "{}", ["setup"], ["setup"]),
+            ("json_array", '["install", "sdk"]', [], ["install", "sdk"]),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_malformed_json_is_not_a_search_query(
+        self, _name: str, text: str, seeds: list[str], expected: list[str]
+    ) -> None:
+        client = _mock_gateway_client(text)
+        with patch(f"{REFINE_QUERIES_MODULE}.get_async_anthropic_gateway_client", return_value=client):
+            result = await _refine_queries(
+                RefineQueriesInput(team_id=1, ticket_context="how do I install", seed_queries=seeds)
+            )
+        assert result.queries == expected
 
 
 class TestUntrustedTicketGuard:
@@ -2002,10 +2069,11 @@ class TestUntrustedTicketGuard:
 
     @pytest.mark.asyncio
     async def test_draft_prompt_requires_plan_and_verdict(self):
-        captured: dict[str, str] = {}
+        captured: dict[str, Any] = {}
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
+            captured["output_schema"] = kwargs["output_schema"]
             result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
             return AsyncMock(), result
 
@@ -2017,6 +2085,9 @@ class TestUntrustedTicketGuard:
         ):
             output = await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
 
+        schema = captured["output_schema"]
+        assert schema["additionalProperties"] is False
+        assert schema["properties"]["confidence"]["type"] == "number"
         prompt = captured["prompt"]
         assert "PLAN first" in prompt
         assert "blocked_on_customer" in prompt
@@ -2591,6 +2662,15 @@ class TestValidateActivity:
                 0.0,
                 [],
                 "knowledge",
+            ),
+            (
+                "percent_style_scores",
+                '{"grounded": true, "coverage": 80, "confidence": 90, "missing": [], "blocker": "none"}',
+                True,
+                0.0,
+                0.0,
+                [],
+                "none",
             ),
         ]
     )

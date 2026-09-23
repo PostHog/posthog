@@ -11,11 +11,14 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     AccountsTableAccountField,
     AccountsTableAccountFieldOperator,
     AccountsTableCustomPropertyOperator,
     type AccountsTableQuery,
+    type AccountsTableQueryResponse,
+    NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator, type UserBasicType, type UserType } from '~/types'
@@ -37,6 +40,7 @@ import type {
     CustomPropertySourceApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import {
     ACCOUNTS_DEFAULT_COLUMNS,
@@ -677,21 +681,139 @@ describe('accountsLogic', () => {
     })
 
     describe('sortOrder', () => {
-        it('adds a typed server-side sort after pagination', () => {
-            logic.actions.listLoadNextData()
-            logic.actions.toggleSort('notebook_count')
+        const response = (hasMore: boolean): AccountsTableQueryResponse => ({
+            kind: NodeKind.AccountsTableQuery,
+            results: [],
+            hasMore,
+            limit: 100,
+            offset: 0,
+        })
 
+        const receiveResponse = (queryId: string, hasMore: boolean): void => {
+            logic.actions.listLoadData(undefined, queryId)
+            logic.actions.listLoadDataSuccess(response(hasMore), {
+                overrideQuery: undefined,
+                pollOnly: true,
+                queryId,
+                refresh: undefined,
+            })
+        }
+
+        it('uses the requested server sort until the first response confirms pagination', () => {
+            logic.actions.toggleSort('notebook_count')
+            const initialQuery = logic.values.accountsQuerySource
+
+            expect(logic.values.listDataCompleteness).toBe('unknown')
+            expect(initialQuery?.sort).toEqual({ column: { kind: 'note_count' }, direction: 'asc' })
+            expect(logic.values.sortedRowsTransformer).toBeUndefined()
+
+            receiveResponse('paginated-request', true)
+
+            expect(logic.values.listDataCompleteness).toBe('paginated')
+            expect(logic.values.accountsQuerySource).toBe(initialQuery)
+            expect(logic.values.sortedRowsTransformer).toBeUndefined()
+
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.accountsQuerySource?.sort).toEqual({
+                column: { kind: 'note_count' },
+                direction: 'desc',
+            })
+        })
+
+        it('keeps the completed request query stable while sorting its rows in the browser', () => {
+            logic.actions.toggleSort('notebook_count')
+            const completedQuery = logic.values.accountsQuerySource
+            receiveResponse('complete-request', false)
+
+            expect(logic.values.listDataCompleteness).toBe('complete')
+            expect(logic.values.accountsQuerySource).toBe(completedQuery)
+            expect(logic.values.sortedRowsTransformer).toEqual(expect.any(Function))
+
+            logic.actions.toggleSort('notebook_count')
+            const rows = [1, 2].map((noteCount) => ({
+                result: {
+                    id: `account-${noteCount}`,
+                    name: `Account ${noteCount}`,
+                    accountFields: {},
+                    relationships: {},
+                    customProperties: {},
+                    customPropertyHistory: {},
+                    noteCount,
+                },
+            }))
+
+            expect(logic.values.accountsQuerySource).toBe(completedQuery)
             expect(logic.values.accountsQuerySource?.sort).toEqual({
                 column: { kind: 'note_count' },
                 direction: 'asc',
             })
+            expect(logic.values.sortedRowsTransformer?.(rows)).toEqual([rows[1], rows[0]])
+
+            logic.actions.toggleSort('notebook_count')
+            expect(logic.values.accountsQuerySource?.sort).toBeUndefined()
+            expect(logic.values.sortedRowsTransformer).toBeUndefined()
         })
 
-        it('sorts a fully loaded page in the browser without changing the query', () => {
-            logic.actions.toggleSort('notebook_count')
+        it('replaces a removed pinned server sort with the active client sort', async () => {
+            logic.actions.setSortOrder({ column: 'notebook_count', direction: 'asc' })
+            receiveResponse('complete-request', false)
+            logic.actions.setSortOrder({ column: 'csm', direction: 'asc' })
 
-            expect(logic.values.accountsQuerySource?.sort).toBeUndefined()
-            expect(logic.values.sortedRowsTransformer).toEqual(expect.any(Function))
+            expect(logic.values.serverSortOrder).toEqual({ column: 'notebook_count', direction: 'asc' })
+
+            await expectLogic(logic, () => {
+                accountsColumnConfigLogic
+                    .findMounted()!
+                    .actions.unselectColumn('accounts.notebooks.count AS notebook_count')
+            }).toFinishAllListeners()
+
+            expect(logic.values.visibleColumnNames).not.toContain('notebook_count')
+            expect(logic.values.sortOrder).toEqual({ column: 'csm', direction: 'asc' })
+            expect(logic.values.serverSortOrder).toEqual({ column: 'csm', direction: 'asc' })
+            expect(logic.values.accountsQuerySource?.sort).toEqual({
+                column: { kind: 'relationship', definitionId: CSM_DEFINITION_ID },
+                direction: 'asc',
+            })
+        })
+
+        it('tracks completeness per filter set and ignores stale responses', () => {
+            logic.actions.setSortOrder({ column: 'notebook_count', direction: 'asc' })
+            receiveResponse('initial-small-request', false)
+            expect(logic.values.listDataCompleteness).toBe('complete')
+
+            logic.actions.setSearchQuery('large set')
+            logic.actions.listLoadData(undefined, 'stale-large-request')
+            logic.actions.setSearchQuery('latest large set')
+            logic.actions.listLoadData(undefined, 'latest-large-request')
+            logic.actions.listLoadDataSuccess(response(false), {
+                overrideQuery: undefined,
+                pollOnly: true,
+                queryId: 'stale-large-request',
+                refresh: undefined,
+            })
+            expect(logic.values.listDataCompleteness).toBe('unknown')
+
+            logic.actions.listLoadDataSuccess(response(true), {
+                overrideQuery: undefined,
+                pollOnly: true,
+                queryId: 'latest-large-request',
+                refresh: undefined,
+            })
+            expect(logic.values.listDataCompleteness).toBe('paginated')
+
+            dataNodeLogic
+                .findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })!
+                .actions.loadNextDataSuccess(response(false))
+            expect(logic.values.listDataCompleteness).toBe('paginated')
+            expect(logic.values.accountsQuerySource?.sort).toEqual({
+                column: { kind: 'note_count' },
+                direction: 'asc',
+            })
+
+            logic.actions.setSearchQuery('small set')
+            expect(logic.values.listDataCompleteness).toBe('unknown')
+            receiveResponse('next-small-request', false)
+            expect(logic.values.listDataCompleteness).toBe('complete')
         })
     })
 
@@ -883,18 +1005,8 @@ describe('accountsLogic', () => {
             resolveDefinitions({ count: DEFINITIONS.length, results: DEFINITIONS })
             await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
             expect(logic.values.sortOrder).toEqual({ column, direction: 'desc' })
-            const rows = ['a', 'b'].map((id, index) => ({
-                result: {
-                    id,
-                    name: id,
-                    accountFields: {},
-                    relationships: { [CSM_DEFINITION_ID]: [index + 1] },
-                    customProperties: {},
-                    customPropertyHistory: {},
-                },
-            }))
-            expect(logic.values.sortedRowsTransformer?.(rows)).toEqual([rows[1], rows[0]])
-            logic.actions.listLoadNextData()
+            expect(logic.values.listDataCompleteness).toBe('unknown')
+            expect(logic.values.sortedRowsTransformer).toBeUndefined()
             expect(logic.values.accountsQuerySource?.sort).toEqual({
                 column:
                     column === 'name'

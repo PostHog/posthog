@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import type { Context } from '@/tools/types'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
@@ -417,10 +419,10 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
 describe('createQueryWrapper trace compaction', () => {
     const schema = z.object({ kind: z.string() })
 
-    function contextWithResults(results: unknown): Context {
+    function contextWithResults(results: unknown, warnings?: string[]): Context {
         return {
             api: {
-                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results }) }),
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results, warnings }) }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
             stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
@@ -449,6 +451,38 @@ describe('createQueryWrapper trace compaction', () => {
 
         expect(result.results[0].events[0].properties.$ai_input).toBe('x'.repeat(20_000))
     })
+
+    it.each(['optimized', 'json'] as const)(
+        'bounds the entire %s response without changing the executed query',
+        async (outputFormat) => {
+            const tool = createQueryWrapper({
+                name: 'query-llm-trace',
+                schema: schema.extend({ properties: z.array(z.record(z.string(), z.unknown())) }),
+                kind: 'TraceQuery',
+                urlPrefix: '/ai-observability/traces',
+                outputFormat,
+            })()
+            const params = {
+                kind: 'TraceQuery',
+                properties: [
+                    { key: '$ai_input', type: 'event', operator: 'not_icontains', value: 'filter'.repeat(15_000) },
+                ],
+            }
+            const context = contextWithResults([oversizedTrace], ['warning'.repeat(15_000)])
+
+            const result = await tool.handler(context, params)
+            const payload = buildToolResultPayload({
+                handlerResult: result,
+                toolMeta: tool._meta,
+                toolName: tool.name,
+                params,
+            })
+
+            expect(JSON.stringify(payload.content).length).toBeLessThanOrEqual(MCP_TOOL_OUTPUT_CHAR_BUDGET)
+            expect(result).toMatchObject({ _posthogUrl: 'http://localhost:8010/project/1/ai-observability/traces' })
+            expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({ query: params })
+        }
+    )
 
     it.each(['TraceQuery', 'TracesQuery'])('%s preserves full content unless summary is requested', async (kind) => {
         const tool = createQueryWrapper({ name: 'test', schema, kind })()

@@ -64,9 +64,13 @@ def test_conformance_case(tmp_path: Path, case: ConformanceCase) -> None:
             "status": resolution.status,
             "source": resolution.source,
             "slack": resolve_channel(case, owners, resolution.slack),
+            "additions": resolution.additions,
         }
+    # A case that leaves `additions` out expects none, so the cases written before the field
+    # existed also check that nothing leaks into it.
+    expected = {path: {"additions": [], **resolution} for path, resolution in case.expect.items()}
 
-    assert actual == case.expect
+    assert actual == expected
 
 
 @pytest.mark.parametrize("case_file", CASE_FILES, ids=[f.name for f in CASE_FILES])

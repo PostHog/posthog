@@ -865,6 +865,7 @@ mod tests {
             path: "/s/".to_string(),
             capture_mode: crate::config::CaptureMode::Recordings,
             ai_max_event_bytes: 0,
+            ai_lane_predicate: crate::v0_request::AiLanePredicate::Allowlist,
             sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
