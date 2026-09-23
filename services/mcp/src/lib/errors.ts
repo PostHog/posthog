@@ -226,6 +226,17 @@ function requestPath(url: string): string {
     }
 }
 
+/** The request path with the query string removed. Error Tracking groups on the
+ *  message, so a query string that varies per call splits one cause into one
+ *  issue per distinct URL. */
+function requestPathWithoutQuery(url: string): string {
+    try {
+        return new URL(url).pathname
+    } catch {
+        return url.split('?')[0] ?? url
+    }
+}
+
 function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
     return `Request failed:\nPath: ${options.method} ${requestPath(options.url)}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
 }
@@ -254,7 +265,7 @@ export class PostHogRateLimitError extends PostHogApiError {
             body: options.body,
             url: options.url,
             method: options.method,
-            message: `PostHog API rate limit exceeded (429) on ${options.method} ${options.url}.${retryHint}`,
+            message: `PostHog API rate limit exceeded (429) on ${options.method} ${requestPathWithoutQuery(options.url)}.${retryHint}`,
         })
         this.name = 'PostHogRateLimitError'
         this.retryAfterSeconds = options.retryAfterSeconds

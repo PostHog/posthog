@@ -46,6 +46,8 @@ export type State = {
     mcpVendorClient: string | undefined
     skillsLearnedAt: number | undefined
     skillsNoSkillsAckAt: number | undefined
+    /** Epoch ms until which best-effort background refreshes stand down, set from a 429 Retry-After. */
+    backgroundRefreshBlockedUntil: number | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
