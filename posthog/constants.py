@@ -283,15 +283,6 @@ WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
 
 
-class ExperimentNoResultsErrorKeys(StrEnum):
-    NO_EVENTS = "no-events"
-    NO_FLAG_INFO = "no-flag-info"
-    NO_CONTROL_VARIANT = "no-control-variant"
-    NO_TEST_VARIANT = "no-test-variant"
-    NO_RESULTS = "no-results"
-    NO_EXPOSURES = "no-exposures"
-
-
 class PropertyOperatorType(StrEnum):
     AND = "AND"
     OR = "OR"

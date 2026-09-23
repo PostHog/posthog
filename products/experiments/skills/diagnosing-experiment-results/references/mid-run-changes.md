@@ -229,9 +229,9 @@ a checkout-flow change might lift conversion now but hurt retention later.
 
 ## E13 — Editability locks (legacy experiments, ended experiments) [HIGH]
 
-- **Legacy experiments** (created before the new query runner) — metrics can no longer be edited.
-  A "This is a legacy experiment" notice appears in the UI. Duplicate the experiment to get it onto
-  the new engine.
+- **Legacy experiments** (created before the new query runner) — metrics can no longer be edited,
+  and results are no longer calculated. The UI shows a warning banner with a "Migrate with PostHog AI"
+  button. Migrate the experiment with `experiment-migrate` to get it onto the new engine.
 - **Ended experiments** — variant keys, exposure criteria, and traffic split can't be edited. If
   edits are needed, clone, or reset (E8) and re-launch.
 
@@ -260,8 +260,9 @@ whose result block stays empty even after a force-refresh.
 When all three line up, the verdict is legacy methodology, not data corruption. Resaving the
 metric on the legacy experiment is not supported.
 
-Fix path: **duplicate the experiment** to land it on the new runner (the new copy will carry the
-new metric kind and a populated `stats_config`); recreate the primary metric there; relaunch.
+Fix path: **migrate the experiment** with `experiment-migrate` (see the managing-experiment-lifecycle
+skill). The copy reuses the same feature flag, so it keeps its exposures, and it carries the new metric
+kind and a populated `stats_config`. Duplicating is rejected for legacy experiments.
 Alternatively, end the existing experiment with a documented conclusion if the original
 hypothesis is no longer interesting — the legacy run can't be salvaged in place.
 

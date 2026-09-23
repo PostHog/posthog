@@ -1095,6 +1095,14 @@ class ExperimentService:
         if saved_metrics.count() != len(saved_metrics_ids):
             raise ValidationError("Saved metric does not exist or does not belong to this project")
 
+        # A linked legacy shared metric turns the whole experiment legacy, which hides all of its results.
+        legacy_names = sorted(saved_metrics.filter(query__kind__in=LEGACY_METRIC_KINDS).values_list("name", flat=True))
+        if legacy_names:
+            raise ValidationError(
+                f"Legacy shared metrics can't be added to an experiment: {', '.join(legacy_names)}. "
+                "Use a shared metric of kind 'ExperimentMetric' instead."
+            )
+
     @staticmethod
     def _extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]]:
         """Extract event names and action IDs from all EventsNode/ActionsNode refs in metrics."""
@@ -4097,7 +4105,7 @@ class ExperimentService:
                     f"Cannot update: {', '.join(sorted(disallowed_fields))}. "
                     f"To change these, migrate the experiment to the new experiments engine first: "
                     f"POST /api/projects/{experiment.team_id}/experiments/{experiment.id}/migrate "
-                    f"(the experiment-migrate tool). It keeps this experiment and its results, and returns a new one."
+                    f"(the experiment-migrate tool). It keeps this experiment and returns a new one."
                 )
 
             # Validate end_date if present
