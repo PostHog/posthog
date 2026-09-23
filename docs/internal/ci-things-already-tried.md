@@ -23,13 +23,14 @@ If the reason is no longer correct, write this in the PR and try the idea again.
 
 ## Verdicts
 
-| Verdict      | Meaning                                                         |
-| ------------ | --------------------------------------------------------------- |
-| `rejected`   | Someone built the idea and measured it. The result was too bad. |
-| `reverted`   | The change went to master. Then someone removed it.             |
-| `superseded` | The problem was real. A different solution replaced this one.   |
-| `abandoned`  | Someone started the work and stopped. There is no verdict.      |
-| `open`       | The idea is good. The work is incomplete. You can continue it.  |
+| Verdict      | Meaning                                                                     |
+| ------------ | --------------------------------------------------------------------------- |
+| `rejected`   | Someone built the idea and measured it. The result was too bad.             |
+| `reverted`   | The change went to master. Then someone removed it.                         |
+| `superseded` | The problem was real. A different solution replaced this one.               |
+| `abandoned`  | Someone started the work and stopped. There is no verdict.                  |
+| `open`       | The idea is good. The work is incomplete. You can continue it.              |
+| `landed`     | The change is on master. An earlier attempt or alternative is still a trap. |
 
 ## Add an entry
 
@@ -116,8 +117,8 @@ _Also asked as:_ too many parametrized tests, trim the warehouse-sources suite, 
 **Verdict: rejected** · Sep 2026 · one run each: [12 minutes](https://github.com/PostHog/posthog/actions/runs/35784807053), [10 minutes](https://github.com/PostHog/posthog/actions/runs/35784814651)
 
 `TARGET_WALL_SECONDS` in `turbo-discover.js` sizes every backend test shard.
-At 10 minutes a full PR run used 85 test jobs instead of 58, and 23% more shard minutes.
-The run did not finish sooner: 13.4 minutes against 12.9. Each extra shard pays the full setup and collection cost again.
+At 10 minutes a full PR run used 23% more shard minutes, in 85 test jobs instead of 58.
+It did not finish sooner (13.4 minutes against 12.9, inside run-to-run noise). Each extra shard pays the full setup and collection cost again.
 
 _Also asked as:_ more shards, smaller shards, lower the shard target, split the slowest shard
 
@@ -238,7 +239,7 @@ _Also asked as:_ skip product tests on a full run, narrow the product matrix, wh
 
 ### Disable the pytest `unraisableexception` and `threadexception` plugins
 
-**Verdict: landed on the second attempt** · Jul 2026 to Aug 2026 · [#70886](https://github.com/PostHog/posthog/pull/70886), landed by [#89057](https://github.com/PostHog/posthog/pull/89057)
+**Verdict: landed** · Jul 2026 to Sep 2026 · [#70886](https://github.com/PostHog/posthog/pull/70886), landed by [#89057](https://github.com/PostHog/posthog/pull/89057); the hard exit below landed by [#104782](https://github.com/PostHog/posthog/pull/104782)
 
 Each pytest session runs several full-heap `gc.collect()` passes at cleanup.
 These plugins run the passes only to report `__del__` exceptions and thread exceptions as warnings.
@@ -254,9 +255,9 @@ Read this entry before you try a different solution for the pytest cleanup cost.
 That call is necessary. [#62707](https://github.com/PostHog/posthog/pull/62707) added it after the Temporal shards stopped with a segmentation fault and exit code 139. CI made the same crash again on #88759.
 Frozen objects do not get the final cyclic collections of `Py_FinalizeEx`. Thus their finalizers run late in the teardown, after Python removes the extension modules.
 
-Backend CI skips this teardown. With `POSTHOG_PYTEST_HARD_EXIT=1`, the root conftest runs the `atexit` handlers and calls `os._exit` after pytest writes its reports.
-No finalizers run, so the crash cannot occur. Each shard saves 8 to 29 seconds ([before](https://github.com/PostHog/posthog/actions/runs/35777473197), [after](https://github.com/PostHog/posthog/actions/runs/35777464934)).
-Local runs keep the normal exit, and they still need the `gc.unfreeze()`.
+Backend CI skips `Py_FinalizeEx` on green shards. With `POSTHOG_PYTEST_HARD_EXIT=1`, the root conftest runs the `atexit` handlers and calls `os._exit` after `pytest_unconfigure`, so the `gc.unfreeze()` still runs first.
+One run each: each shard saved 8 to 29 seconds ([before](https://github.com/PostHog/posthog/actions/runs/35777473197), [after](https://github.com/PostHog/posthog/actions/runs/35777464934)).
+A failing shard, the hourly scheduled run and local runs keep the normal exit, so a teardown crash still shows there. Do not delete the `gc.unfreeze()`.
 
 _Also asked as:_ pytest teardown is slow, reduce gc.collect at session end, speed up pytest cleanup, why does the shard hang after the tests pass, os.\_exit after pytest
 
@@ -464,6 +465,7 @@ With `fetch-depth: 1000` and `filter: blob:none`, the checkout took 42 to 46 s, 
 Without the filter it took 39 s, because the server then packs the file contents of all 1000 commits.
 A depth-1 checkout followed by `git fetch --filter=blob:none --depth=1000` takes about 7 s, and the job uses that now.
 `--deepen=999` in its place fetched nothing when GitHub had already replaced the PR's merge ref, which failed the run.
+The `test-selection-verdict` and `backend-coverage-report` jobs still use deep blobless checkouts. They run after the required gate, so no PR waits on them.
 
 _Also asked as:_ blobless clone is slow, partial clone checkout, speed up the discovery checkout, fetch-depth 1000
 

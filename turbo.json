@@ -27,12 +27,14 @@
             // changes the SQL a query runner builds, so a result cached under one mode
             // must not satisfy a run in the other.
             "env": ["DATABASE_URL", "REDIS_URL", "CLICKHOUSE_HOST", "TEST", "PERSON_ON_EVENTS_V2_ENABLED"],
-            // Credentials and the fork-PR flag the product-run temporal suites need
-            // (tasks sandbox JWT, batch-exports Modal/S3, RUNS_ON_INTERNAL_PR that
-            // skips internal-only tests for external contributors). Turbo strips
-            // undeclared env vars, so a var set on the CI job never reaches pytest
-            // unless listed here. Pass-through, not env: they must not become cache keys.
-            // Without COVERAGE_CORE, coverage silently falls back to its slower default tracer.
+            // Job env that pytest reads. Turbo strips undeclared env vars, so a var set on
+            // the CI job never reaches pytest unless listed here, and nothing fails when one
+            // is missing. Pass-through, not env: they must not become cache keys.
+            // - Credentials and the fork-PR flag the product-run temporal suites need (tasks
+            //   sandbox JWT, batch-exports Modal/S3, RUNS_ON_INTERNAL_PR that skips
+            //   internal-only tests for external contributors).
+            // - COVERAGE_CORE: without it, coverage uses its slower C tracer.
+            // - POSTHOG_PYTEST_HARD_EXIT: without it, green shards pay the interpreter teardown.
             "passThroughEnv": [
                 "PYTEST_ADDOPTS",
                 "RUNNER_NAME",

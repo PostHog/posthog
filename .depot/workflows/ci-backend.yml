@@ -169,8 +169,9 @@ env:
     CLICKHOUSE_TEST_CLUSTER_SECURE: 'False'
     CLICKHOUSE_TEST_CLUSTER_VERIFY: 'False'
     TEST: 1
-    # The root conftest ends pytest with os._exit once every report is written.
-    POSTHOG_PYTEST_HARD_EXIT: '1'
+    # The root conftest ends a green pytest session with os._exit once every report is written.
+    # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
+    POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
@@ -680,11 +681,16 @@ jobs:
             # The posthog-ci-test-selection event properties, as one JSON object.
             telemetry: ${{ steps.discover.outputs.telemetry }}
         steps:
+            # A deep checkout is slow with or without blob:none: the blobless one fetches every file of
+            # the tree in a second request. Check out at depth 1, then add the history the merge-base
+            # steps read, without file contents.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - name: Fetch history without file contents
-              # Not --deepen: it fetches nothing once GitHub has replaced the PR's merge ref and
-              # GITHUB_SHA is no longer referenced.
-              run: git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"
+              # --depth, not --deepen: --deepen adds no history once GitHub has replaced the PR's
+              # merge ref, because no ref then points at GITHUB_SHA.
+              run: |
+                  git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"
+                  echo "History depth: $(git rev-list --count HEAD)"
             - name: Verify PR merge for test selection
               id: verify-merge
               if: github.event_name == 'pull_request'
@@ -692,7 +698,7 @@ jobs:
                   PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
                   set -euo pipefail
-                  trap 'echo "::error::Cannot verify the PR merge checkout. Check the checkout ref and fetch depth before retrying." >&2' ERR
+                  trap 'echo "::error::Cannot verify the PR merge checkout. Check the checkout ref and the history fetch before retrying." >&2' ERR
                   test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
                   test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 3
                   test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"

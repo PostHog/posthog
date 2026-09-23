@@ -3,6 +3,7 @@ import os
 import sys
 import atexit
 import warnings
+import contextlib
 from collections.abc import Generator
 
 import pytest
@@ -250,13 +251,23 @@ def pytest_unconfigure() -> None:
 @pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_cmdline_main(config: pytest.Config) -> Generator[None, int | pytest.ExitCode, int | pytest.ExitCode]:
     exit_code = yield
-    # Every report is written by now. Skip the interpreter teardown, which frees each object of a
-    # large collection one by one. An xdist worker still sends its results after this hook.
-    if os.environ.get("POSTHOG_PYTEST_HARD_EXIT") == "1" and "PYTEST_XDIST_WORKER" not in os.environ:
+    # pytest's wrap_session has already run pytest_sessionfinish (JUnit XML, split durations) and
+    # pytest_unconfigure (including the gc.unfreeze above), and pytest-cov has saved its data.
+    # A green session then skips the interpreter teardown, which frees each object of a large
+    # collection one by one. A failing session exits normally, so no red shard's reports depend on
+    # that ordering. An xdist worker sends its results after this hook, so it exits normally too.
+    if (
+        os.environ.get("POSTHOG_PYTEST_HARD_EXIT") == "1"
+        and exit_code == pytest.ExitCode.OK
+        and "PYTEST_XDIST_WORKER" not in os.environ
+    ):
+        # A private CPython API. It runs the atexit flushes of the analytics client and the report
+        # buffer, but not threading's exit callbacks, so thread pools are not joined.
         atexit._run_exitfuncs()
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os._exit(int(exit_code))
+        with contextlib.suppress(BrokenPipeError):
+            sys.stdout.flush()
+            sys.stderr.flush()
+        os._exit(0)
     return exit_code
 
 

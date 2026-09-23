@@ -317,7 +317,9 @@ _FEATURE_FLAG_TEMPLATE: dict[str, Any] = {
 
 class Command(BaseCommand):
     help = "Ensure default data from migrations exists for schema-only restores."
-    # A setup step of every schema restore. The system checks cost more than the seeding itself.
+    # A setup step of every schema restore. The system checks import the URLconf, which costs more than
+    # the seeding (docs/internal/django-startup-time.md). Tests that load the URLconf still catch its
+    # import errors.
     requires_system_checks: list[str] = []
 
     def _seed_streamlit_oauth_app(self, created_items: list[str], skipped_items: list[str]) -> None:
