@@ -77,7 +77,7 @@ class BatchExportRunSummary:
     status: str
     latest_error: str | None
     data_interval_start: dt.datetime | None
-    data_interval_end: dt.datetime
+    data_interval_end: dt.datetime | None
     finished_at: dt.datetime | None
     created_at: dt.datetime
     last_updated_at: dt.datetime

@@ -28,6 +28,7 @@ from products.batch_exports.backend.hogql_source import (
     serialize_batch_export_query,
 )
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.sql.common import (
     BatchExportQuerySettings,
@@ -40,7 +41,7 @@ LOGGER = get_write_only_logger()
 
 Query = str
 QueryParameters = dict[str, typing.Any]
-BatchExportDateRange = tuple[dt.datetime | None, dt.datetime]
+BatchExportDateRange = tuple[dt.datetime | None, dt.datetime | None]
 
 
 def _as_clickhouse_request_settings(query_settings: HogQLQuerySettings) -> dict[str, str]:
@@ -98,7 +99,7 @@ class RecordBatchModel(abc.ABC):
 
     @abc.abstractmethod
     def get_hogql_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> ast.SelectQuery | ast.SelectSetQuery:
         """Return the HogQL query to export, scoped to the given data interval."""
         raise NotImplementedError
@@ -113,7 +114,7 @@ class RecordBatchModel(abc.ABC):
         return {}
 
     async def _print_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime, output_format: str | None
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None, output_format: str | None
     ) -> tuple[str, QueryParameters]:
         """Transpile the model's HogQL query to ClickHouse SQL, returning it with its parameters."""
         hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
@@ -133,7 +134,7 @@ class RecordBatchModel(abc.ABC):
         return printed, context.values
 
     async def as_query_with_parameters(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
         return await self._print_query(data_interval_start, data_interval_end, output_format="ArrowStream")
@@ -141,7 +142,7 @@ class RecordBatchModel(abc.ABC):
     async def as_insert_into_s3_query_with_parameters(
         self,
         data_interval_start: dt.datetime | None,
-        data_interval_end: dt.datetime,
+        data_interval_end: dt.datetime | None,
         s3_folder: str,
         credentials: AWSKeyPair | None,
         num_partitions: int,
@@ -171,9 +172,11 @@ class SessionsRecordBatchModel(RecordBatchModel):
         self.is_backfill = is_backfill
 
     def get_hogql_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> ast.SelectQuery:
         """Return the HogQLQuery used for the sessions model."""
+        if data_interval_end is None:
+            raise MissingRequiredInputsError("The sessions model requires data_interval_end")
         hogql_query = clone_expr(SELECT_FROM_SESSIONS_HOGQL)
 
         team_id_filter = ast.CompareOperation(
@@ -371,7 +374,7 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         self.hogql_query = hogql_query
 
     def get_hogql_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> ast.SelectQuery | ast.SelectSetQuery:
         """Return the parsed HogQL query used for this model.
 
@@ -381,7 +384,7 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         return parse_hogql_select_for_batch_export(self.hogql_query)
 
     def get_count_hogql_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> ast.SelectQuery:
         """Return a HogQL query counting the rows this model would export."""
         return ast.SelectQuery(

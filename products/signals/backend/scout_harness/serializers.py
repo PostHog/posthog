@@ -3141,6 +3141,34 @@ class ScoutRole(models.TextChoices):
     OPERATIONAL = "operational", "operational"
 
 
+class ScoutDeprecationPhase(models.TextChoices):
+    ANNOUNCED = "announced", "announced"
+    RETIRED = "retired", "retired"
+
+
+class ScoutDeprecationSerializer(serializers.Serializer):
+    """What PostHog has said about retiring this scout, for the chip and the banner to render."""
+
+    phase = serializers.ChoiceField(
+        choices=ScoutDeprecationPhase.choices,
+        help_text=(
+            "How far the retirement has got: `announced` while the scout still runs, `retired` "
+            "once its sunset has passed. A retired scout is paused and does not run again."
+        ),
+    )
+    reason = serializers.CharField(
+        help_text="Why PostHog is retiring the scout, written to be shown to a person as-is."
+    )
+    superseded_by = serializers.CharField(
+        allow_blank=True,
+        help_text="Skill name of the scout that takes over, or blank when nothing replaces it.",
+    )
+    sunset_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the scout stops running. Null means the next fleet reconcile retires it.",
+    )
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -3175,6 +3203,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "itself. An operational scout is exempt from the inactivity sweep and from the "
             "enabled-scout cap, and is not a scout a project should delete. Always `specialist` "
             "for a custom scout."
+        ),
+    )
+    deprecation = serializers.SerializerMethodField(
+        help_text=(
+            "Set when PostHog is retiring this scout, and null otherwise. Carries the phase, the "
+            "reason to show, what replaces the scout, and when it stops running. Only a canonical "
+            "scout the project has not edited is ever marked: a project's own copy keeps running "
+            "and reads as null."
         ),
     )
     owners = serializers.SerializerMethodField(
@@ -3357,6 +3393,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.role if info else "specialist"
 
+    @extend_schema_field(ScoutDeprecationSerializer(allow_null=True))
+    def get_deprecation(self, obj: SignalScoutConfig) -> dict[str, Any] | None:
+        # Same single-query `skill_info` map as `get_description`. The marker is read off the
+        # project's own skill row rather than from disk, so a scout the project forked — whose row
+        # the sync stops writing — never reads as retiring.
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.deprecation if info else None
+
     @extend_schema_field(UserBasicSerializer(allow_null=True))
     def get_status_changed_by(self, obj: SignalScoutConfig) -> dict[str, Any] | None:
         # Member PII, so it rides the same gate `owners` does: a scout sandbox token reads the
@@ -3384,6 +3428,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "display_name",
             "scout_origin",
             "scout_role",
+            "deprecation",
             "owners",
             "enabled",
             "status",

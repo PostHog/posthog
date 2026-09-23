@@ -127,6 +127,7 @@ Endpoint labels are normalized to bound cardinality: numeric ids are templated o
 
 Harmonic also records `harmonic_api_request_duration_seconds` from the start of an HTTP request through response headers, and `harmonic_api_admission_wait_seconds` for waits in the bulk client's pacing loop, including time queued for the pacing lock.
 The request duration excludes the local admission wait and response-body parsing.
+Both are one-offs, marked as such in `harmonic/observability.py`, and request duration moves into the base clients once a second domain needs it.
 The weekly Salesforce sweep allows 24 company lookups in flight; each outbound request still draws from the shared BATCH budget.
 
 ## Transport
@@ -155,6 +156,21 @@ Per-caller attribution is the `source` label's job, not the identity's.
 
 An identity that must not reach a metric label in plain form, such as a token, is hashed first (see `browserless/` and `vapi/`).
 A caller with no identity in scope passes no scope: it records the counter only and skips both the limiter and the gauges.
+
+## Shared mechanisms
+
+A mechanism that more than one domain could use lives in the shared layer, never in a domain.
+The shared layer is the base clients in `transport/transport.py`, the recorder in `observability/` and the limiter in `limiter/`.
+Tracing, request timing, retries and response recording are such mechanisms.
+A domain only fills the hooks the bases define: its identity, its budget, its metric names and its header parser.
+
+A reference domain such as `github/` is the layout that the next domain copies.
+Code added to it gets copied into every later domain under new names, and the domains that exist already never get it.
+Add the mechanism to a base instead, so that every domain gets it with no domain code.
+
+When only one domain can ever use something, keep it in that domain and mark it.
+Put a `# One-off:` comment that says why no other domain needs it, then a `# nosemgrep: shared-mechanisms-stay-out-of-egress-and-ingress-domains` line.
+That semgrep rule fails CI on tracing, on histograms, and on a counter or gauge declared outside `EgressMetrics(...)` in a domain package, so an unmarked one does not land.
 
 ## Adding a new egress domain
 

@@ -76,7 +76,7 @@ import {
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
-import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
+import { LazyHogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/LazyHogFlowTaxonomicFilters'
 
 import { InlineHogQLEditor } from '../InlineHogQLEditor'
 
@@ -279,7 +279,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             searchPlaceholder: 'variable key',
             type: TaxonomicFilterGroupType.WorkflowVariables,
             categoryLabel: () => 'Workflow variables',
-            render: HogFlowTaxonomicFilters,
+            render: LazyHogFlowTaxonomicFilters,
             getPopoverHeader: () => 'Workflow variables',
         },
         {
