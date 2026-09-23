@@ -316,6 +316,26 @@ class TestHogQLDetectorIncrementalHistory(APIBaseTest, ClickhouseDestroyTablesMi
         assert "now()" not in narrowed_sql
         assert evaluate_with_detector(incremental, DETECTOR).breaches == evaluate_with_detector(full, DETECTOR).breaches
 
+    def test_the_second_occurrence_of_a_dst_fold_hour_scans_its_own_buckets(self) -> None:
+        self.team.timezone = "Europe/Amsterdam"
+        self.team.save(update_fields=["timezone"])
+        with time_machine.travel("2026-10-25T00:37:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+        # 01:37 UTC renders as the same local wall-clock time as 00:37 UTC (02:37 local), so an
+        # ambiguous pin would anchor the scan an hour early and miss the newest closed bucket.
+        with time_machine.travel("2026-10-25T01:37:00Z", tick=False):
+            self._events([1])
+            with patch(FLAG_PATH, return_value=True):
+                incremental = self._extract(alert)
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+
+        assert self._values(incremental) == self._values(full)
+
     def test_a_check_an_hour_later_matches_the_full_scan(self) -> None:
         with time_machine.travel("2026-10-25T04:37:00Z", tick=False):
             self._events(list(range(1, 41)))

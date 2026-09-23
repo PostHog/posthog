@@ -99,6 +99,11 @@ def detector_rows_from_history(
         )
 
     anchor = _hour_floor(now, team)
+    if _window_spans_backward_dst_transition(anchor, matched.window_hours, team):
+        # Clocks going back give two bucket instants one local label, and the query returns
+        # buckets by label, so a cache keyed by instant cannot tell them apart. Fall back to
+        # full scans for as long as the fold sits inside the window.
+        return None
     cached = _load_cached(team_id, alert.id, fingerprint, matched, anchor)
     if not cached or len(cached) < min_samples:
         # Even a perfect tail scan could not fill the detector's window from here.
@@ -215,6 +220,14 @@ def _hour_floor(now: datetime, team: Team) -> datetime:
     """
     local = now.astimezone(team.timezone_info)
     return local.replace(minute=0, second=0, microsecond=0).astimezone(UTC)
+
+
+def _window_spans_backward_dst_transition(anchor: datetime, window_hours: int, team: Team) -> bool:
+    offsets = [
+        (anchor - timedelta(hours=hours)).astimezone(team.timezone_info).utcoffset()
+        for hours in range(window_hours + 1, -1, -1)
+    ]
+    return any(later < earlier for earlier, later in zip(offsets, offsets[1:]))
 
 
 def _scan_hours(cached: dict[datetime, float], now: datetime) -> int:
