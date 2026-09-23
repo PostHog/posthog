@@ -689,7 +689,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--activity-ramp-throttle-ms",
             type=int,
-            default=settings.ACTIVITY_RAMP_THROTTLE_MS,
+            default=settings.TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS,
             help="Minimum milliseconds between two activity slot issues when the resource-based tuner is on",
         )
         parser.add_argument(
