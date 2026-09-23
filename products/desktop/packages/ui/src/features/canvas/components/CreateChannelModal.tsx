@@ -336,6 +336,29 @@ export function CreateChannelModal({
     spacesLayout ? "space" : "channel"
   }. We'll use it to create a CONTEXT.md file with relevant information for future tasks.`;
 
+  const descriptionTextarea = (
+    <div className="relative">
+      <Textarea
+        id="context-description"
+        aria-describedby={descriptionHelperId}
+        rows={4}
+        className="max-h-[40vh] overflow-y-auto text-xs leading-4"
+        value={description}
+        disabled={busy}
+        onChange={(e) => setDescription(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            void submitOnce(submitDescribeStep);
+          }
+        }}
+      />
+      <RotatingDescriptionPlaceholder
+        visible={description.length === 0 && !busy}
+      />
+    </div>
+  );
+
   const descriptionField = (
     <Field>
       {/* In create mode the step's own header asks the question, so the label
@@ -348,26 +371,7 @@ export function CreateChannelModal({
           </FieldDescription>
         </>
       )}
-      <div className="relative">
-        <Textarea
-          id="context-description"
-          aria-describedby={descriptionHelperId}
-          rows={4}
-          className="max-h-[40vh] overflow-y-auto text-xs leading-4"
-          value={description}
-          disabled={busy}
-          onChange={(e) => setDescription(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              void submitOnce(submitDescribeStep);
-            }
-          }}
-        />
-        <RotatingDescriptionPlaceholder
-          visible={description.length === 0 && !busy}
-        />
-      </div>
+      {descriptionTextarea}
     </Field>
   );
 
@@ -486,7 +490,10 @@ export function CreateChannelModal({
               </DialogDescription>
             </DialogHeader>
 
-            <DialogBody viewportClassName="flex flex-col gap-4">
+            <DialogBody
+              className="flex max-h-[60vh] flex-col"
+              viewportClassName="flex flex-col gap-4"
+            >
               <SpaceSetupChoiceField
                 value={setupDraft.choice}
                 disabled={busy}
@@ -494,6 +501,40 @@ export function CreateChannelModal({
                   setSetupDraft((draft) => ({ ...draft, choice }))
                 }
               />
+              <AnimatedHeight duration={stepDuration} ease={EASE_IN_OUT}>
+                <div key={setupDraft.choice} className="flex flex-col gap-4">
+                  {setupDraft.choice === "goal" && (
+                    <SpaceGoalFields
+                      value={setupDraft.goal}
+                      disabled={busy}
+                      onChange={(goal) =>
+                        setSetupDraft((draft) => ({ ...draft, goal }))
+                      }
+                    />
+                  )}
+                  {setupDraft.choice === "feature" && (
+                    <SpaceFeatureFields
+                      value={setupDraft.feature}
+                      disabled={busy}
+                      onChange={(feature) =>
+                        setSetupDraft((draft) => ({ ...draft, feature }))
+                      }
+                    />
+                  )}
+                  {setupDraft.choice === "none" && (
+                    <Field>
+                      <FieldLabel htmlFor="context-description">
+                        Describe it
+                      </FieldLabel>
+                      {descriptionTextarea}
+                      <FieldDescription id={descriptionHelperId}>
+                        Optional. A description starts a task that writes the
+                        context page.
+                      </FieldDescription>
+                    </Field>
+                  )}
+                </div>
+              </AnimatedHeight>
             </DialogBody>
 
             <DialogFooter>
@@ -507,89 +548,9 @@ export function CreateChannelModal({
               </Button>
               <Button
                 variant="primary"
-                disabled={busy}
+                disabled={busy || setupMissingField !== null}
                 onClick={goForward}
                 data-attr="space-setup-next"
-              >
-                Next
-              </Button>
-            </DialogFooter>
-          </>
-        );
-      case "goal":
-        return (
-          <>
-            <DialogHeader>
-              <DialogTitle>Which metric should move?</DialogTitle>
-              <DialogDescription>
-                The setup task resolves the measure, records a baseline, links
-                related experiments and flags, and starts the loops.
-              </DialogDescription>
-            </DialogHeader>
-
-            <DialogBody viewportClassName="flex flex-col gap-4">
-              <SpaceGoalFields
-                value={setupDraft.goal}
-                disabled={busy}
-                onChange={(goal) =>
-                  setSetupDraft((draft) => ({ ...draft, goal }))
-                }
-              />
-            </DialogBody>
-
-            <DialogFooter>
-              <Button
-                variant="outline"
-                className="sm:mr-auto"
-                disabled={busy}
-                onClick={goBack}
-              >
-                Back
-              </Button>
-              <Button
-                variant="primary"
-                disabled={busy || setupMissingField !== null}
-                onClick={goForward}
-              >
-                Next
-              </Button>
-            </DialogFooter>
-          </>
-        );
-      case "feature":
-        return (
-          <>
-            <DialogHeader>
-              <DialogTitle>Which feature is this about?</DialogTitle>
-              <DialogDescription>
-                The setup task fills the context page with the flag, an adoption
-                measure, and related errors and replays.
-              </DialogDescription>
-            </DialogHeader>
-
-            <DialogBody viewportClassName="flex flex-col gap-4">
-              <SpaceFeatureFields
-                value={setupDraft.feature}
-                disabled={busy}
-                onChange={(feature) =>
-                  setSetupDraft((draft) => ({ ...draft, feature }))
-                }
-              />
-            </DialogBody>
-
-            <DialogFooter>
-              <Button
-                variant="outline"
-                className="sm:mr-auto"
-                disabled={busy}
-                onClick={goBack}
-              >
-                Back
-              </Button>
-              <Button
-                variant="primary"
-                disabled={busy || setupMissingField !== null}
-                onClick={goForward}
               >
                 Next
               </Button>

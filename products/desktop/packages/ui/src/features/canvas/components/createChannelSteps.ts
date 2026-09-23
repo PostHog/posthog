@@ -4,15 +4,13 @@ export const CREATE_STEPS = [
   "name",
   "setup",
   "describe",
-  "goal",
-  "feature",
   "repositories",
   "members",
 ] as const;
 export type CreateStep = (typeof CREATE_STEPS)[number];
 
 export interface CreateStepContext {
-  /** The "set up this space for" step is flag-gated; off, the flow is name → describe. */
+  /** The "what is this space for" step is flag-gated; off, the flow keeps the describe step. */
   setupEnabled: boolean;
   choice: SpaceSetupChoice;
   visibility: "public" | "private";
@@ -27,10 +25,7 @@ export function nextCreateStep(
     case "name":
       return context.setupEnabled ? "setup" : "describe";
     case "setup":
-      return context.choice === "none" ? "describe" : context.choice;
     case "describe":
-    case "goal":
-    case "feature":
       return "repositories";
     case "repositories":
       return context.visibility === "private" ? "members" : null;
@@ -48,14 +43,10 @@ export function previousCreateStep(
     case "name":
       return null;
     case "setup":
-      return "name";
     case "describe":
-      return context.setupEnabled ? "setup" : "name";
-    case "goal":
-    case "feature":
-      return "setup";
+      return "name";
     case "repositories":
-      return context.choice === "none" ? "describe" : context.choice;
+      return context.setupEnabled ? "setup" : "describe";
     case "members":
       return "repositories";
   }

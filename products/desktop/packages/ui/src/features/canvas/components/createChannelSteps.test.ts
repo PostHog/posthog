@@ -15,24 +15,22 @@ const base: CreateStepContext = {
 describe("create channel steps", () => {
   it.each<[string, CreateStep, Partial<CreateStepContext>, CreateStep | null]>([
     [
-      "flag off skips the setup step",
+      "flag off keeps the describe step",
       "name",
       { setupEnabled: false },
       "describe",
     ],
     ["flag on asks what the space is for", "name", {}, "setup"],
-    ["nothing goes to describe", "setup", {}, "describe"],
-    ["a goal goes to the goal step", "setup", { choice: "goal" }, "goal"],
     [
-      "a feature goes to the feature step",
+      "the setup step goes to repositories",
       "setup",
-      { choice: "feature" },
-      "feature",
+      { choice: "goal" },
+      "repositories",
     ],
     [
-      "goal details go to repositories",
-      "goal",
-      { choice: "goal" },
+      "describe goes to repositories",
+      "describe",
+      { setupEnabled: false },
       "repositories",
     ],
     ["public ends at repositories", "repositories", {}, null],
@@ -47,25 +45,19 @@ describe("create channel steps", () => {
   });
 
   it.each<[string, CreateStep, Partial<CreateStepContext>, CreateStep | null]>([
-    ["describe returns to setup when the flag is on", "describe", {}, "setup"],
     [
-      "describe returns to name when the flag is off",
-      "describe",
-      { setupEnabled: false },
-      "name",
-    ],
-    [
-      "repositories returns to the chosen detail step",
-      "repositories",
-      { choice: "feature" },
-      "feature",
-    ],
-    [
-      "repositories returns to describe for nothing",
+      "repositories returns to setup when the flag is on",
       "repositories",
       {},
+      "setup",
+    ],
+    [
+      "repositories returns to describe when the flag is off",
+      "repositories",
+      { setupEnabled: false },
       "describe",
     ],
+    ["setup returns to name", "setup", {}, "name"],
     ["name is the first step", "name", {}, null],
   ])("previous: %s", (_name, step, context, expected) => {
     expect(previousCreateStep(step, { ...base, ...context })).toBe(expected);
