@@ -7,6 +7,7 @@ matching rules the inbox reads it with.
 
 from __future__ import annotations
 
+import json
 import uuid as uuid_module
 
 from django.db import transaction
@@ -17,6 +18,7 @@ from pydantic import ValidationError
 
 from products.signals.backend.artefact_schemas import SuggestedReviewers
 from products.signals.backend.models import SignalReportArtefact, SignalReportSuggestedReviewer
+from products.signals.backend.report_generation.resolve_reviewers import _normalized_reviewer_user_uuid
 
 logger = structlog.get_logger(__name__)
 
@@ -44,33 +46,69 @@ def _current_reviewer_artefacts(team_id: int, report_id: str) -> list[SignalRepo
     return [artefact for artefact in newest_first if artefact.created_at == latest]
 
 
+def _identities_from_raw_content(content: str) -> list[tuple[str | None, str | None]] | None:
+    """The reviewer identities in a content list, read without the schema, or None when the content
+    is not a JSON list.
+
+    The index answers one question — "which reports name this person?" — so every other field is
+    noise to it. A bound the schema puts on that noise, such as the length of a commit reason, must
+    not decide whether a person sees their own reports.
+    """
+    try:
+        rows = json.loads(content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(rows, list):
+        return None
+    identities: list[tuple[str | None, str | None]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        user_uuid = _normalized_reviewer_user_uuid(row.get("user_uuid"))
+        login = str(row.get("github_login") or "").strip().lower() or None
+        if user_uuid or login:
+            identities.append((user_uuid, login))
+    return identities
+
+
 def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSuggestedReviewer]:
     try:
         entries = SuggestedReviewers.model_validate_json(artefact.content).root
     except ValidationError:
-        # A row the current schema cannot read names nobody. The artefact still holds the truth,
-        # so a later edit that parses restores the index.
+        identities = _identities_from_raw_content(artefact.content)
+        if identities is None:
+            # Content that is not a list names nobody. The artefact still holds the truth, so a
+            # later edit that parses restores the index.
+            logger.warning(
+                "signals_suggested_reviewer_index_unparseable_artefact",
+                team_id=artefact.team_id,
+                report_id=str(artefact.report_id),
+                artefact_id=str(artefact.id),
+            )
+            return []
         logger.warning(
-            "signals_suggested_reviewer_index_unparseable_artefact",
+            "signals_suggested_reviewer_index_identity_only_artefact",
             team_id=artefact.team_id,
             report_id=str(artefact.report_id),
             artefact_id=str(artefact.id),
         )
-        return []
+    else:
+        identities = [
+            (entry.user_uuid, entry.github_login.lower() if entry.github_login else None) for entry in entries
+        ]
     rows: list[SignalReportSuggestedReviewer] = []
     seen: set[tuple[str | None, str | None]] = set()
-    for entry in entries:
-        login = entry.github_login.lower() if entry.github_login else None
-        identity = (entry.user_uuid, login)
+    for identity in identities:
         if identity in seen:
             continue
         seen.add(identity)
+        user_uuid, login = identity
         rows.append(
             SignalReportSuggestedReviewer(
                 team_id=artefact.team_id,
                 report_id=artefact.report_id,
                 artefact_id=artefact.id,
-                user_uuid=uuid_module.UUID(entry.user_uuid) if entry.user_uuid else None,
+                user_uuid=uuid_module.UUID(user_uuid) if user_uuid else None,
                 github_login=login,
             )
         )
