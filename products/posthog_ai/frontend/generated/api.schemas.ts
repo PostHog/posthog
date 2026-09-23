@@ -664,6 +664,15 @@ export interface DocsSearchResponseApi {
  */
 export type TerminalAIRequestApiSystem = string | { [key: string]: JsonValueApi }[] | null
 
+export type TerminalAIModelApi = (typeof TerminalAIModelApi)[keyof typeof TerminalAIModelApi]
+
+export const TerminalAIModelApi = {
+    ClaudeOpus5: 'claude-opus-5',
+    ClaudeSonnet5: 'claude-sonnet-5',
+    ClaudeSonnet46: 'claude-sonnet-4-6',
+    ClaudeHaiku45: 'claude-haiku-4-5',
+} as const
+
 export type TerminalAIMessageRoleEnumApi =
     (typeof TerminalAIMessageRoleEnumApi)[keyof typeof TerminalAIMessageRoleEnumApi]
 
@@ -715,7 +724,7 @@ export interface TerminalAIToolApi {
 
 export interface TerminalAIRequestApi {
     /** Model served by the PostHog provider. */
-    model: 'claude-sonnet-4-6'
+    model: TerminalAIModelApi
     /**
      * Conversation and tool results.
      * @minItems 1

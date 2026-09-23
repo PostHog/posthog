@@ -57,6 +57,15 @@ The interactive Bash shell completes `ph` command names, aliases, connected tool
 The terminal follows the current resource's folder while its prompt is empty.
 Running commands, editors, and partially typed input prevent a folder change.
 
+The app-level terminal lives in `src/scenes/terminal` and opens with Ctrl+backtick when enabled.
+Pi installs on first use from a verified, commit-pinned archive in [PostHog/terminal-assets](https://github.com/PostHog/terminal-assets).
+It calls PostHog AI through the signed-in browser session and defaults to Claude Opus 5.
+Use `/model` in pi to choose Opus 5, Sonnet 5, Sonnet 4.6, or Haiku 4.5.
+The terminal endpoint requires session authentication, project access, the terminal feature flag, and available AI credits.
+Gateway credentials stay on the server; configure `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` for the Go gateway.
+The gateway must configure the credential's team as a relay and `posthog_ai` as a billable product so generations count toward the customer's AI credits.
+Run one pi session per terminal. The VM has no general network bridge, so external login and package downloads remain unavailable.
+
 ### `posthog`
 
 The Django backend application. Key subdirectories:

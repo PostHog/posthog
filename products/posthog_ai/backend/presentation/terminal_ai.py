@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterator
+from enum import StrEnum
 from typing import Literal, cast
 from uuid import uuid4
 
@@ -46,10 +47,17 @@ class TerminalAITool(BaseModel):
     eager_input_streaming: bool | None = Field(default=None, description="Stream tool arguments as they are generated.")
 
 
+class TerminalAIModel(StrEnum):
+    OPUS_5 = "claude-opus-5"
+    SONNET_5 = "claude-sonnet-5"
+    SONNET_4_6 = "claude-sonnet-4-6"
+    HAIKU_4_5 = "claude-haiku-4-5"
+
+
 class TerminalAIRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    model: Literal["claude-sonnet-4-6"] = Field(description="Model served by the PostHog provider.")
+    model: TerminalAIModel = Field(description="Model served by the PostHog provider.")
     messages: list[TerminalAIMessage] = Field(
         min_length=1, max_length=1000, description="Conversation and tool results."
     )

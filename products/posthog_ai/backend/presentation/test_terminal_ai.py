@@ -29,7 +29,7 @@ class TestTerminalAI(APIBaseTest):
         )
         self.url = f"/api/projects/{self.team.id}/terminal_ai/"
         self.body = {
-            "model": "claude-sonnet-4-6",
+            "model": "claude-opus-5",
             "messages": [{"role": "user", "content": "Say hello"}],
             "max_tokens": 100,
             "stream": True,
@@ -72,8 +72,16 @@ class TestTerminalAI(APIBaseTest):
         assert response.status_code == 400
         stream.assert_not_called()
 
-    @parameterized.expand([("short", "Say hello"), ("unicode", "你好🌍" * 60000)])
-    def test_stream_preserves_tool_calls_and_trusted_attribution(self, _name: str, content: str) -> None:
+    @parameterized.expand(
+        [
+            ("claude-opus-5", "Say hello"),
+            ("claude-sonnet-5", "Say hello"),
+            ("claude-sonnet-4-6", "Say hello"),
+            ("claude-haiku-4-5", "你好🌍" * 60000),
+        ]
+    )
+    def test_stream_preserves_tool_calls_and_trusted_attribution(self, model: str, content: str) -> None:
+        self.body["model"] = model
         self.body["messages"] = [{"role": "user", "content": content}]
         event = b'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool_1","name":"bash","input":{}}}\n\n'
         requests: list[httpx.Request] = []
@@ -99,6 +107,7 @@ class TestTerminalAI(APIBaseTest):
         assert request.headers["X-PostHog-Privacy-Mode"] == "true"
         assert request.headers["X-PostHog-Billable"] == "false"
         assert json.loads(request.headers["X-PostHog-Properties"])["team_id"] == str(self.team.id)
+        assert json.loads(request.content)["model"] == model
         assert json.loads(request.content)["messages"] == self.body["messages"]
 
     def test_oversized_unicode_request_does_not_reach_gateway(self) -> None:

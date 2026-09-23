@@ -256,7 +256,9 @@ export const terminalAiCreateBodyTemperatureOneMin = 0
 export const terminalAiCreateBodyTemperatureOneMax = 1
 
 export const TerminalAiCreateBody = /* @__PURE__ */ zod.object({
-    model: zod.literal('claude-sonnet-4-6').describe('Model served by the PostHog provider.'),
+    model: zod
+        .enum(['claude-opus-5', 'claude-sonnet-5', 'claude-sonnet-4-6', 'claude-haiku-4-5'])
+        .describe('Model served by the PostHog provider.'),
     messages: zod
         .array(
             zod.object({

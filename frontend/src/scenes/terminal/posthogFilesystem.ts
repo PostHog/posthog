@@ -176,7 +176,9 @@ node (or nodejs) installs Node.js on first use. pi installs the pi coding harnes
 and Node.js on first use. Try node --version or pi --help.
 The browser downloads verified packages from GitHub and caches them when storage
 is available. Stopping the terminal discards the installed files and local sessions.
-pi uses PostHog AI through your signed-in session. Try pi -p 'What can ph tools do?'
+pi uses PostHog AI through your signed-in session and defaults to Claude Opus 5.
+Use /model in pi to choose Opus 5, Sonnet 5, Sonnet 4.6, or Haiku 4.5.
+Try pi -p 'What can ph tools do?'
 Run one pi session at a time. AI credit limits apply. Gateway setup is required.
 The VM has no general network access, so external login and package downloads are unavailable.
 Use /tmp for local scripts and pi sessions; mounted PostHog files keep their API rules.

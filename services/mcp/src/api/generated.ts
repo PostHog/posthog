@@ -97649,6 +97649,16 @@ export namespace Schemas {
       content: TerminalAIMessageContent;
     }
 
+    export type TerminalAIModel = typeof TerminalAIModel[keyof typeof TerminalAIModel];
+
+
+    export const TerminalAIModel = {
+      ClaudeOpus5: 'claude-opus-5',
+      ClaudeSonnet5: 'claude-sonnet-5',
+      ClaudeSonnet46: 'claude-sonnet-4-6',
+      ClaudeHaiku45: 'claude-haiku-4-5',
+    } as const;
+
     /**
      * Agent instructions.
      */
@@ -97685,7 +97695,7 @@ export namespace Schemas {
 
     export interface TerminalAIRequest {
       /** Model served by the PostHog provider. */
-      model: 'claude-sonnet-4-6';
+      model: TerminalAIModel;
       /**
          * Conversation and tool results.
          * @minItems 1
