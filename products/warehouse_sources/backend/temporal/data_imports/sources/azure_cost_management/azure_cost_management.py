@@ -2,6 +2,7 @@ import re
 import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from http import HTTPStatus
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
@@ -11,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.settings import (
     AZURE_COST_MANAGEMENT_ENDPOINTS,
@@ -50,10 +52,8 @@ RETRY_AFTER_HEADERS = (
 COMMAND_NAME = "PostHogDataWarehouse"
 
 
-# Cost Management answers 424 Failed Dependency when it cannot compute an answer from the scope's
-# own cost history. On the forecast endpoint that is the normal state of a new or quiet
-# subscription: there is nothing to project from yet.
-FAILED_DEPENDENCY_STATUS = 424
+# Shared by the raise site and the source's non-retryable map, which matches on the message.
+NO_COST_HISTORY_ERROR_PREFIX = "Azure Cost Management has no cost history on this scope"
 
 
 class AzureCostManagementRetryableError(Exception):
@@ -62,8 +62,12 @@ class AzureCostManagementRetryableError(Exception):
     pass
 
 
-class AzureCostManagementNoCostHistoryError(Exception):
-    """Azure holds no cost history on this scope to answer the request from."""
+class AzureCostManagementNoCostHistoryError(NonReportableError):
+    """Azure holds no cost history on this scope to answer the request from.
+
+    Always the state of the customer's subscription rather than a PostHog defect, so it is not
+    worth an error-tracking issue however the caller handles it.
+    """
 
     pass
 
@@ -392,11 +396,11 @@ class AzureCostManagementClient:
                 self._sleep(delay)
                 continue
 
-            # Not a failure to report or retry: the scope simply has no cost history yet.
-            if response.status_code == FAILED_DEPENDENCY_STATUS:
-                raise AzureCostManagementNoCostHistoryError(
-                    f"Azure Cost Management has no cost history on this scope: url={url}"
-                )
+            # Cost Management answers 424 when it cannot compute an answer from the scope's own
+            # cost history, which the forecast endpoint reads as an empty result rather than a
+            # failure — so this is raised apart from the generic HTTP error, and not logged.
+            if response.status_code == HTTPStatus.FAILED_DEPENDENCY:
+                raise AzureCostManagementNoCostHistoryError(f"{NO_COST_HISTORY_ERROR_PREFIX}: url={url}")
 
             if not response.ok:
                 self._logger.error(
