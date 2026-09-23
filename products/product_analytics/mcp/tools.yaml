@@ -69,6 +69,9 @@ tools:
     elements-values-list:
         operation: elements_values_list
         enabled: false
+    events-retention-retrieve:
+        operation: events_retention_retrieve
+        enabled: false
     insight-create:
         operation: insights_create
         enabled: true
