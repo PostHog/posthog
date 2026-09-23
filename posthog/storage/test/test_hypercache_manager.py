@@ -81,10 +81,19 @@ def create_test_config(
 
 
 class TestRefreshTtlMinFractionValidation(SimpleTestCase):
-    @parameterized.expand([("zero", 0.0), ("above_one", 1.5), ("days_mistaken_for_a_fraction", 7.0)])
-    def test_a_fraction_outside_the_unit_range_is_refused(self, _name: str, fraction: float) -> None:
+    @parameterized.expand(
+        [
+            ("zero", 0.0, DEFAULT_CACHE_TTL),
+            ("above_one", 1.5, DEFAULT_CACHE_TTL),
+            ("days_mistaken_for_a_fraction", 7.0, DEFAULT_CACHE_TTL),
+            ("floor_below_one_second_on_a_short_cache", 0.01, 60),
+        ]
+    )
+    def test_a_fraction_that_cannot_yield_a_usable_floor_is_refused(
+        self, _name: str, fraction: float, cache_ttl: int
+    ) -> None:
         with self.assertRaises(ValueError):
-            create_test_config(refresh_ttl_min_fraction=fraction)
+            create_test_config(refresh_ttl_min_fraction=fraction, cache_ttl=cache_ttl)
 
 
 class TestDjangoKeyPrefix(BaseTest):

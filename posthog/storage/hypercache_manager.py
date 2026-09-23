@@ -313,8 +313,17 @@ class HyperCacheManagementConfig:
     refresh_ttl_min_fraction: float | None = None
 
     def __post_init__(self) -> None:
-        if self.refresh_ttl_min_fraction is not None and not 0 < self.refresh_ttl_min_fraction <= 1:
-            raise ValueError(f"refresh_ttl_min_fraction must be within (0, 1], got {self.refresh_ttl_min_fraction}")
+        fraction = self.refresh_ttl_min_fraction
+        if fraction is None:
+            return
+        if not 0 < fraction <= 1:
+            raise ValueError(f"refresh_ttl_min_fraction must be within (0, 1], got {fraction}")
+        # The draw truncates the floor to an int, so a floor below one second lets the band
+        # reach zero and write an entry that comes due the moment it lands.
+        if int(self.hypercache.cache_ttl * fraction) < 1:
+            raise ValueError(
+                f"refresh_ttl_min_fraction {fraction} floors a {self.hypercache.cache_ttl}s cache below one second"
+            )
 
     # Derived properties (computed from required properties using conventions)
     @property
