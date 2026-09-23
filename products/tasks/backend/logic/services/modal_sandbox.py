@@ -643,29 +643,12 @@ def get_template_base_image(template: SandboxTemplate) -> modal.Image:
         raise ValueError(f"Unknown template: {template}")
 
     if settings.DEBUG:
-        if template == SandboxTemplate.AUTORESEARCH_BASE:
-            # Layer the Dockerfile's instructions onto the working-tree base build, so a local
-            # change to the base Dockerfile, the bundled skills or agent-shadow reaches this
-            # image too instead of the published :master base its FROM names.
-            return get_template_base_image(SandboxTemplate.DEFAULT_BASE).dockerfile_commands(
-                [_derived_dockerfile_body(Path(settings.BASE_DIR) / LOCAL_MODAL_DOCKERFILES[template])]
-            )
         dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
         return modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
     image_reference = resolve_template_base_image_reference(template)
     if image_reference is None:
         raise ValueError(f"Template does not use a registry image: {template}")
     return modal.Image.from_registry(image_reference)
-
-
-def _derived_dockerfile_body(dockerfile_path: Path) -> str:
-    """A derived Dockerfile's instructions without its ``ARG BASE_IMAGE`` / ``FROM`` header.
-
-    Returned as one string so a backslash-continued instruction reaches Modal whole.
-    """
-    return "\n".join(
-        line for line in dockerfile_path.read_text().splitlines() if not line.startswith(("ARG BASE_IMAGE", "FROM "))
-    )
 
 
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
