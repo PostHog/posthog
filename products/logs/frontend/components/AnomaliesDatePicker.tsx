@@ -21,6 +21,10 @@ import {
 } from 'products/logs/frontend/anomaliesDateWindow'
 import { logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
 
+// The rollup keeps volume for longer than this. The limit is on where a window may start, so the
+// message states that rule rather than claiming the older data is gone.
+const WINDOW_START_LIMIT_REASON = `A window can start at most ${MAX_WINDOW_START_AGE_DAYS} days ago`
+
 function formatLabel(dateRange: DateRange, now: dayjs.Dayjs): string {
     const rolling = ANOMALIES_ROLLING_OPTIONS.find((option) => option.dateFrom === dateRange.date_from)
     if (rolling && !dateRange.date_to) {
@@ -57,7 +61,7 @@ export function AnomaliesDatePicker(): JSX.Element {
             return { disabledReason: 'This day is in the future' }
         }
         if (day.isBefore(oldest)) {
-            return { disabledReason: `Log volume older than ${MAX_WINDOW_START_AGE_DAYS} days has expired` }
+            return { disabledReason: WINDOW_START_LIMIT_REASON }
         }
         if (!bandDays) {
             return { disabledReason: loadingReason }
@@ -83,9 +87,7 @@ export function AnomaliesDatePicker(): JSX.Element {
                 type="secondary"
                 icon={<IconChevronLeft />}
                 tooltip="Previous window"
-                disabledReason={
-                    canStepBack ? loadingReason : `Log volume older than ${MAX_WINDOW_START_AGE_DAYS} days has expired`
-                }
+                disabledReason={canStepBack ? loadingReason : WINDOW_START_LIMIT_REASON}
                 onClick={() => stepDateRange(-1)}
                 data-attr="logs-anomalies-date-previous"
             />
