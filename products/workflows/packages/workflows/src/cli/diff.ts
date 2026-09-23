@@ -23,6 +23,10 @@ export interface Diff {
     readonly changes: readonly Change[]
 }
 
+export interface DiffOptions {
+    readonly compareSecretInputs?: readonly SecretInput[]
+}
+
 /** The fields the CLI sends. `key` identifies the row and `source` describes the push, so neither is content. */
 const CONTENT_FIELDS = ['name', 'description', 'status', 'exit_condition'] as const
 
@@ -91,8 +95,14 @@ function configWithoutInputs(config: unknown): Json {
  * @param mine - The step from the local workflow file.
  * @param theirs - The matching step PostHog stores.
  * @param secretKeys - Every `actionId.inputKey` that names a secret input.
+ * @param comparableSecretKeys - Secret inputs with a real local value to compare.
  */
-function sameAction(mine: Action, theirs: Json, secretKeys: ReadonlySet<string>): boolean {
+function sameAction(
+    mine: Action,
+    theirs: Json,
+    secretKeys: ReadonlySet<string>,
+    comparableSecretKeys: ReadonlySet<string>
+): boolean {
     if (mine.type !== theirs.type || mine.name !== theirs.name) {
         return false
     }
@@ -110,7 +120,7 @@ function sameAction(mine: Action, theirs: Json, secretKeys: ReadonlySet<string>)
     // usual case: it reads a secret back as a placeholder, so a rotation is invisible here and
     // needs `--force`. When a readable value does come back, comparing it is what catches a
     // credential that was moved into an environment variable while the old one stayed live.
-    for (const key of secretKeys) {
+    for (const key of comparableSecretKeys) {
         const [actionId, inputKey] = key.split('.')
         if (actionId !== mine.id || inputKey === undefined) {
             continue
@@ -152,13 +162,18 @@ function short(value: unknown): string {
  * @param local - The workflow the file emitted.
  * @param remote - The workflow PostHog stores, as the API returned it.
  * @param secretInputs - The inputs the file reads from `secret()`, left out of the comparison.
+ * @param options - Secret inputs to compare when the local value is known.
  */
 export function diffWorkflow(
     local: WorkflowDefinition,
     remote: Readonly<Record<string, unknown>>,
-    secretInputs: readonly SecretInput[]
+    secretInputs: readonly SecretInput[],
+    options: DiffOptions = {}
 ): Diff {
     const secretKeys = new Set(secretInputs.map((input) => `${input.actionId}.${input.inputKey}`))
+    const comparableSecretKeys = new Set(
+        (options.compareSecretInputs ?? secretInputs).map((input) => `${input.actionId}.${input.inputKey}`)
+    )
     const changes: Change[] = []
 
     for (const field of CONTENT_FIELDS) {
@@ -180,7 +195,7 @@ export function diffWorkflow(
         const theirs = theirActions.get(action.id)
         if (theirs === undefined) {
             changes.push({ kind: 'added', what: `step "${action.name}"` })
-        } else if (!sameAction(action, theirs, secretKeys)) {
+        } else if (!sameAction(action, theirs, secretKeys, comparableSecretKeys)) {
             changes.push({ kind: 'changed', what: `step "${action.name}"` })
         }
     }

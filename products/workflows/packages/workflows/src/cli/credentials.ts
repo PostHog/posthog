@@ -41,11 +41,46 @@ function credentialsPath(env: Readonly<Record<string, string | undefined>>, home
         : join(home, 'credentials.json')
 }
 
-function readFile(path: string): CredentialsFile | null {
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function assertCredentialsFile(value: unknown, path: string): CredentialsFile {
+    if (
+        isObject(value) &&
+        (value.host === undefined || value.host === null || typeof value.host === 'string') &&
+        (value.token === undefined || typeof value.token === 'string') &&
+        (value.env_id === undefined || typeof value.env_id === 'string')
+    ) {
+        return value
+    }
+    throw new WorkflowError({
+        status: 'invalid_credentials_file',
+        message: `Could not read ${path}.`,
+        why: 'The credentials file must contain string fields named token and env_id, and an optional string host.',
+        fix: 'Run posthog-cli login again, or fix the credentials file before you run this command.',
+    })
+}
+
+function readFile(path: string, shownPath: string): CredentialsFile | null {
+    let raw: string
     try {
-        return JSON.parse(readFileSync(path, 'utf8')) as CredentialsFile
+        raw = readFileSync(path, 'utf8')
     } catch {
         return null
+    }
+    try {
+        return assertCredentialsFile(JSON.parse(raw) as unknown, shownPath)
+    } catch (error) {
+        if (error instanceof SyntaxError) {
+            throw new WorkflowError({
+                status: 'invalid_credentials_file',
+                message: `Could not read ${shownPath}.`,
+                why: 'The credentials file is not valid JSON.',
+                fix: 'Run posthog-cli login again, or fix the credentials file before you run this command.',
+            })
+        }
+        throw error
     }
 }
 
@@ -159,14 +194,15 @@ export function resolveCredentials(
     }
 
     const path = credentialsPath(env, homeDir)
-    const file = readFile(path)
+    const shownPath = shown(path, homeDir)
+    const file = readFile(path, shownPath)
     const fileProjectId = firstPresent(overrides.project, file?.env_id)
     if (present(file?.token) && fileProjectId !== undefined) {
         return {
             apiKey: file.token,
             projectId: fileProjectId,
-            host: host() ?? secureHost(file.host, shown(path, homeDir)) ?? DEFAULT_HOST,
-            source: describeSource(shown(path, homeDir), overrides),
+            host: host() ?? secureHost(file.host, shownPath) ?? DEFAULT_HOST,
+            source: describeSource(shownPath, overrides),
         }
     }
     return null

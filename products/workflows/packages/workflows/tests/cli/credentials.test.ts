@@ -28,6 +28,16 @@ describe('credentials', () => {
         })
     })
 
+    it('refuses a credentials file with fields of the wrong type', () => {
+        const home = homeWithCredentials(JSON.stringify({ host: 42, token: 'phx_from_file', env_id: '99' }))
+
+        assert.throws(
+            () => resolveCredentials({}, home),
+            (error: unknown): boolean =>
+                (error as { fields: { status: string } }).fields.status === 'invalid_credentials_file'
+        )
+    })
+
     it('falls back to the PostHog Cloud US host when the file names none', () => {
         const home = homeWithCredentials(JSON.stringify({ token: 'phx_from_file', env_id: '99' }))
 

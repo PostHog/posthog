@@ -21,4 +21,16 @@ describe('main', () => {
         assert.match(result.stderr, /^status: missing_option_value$/m)
         assert.match(result.stderr, /^message: --project needs a value\.$/m)
     })
+
+    it('refuses a project value that is not ASCII decimal digits', async () => {
+        for (const project of ['abc', '１２']) {
+            const result = await runCli(['check', 'flows/onboarding.ts', '--project', project], {
+                workspace: makeWorkspace(),
+            })
+
+            assert.equal(result.code, 1)
+            assert.match(result.stderr, /^status: invalid_project$/m)
+            assert.match(result.stderr, /must be an ASCII decimal number/)
+        }
+    })
 })

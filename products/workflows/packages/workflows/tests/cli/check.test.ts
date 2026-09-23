@@ -131,6 +131,45 @@ describe('check', () => {
         assert.match(result.stdout, /^ {4}result {3}would create$/m)
     })
 
+    it('reports a list response without results as invalid', async (t) => {
+        const standIn = await startStandIn({ listResponse: {} })
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile() })
+
+        const result = await runCli(['check', 'flows/onboarding.ts'], {
+            workspace,
+            env: { POSTHOG_CLI_API_KEY: 'phx_test', POSTHOG_CLI_PROJECT_ID: '2', POSTHOG_CLI_HOST: standIn.url },
+        })
+
+        assert.equal(result.code, 1)
+        assert.match(result.stderr, /^status: invalid_response$/m)
+        assert.match(result.stderr, /list response did not include a results array/)
+    })
+
+    it('compares a readable secret only when check has the value', async (t) => {
+        const standIn = await startStandIn()
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile({ secret: true }) })
+        const env = {
+            POSTHOG_CLI_API_KEY: 'phx_test',
+            POSTHOG_CLI_PROJECT_ID: '2',
+            POSTHOG_CLI_HOST: standIn.url,
+        }
+        await runCli(['push', 'flows/onboarding.ts'], {
+            workspace,
+            env: { ...env, CRM_WEBHOOK_SECRET: 'first-value' },
+        })
+
+        const missing = await runCli(['check', 'flows/onboarding.ts'], { workspace, env })
+        assert.match(missing.stdout, /^ {4}result {3}unchanged$/m)
+
+        const present = await runCli(['check', 'flows/onboarding.ts'], {
+            workspace,
+            env: { ...env, CRM_WEBHOOK_SECRET: 'second-value' },
+        })
+        assert.match(present.stdout, /^ {4}result {3}would update$/m)
+    })
+
     it('sends the version of the package as its user agent', async (t) => {
         const standIn = await startStandIn()
         t.after(() => standIn.close())
