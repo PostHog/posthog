@@ -49,7 +49,6 @@ class TestObservationFiltersTagClause:
         # Stored metadata tags are slugified inside the clause (arrayMap) so verbatim-stored tags still match.
         assert clauses[0].startswith("hasAny(")
         assert "arrayMap" in clauses[0]
-        # The clause carries no inlined tag value. It lives only in the query parameter, verbatim.
         assert params["tags"] == tags
 
 
@@ -74,7 +73,6 @@ class TestParseDateBound:
             parse_date_bound(value, None, end_of_range=False)
 
 
-# Runs the ranking SQL against real ClickHouse. Everything else mocks `rank_observations`.
 class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
     def _insert_embedding_rows(self, rows: list[tuple]) -> None:
         # Reads for this model route to its model-specific table. Named inline to avoid a cross-product import.
@@ -126,7 +124,6 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
                 row("reasoning", other, "x" * 2000, vector(0.6, 0.8)),
                 # Opposite direction: past the distance ceiling, so never a match however few rows exist.
                 row("reasoning", str(uuid.uuid4()), "unrelated", vector(-1.0, 0.0)),
-                # Another team's exact match: the raw query carries its own team guard.
                 (self.team.pk + 1, *row("intent", str(uuid.uuid4()), "user wanted to check out", vector(1.0, 0.0))[1:]),
             ]
         )
@@ -135,7 +132,6 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
             matches = rank_observations(self.team, [scanner_id], vector(1.0, 0.0), 10, ObservationSearchFilters())
 
         self.assertEqual([m.observation_id for m in matches], [best, other])
-        # The candidate pass must never decode the vector column.
         self.assertEqual(len(queries), 2)
         self.assertIsNone(re.search(r"\bembedding\b", queries[0]))
         # `best` has two renderings and the hit carries the closest one's text.

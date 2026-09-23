@@ -500,8 +500,6 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         """Sync ClickHouse rank + ORM fetch + format — runs after the embedding HTTP call has resolved."""
         empty = (f"No recordings from {scope_label} matched that search yet.", {"result_count": 0})
 
-        # Filter + rank in ClickHouse: the structured outcome filters run against the embedding metadata, so
-        # the semantic ranking only ever sees recordings that already match the exact outcome.
         response = search_observations(
             self._team, self.user_access_control, scanner_ids, query_vector, capped_limit, filters
         )

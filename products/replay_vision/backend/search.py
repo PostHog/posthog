@@ -65,10 +65,8 @@ _EMBEDDING_TIMEOUT_S = 10.0
 # predictable without an HNSW index (which our mandatory tenant/scanner metadata filters wouldn't engage anyway).
 _MAX_CANDIDATE_ROWS = 50_000
 
-# Read directly instead of through the HogQL `document_embeddings` table, which wraps the physical table in a
-# subquery carrying only the team filter, so the product, scanner, and cap predicates never reach the storage read.
+# Read directly: the HogQL `document_embeddings` table pushes only the team filter down to the storage read.
 _EMBEDDINGS_TABLE = f"distributed_posthog_document_embeddings_{OBSERVATION_EMBEDDING_MODEL.value.replace('-', '_')}"
-# In PREWHERE so `embedding` and `content` are decoded only for rows that pass. Static literals only.
 _SCOPE_PREWHERE = """team_id = %(team_id)s
               AND product = %(product)s
               AND document_type = %(document_type)s
@@ -196,8 +194,9 @@ def rank_observations(
     outcome filters via the embedding metadata.
 
     The cosine scan is exact, so it is bounded to the most recent `_MAX_CANDIDATE_ROWS` matching rows: a
-    timestamp-only pass finds the cutoff, then the ranking pass decodes vectors from that cutoff on. A
-    high-volume team is capped to its most recent embeddings at the cost of not ranking its oldest ones.
+    timestamp-only pass finds the cutoff, then the ranking pass decodes vectors from that cutoff on. The scope
+    sits in PREWHERE so `embedding` and `content` are decoded only for rows that pass it. A high-volume team
+    is capped to its most recent embeddings at the cost of not ranking its oldest ones.
 
     Rows farther than `MAX_MATCH_DISTANCE` are dropped before aggregation, so an off-topic query returns nothing.
 
@@ -236,7 +235,6 @@ def rank_observations(
         return []
 
     tag_queries(query_type=_RANK_QUERY_TYPE)
-    # The alias runs the dot product once per row for the ceiling, min, and argMin alike.
     rows = sync_execute(
         f"""
         SELECT
