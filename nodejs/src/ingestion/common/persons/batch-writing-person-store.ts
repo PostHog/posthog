@@ -425,7 +425,7 @@ class BatchWritingPersonsCache {
             }
             const personIdKey = this.getPersonIdCacheKey(teamId, personId)
             const update = this.personUpdateCache.get(personIdKey)
-            if (!update || !update.needs_write) {
+            if (!update || (!update.needs_write && !update.write_in_flight)) {
                 this.personUpdateCache.delete(personIdKey)
                 this.distinctIdToPersonId.delete(distinctKey)
                 this.deferredEvictions.delete(distinctKey)
@@ -454,7 +454,7 @@ class BatchWritingPersonsCache {
         if (personId !== undefined) {
             const personIdKey = this.getPersonIdCacheKey(teamId, personId)
             const update = this.personUpdateCache.get(personIdKey)
-            if (!update || !update.needs_write) {
+            if (!update || (!update.needs_write && !update.write_in_flight)) {
                 this.personUpdateCache.delete(personIdKey)
                 this.distinctIdToPersonId.delete(distinctKey)
             } else {
@@ -710,6 +710,11 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             if (!update.needs_write) {
                 continue
             }
+            // One write in flight per entry: two unordered statements could land the
+            // older one last, and the settle would then keep the older value.
+            if (update.write_in_flight) {
+                continue
+            }
 
             // Determine outcome and track metrics for this person update
             const outcome = this.getPersonUpdateOutcome(update)
@@ -732,9 +737,11 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         ...update,
                         properties_to_set: { ...update.properties_to_set },
                         properties_to_unset: [...update.properties_to_unset],
+                        write_in_flight: false,
                     },
                 ])
                 keysByUuid.set(update.uuid, key)
+                update.write_in_flight = true
             }
 
             // Clear needs_write for every dirty entry we considered, including
@@ -777,17 +784,19 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 }
             }
 
-            // A cache write replaces the entry object, so the entry is looked up by key now.
+            // A cache write replaces the entry object, so the entry is looked up by key now;
+            // one without the flag is a fresh entry the record did not come from.
             const recordsByUuid = new Map(updateEntries.map(([, record]) => [record.uuid, record]))
             const cache = this.personCache.getUpdateCache()
             for (const result of allKafkaMessages) {
                 const key = result.uuid === undefined ? undefined : keysByUuid.get(result.uuid)
                 const entry = key === undefined ? undefined : cache.get(key)
                 const record = result.uuid === undefined ? undefined : recordsByUuid.get(result.uuid)
-                if (entry && record) {
+                if (entry?.write_in_flight && record) {
                     this.settleWrittenChanges(entry, record)
                 }
             }
+            this.clearWritesInFlight(updateEntries)
 
             // Record successful flush
             const flushLatency = (performance.now() - flushStartTime) / 1000
@@ -807,7 +816,18 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 errorMessage: error instanceof Error ? error.message : String(error),
                 errorStack: error instanceof Error ? error.stack : undefined,
             })
+            this.clearWritesInFlight(updateEntries)
             throw error
+        }
+    }
+
+    private clearWritesInFlight(updateEntries: [string, PersonUpdate][]): void {
+        const cache = this.personCache.getUpdateCache()
+        for (const [key] of updateEntries) {
+            const entry = cache.get(key)
+            if (entry) {
+                entry.write_in_flight = false
+            }
         }
     }
 
@@ -1588,11 +1608,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return await tx.lockPersons(teamId, personIds)
     }
 
-    /** This batch's buffered changes for the person behind a distinct id, if it has any. */
-    pendingChanges(teamId: number, distinctId: string, batchId: number): PendingPersonChanges | null {
-        const cached = this.personCache
-            .obtainForBatchId(batchId)
-            .getCachedPersonForUpdateByDistinctId(teamId, distinctId)
+    /** The store's unflushed changes for a person, if any; by person, so a mapping purge cannot hide them. */
+    pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
+        const cached = this.personCache.getCachedPersonForUpdateByPersonId(teamId, personId)
         return cached
             ? { toSet: cached.properties_to_set, toUnset: cached.properties_to_unset, createdAt: cached.created_at }
             : null

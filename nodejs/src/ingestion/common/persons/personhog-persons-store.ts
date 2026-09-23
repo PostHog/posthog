@@ -102,7 +102,7 @@ function moveLimitFor(mergeMode: MergeMode, syncMergeMoveLimit: number): number 
 }
 
 /** The event name stamped on creation calls; per-event names are consumed at fold time. */
-const CREATE_EVENT_NAME = '$create_person'
+export const CREATE_EVENT_NAME = '$create_person'
 
 /** The event name stamped on direct diff updates, which carry no originating event. */
 const DIRECT_UPDATE_EVENT_NAME = '$direct_update'

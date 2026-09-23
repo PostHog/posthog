@@ -105,8 +105,8 @@ export class PersonsStoreTransaction {
         return await this.store.lockPersons(teamId, personIds, distinctId, this.tx)
     }
 
-    pendingChanges(teamId: number, distinctId: string, batchId: number): PendingPersonChanges | null {
-        return this.store.pendingChanges(teamId, distinctId, batchId)
+    pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
+        return this.store.pendingChanges(teamId, personId)
     }
 
     async addDistinctId(

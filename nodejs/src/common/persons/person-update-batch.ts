@@ -17,6 +17,8 @@ export interface PersonUpdate {
     is_user_id: number | null
     last_seen_at: DateTime | null
     needs_write: boolean
+    /** A flush carries a record of this entry and has not settled it yet; no other flush may take one. */
+    write_in_flight?: boolean
     // Fine-grained property tracking
     properties_to_set: Properties // Properties to set/update
     properties_to_unset: string[] // Property keys to unset

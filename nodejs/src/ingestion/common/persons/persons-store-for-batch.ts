@@ -60,8 +60,8 @@ export interface PersonsStoreTransactionForBatch {
     /** The live rows among these persons, row-locked until the transaction ends. */
     lockPersons(teamId: number, personIds: string[], distinctId: string): Promise<InternalPerson[]>
 
-    /** This batch's buffered changes for the person behind a distinct id, if it has any. */
-    pendingChanges(teamId: number, distinctId: string): PendingPersonChanges | null
+    /** The store's unflushed changes for a person, if any. */
+    pendingChanges(teamId: number, personId: string): PendingPersonChanges | null
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
@@ -240,8 +240,8 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
         return this.tx.lockPersons(teamId, personIds, distinctId)
     }
 
-    pendingChanges(teamId: number, distinctId: string): PendingPersonChanges | null {
-        return this.tx.pendingChanges(teamId, distinctId, this.batchId)
+    pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
+        return this.tx.pendingChanges(teamId, personId)
     }
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {

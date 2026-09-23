@@ -22,7 +22,7 @@ import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from
 
 import { PersonMergeUnsettledError } from './person-merge-types'
 import { EventOps } from './person-update'
-import { PersonhogPersonsStore } from './personhog-persons-store'
+import { CREATE_EVENT_NAME, PersonhogPersonsStore } from './personhog-persons-store'
 import {
     FlushResult,
     MergePersonsRequest,
@@ -351,8 +351,60 @@ export class RoutingPersonsStore implements PersonsStore {
                     extraDistinctIds,
                     tx,
                     batchId
-                )
+                ),
+            {
+                compare: (authoritative, shadow) => this.compareCreate(authoritative, shadow as CreatePersonResult),
+                after: (authoritative, shadow, abandoned) =>
+                    this.reconcileShadowCreate(
+                        authoritative,
+                        shadow as CreatePersonResult,
+                        properties,
+                        primaryDistinctId.distinctId,
+                        batchId,
+                        abandoned
+                    ),
+            }
         )
+    }
+
+    private compareCreate(authoritative: CreatePersonResult, shadow: CreatePersonResult): void {
+        personhogStoreShadowComparedCounter.labels({ verb: 'createPerson' }).inc()
+        if (authoritative.success !== shadow.success) {
+            this.recordDivergence('createPerson', 'success')
+        } else if (authoritative.success && shadow.success && authoritative.created !== shadow.created) {
+            this.recordDivergence('createPerson', 'created')
+        }
+    }
+
+    /**
+     * Shadow mode follows the Postgres verdict, so a person Postgres created and personhog
+     * only found gets its creation properties there, as the personhog path's found-existing
+     * create does through the event's own update.
+     */
+    private async reconcileShadowCreate(
+        authoritative: CreatePersonResult,
+        shadow: CreatePersonResult,
+        properties: Properties,
+        distinctId: string,
+        batchId: number,
+        abandoned: AbortSignal
+    ): Promise<void> {
+        if (
+            abandoned.aborted ||
+            !(authoritative.success && authoritative.created) ||
+            !(shadow.success && !shadow.created)
+        ) {
+            return
+        }
+        const ops: EventOps = {
+            set: properties,
+            setOnce: {},
+            unset: [],
+            denied: false,
+            shouldForceUpdate: true,
+            eventName: CREATE_EVENT_NAME,
+        }
+        await this.personhog.applyEventOps(shadow.person, ops, distinctId, batchId)
     }
 
     applyEventOps(
