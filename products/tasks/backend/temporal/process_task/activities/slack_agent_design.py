@@ -62,6 +62,9 @@ class StopSlackAgentDesignStreamInput:
     # Gateway trace id of the turn being closed, so the thumbs appended to the reply
     # report against that turn.
     trace_id: Optional[str] = None
+    # An answer sent as the opening chunk leaves nothing for the final flush to carry.
+    # Defaults to True so a relay started before this field existed replays as it did.
+    streamed_answer: bool = True
 
 
 def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]:
@@ -134,6 +137,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             complete_task_title=input.complete_task_title,
             complete_task_details=input.complete_task_details,
             final_markdown=_rewrite_object_tags(input.final_markdown, handler.project_url),
+            streamed_answer=input.streamed_answer,
         )
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))

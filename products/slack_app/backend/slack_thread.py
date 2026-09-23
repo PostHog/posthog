@@ -42,6 +42,7 @@ DEFAULT_FAILURE_RECOVERY_HINT = (
 DEFAULT_CANCELLED_RECOVERY_HINT = (
     "Reply in this thread when you want to resume, and include any new direction I should follow."
 )
+ANSWERLESS_REPLY_MESSAGE = "I finished without an answer. Ask again in this thread and I'll try again."
 
 
 _TASK_FIELD_LIMIT = 256
@@ -260,17 +261,22 @@ class SlackThreadHandler:
             return None
         return turn_feedback_block(self._get_integration().id, run_id, self.turn_trace_id)
 
-    def _append_trailing_blocks(self, ts: str) -> None:
+    def _append_trailing_blocks(self, ts: str, include_feedback: bool = True) -> None:
         """Add the fork menu and the thumbs to a streamed reply, which has no section to
         hang either on.
 
         One append per block, and both after the answer's: a request Slack rejects must
         cost that control alone, never the reply and never its sibling.
+
+        `include_feedback` withholds the thumbs from a reply that carries no answer,
+        which has nothing a rating could describe.
         """
-        for block, failure in (
+        trailing: list[tuple[dict[str, Any] | None, str]] = [
             (self._fork_menu_actions_block(), "slack_app_fork_menu_append_failed"),
-            (self._feedback_block(), "slack_app_feedback_buttons_append_failed"),
-        ):
+        ]
+        if include_feedback:
+            trailing.append((self._feedback_block(), "slack_app_feedback_buttons_append_failed"))
+        for block, failure in trailing:
             if not block:
                 continue
             try:
@@ -416,6 +422,31 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_app_status_stream_append_failed", error=str(e))
 
+    def _final_stream_chunks(
+        self,
+        *,
+        answered: bool,
+        complete_task_id: str | None,
+        complete_task_title: str | None,
+        complete_task_details: str | None,
+        final_markdown: str | None,
+        footer: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        """Everything the closing append carries, in the order it renders."""
+        chunks: list[dict[str, Any]] = []
+        if complete_task_id and complete_task_title:
+            chunks.append(_task_update_chunk(complete_task_id, complete_task_title, "complete", complete_task_details))
+        if final_markdown:
+            chunks.extend({"type": "markdown_text", "text": piece} for piece in _markdown_text_pieces(final_markdown))
+        elif not answered:
+            chunks.append({"type": "markdown_text", "text": ANSWERLESS_REPLY_MESSAGE})
+        if self.context.mentioning_slack_user_id:
+            # Newlines keep the mention off the tail of the last streamed prose chunk.
+            chunks.append({"type": "markdown_text", "text": f"\n\n<@{self.context.mentioning_slack_user_id}>"})
+        if footer:
+            chunks.append({"type": "blocks", "blocks": [footer]})
+        return chunks
+
     def stop_status_stream(
         self,
         ts: str,
@@ -423,6 +454,7 @@ class SlackThreadHandler:
         complete_task_title: str | None = None,
         complete_task_details: str | None = None,
         final_markdown: str | None = None,
+        streamed_answer: bool = True,
     ) -> None:
         """Final flush: mark the last plan-block step complete, stream the final
         answer as markdown_text chunks (this is what STAYS in the message body),
@@ -430,21 +462,22 @@ class SlackThreadHandler:
 
         The provenance footer closes the message. It arrives as a `blocks` chunk
         because a `context` block is the only way to get muted text, and it goes
-        after the mention so the ping stays adjacent to the prose it answers."""
-        final_chunks: list[dict[str, Any]] = []
-        if complete_task_id and complete_task_title:
-            final_chunks.append(
-                _task_update_chunk(complete_task_id, complete_task_title, "complete", complete_task_details)
-            )
-        if final_markdown:
-            for piece in _markdown_text_pieces(final_markdown):
-                final_chunks.append({"type": "markdown_text", "text": piece})
-        if self.context.mentioning_slack_user_id:
-            # Newlines keep the mention off the tail of the last streamed prose chunk.
-            final_chunks.append({"type": "markdown_text", "text": f"\n\n<@{self.context.mentioning_slack_user_id}>"})
+        after the mention so the ping stays adjacent to the prose it answers.
+
+        `streamed_answer` says whether prose reached this reply earlier in the turn, which
+        only the caller driving the stream knows: an answer sent as the opening chunk
+        arrives here with no `final_markdown` of its own. A reply neither one gives an
+        answer says so, rather than closing on a bare mention."""
+        answered = bool(final_markdown) or streamed_answer
         footer = self._footer_block()
-        if footer:
-            final_chunks.append({"type": "blocks", "blocks": [footer]})
+        final_chunks = self._final_stream_chunks(
+            answered=answered,
+            complete_task_id=complete_task_id,
+            complete_task_title=complete_task_title,
+            complete_task_details=complete_task_details,
+            final_markdown=final_markdown,
+            footer=footer,
+        )
         if final_chunks:
             try:
                 self._get_client().chat_appendStream(
@@ -453,9 +486,18 @@ class SlackThreadHandler:
                     chunks=final_chunks,
                 )
             except Exception as e:
+                # The answer rode in this request, so losing it leaves the same empty reply
+                # an answerless turn produces, and the thumbs must come off it too.
+                answered = False
                 logger.warning("slack_app_status_stream_final_append_failed", error=str(e))
+        if not answered:
+            logger.warning(
+                "slack_app_status_stream_finished_answerless",
+                run_id=self.run_footer.run_id,
+                trace_id=self.turn_trace_id,
+            )
         if footer:
-            self._append_trailing_blocks(ts)
+            self._append_trailing_blocks(ts, include_feedback=answered)
         try:
             self._get_client().chat_stopStream(
                 channel=self.context.channel,
