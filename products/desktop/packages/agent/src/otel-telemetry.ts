@@ -1,3 +1,4 @@
+import type { SpanContext } from "@opentelemetry/api";
 import { SeverityNumber } from "@opentelemetry/api-logs";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
@@ -327,6 +328,10 @@ export class OtelRunTelemetry implements SessionLogSink {
         otelResource,
       );
     }
+  }
+
+  getRunSpanContext(): SpanContext | undefined {
+    return this.traceBuilder?.getRunSpanContext();
   }
 
   append(sessionId: string, entry: StoredNotification): void {

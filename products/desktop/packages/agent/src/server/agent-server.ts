@@ -15,6 +15,7 @@ import {
   RequestError,
 } from "@agentclientprotocol/sdk";
 import { type ServerType, serve } from "@hono/node-server";
+import type { SpanContext } from "@opentelemetry/api";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
@@ -1981,7 +1982,15 @@ export class AgentServer {
 
     const runtimeAdapter = this.getRuntimeAdapter();
 
+    const telemetry = this.createRunTelemetry(
+      payload,
+      deviceInfo,
+      runtimeAdapter,
+    );
+    this.initializingTelemetry = telemetry;
+
     const gatewayEnv = this.configureEnvironment({
+      runSpanContext: telemetry?.getRunSpanContext(),
       isInternal: preTask?.internal === true,
       originProduct: preTask?.origin_product,
       signalReportId: preTask?.signal_report,
@@ -2082,13 +2091,6 @@ export class AgentServer {
       getApiKey: () => this.config.apiKey,
       userAgent: `posthog/cloud.hog.dev; version: ${this.config.version ?? packageJson.version}`,
     });
-
-    const telemetry = this.createRunTelemetry(
-      payload,
-      deviceInfo,
-      runtimeAdapter,
-    );
-    this.initializingTelemetry = telemetry;
 
     const logWriter = new SessionLogWriter({
       posthogAPI,
@@ -4649,6 +4651,7 @@ export class AgentServer {
   }
 
   private configureEnvironment({
+    runSpanContext,
     isInternal = false,
     originProduct,
     signalReportId,
@@ -4666,6 +4669,7 @@ export class AgentServer {
     prewarmed,
     executionEnvironment,
   }: {
+    runSpanContext?: SpanContext;
     isInternal?: boolean;
     originProduct?: Task["origin_product"] | null;
     signalReportId?: string | null;
@@ -4723,6 +4727,9 @@ export class AgentServer {
     // path sets them as `model_providers.posthog.http_headers` instead, so we
     // also expose the record form below.
     const gatewayProperties = {
+      // Gateway headers live for the session, so correlate with its enclosing run.
+      task_run_trace_id: runSpanContext?.traceId,
+      task_run_span_id: runSpanContext?.spanId,
       task_origin_product: originProduct,
       task_internal: isInternal,
       signal_report_id: signalReportId,

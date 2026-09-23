@@ -11,6 +11,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ContentBlock, RequestError } from "@agentclientprotocol/sdk";
+import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION as STE100_INSTRUCTION } from "@posthog/harness/extensions/benjamin";
 import { type Adapter, IDLE_RESUME_STOP_REASON } from "@posthog/shared";
 import { zipSync } from "fflate";
@@ -414,6 +416,73 @@ async function startInitialTaskMessage(
   const prepared = await startup.prepareInitialTaskMessage(payload, run);
   await startup.sendInitialTaskMessage(payload, prepared);
 }
+
+it("links gateway requests to the run span exported after session shutdown", async () => {
+  const spans: { name: string; traceId: string; spanId: string }[] = [];
+  const logExport = vi
+    .spyOn(OTLPLogExporter.prototype, "export")
+    .mockImplementation((_logs, done) => done({ code: 0 }));
+  const spanExport = vi
+    .spyOn(OTLPTraceExporter.prototype, "export")
+    .mockImplementation((batch, done) => {
+      spans.push(
+        ...batch.map((span) => ({ name: span.name, ...span.spanContext() })),
+      );
+      done({ code: 0 });
+    });
+  const mswServer = setupServer(
+    ...createPostHogHandlers({ baseUrl: "http://localhost:8000" }),
+    http.get("https://gateway.us.posthog.com/*", () =>
+      HttpResponse.json({ data: [] }),
+    ),
+  );
+  const directory = await mkdtemp(join(tmpdir(), "agent-telemetry-"));
+  const server = new AgentServer({
+    port: getNextTestPort(),
+    jwtPublicKey: TEST_PUBLIC_KEY,
+    repositoryPath: directory,
+    apiUrl: "http://localhost:8000",
+    apiKey: "test-api-key",
+    projectId: 1,
+    mode: "interactive",
+    taskId: "test-task-id",
+    runId: "test-run-id",
+    resolveRtkSavings: async () => null,
+    otelLogsUrl: "http://otel.example.com/v1/logs",
+    otelLogsToken: "phc_test_key",
+    otelTracesUrl: "http://otel.example.com/v1/traces",
+  });
+  mswServer.listen({ onUnhandledRequest: "error" });
+  try {
+    mockedClaudeSdk.query.mockClear();
+    await server.start();
+
+    const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
+      options: { env: Record<string, string> };
+    };
+    const headers = request.options.env.ANTHROPIC_CUSTOM_HEADERS;
+    const traceId = headers.match(
+      /^x-posthog-property-task_run_trace_id: ([0-9a-f]{32})$/m,
+    )?.[1];
+    const spanId = headers.match(
+      /^x-posthog-property-task_run_span_id: ([0-9a-f]{16})$/m,
+    )?.[1];
+    expect(traceId).toBeDefined();
+    expect(spanId).toBeDefined();
+
+    await server.stop();
+
+    expect(spans.filter((span) => span.name === "task_run")).toEqual([
+      expect.objectContaining({ traceId, spanId }),
+    ]);
+  } finally {
+    await server.stop();
+    mswServer.close();
+    logExport.mockRestore();
+    spanExport.mockRestore();
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 30000);
 
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;

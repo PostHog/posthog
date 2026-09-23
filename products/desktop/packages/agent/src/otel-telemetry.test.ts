@@ -66,6 +66,7 @@ interface ExportedLog {
 
 interface ExportedSpan {
   name: string;
+  resource: { attributes: Record<string, unknown> };
   kind: number;
   status: { code: number; message?: string };
   attributes: Record<string, unknown>;
@@ -429,6 +430,28 @@ describe("OtelRunTelemetry", () => {
       // Without a traces URL, no spans are built and logs carry no trace ids.
       expect(mockSpanExport).not.toHaveBeenCalled();
       expect(record.spanContext).toBeUndefined();
+      expect(telemetry.getRunSpanContext()).toBeUndefined();
+    });
+
+    it("omits correlation context when the run span is sampled out", async () => {
+      vi.stubEnv("OTEL_TRACES_SAMPLER", "always_off");
+      const unsampled = new OtelRunTelemetry(
+        {
+          url: "https://us.i.posthog.com/i/v1/logs",
+          token: "phc_test_key",
+          tracesUrl: "https://us.i.posthog.com/i/v1/traces",
+        },
+        RESOURCE,
+      );
+      try {
+        expect(unsampled.getRunSpanContext()).toBeUndefined();
+        unsampled.append(RUN_ID, makeEntry("session/prompt", {}));
+        await unsampled.shutdown();
+        expect(mockSpanExport).not.toHaveBeenCalled();
+      } finally {
+        await unsampled.shutdown();
+        vi.unstubAllEnvs();
+      }
     });
 
     it("never exports tool arguments, titles, or output content", async () => {
@@ -541,15 +564,19 @@ describe("OtelRunTelemetry", () => {
     }
 
     it("builds a run trace: root span, turn span, tool span", async () => {
+      const runContext = telemetry.getRunSpanContext();
       driveSuccessfulRun();
+      expect(telemetry.getRunSpanContext()).toEqual(runContext);
 
       await telemetry.shutdown();
+      expect(telemetry.getRunSpanContext()).toBeUndefined();
 
       const root = spanByName("task_run");
       const turn = spanByName("turn");
       const tool = spanByName("tool_call:execute");
 
       expect(root.kind).toBe(SpanKind.SERVER);
+      expect(runContext).toEqual(root.spanContext());
       expect(root.parentSpanContext).toBeUndefined();
       expect(turn.parentSpanContext?.spanId).toBe(root.spanContext().spanId);
       expect(tool.parentSpanContext?.spanId).toBe(turn.spanContext().spanId);
@@ -581,6 +608,52 @@ describe("OtelRunTelemetry", () => {
       );
       expect(surface).not.toContain("SECRET");
       expect(surface).not.toContain(".env");
+    });
+
+    it("keeps correlation context attached to its run during concurrent turns", async () => {
+      const otherRunId = "run-other";
+      const other = new OtelRunTelemetry(
+        {
+          url: "https://us.i.posthog.com/i/v1/logs",
+          token: "phc_test_key",
+          tracesUrl: "https://us.i.posthog.com/i/v1/traces",
+        },
+        { ...RESOURCE, runId: otherRunId },
+      );
+      try {
+        const contexts = [telemetry, other].map((run) =>
+          run.getRunSpanContext(),
+        );
+        expect(contexts[0]?.traceId).not.toBe(contexts[1]?.traceId);
+        telemetry.append(RUN_ID, makeEntry("session/prompt", {}));
+        other.append(otherRunId, makeEntry("session/prompt", {}));
+        telemetry.append(
+          RUN_ID,
+          makeEntry("_posthog/turn_complete", { stopReason: "end_turn" }),
+        );
+        telemetry.append(RUN_ID, makeEntry("session/prompt", {}));
+        expect(
+          [telemetry, other].map((run) => run.getRunSpanContext()),
+        ).toEqual(contexts);
+
+        await Promise.all([telemetry.shutdown(), other.shutdown()]);
+
+        for (const [index, runId] of [RUN_ID, otherRunId].entries()) {
+          const runSpans = exportedSpans().filter(
+            (span) => span.resource.attributes.run_id === runId,
+          );
+          expect(
+            runSpans.find((span) => span.name === "task_run")?.spanContext(),
+          ).toEqual(contexts[index]);
+          expect(
+            runSpans.every(
+              (span) => span.spanContext().traceId === contexts[index]?.traceId,
+            ),
+          ).toBe(true);
+        }
+      } finally {
+        await Promise.all([telemetry.shutdown(), other.shutdown()]);
+      }
     });
 
     it("does not leave root OK when a later turn ends non-clean", async () => {
