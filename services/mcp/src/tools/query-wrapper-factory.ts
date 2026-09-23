@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { type TraceDetail, compactTraceResults } from '@/lib/trace-compaction'
+import { type TraceDetail, compactTraceResponse } from '@/lib/trace-compaction'
 import { redactTraceResults } from '@/lib/trace-redaction'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -231,17 +231,20 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             // some clients read that string in preference to the structured payload, so
             // a trace response never carries it.
             const shouldSurfaceFormatted = !isTraceQuery && effectiveOutputFormat !== 'json' && data.formatted_results
-            const results = isTraceQuery
-                ? compactTraceResults(redactTraceResults(data.results), traceDetail)
-                : data.results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.
-            return {
-                query,
-                results,
+            const response = {
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
+                query,
+                results: isTraceQuery ? redactTraceResults(data.results) : data.results,
                 ...(data.warnings ? { warnings: data.warnings } : {}),
+            }
+            if (isTraceQuery) {
+                return compactTraceResponse(response, traceDetail, effectiveOutputFormat)
+            }
+            return {
+                ...response,
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }
         },

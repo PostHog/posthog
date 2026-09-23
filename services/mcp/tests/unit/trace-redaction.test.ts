@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { SUMMARY_METADATA_PROPERTIES, compactTraceResults } from '@/lib/trace-compaction'
+import { SUMMARY_METADATA_PROPERTIES, compactTraceResponse } from '@/lib/trace-compaction'
 import { redactTrace, redactTraceResults } from '@/lib/trace-redaction'
 
 // Invented values, one per property class the redactor must withhold. Each one
@@ -159,9 +159,9 @@ describe('trace redaction', () => {
 
 describe('trace redaction through the response pipeline', () => {
     it.each(['full', 'summary'] as const)('withholds every secret at %s detail, for one trace and a list', (detail) => {
-        const single = compactTraceResults(redactTraceResults([traceWithSecrets()]), detail)
-        const list = compactTraceResults(
-            redactTraceResults([traceWithSecrets(), { ...traceWithSecrets(), id: 'trace-2' }]),
+        const single = compactTraceResponse({ results: redactTraceResults([traceWithSecrets()]) }, detail)
+        const list = compactTraceResponse(
+            { results: redactTraceResults([traceWithSecrets(), { ...traceWithSecrets(), id: 'trace-2' }]) },
             detail
         )
 
@@ -175,10 +175,11 @@ describe('trace redaction through the response pipeline', () => {
         // vanishes from summary and nothing says so. A typo reads the same way.
         const properties = Object.fromEntries([...SUMMARY_METADATA_PROPERTIES].map((key, i) => [key, i]))
 
-        const [trace] = compactTraceResults(
-            redactTraceResults([{ id: 't1', events: [{ id: 'e1', properties }] }]),
+        const { results } = compactTraceResponse(
+            { results: redactTraceResults([{ id: 't1', events: [{ id: 'e1', properties }] }]) },
             'summary'
-        ) as any[]
+        ) as any
+        const [trace] = results
 
         expect(trace.events[0].properties).toEqual(properties)
         expect(trace.events[0]._summaryOmittedKeys).toBeUndefined()
@@ -186,8 +187,8 @@ describe('trace redaction through the response pipeline', () => {
     })
 
     it.each(['full', 'summary'] as const)('keeps the generation identifier at %s detail', (detail) => {
-        const [trace] = compactTraceResults(redactTraceResults([traceWithSecrets()]), detail) as any[]
+        const { results } = compactTraceResponse({ results: redactTraceResults([traceWithSecrets()]) }, detail) as any
 
-        expect(trace.events[0].properties.$ai_generation_id).toBe('generation-1')
+        expect(results[0].events[0].properties.$ai_generation_id).toBe('generation-1')
     })
 })

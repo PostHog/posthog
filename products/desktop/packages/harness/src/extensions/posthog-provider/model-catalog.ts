@@ -8,6 +8,7 @@ import {
   formatGatewayModelName,
   isHiddenPiModelId,
 } from "@posthog/shared";
+import { labelForModel } from "@posthog/shared/model-catalog";
 import {
   fetchPosthogGatewayModels,
   type GatewayModel,
@@ -15,25 +16,6 @@ import {
 } from "./models";
 
 export const DEFAULT_PI_MODEL_ID = "gpt-5.6-terra";
-
-const PI_MODEL_LABELS: Record<string, string> = {
-  "claude-haiku-4-5": "Claude Haiku 4.5",
-  "claude-sonnet-5": "Claude Sonnet 5",
-  "claude-fable-5": "Claude Fable 5",
-  "claude-fable-5-1": "Claude Fable 5.1",
-  "claude-opus-5": "Claude Opus 5",
-  "claude-opus-5-5": "Claude Opus 5.5",
-  "gpt-5.6-sol": "GPT-5.6 Sol",
-  "gpt-5.6-terra": "GPT-5.6 Terra",
-  "gpt-5.6-luna": "GPT-5.6 Luna",
-  "gpt-6-astra": "GPT-6 Astra",
-  "gpt-6-sol": "GPT-6 Sol",
-  "gpt-6-luna": "GPT-6 Luna",
-  "@cf/zai-org/glm-5.2": "GLM-5.2",
-  "zai-org/glm-5.3": "GLM-5.3",
-  "zai-org/glm-5.3-flash": "GLM-5.3 Flash",
-  "moonshotai/kimi-k3": "Kimi K3",
-};
 
 export type PiModelCatalogEntry = Omit<
   Pick<ModelInfo, "provider" | "id" | "contextWindow">,
@@ -68,7 +50,8 @@ export function resolvePosthogPiModelCatalog(
     .map((model) => ({
       provider: "posthog",
       id: model.id,
-      name: PI_MODEL_LABELS[model.id] ?? piModelDisplayName(model),
+      // Catalog name first, so Pi reads the same as every other picker.
+      name: labelForModel(model.id) ?? piModelDisplayName(model),
       isDefault: model.id === DEFAULT_PI_MODEL_ID,
       contextWindow: model.contextWindow,
       thinkingLevels: getSupportedThinkingLevels({

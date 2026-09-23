@@ -759,6 +759,141 @@ class _TracingTreeRequestSerializer(serializers.Serializer):
     query = _TracingTreeQueryBodySerializer(help_text="The span call-tree aggregation query to execute.")
 
 
+class _SpanSerializer(serializers.Serializer):
+    """One span row as the query and trace actions return it.
+
+    The runner assembles these from HogQL result columns by position, so the key set is fixed even
+    though the values come from a query. `trace_start` and `trace_duration` are the sort keys the
+    trace list orders on, carried in the row rather than recomputed by the caller.
+    """
+
+    uuid = serializers.CharField(help_text="Span's own UUID.")
+    trace_id = serializers.CharField(help_text="Trace this span belongs to.")
+    span_id = serializers.CharField(help_text="Span's ID within the trace.")
+    parent_span_id = serializers.CharField(help_text="Parent span's ID. Empty for a root span.")
+    name = serializers.CharField(help_text="Span name, which is the operation it represents.")
+    kind = serializers.IntegerField(help_text="OpenTelemetry span kind.")
+    service_name = serializers.CharField(help_text="Service that emitted the span.")
+    status_code = serializers.IntegerField(help_text="OpenTelemetry status code: 0 unset, 1 ok, 2 error.")
+    timestamp = serializers.DateTimeField(help_text="When the span started.")
+    end_time = serializers.DateTimeField(help_text="When the span ended.")
+    duration_nano = serializers.FloatField(help_text="Span duration in nanoseconds.")
+    is_root_span = serializers.BooleanField(help_text="Whether the span has no parent in the trace.")
+    matched_filter = serializers.IntegerField(
+        help_text=(
+            "1 when this span matched the request's filters, 0 when it is included as context. The query "
+            "selects it as an expression, so it arrives as a number rather than a boolean."
+        )
+    )
+    trace_start = serializers.DateTimeField(help_text="Start of the whole trace, for ordering traces by recency.")
+    trace_duration = serializers.FloatField(
+        help_text="Duration of the whole trace in nanoseconds. Falls back to this span's duration."
+    )
+    attributes = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Span attributes. Keys are whatever the instrumentation set.",
+    )
+    resource_attributes = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Resource attributes of the emitting service. Keys are whatever the instrumentation set.",
+    )
+
+
+class _TraceSpanSerializer(_SpanSerializer):
+    """A span in a single trace. The trace action adds self time, which the list does not compute."""
+
+    self_time_nano = serializers.FloatField(
+        help_text="Span duration minus the time spent in its children, in nanoseconds."
+    )
+
+
+class _TracingQueryResponseSerializer(serializers.Serializer):
+    results = _SpanSerializer(many=True, help_text="Matching spans, ordered by the requested column.")
+    hasMore = serializers.BooleanField(help_text="Whether a further page exists.")
+    nextCursor = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Cursor for the next page, or null on the last page. Pass it back as the query's `after`. "
+            "Always null when ordering by duration, which pages by offset instead."
+        ),
+    )
+
+
+class _TracingTraceResponseSerializer(serializers.Serializer):
+    results = _TraceSpanSerializer(many=True, help_text="Spans in the trace, earliest first.")
+    hasMore = serializers.BooleanField(help_text="Whether a further page of spans exists.")
+    nextOffset = serializers.IntegerField(
+        allow_null=True, help_text="Offset for the next page, or null on the last page."
+    )
+
+
+class _TracingSparklineRowSerializer(serializers.Serializer):
+    time = serializers.DateTimeField(help_text="Start of the time bucket.")
+    service = serializers.CharField(help_text="Service the count belongs to.")
+    count = serializers.IntegerField(help_text="Spans in this bucket for this service.")
+
+
+class _TracingSparklineResponseSerializer(serializers.Serializer):
+    results = _TracingSparklineRowSerializer(
+        many=True, help_text="One row per time bucket and service, ordered by time."
+    )
+
+
+class _TracingDurationHistogramRowSerializer(serializers.Serializer):
+    bucket_ns = serializers.IntegerField(help_text="Lower bound of the duration bucket in nanoseconds.")
+    service = serializers.CharField(help_text="Service the count belongs to.")
+    count = serializers.IntegerField(help_text="Spans in this bucket for this service.")
+
+
+class _TracingDurationHistogramResponseSerializer(serializers.Serializer):
+    results = _TracingDurationHistogramRowSerializer(many=True, help_text="One row per duration bucket and service.")
+
+
+class _SpanTreeNodeSerializer(serializers.Serializer):
+    """One node of the aggregated call tree. Mirrors `SpanTreeNode` in posthog.schema."""
+
+    name = serializers.CharField(help_text="Span name for this node.")
+    service_name = serializers.CharField(help_text="Service that emitted the spans.")
+    parent_name = serializers.CharField(
+        help_text="Parent node's span name. The literal `<ROOT>` for a root node, which is how a client finds the roots."
+    )
+    parent_service = serializers.CharField(help_text="Parent node's service. Empty string at the root.")
+    count = serializers.IntegerField(help_text="Spans aggregated into this node.")
+    error_count = serializers.IntegerField(help_text="How many of them reported an error status.")
+    total_duration_nano = serializers.FloatField(help_text="Sum of durations in nanoseconds.")
+    avg_duration_nano = serializers.FloatField(help_text="Mean duration in nanoseconds.")
+    p50_duration_nano = serializers.FloatField(help_text="Median duration in nanoseconds.")
+    p95_duration_nano = serializers.FloatField(help_text="95th percentile duration in nanoseconds.")
+    p99_duration_nano = serializers.FloatField(help_text="99th percentile duration in nanoseconds.")
+    p999_duration_nano = serializers.FloatField(help_text="99.9th percentile duration in nanoseconds.")
+    avg_start_offset_nano = serializers.FloatField(
+        help_text="Mean nanoseconds from the parent's start to this node's start. Zero at the root."
+    )
+    calls_per_parent_invocation = serializers.FloatField(
+        allow_null=True, help_text="Mean calls per parent invocation. Null at the root."
+    )
+
+
+class _TracingTreeResponseSerializer(serializers.Serializer):
+    results = _SpanTreeNodeSerializer(many=True, help_text="Call tree nodes for the requested window.")
+    compare = _SpanTreeNodeSerializer(
+        many=True,
+        allow_null=True,
+        help_text=(
+            "Nodes for the comparison window when compareFilter.compare is true. Null when no comparison "
+            "was requested, and an empty list when one was requested and matched no spans."
+        ),
+    )
+
+
+class _TracingServiceNameSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Service name.")
+
+
+class _TracingServiceNamesResponseSerializer(serializers.Serializer):
+    results = _TracingServiceNameSerializer(many=True, help_text="Services that emitted spans in the window.")
+
+
 class _HasSpansResponseSerializer(serializers.Serializer):
     hasSpans = serializers.BooleanField(
         help_text="Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state."
@@ -1058,7 +1193,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         )
         return Response(response.data, status=status.HTTP_200_OK)
 
-    @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
+    @extend_schema(
+        parameters=[_TracingServiceNamesQuerySerializer],
+        responses={200: _TracingServiceNamesResponseSerializer},
+    )
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
     def service_names(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1088,7 +1226,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"hasSpans": has_spans}, status=status.HTTP_200_OK)
 
-    @extend_schema(request=_TracingQueryRequestSerializer)
+    @extend_schema(
+        request=_TracingQueryRequestSerializer,
+        responses={200: _TracingQueryResponseSerializer},
+    )
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1341,7 +1482,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingSparklineRequestSerializer)
+    @extend_schema(
+        request=_TracingSparklineRequestSerializer,
+        responses={200: _TracingSparklineResponseSerializer},
+    )
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1371,7 +1515,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 
-    @extend_schema(request=_TracingDurationHistogramRequestSerializer)
+    @extend_schema(
+        request=_TracingDurationHistogramRequestSerializer,
+        responses={200: _TracingDurationHistogramResponseSerializer},
+    )
     @action(detail=False, methods=["POST"], url_path="duration-histogram", required_scopes=["tracing:read"])
     def duration_histogram(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1509,7 +1656,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingTreeRequestSerializer)
+    @extend_schema(
+        request=_TracingTreeRequestSerializer,
+        responses={200: _TracingTreeResponseSerializer},
+    )
     @action(detail=False, methods=["POST"], url_path="tree", required_scopes=["tracing:read"])
     def tree(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1633,7 +1783,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingTraceRequestSerializer)
+    @extend_schema(
+        request=_TracingTraceRequestSerializer,
+        responses={200: _TracingTraceResponseSerializer},
+    )
     @action(
         detail=False, methods=["POST"], url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)", required_scopes=["tracing:read"]
     )
