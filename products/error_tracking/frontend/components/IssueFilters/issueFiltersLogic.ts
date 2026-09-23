@@ -311,6 +311,19 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
     }),
 ])
 
+export function getEventPropertyFilterValue(filterGroup: UniversalFiltersGroup, key: string): string | null {
+    const firstGroup = filterGroup.values[0]
+    if (!isUniversalGroupFilterLike(firstGroup)) {
+        return null
+    }
+    const match = firstGroup.values.find(
+        (filter) =>
+            !isUniversalGroupFilterLike(filter) && filter.type === PropertyFilterType.Event && filter.key === key
+    ) as EventPropertyFilter | undefined
+    const value = Array.isArray(match?.value) ? match.value[0] : match?.value
+    return value == null ? null : String(value)
+}
+
 export interface IssueFilterValues {
     dateRange: DateRange | null
     filterGroup: UniversalFiltersGroup

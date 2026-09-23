@@ -15,6 +15,7 @@ export function IssuesFilters(): JSX.Element {
                         <ErrorFilters.DateRange />
                         <ErrorFilters.Status />
                         <ErrorFilters.Severity />
+                        <ErrorFilters.Service />
                         <ErrorFilters.Assignee />
                         <ErrorFilters.InternalAccounts />
                     </div>
