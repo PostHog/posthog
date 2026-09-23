@@ -1,6 +1,6 @@
 import time
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase
 
@@ -88,6 +88,26 @@ class TestRefreshExpiringCaches(SimpleTestCase):
 
         assert (counts.successful, counts.failed, counts.enqueued) == (1, 2, 1)
         assert counts.successful + counts.failed + counts.enqueued == 4
+
+    def test_a_cache_that_has_not_opted_in_keeps_its_flat_ttl(self):
+        update_fn = MagicMock(return_value=True)
+        config = build_config(update_fn=update_fn, cache_ttl=1000)
+
+        with patch(f"{MODULE}.random.randint") as mock_randint:
+            refresh_expiring_caches(config)
+
+        assert mock_randint.call_count == 0
+        assert [c.kwargs["ttl"] for c in update_fn.call_args_list] == [None, None, None]
+
+    def test_an_opted_in_cache_draws_its_ttl_from_the_band_above_the_floor(self):
+        update_fn = MagicMock(return_value=True)
+        config = build_config(update_fn=update_fn, refresh_ttl_min_fraction=0.7, cache_ttl=1000)
+
+        with patch(f"{MODULE}.random.randint", return_value=850) as mock_randint:
+            refresh_expiring_caches(config)
+
+        assert mock_randint.call_args_list == [call(700, 1000)] * 3
+        assert [c.kwargs["ttl"] for c in update_fn.call_args_list] == [850, 850, 850]
 
     def test_a_hook_that_raises_counts_as_failed_and_does_not_build(self):
         update_fn = MagicMock(return_value=True)
