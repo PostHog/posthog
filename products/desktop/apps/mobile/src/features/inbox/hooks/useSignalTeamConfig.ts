@@ -39,3 +39,25 @@ export function useUpdateMaxReportsPerDay() {
     },
   });
 }
+
+export interface PullRequestLabelUpdate {
+  pull_request_label_enabled?: boolean;
+  pull_request_label?: string | null;
+}
+
+/** Turn the GitHub pull request label on or off, or rename it. */
+export function useUpdatePullRequestLabel() {
+  const { projectId } = useAuthStore();
+  const queryClient = useQueryClient();
+
+  return useMutation<SignalTeamConfig, Error, PullRequestLabelUpdate>({
+    mutationFn: (updates) =>
+      getPostHogApiClient().updateSignalTeamConfig(updates),
+    onSuccess: (fresh) => {
+      queryClient.setQueryData<SignalTeamConfig>(
+        teamConfigKey(projectId),
+        fresh,
+      );
+    },
+  });
+}
