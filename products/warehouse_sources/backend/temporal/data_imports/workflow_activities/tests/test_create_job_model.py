@@ -8,7 +8,6 @@ from django.db import OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
-from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
@@ -23,6 +22,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
     SourceOrSchemaDeletedError,
+    V3PipelineLockLostError,
     _build_schema_snapshot,
     _create_job,
     _enrichment_pending,
@@ -74,6 +74,7 @@ class TestVerifyV3LockStillHeld:
             ("lock_lost_to_other_run", "run-thief-999", True),
         ]
     )
+    @patch(f"{MODULE}.get_v3_lock_lost_metric")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder")
     @patch(f"{MODULE}.activity")
     def test_lock_guard(
@@ -83,16 +84,20 @@ class TestVerifyV3LockStillHeld:
         expect_raise: bool,
         mock_activity: MagicMock,
         mock_get_holder: MagicMock,
+        mock_lock_lost_metric: MagicMock,
     ) -> None:
         mock_activity.info.return_value.workflow_run_id = self.RUN_ID
         mock_get_holder.return_value = holder
 
         if expect_raise:
-            with pytest.raises(ApplicationError) as exc_info:
+            # The failure stays out of error tracking, so the counter is the only record.
+            with pytest.raises(V3PipelineLockLostError) as exc_info:
                 _verify_v3_lock_still_held(1, self.SCHEMA_ID)
-            assert exc_info.value.non_retryable is True
+            assert is_expected_activity_failure(exc_info.value)
+            mock_lock_lost_metric.return_value.add.assert_called_once_with(1)
         else:
             _verify_v3_lock_still_held(1, self.SCHEMA_ID)
+            mock_lock_lost_metric.assert_not_called()
 
 
 @pytest.mark.django_db

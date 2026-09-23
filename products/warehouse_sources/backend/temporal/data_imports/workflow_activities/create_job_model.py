@@ -11,7 +11,6 @@ from django.utils import timezone
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
@@ -35,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     person_property_sync_enabled_for,
     schema_binding,
 )
+from products.warehouse_sources.backend.temporal.data_imports.metrics import get_v3_lock_lost_metric
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
 )
@@ -83,6 +83,16 @@ class SourceOrSchemaDeletedError(NonReportableError):
     activity can find the rows gone. The run must still fail, because there is no schema left
     to create a job for. It is not a defect either, so subclassing ``NonReportableError`` keeps
     the race out of error tracking instead of opening an issue per orphaned run.
+    """
+
+
+class V3PipelineLockLostError(NonReportableError):
+    """Another v3 run took this schema's pipeline lock while this run was starting up.
+
+    Only one run may write a schema's Delta table, so the run that lost the lock must fail.
+    The schedule fires again, so the schema only misses one sync. The workflow already counts
+    the acquire-time half of this race as an expected skip, so subclassing ``NonReportableError``
+    keeps the later half out of error tracking too.
     """
 
 
@@ -138,10 +148,9 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
     if holder is None:
         return
     if holder != run_id:
-        raise ApplicationError(
-            "v3 pipeline lock lost to another run before job creation",
-            non_retryable=True,
-        )
+        LOGGER.info("v3_pipeline_lock_lost_before_job_creation", schema_id=str(schema_id), holder=holder)
+        get_v3_lock_lost_metric().add(1)
+        raise V3PipelineLockLostError("v3 pipeline lock lost to another run before job creation")
 
 
 # Per-run state, not configuration. `cdc_deferred_runs` is a notification queue that reaches
@@ -422,6 +431,9 @@ def create_external_data_job_model_activity(
             person_property_sync_enabled=person_property_sync_enabled,
             fast_return_eligible=fast_return_eligible,
         )
+    except NonReportableError:
+        # Already logged where it was detected. A stack trace would read as a worker defect.
+        raise
     except Exception as e:
         logger.exception(
             f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"
