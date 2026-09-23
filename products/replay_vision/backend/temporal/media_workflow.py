@@ -12,6 +12,7 @@ with wf.unsafe.imports_passed_through():
         finalize_observation_thumbnail_activity,
         prepare_observation_thumbnail_activity,
     )
+    from products.replay_vision.backend.temporal.constants import STATE_ACTIVITY_RETRY, STATE_ACTIVITY_SCHEDULE_TO_CLOSE
     from products.replay_vision.backend.temporal.media_types import (
         MEDIA_WORKFLOW_NAME,
         THUMBNAIL_SCHEDULE_TO_CLOSE,
@@ -22,10 +23,6 @@ with wf.unsafe.imports_passed_through():
     )
 
 _THUMBNAIL_TIMEOUT = dt.timedelta(minutes=5)
-# Nothing retries a lost poster later, so a database blip must not use up these attempts; deterministic failures raise non-retryable.
-_STATE_RETRY = common.RetryPolicy(initial_interval=dt.timedelta(seconds=1), maximum_interval=dt.timedelta(minutes=1))
-# Two state writes plus the thumbnail's retry chain still fit inside MEDIA_WORKFLOW_EXECUTION_TIMEOUT.
-_STATE_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=10)
 # Nothing retries a lost poster later, so this chain has to outlast a rasterizer backlog or outage.
 _THUMBNAIL_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=20),
@@ -46,8 +43,8 @@ class ObservationMediaWorkflow(PostHogWorkflow):
             prepare_observation_thumbnail_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(seconds=30),
-            schedule_to_close_timeout=_STATE_SCHEDULE_TO_CLOSE,
-            retry_policy=_STATE_RETRY,
+            schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+            retry_policy=STATE_ACTIVITY_RETRY,
         )
 
         raw_result = await wf.execute_activity(
@@ -70,6 +67,6 @@ class ObservationMediaWorkflow(PostHogWorkflow):
                 result=ExtractThumbnailActivityOutput.model_validate(raw_result),
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
-            schedule_to_close_timeout=_STATE_SCHEDULE_TO_CLOSE,
-            retry_policy=_STATE_RETRY,
+            schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+            retry_policy=STATE_ACTIVITY_RETRY,
         )
