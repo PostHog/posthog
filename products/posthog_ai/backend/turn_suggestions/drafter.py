@@ -36,7 +36,7 @@ DRAFT_MAX_TOKENS = 4096
 
 # The card waits for this call, so a slow one is dropped rather than retried into the user's next message.
 DRAFT_TIMEOUT_SECONDS = 30.0
-DRAFT_MAX_RETRIES = 1
+DRAFT_MAX_RETRIES = 0
 EARLIER_QUESTION_LIMIT = 300
 
 _ReplyT = TypeVar("_ReplyT", bound=BaseModel)
@@ -113,11 +113,12 @@ def _response_format(name: str, reply_type: type[BaseModel]) -> ResponseFormatJS
 def _complete(
     *, team_id: int, system_prompt: str, user_prompt: str, schema_name: str, reply_type: type[_ReplyT]
 ) -> _ReplyT | None:
-    client = get_llm_client("posthog_ai", team_id=team_id).with_options(
-        timeout=DRAFT_TIMEOUT_SECONDS,
-        max_retries=DRAFT_MAX_RETRIES,
-    )
     try:
+        # Inside the guard: an instance without a configured gateway raises here, and a failed draft offers nothing.
+        client = get_llm_client("posthog_ai", team_id=team_id).with_options(
+            timeout=DRAFT_TIMEOUT_SECONDS,
+            max_retries=DRAFT_MAX_RETRIES,
+        )
         response = client.chat.completions.create(
             model=DRAFT_MODEL,
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],

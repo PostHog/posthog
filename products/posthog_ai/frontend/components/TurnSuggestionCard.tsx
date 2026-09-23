@@ -37,7 +37,8 @@ function LatestTurnSuggestion(logicProps: TurnSuggestionLogicProps): JSX.Element
     const { dismiss, reportShown } = useActions(logic)
 
     useEffect(() => {
-        if (visible && suggestion && shownSuggestion !== suggestion) {
+        // Server frames carry no event id, so a thread that loads the log and then the live tail gets the card frame twice.
+        if (visible && suggestion && shownSuggestion?.turnIndex !== suggestion.turnIndex) {
             reportShown(suggestion)
         }
     }, [visible, suggestion, shownSuggestion, reportShown])

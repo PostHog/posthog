@@ -12,6 +12,7 @@ import requests
 from parameterized import parameterized
 
 from posthog.egress.typesafe import ChoiceAnswer, NoulAnswer, SystemOneAnswers, TypeSafeRequestFailed
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 
 from products.posthog_ai.backend.turn_suggestions.benchmark import (
     BenchmarkCase,
@@ -640,6 +641,21 @@ class TestDraftScout(SimpleTestCase):
 
         assert draft is None
 
+    def test_an_unconfigured_gateway_returns_none(self):
+        with patch(
+            "products.posthog_ai.backend.turn_suggestions.drafter.get_llm_client",
+            side_effect=GatewayNotConfiguredError("LLM_GATEWAY_URL and an API key must be configured"),
+        ):
+            draft = draft_scout(
+                build_turn_transcript(_metric_turn()),
+                team_id=1,
+                today=date(2026, 9, 16),
+                mode=ScoutMode.WATCH,
+                cadence=ScoutCadence.DAILY,
+            )
+
+        assert draft is None
+
 
 class TestEnqueueTurnSuggestion(BaseTest):
     @parameterized.expand(
@@ -863,7 +879,33 @@ class TestGenerateTurnSuggestion(BaseTest):
         transcript = self.mocks["classify"].call_args.args[0]
         assert [turn.question for turn in transcript.earlier_turns] == ["How many signups did we get this week?"]
 
-    @parameterized.expand([("next_turn_claims", "superseded"), ("earlier_card_dismissed", "dismissed")])
+    def test_a_trimmed_stream_counts_the_turns_its_log_holds(self):
+        def stamped(entry: dict, seq: int) -> dict:
+            return {**entry, "event_id": f"boot-{seq}"}
+
+        first_turn = [stamped(entry, seq) for seq, entry in enumerate(_metric_turn())]
+        follow_up = stamped(_user_message("Break that down by country"), len(first_turn))
+        answer = stamped(_agent_text("Most signups came from the US."), len(first_turn) + 1)
+        # The thin tail lost the first turn; the log has not caught up with the answer yet.
+        self.mocks["stream"].return_value = [follow_up, answer]
+        log_lines = "".join(json.dumps(entry) + "\n" for entry in [*first_turn, follow_up])
+
+        with patch(f"{SERVICE}.read_task_run_log_content", return_value=log_lines):
+            outcome = self._generate()
+
+        assert outcome.status == "emitted"
+        assert self._published_params()["turnIndex"] == 1
+        transcript = self.mocks["classify"].call_args.args[0]
+        assert transcript.human_messages == ("How many signups did we get this week?", "Break that down by country")
+        assert transcript.assistant_text == "Most signups came from the US."
+
+    @parameterized.expand(
+        [
+            ("next_turn_claims", "superseded"),
+            ("next_turn_offers_nothing", "superseded"),
+            ("earlier_card_dismissed", "dismissed"),
+        ]
+    )
     def test_a_card_that_lost_its_turn_while_drafting_is_not_published(self, interruption: str, reason: str):
         self.mocks["stream"].return_value = [
             *_metric_turn(),
@@ -879,6 +921,14 @@ class TestGenerateTurnSuggestion(BaseTest):
         def classify_while_interrupted(*_args: Any, **_kwargs: Any) -> TurnVerdict:
             if interruption == "next_turn_claims":
                 assert claim_turn(self.task_run.task_id, self.team.id, 3) is None
+            elif interruption == "next_turn_offers_nothing":
+                self.mocks["stream"].return_value = [
+                    *self.mocks["stream"].return_value,
+                    _user_message("Thanks"),
+                    _agent_text("You're welcome."),
+                ]
+                self.mocks["scouts"].return_value = False
+                assert self._generate() == TurnSuggestionOutcome(status="skipped", reason="no_offers_available")
             else:
                 resolution = TurnSuggestionResolution.DISMISSED
                 assert resolve_offer(self.task_run.task_id, self.team.id, turn_index=0, resolution=resolution)

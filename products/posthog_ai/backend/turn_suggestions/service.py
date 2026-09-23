@@ -37,6 +37,7 @@ from products.tasks.backend.facade.api import (
     read_task_run_log_content,
     read_task_run_stream_entries,
 )
+from products.tasks.backend.facade.streams import TaskRunStreamBacklogIndex
 from products.tasks.backend.models import Task, TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -85,17 +86,25 @@ def _read_log_entries(log_urls: list[str]) -> list[dict]:
 def _load_transcript(task_run: TaskRun) -> TurnTranscript | None:
     """Fold the whole resume chain, because the thread counts turns across it.
 
-    Earlier runs come from their S3 logs. The current run comes from its live Redis stream, which
-    has the whole current turn, or from its own log once the stream expired. Returns ``None``
-    without reading any log when the logs to read are over ``MAX_TRANSCRIPT_LOG_BYTES``.
+    The logs hold every run, and the current run's live Redis stream adds what its log has not
+    caught up with yet. A stream can be trimmed to a short tail, so its entries are merged the
+    way the thread's stream view merges them: the agent stamps one event id in both stores, and
+    a stream entry the log already covers is dropped. Returns ``None`` without reading any log
+    when the logs to read are over ``MAX_TRANSCRIPT_LOG_BYTES``.
     """
     log_urls = get_task_run_log_urls(task_run.id, task_run.task_id, task_run.team_id) or []
-    current_entries = read_task_run_stream_entries(task_run.id, task_run.task_id, task_run.team_id)
-    stream_has_turn = bool(build_turn_transcript(current_entries).human_messages)
-    logs_to_read = log_urls[:-1] if stream_has_turn else log_urls
+    stream_entries = read_task_run_stream_entries(task_run.id, task_run.task_id, task_run.team_id)
+    # An agent that stamps no ids keeps the whole run in an untrimmed stream, which then stands in
+    # for the run's own log while it lasts.
+    stream_is_whole_run = not any(entry.get("event_id") for entry in stream_entries) and bool(
+        build_turn_transcript(stream_entries).human_messages
+    )
+    logs_to_read = log_urls[:-1] if stream_is_whole_run else log_urls
     if logs_to_read and get_task_run_log_size(logs_to_read) > MAX_TRANSCRIPT_LOG_BYTES:
         return None
-    return build_turn_transcript([*_read_log_entries(logs_to_read), *(current_entries if stream_has_turn else [])])
+    log_entries = _read_log_entries(logs_to_read)
+    backlog = TaskRunStreamBacklogIndex(log_entries)
+    return build_turn_transcript([*log_entries, *(entry for entry in stream_entries if not backlog.covers(entry))])
 
 
 def _turn_has_substance(transcript: TurnTranscript) -> bool:
@@ -204,14 +213,16 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     if not transcript.human_messages:
         return _skipped("no_user_message")
     turn_index = len(transcript.human_messages) - 1
+    # Claimed before the turn can bail out, so a card still drafting for the previous turn sees
+    # that the thread moved past it even when this turn offers nothing.
+    refusal = claim_turn(task.id, task_run.team_id, turn_index)
+    if refusal is not None:
+        return _skipped(refusal.value)
     if not transcript.assistant_text and not transcript.tool_calls:
         return _skipped("empty_turn")
     available = _available_offers(task_run, transcript)
     if not available:
         return _skipped("no_offers_available")
-    refusal = claim_turn(task.id, task_run.team_id, turn_index)
-    if refusal is not None:
-        return _skipped(refusal.value)
 
     verdict = classify_turn(transcript, team_id=task_run.team_id, today=datetime.now(UTC).date(), available=available)
     if verdict is None:

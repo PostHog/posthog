@@ -290,12 +290,13 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
     listeners(({ actions, values, props }) => ({
         acceptSuccess: ({ accepted }) => {
             // The loader also succeeds with nothing when it skipped the create, which is not an accept.
-            if (!accepted) {
+            const { suggestion } = values
+            if (!accepted || !suggestion) {
                 return
             }
-            actions.markTurnSuggestionAccepted(props.turnIndex)
+            actions.markTurnSuggestionAccepted(suggestion.turnIndex)
             actions.markCompleted()
-            recordTurnSuggestionResolution(values.currentProjectId, props, 'accepted')
+            recordTurnSuggestionResolution(values.currentProjectId, props.sessionId, suggestion, 'accepted')
         },
         acceptFailure: ({ error }) => {
             if (values.suggestion) {

@@ -45,6 +45,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     is_slack_interaction_state,
 )
+from products.tasks.backend.turn_completed import dispatch_turn_completed
 
 from ee.hogai.sandbox import (
     PI_RUNTIME_ERROR_MESSAGE,
@@ -1011,8 +1012,6 @@ def _safe_dispatch_turn_completed(task_run: TaskRunModel, *, turn_completed: boo
     dispatch never bubbles into the relay loop.
     """
     try:
-        from products.tasks.backend.turn_completed import dispatch_turn_completed
-
         dispatch_turn_completed(task_run, turn_completed=turn_completed)
     except Exception:
         logger.warning(

@@ -184,9 +184,12 @@ export const slackDestinationLogic: LogicWrapper<slackDestinationLogicType> = ke
                     )
                 }
                 // The OAuth flow runs in another tab, so the workspace shows up here only through the
-                // integrations poller, which also refetches when this window regains focus.
-                actions.startPolling()
-                cache.pollingIntegrations = true
+                // integrations poller, which also refetches when this window regains focus. The poller
+                // counts subscribers, so a second click must not add one that nothing stops.
+                if (!cache.pollingIntegrations) {
+                    actions.startPolling()
+                    cache.pollingIntegrations = true
+                }
             },
             loadIntegrationsSuccess: ({ integrations }) => {
                 if (!values.waitingForSlack) {

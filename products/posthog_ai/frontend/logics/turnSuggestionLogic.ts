@@ -122,11 +122,11 @@ export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<tu
             captureTurnSuggestionShown(props, suggestion)
         },
         dismiss: () => {
+            actions.muteTurnSuggestions()
             if (values.suggestion) {
                 captureTurnSuggestionDismissed(props, values.suggestion)
+                recordTurnSuggestionResolution(values.currentProjectId, props.sessionId, values.suggestion, 'dismissed')
             }
-            actions.muteTurnSuggestions()
-            recordTurnSuggestionResolution(values.currentProjectId, props, 'dismissed')
         },
     })),
     afterMount(({ actions, props, cache }) => {
