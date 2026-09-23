@@ -83,6 +83,9 @@ class TestReportSearch(APIBaseTest):
             # caller who meant the word.
             ("the key the text is stored under", "note", False),
             ("the key beside it", "author", False),
+            # Each term needs its own note lookup. Building one for the whole query instead makes
+            # every term match whichever term the note happens to hold.
+            ("a word of the title and a word of the note", "signup toronto", True),
         ]
     )
     def test_search_matches_the_text_of_a_work_log_note_only(self, _name: str, query: str, matches: bool) -> None:
