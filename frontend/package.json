@@ -126,6 +126,7 @@
         "@posthog/products-mcp-store": "workspace:*",
         "@posthog/products-messaging": "workspace:*",
         "@posthog/products-metrics": "workspace:*",
+        "@posthog/products-ml-inference": "workspace:*",
         "@posthog/products-notebooks": "workspace:*",
         "@posthog/products-notifications": "workspace:*",
         "@posthog/products-persons": "workspace:*",
