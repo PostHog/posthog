@@ -32,6 +32,10 @@ from pydantic.dataclasses import dataclass
 from posthog.hogql.database.models import FieldOrTable
 
 
+class QueryWorkLimitExceededError(Exception):
+    """The complete result needs more warehouse queries than one request allows."""
+
+
 class GitHubSourceNotConnectedError(Exception):
     """Raised when a team has no GitHub warehouse source — the curated queries
     reference ``github_*`` tables that aren't in the catalog. Surfaces as a clear
@@ -1076,9 +1080,8 @@ class WorkflowHealthItem:
     rerun_cycles: int = 0
     # Success rate over the equal-length window before date_from; None when it had no conclusive runs.
     success_rate_prev: float | None = None
-    # Successful runs that did real work; the exact population p50/p95 are computed over (no-op gate
-    # runs excluded). Distinct from `successful_run_count`, which counts those no-op successes too, so
-    # a duration comparison should size its min-sample gate on this, not on `successful_run_count`.
+    # Successful runs lasting at least 10 seconds. Zero when percentiles fall back to all-fast runs,
+    # so duration comparisons can reject those fallback samples with their minimum-sample gate.
     percentile_run_count: int = 0
     # Runs on merge-queue gate branches in the window, counted regardless of the branch/run_scope
     # filter, so the list can rank queue-gating workflows (the closest proxy for a required check)
@@ -1632,11 +1635,11 @@ class DeliveryLeadTime:
     """Lead time to deploy for one scope against the repository, over the DORA deployed-PR
     population (bots and drafts excluded, containment resolved through the deploy's head commit).
 
-    The distributions cover PRs whose first containing deploy succeeded in the window, so the
-    three stages compose. The coverage pair counts PRs merged in the window instead:
-    ``deployed_merged_pr_count`` of ``merged_pr_count`` reached a deploy. Deploy failure share and
-    recovery are per deploy and one deploy ships many PRs, so they are not attributable to an
-    author or a team and are not part of this type.
+    The distributions cover PRs merged in the window whose first containing deploy succeeded by
+    the window end, so the three stages compose. ``deployed_merged_pr_count`` of
+    ``merged_pr_count`` reached such a deploy. Deploy failure share and recovery are per deploy and
+    one deploy ships many PRs, so they are not attributable to an author or a team and are not part
+    of this type.
     """
 
     deploy_data_available: bool
@@ -1790,6 +1793,12 @@ class PRTimelineSegment:
 
 
 @dataclass(frozen=True)
+class PRTimelineRedTime:
+    kind: PRTimelineSegmentKind
+    seconds_per_merged_pr: float
+
+
+@dataclass(frozen=True)
 class PRTimelinePush:
     head_sha: str
     # When the commit's first workflow run was created, which is when the commit arrived.
@@ -1835,6 +1844,8 @@ class PullRequestTimelines:
     merge_queue_state_available: bool
     # The "now" every open PR's last segment ends at.
     generated_at: datetime
+    merged_pr_count: int
+    red_seconds_per_merged_pr: list[PRTimelineRedTime]
     items: list[PRTimeline]
     truncated: bool
     limit: int

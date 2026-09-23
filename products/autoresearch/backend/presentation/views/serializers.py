@@ -22,6 +22,7 @@ from products.autoresearch.backend.facade.contracts import (
     Pipeline,
     PipelineWrite,
     Run,
+    Suggestion,
     TrainingRun,
 )
 
@@ -37,6 +38,9 @@ RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
 TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
 ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
+SUGGESTION_PRIORITY_CHOICES = api.SUGGESTION_PRIORITY_CHOICES
+SUGGESTION_STATUS_CHOICES = api.SUGGESTION_STATUS_CHOICES
+SUGGESTION_SOURCE_CHOICES = api.SUGGESTION_SOURCE_CHOICES
 
 TARGET_EVENT_MAX_LENGTH = 255
 AGENT_DESCRIPTION_MAX_LENGTH = 2000
@@ -1355,6 +1359,28 @@ class RecordIterationSerializer(serializers.Serializer):
         return data
 
 
+class RespondToSuggestionSerializer(serializers.Serializer):
+    """Input for the agent to record how it interpreted a steering suggestion."""
+
+    status = serializers.ChoiceField(
+        choices=["picked_up", "acted_on", "dismissed"],
+        help_text=(
+            "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), "
+            "'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response)."
+        ),
+    )
+    agent_response = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text=(
+            "Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a "
+            "note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty "
+            "string to clear it."
+        ),
+    )
+
+
 class CompleteTrainingRunSerializer(serializers.Serializer):
     """Input for finalizing a training run. The backend selects/promotes the champion."""
 
@@ -1390,6 +1416,180 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
             "A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the "
             "dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters."
         ),
+    )
+
+
+# ── Feature materialization serializers ─────────────────────────────────────
+
+
+class MaterializeFeaturesRequestSerializer(serializers.Serializer):
+    """Input for materializing the labeled training feature matrix into the run's sandbox."""
+
+    features_sql = serializers.CharField(
+        help_text=(
+            "Your HogQL feature query, using the {anchors}/{lookback_days} contract. Must be a read-only "
+            "SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it "
+            "server-side against the labeled training population — no 500-row cap — and writes the resulting "
+            "train/holdout feature and label parquet files into your sandbox."
+        ),
+    )
+
+
+class MaterializeFeaturesResponseSerializer(serializers.Serializer):
+    """The local sandbox paths and shape of the materialized training matrix."""
+
+    train_features_path = serializers.CharField(
+        help_text="Sandbox path to the training feature matrix parquet (distinct_id + numeric feature columns)."
+    )
+    train_labels_path = serializers.CharField(
+        help_text="Sandbox path to the training labels parquet (distinct_id + __label)."
+    )
+    holdout_features_path = serializers.CharField(
+        help_text="Sandbox path to the holdout feature matrix parquet (same columns as train_features)."
+    )
+    holdout_labels_path = serializers.CharField(
+        help_text="Sandbox path to the holdout labels parquet (distinct_id + __label)."
+    )
+    n_train = serializers.IntegerField(help_text="Number of rows in the training split.")
+    n_holdout = serializers.IntegerField(help_text="Number of rows in the holdout split.")
+    n_features = serializers.IntegerField(help_text="Number of numeric feature columns produced by features_sql.")
+    feature_cols = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The numeric feature column names (excludes distinct_id, __label, __fold).",
+    )
+
+
+# ── Artifact bundle serializers ─────────────────────────────────────────────
+
+
+class ArtifactUploadSerializer(serializers.Serializer):
+    """Input for uploading one file of a training run's artifact bundle."""
+
+    path = serializers.CharField(
+        max_length=500,
+        help_text=(
+            "Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', "
+            "or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; "
+            "absolute paths and '..' traversal are rejected."
+        ),
+    )
+    content_base64 = serializers.CharField(
+        help_text=(
+            "File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded."
+        ),
+    )
+
+
+class ArtifactPathSerializer(serializers.Serializer):
+    """Input for fetching or deleting one bundle file by path."""
+
+    path = serializers.CharField(
+        max_length=500,
+        help_text="Relative path of the file within the bundle, e.g. 'train.py'.",
+    )
+
+
+class StoredArtifactSerializer(serializers.Serializer):
+    """Result of an upload: where the file landed and its content hash."""
+
+    path = serializers.CharField(help_text="Relative path the file was stored at.")
+    size_bytes = serializers.IntegerField(help_text="Decoded file size in bytes.")
+    sha256 = serializers.CharField(help_text="SHA-256 hex digest of the decoded file content.")
+
+
+class ArtifactContentSerializer(serializers.Serializer):
+    """A single bundle file's content, base64-encoded."""
+
+    path = serializers.CharField(help_text="Relative path of the file within the bundle.")
+    size_bytes = serializers.IntegerField(help_text="File size in bytes.")
+    sha256 = serializers.CharField(help_text="SHA-256 hex digest of the file content.")
+    content_base64 = serializers.CharField(help_text="File contents, base64-encoded.")
+
+
+class ArtifactListSerializer(serializers.Serializer):
+    """The relative paths present in a training run's bundle."""
+
+    paths = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Relative paths of every file stored under this training run's bundle prefix.",
+    )
+    count = serializers.IntegerField(help_text="Number of files in the bundle.")
+
+
+class ArtifactDeleteResultSerializer(serializers.Serializer):
+    """Whether a delete removed an existing file."""
+
+    path = serializers.CharField(help_text="Relative path targeted for deletion.")
+    deleted = serializers.BooleanField(help_text="True if a file existed and was removed; False if nothing was there.")
+
+
+# ── Suggestion serializers ─────────────────────────────────────────────────
+
+
+@extend_schema_serializer(component_name="AutoresearchSuggestion")
+class AutoresearchSuggestionSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this suggestion.")
+    pipeline = serializers.UUIDField(help_text="Pipeline this suggestion targets.")
+    prompt = serializers.CharField(help_text="Free-text hypothesis or direction for the agent to explore.")
+    priority = serializers.ChoiceField(
+        choices=SUGGESTION_PRIORITY_CHOICES,
+        required=False,
+        help_text="'try_next' instructs the agent to act on this before other iterations; 'consider' is advisory.",
+    )
+    status = serializers.ChoiceField(
+        choices=SUGGESTION_STATUS_CHOICES,
+        read_only=True,
+        help_text="Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).",
+    )
+    # Named `source` to keep the field the API already exposes; it shadows DRF's own
+    # Field.source attribute, which is a typing conflict only.
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=SUGGESTION_SOURCE_CHOICES,
+        read_only=True,
+        help_text="'user' for human-submitted suggestions; 'agent' for agent-generated hypotheses.",
+    )
+    agent_response = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup.",
+    )
+    created_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="The user who submitted it; null for an agent-authored suggestion."
+    )
+    linked_iteration_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        help_text="UUIDs of iterations spawned from this suggestion.",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        dataclass = Suggestion
+        fields = [
+            "id",
+            "pipeline",
+            "prompt",
+            "priority",
+            "status",
+            "source",
+            "agent_response",
+            "created_by",
+            "linked_iteration_ids",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class CreateSuggestionSerializer(serializers.Serializer):
+    prompt = serializers.CharField(
+        max_length=2000,
+        help_text="Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'.",
+    )
+    priority = serializers.ChoiceField(
+        choices=["try_next", "consider"],
+        default="consider",
+        help_text="'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.",
     )
 
 

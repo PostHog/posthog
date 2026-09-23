@@ -239,6 +239,20 @@ export const SignalReportAssignmentPrStateEnumApi = {
     Merged: 'merged',
 } as const
 
+/**
+ * * `approved` - Approved
+ * * `changes_requested` - Changes requested
+ * * `review_required` - Review required
+ */
+export type SignalReportPullRequestReviewDecisionEnumApi =
+    (typeof SignalReportPullRequestReviewDecisionEnumApi)[keyof typeof SignalReportPullRequestReviewDecisionEnumApi]
+
+export const SignalReportPullRequestReviewDecisionEnumApi = {
+    Approved: 'approved',
+    ChangesRequested: 'changes_requested',
+    ReviewRequired: 'review_required',
+} as const
+
 export type SignalActorKindEnumApi = (typeof SignalActorKindEnumApi)[keyof typeof SignalActorKindEnumApi]
 
 export const SignalActorKindEnumApi = {
@@ -296,6 +310,17 @@ export interface SignalReportPullRequestApi {
     state: SignalReportAssignmentPrStateEnumApi
     /** Whether this PR merged. */
     merged: boolean
+    /** Current GitHub code review decision: approved, changes_requested, or review_required. Null when GitHub does not provide a review decision.
+     *
+     * * `approved` - Approved
+     * * `changes_requested` - Changes requested
+     * * `review_required` - Review required */
+    review_decision: SignalReportPullRequestReviewDecisionEnumApi | null
+    /**
+     * When GitHub reports that this pull request merged. Null when it has not merged or the time is unavailable.
+     * @nullable
+     */
+    merged_at: string | null
     /** Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task. */
     readonly attached_by: SignalReportPullRequestAttachedByApi | null
     /**
@@ -780,6 +805,38 @@ export interface SignalReportFeedbackRequestApi {
 export interface SignalReportFeedbackResponseApi {
     /** Whether the note was forwarded to the report's authoring scout as a steering note. False when the report has no resolvable authoring scout, or the caller lacks scout-steering access. */
     forwarded: boolean
+}
+
+export interface SignalReportMergeRequestApi {
+    /**
+     * Ids of the duplicate reports to fold into this one (1–10). Each must be a live report in this project: a resolved, archived or deleted report is rejected with 409, as is the survivor's own id. Duplicates in the list are de-duplicated. The whole merge applies or none of it does.
+     * @minItems 1
+     * @maxItems 10
+     */
+    source_report_ids: string[]
+    /**
+     * Optional one-line explanation of why these reports are the same issue. Recorded on each source's 'duplicate of' link and on the note left on the survivor. Capped at 500 characters.
+     * @maxLength 500
+     */
+    reason?: string
+}
+
+export interface SignalReportMergeSourceResultApi {
+    /** The source report that was folded into the survivor. */
+    id: string
+    /** How many work-log artefacts moved to the survivor (notes, findings, pull requests, task runs, code references, commits, checks). */
+    artefacts_moved: number
+    /** How many signals the survivor took on from this source. The signals themselves are re-pointed asynchronously; the survivor's counters already include them. */
+    signals_moved: number
+    /** Whether an active work claim held by another actor was released before the move. */
+    released_claim: boolean
+}
+
+export interface SignalReportMergeResponseApi {
+    /** The surviving report, as it stands after the merge. */
+    report: SignalReportApi
+    /** One result per merged source, in request order (after de-duplication). */
+    sources: SignalReportMergeSourceResultApi[]
 }
 
 /**
@@ -1429,7 +1486,6 @@ export interface SignalsScoutSignalExtraApi {
     finding_id: string
     skill_name: string
     skill_version: number
-    confidence?: number | null
     severity?: ReportPriorityApi | null
     hypothesis?: string | null
     evidence: SignalsScoutEvidenceEntryApi[]
@@ -4665,13 +4721,6 @@ export interface SignalScoutEmissionApi {
     finding_id: string
     /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
     description: string
-    /**
-     * Deprecated and no longer set on new findings. Null unless the run supplied one.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence: number | null
     /** Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
      *
      * * `P0` - P0
@@ -4869,13 +4918,6 @@ export interface EmitFindingRequestApi {
      * @maxLength 50000
      */
     description: string
-    /**
-     * Deprecated and ignored. Nothing reads it; omit it. Still range-checked when supplied.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
     /**
      * Citations supporting the finding. Capped at 20 entries.
      * @maxItems 20

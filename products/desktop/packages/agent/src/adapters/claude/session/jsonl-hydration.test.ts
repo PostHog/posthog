@@ -622,7 +622,7 @@ describe("conversationTurnsToJsonlEntries", () => {
       { type: "text", text: "running" },
     ]);
     expect(conv[0].message.stop_reason).toBeNull();
-    expect(conv[0].message.model).toBe("claude-opus-4-8");
+    expect(conv[0].message.model).toBe("claude-opus-5-5");
     expect(conv[0].message.id).toMatch(/^msg_01[A-Za-z0-9]{24}$/);
 
     expect(conv[1].type).toBe("assistant");
@@ -1082,7 +1082,7 @@ describe("end-to-end: S3 log entries -> JSONL output", () => {
     // All assistant blocks in same turn share message.id
     expect(msg1.id).toBe(msg2.id);
     expect(msg2.id).toBe(msg3.id);
-    expect(msg3.model).toBe("claude-opus-4-8");
+    expect(msg3.model).toBe("claude-opus-5-5");
     expect(msg3.id).toMatch(/^msg_01[A-Za-z0-9]{24}$/);
 
     // Verify Bash tool_result entry

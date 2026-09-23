@@ -36,7 +36,8 @@ export type FeedEntry =
       id: string;
       createdAt: string;
       message: ChannelFeedSystemMessage;
-    };
+    }
+  | { kind: "pending"; id: string; createdAt: string; prompt: string };
 
 /** Which entry kinds the feed shows. Sessions cover tasks and their system rows. */
 export type FeedKindFilter = "all" | "sessions" | "reports";
@@ -54,7 +55,9 @@ export function feedEntryMatchesTypes(
   entry: FeedEntry,
   types: readonly SpaceActivityType[],
 ): boolean {
-  if (entry.kind === "system") return types.includes("task");
+  if (entry.kind === "system" || entry.kind === "pending") {
+    return types.includes("task");
+  }
   return types.includes(entry.kind);
 }
 

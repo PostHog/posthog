@@ -9,6 +9,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ArtifactContentApi,
+    ArtifactDeleteResultApi,
+    ArtifactListApi,
+    ArtifactPathApi,
+    ArtifactUploadApi,
     AutoresearchIterationApi,
     AutoresearchListParams,
     AutoresearchModelApi,
@@ -17,19 +22,27 @@ import type {
     AutoresearchPipelineCreateApi,
     AutoresearchRunApi,
     AutoresearchRunsListParams,
+    AutoresearchSuggestionApi,
+    AutoresearchSuggestionsListParams,
     AutoresearchTrainingRunApi,
     AutoresearchTrainingRunsHistoryRetrieveParams,
     AutoresearchTrainingRunsListParams,
     CompleteTrainingRunApi,
+    CreateSuggestionApi,
+    MaterializeFeaturesRequestApi,
+    MaterializeFeaturesResponseApi,
     OpenTrainingRunApi,
     PaginatedAutoresearchModelListApi,
     PaginatedAutoresearchPipelineListApi,
     PaginatedAutoresearchRunListApi,
+    PaginatedAutoresearchSuggestionListApi,
     PaginatedAutoresearchTrainingRunListApi,
     PatchedAutoresearchPipelineCreateApi,
     RecordIterationApi,
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
+    RespondToSuggestionApi,
+    StoredArtifactApi,
     TemplateInfoApi,
     TrainingRunHistoryApi,
     ValidatePipelineRequestApi,
@@ -210,6 +223,113 @@ export const autoresearchRunsRetrieve = async (
     })
 }
 
+export const getAutoresearchSuggestionsListUrl = (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchSuggestionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/`
+}
+
+/**
+ * List steering suggestions for a pipeline, ordered most recent first. Check 'status' to see which have been picked up or acted on by the agent.
+ * @summary List suggestions
+ */
+export const autoresearchSuggestionsList = async (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchSuggestionsListParams,
+    options?: RequestInit
+): Promise<PaginatedAutoresearchSuggestionListApi> => {
+    return apiMutator<PaginatedAutoresearchSuggestionListApi>(
+        getAutoresearchSuggestionsListUrl(projectId, pipelineId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAutoresearchSuggestionsCreateUrl = (projectId: string, pipelineId: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/`
+}
+
+/**
+ * Inject a free-text hypothesis or direction into a running pipeline. The sandbox agent reads queued suggestions at the start of each iteration batch and decides: translate into a concrete iteration ('acted_on'), apply as a search constraint ('picked_up'), or reject with rationale ('dismissed'). Use priority='try_next' to instruct the agent to act on this before autonomous iterations; 'consider' is advisory. Check 'agent_response' after the next training run to see how the suggestion was interpreted.
+ * @summary Submit a suggestion
+ */
+export const autoresearchSuggestionsCreate = async (
+    projectId: string,
+    pipelineId: string,
+    createSuggestionApi: CreateSuggestionApi,
+    options?: RequestInit
+): Promise<AutoresearchSuggestionApi> => {
+    return apiMutator<AutoresearchSuggestionApi>(getAutoresearchSuggestionsCreateUrl(projectId, pipelineId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createSuggestionApi),
+    })
+}
+
+export const getAutoresearchSuggestionsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/${id}/`
+}
+
+/**
+ * Get details for a specific suggestion including its status and agent_response.
+ * @summary Get suggestion
+ */
+export const autoresearchSuggestionsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchSuggestionApi> => {
+    return apiMutator<AutoresearchSuggestionApi>(getAutoresearchSuggestionsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchSuggestionsRespondCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/${id}/respond/`
+}
+
+/**
+ * Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in agent_response), and write the agent_response note the human will read. Call this from the training loop after deciding what to do with a pending suggestion. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative or to mark a suggestion picked_up/dismissed without spawning an iteration. A suggestion only moves forward (queued, picked_up, then acted_on or dismissed); the same status again updates the note.
+ * @summary Respond to a suggestion
+ */
+export const autoresearchSuggestionsRespondCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    respondToSuggestionApi: RespondToSuggestionApi,
+    options?: RequestInit
+): Promise<AutoresearchSuggestionApi> => {
+    return apiMutator<AutoresearchSuggestionApi>(
+        getAutoresearchSuggestionsRespondCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(respondToSuggestionApi),
+        }
+    )
+}
+
 export const getAutoresearchTrainingRunsListUrl = (
     projectId: string,
     pipelineId: string,
@@ -295,6 +415,109 @@ export const autoresearchTrainingRunsRetrieve = async (
     })
 }
 
+export const getAutoresearchTrainingRunsArtifactsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/`
+}
+
+/**
+ * List the files an agent has uploaded for this training run's artifact bundle (train.py, predict.py, features.sql, and any eda/ notebooks).
+ * @summary List artifact bundle files
+ */
+export const autoresearchTrainingRunsArtifactsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ArtifactListApi> => {
+    return apiMutator<ArtifactListApi>(getAutoresearchTrainingRunsArtifactsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchTrainingRunsArtifactsDeleteCreateUrl = (
+    projectId: string,
+    pipelineId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/delete/`
+}
+
+/**
+ * Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op. The bundle is frozen once the run completes or fails.
+ * @summary Delete an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsDeleteCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    artifactPathApi: ArtifactPathApi,
+    options?: RequestInit
+): Promise<ArtifactDeleteResultApi> => {
+    return apiMutator<ArtifactDeleteResultApi>(
+        getAutoresearchTrainingRunsArtifactsDeleteCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(artifactPathApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsArtifactsGetCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/get/`
+}
+
+/**
+ * Fetch one file from this training run's artifact bundle, base64-encoded.
+ * @summary Get an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsGetCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    artifactPathApi: ArtifactPathApi,
+    options?: RequestInit
+): Promise<ArtifactContentApi> => {
+    return apiMutator<ArtifactContentApi>(getAutoresearchTrainingRunsArtifactsGetCreateUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(artifactPathApi),
+    })
+}
+
+export const getAutoresearchTrainingRunsArtifactsUploadCreateUrl = (
+    projectId: string,
+    pipelineId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/upload/`
+}
+
+/**
+ * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, and features.sql. The bundle is frozen once the run completes or fails.
+ * @summary Upload an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsUploadCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    artifactUploadApi: ArtifactUploadApi,
+    options?: RequestInit
+): Promise<StoredArtifactApi> => {
+    return apiMutator<StoredArtifactApi>(
+        getAutoresearchTrainingRunsArtifactsUploadCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(artifactUploadApi),
+        }
+    )
+}
+
 export const getAutoresearchTrainingRunsCompleteCreateUrl = (projectId: string, pipelineId: string, id: string) => {
     return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/complete/`
 }
@@ -343,6 +566,36 @@ export const autoresearchTrainingRunsIterationsCreate = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(recordIterationApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsMaterializeFeaturesCreateUrl = (
+    projectId: string,
+    pipelineId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/materialize-features/`
+}
+
+/**
+ * Run features_sql server-side against the labeled training population and write the resulting train/holdout feature and label parquet files directly into this run's sandbox. Returns the local sandbox paths, row counts, and feature columns. The rows never pass through the agent's context and there is no 500-row cap. Read the returned paths with pd.read_parquet and iterate in Python.
+ * @summary Materialize training features to the sandbox
+ */
+export const autoresearchTrainingRunsMaterializeFeaturesCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    materializeFeaturesRequestApi: MaterializeFeaturesRequestApi,
+    options?: RequestInit
+): Promise<MaterializeFeaturesResponseApi> => {
+    return apiMutator<MaterializeFeaturesResponseApi>(
+        getAutoresearchTrainingRunsMaterializeFeaturesCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(materializeFeaturesRequestApi),
         }
     )
 }

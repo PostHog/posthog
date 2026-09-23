@@ -26,6 +26,7 @@ import {
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
+import { PANE_INSET } from "@posthog/ui/primitives/ChromeBar";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useMemo } from "react";
@@ -78,7 +79,7 @@ function SpaceStar({ channel }: { channel: Channel }) {
   );
 }
 
-export const SPACE_TAB_INSET = "px-6";
+export const SPACE_TAB_INSET = PANE_INSET;
 
 export function SpaceTabbedPage({
   channelId,
@@ -110,7 +111,7 @@ export function SpaceTabbedPage({
   useSetHeaderContent(
     useMemo(
       () => (
-        <div className="flex min-w-0 items-center gap-1.5 pl-5">
+        <div className="flex min-w-0 items-center gap-1.5">
           <span className="shrink-0 text-muted-foreground">
             {channelGlyph(channel?.name, {
               size: 14,
