@@ -778,6 +778,42 @@ class TestEvaluateAlert:
         assert inflight_alert_ids() == set()
         assert await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).exists)() is False
 
+    async def test_cancelled_evaluate_leaves_the_slot_to_lapse_when_its_thread_will_not_stop(self, alert) -> None:
+        short_budget = dataclasses.replace(alert_timeouts(None), activity_schedule_to_close=timedelta(seconds=0.3))
+        query_running = threading.Event()
+        let_the_thread_go = threading.Event()
+        query_thread_done = threading.Event()
+
+        def _query_that_ignores_the_kill(evaluated_alert, *, evaluation_id):
+            query_running.set()
+            try:
+                let_the_thread_go.wait(timeout=5)
+                raise CHQueryErrorQueryWasCancelled("killed", code=394)
+            finally:
+                query_thread_done.set()
+
+        env = ActivityEnvironment()
+        with (
+            patch("posthog.temporal.alerts.activities.alert_timeouts", return_value=short_budget),
+            patch("posthog.temporal.alerts.activities._SLOT_POLL_SECONDS", 0.05),
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_query_that_ignores_the_kill
+            ),
+            patch("posthog.temporal.alerts.activities.cancel_query_on_cluster") as kill,
+        ):
+            attempt = asyncio.ensure_future(
+                env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id), team_id=alert.team_id))
+            )
+            await asyncio.to_thread(query_running.wait, 5)
+            env.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await attempt
+            # The thread is still alive, so the slot that counts it stays until its lease lapses.
+            assert kill.called
+            assert str(alert.id) in inflight_alert_ids()
+            let_the_thread_go.set()
+            await asyncio.to_thread(query_thread_done.wait, 5)
+
     @pytest.mark.parametrize("how_the_slot_is_lost", ["taken_over", "redis_unreachable"])
     async def test_evaluate_stops_its_query_once_it_can_no_longer_hold_its_slot(
         self, alert, how_the_slot_is_lost: str

@@ -375,7 +375,7 @@ class _SlotHolder:
             await asyncio.to_thread(release_evaluation_slot, self.alert_id, held_until=self.held_until)
 
 
-async def _finish(cleanup: Awaitable[None]) -> None:
+async def _finish(cleanup: Awaitable[_T]) -> _T:
     """Await cleanup even if this task is cancelled again while it runs.
 
     Once the server has timed an attempt out it may cancel the task once more for each heartbeat it
@@ -387,7 +387,7 @@ async def _finish(cleanup: Awaitable[None]) -> None:
             await asyncio.shield(task)
         except asyncio.CancelledError:
             pass
-    task.result()
+    return task.result()
 
 
 async def _run_holding_slot(
@@ -398,7 +398,7 @@ async def _run_holding_slot(
     retry_policy: RetryPolicy,
     keeps_slot: Callable[[_T], bool],
     lease: SlotLease | None = None,
-    stop_work: Callable[[], Awaitable[None]] | None = None,
+    stop_work: Callable[[], Awaitable[bool]] | None = None,
 ) -> _T:
     """Run one attempt of a check while it holds its evaluation slot.
 
@@ -413,8 +413,9 @@ async def _run_holding_slot(
 
     An attempt stops early when Temporal cancels it or when the slot can no longer be held. Both
     run stop_work to completion before the slot is given back, so the work is over while it is
-    still counted. A lost slot then fails the attempt so Temporal retries it, and the retry waits
-    for a slot of its own.
+    still counted. Work that stop_work could not stop keeps the slot, which lapses on its own once
+    nothing refreshes it. A lost slot then fails the attempt so Temporal retries it, and the retry
+    waits for a slot of its own.
     """
     holder = _SlotHolder(alert_id, held_until)
     body = asyncio.ensure_future(run())
@@ -423,9 +424,11 @@ async def _run_holding_slot(
             result = await body
         except asyncio.CancelledError:
             body.cancel()
+            stopped = True
             if stop_work is not None:
-                await _finish(stop_work())
-            await _finish(holder.release())
+                stopped = await _finish(stop_work())
+            if stopped:
+                await _finish(holder.release())
             if holder.lost and not temporalio.activity.is_cancelled():
                 raise ApplicationError("The evaluation lost its admission slot", type=_SLOT_LOST_ERROR_TYPE)
             raise
@@ -746,25 +749,35 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         )
         return await asyncio.shield(thread)
 
-    async def _stop_work() -> None:
+    timeouts = alert_timeouts(inputs.calculation_interval)
+
+    def _log_thread_outcome(finished: asyncio.Future[EvaluateAlertResult]) -> None:
+        # Retrieve the error the thread ended on, so asyncio does not log it as never retrieved.
+        error = None if finished.cancelled() else finished.exception()
+        if error is not None and not isinstance(error, CHQueryErrorQueryWasCancelled):
+            logger.warning("alerts.evaluate.stopped_thread_failed", alert_id=inputs.alert_id, exc_info=error)
+
+    async def _stop_work() -> bool:
         # Cancellation cannot reach the thread the query runs in, so the query is killed in
         # ClickHouse by the id it was tagged with. A kill only finds a query that is running at that
         # moment, and the thread may still be waiting for a connection or be between two queries, so
-        # it is repeated until the thread has exited on the killed query's error.
+        # it is repeated until the thread has exited on the killed query's error. A thread that
+        # outlives a whole evaluation budget after that is stuck on something no kill reaches, such
+        # as a node that stopped answering, and is abandoned so the slot it kept lapses instead.
         if thread is None or team_id is None:
-            return
-        while not thread.done():
+            return True
+        thread.add_done_callback(_log_thread_outcome)
+        give_up_at = time.monotonic() + timeouts.activity_schedule_to_close.total_seconds()
+        while not thread.done() and time.monotonic() < give_up_at:
             try:
                 await asyncio.to_thread(cancel_query_on_cluster, team_id, evaluation_id)
             except Exception:
                 logger.exception("alerts.evaluate.cancel_query_failed", alert_id=inputs.alert_id)
             await asyncio.wait({thread}, timeout=_SLOT_POLL_SECONDS)
-        # Retrieve the error the thread ended on, so asyncio does not log it as never retrieved.
-        error = None if thread.cancelled() else thread.exception()
-        if error is not None and not isinstance(error, CHQueryErrorQueryWasCancelled):
-            logger.warning("alerts.evaluate.stopped_thread_failed", alert_id=inputs.alert_id, exc_info=error)
+        if not thread.done():
+            logger.error("alerts.evaluate.thread_abandoned", alert_id=inputs.alert_id, evaluation_id=evaluation_id)
+        return thread.done()
 
-    timeouts = alert_timeouts(inputs.calculation_interval)
     async with Heartbeater():
         held_until = await _hold_evaluation_slot_before_running(
             inputs.alert_id, lease_seconds=timeouts.evaluation_slot_lease.lease.total_seconds()
