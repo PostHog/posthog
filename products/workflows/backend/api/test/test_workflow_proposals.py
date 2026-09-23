@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
@@ -255,6 +256,83 @@ class TestWorkflowProposals(APIBaseTest):
         assert draft is not None
         assert draft["actions"][1]["name"] == "renamed by the suggestion"
         assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://moved.example.com"
+
+    def test_a_secret_input_in_a_patch_is_not_stored(self, _mock_flag):
+        # The patch carries no template_id, so the secret is only knowable from the step it patches.
+        secret_template = {
+            **webhook_template,
+            "id": "template-webhook-secret",
+            "inputs_schema": [
+                *(webhook_template.get("inputs_schema") or []),
+                {"key": "api_key", "type": "string", "secret": True},
+            ],
+        }
+        sync_template_to_db(secret_template)
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {
+                "name": "Secret flow",
+                "actions": [
+                    _trigger_action(),
+                    {
+                        "id": "action_1",
+                        "name": "action_1",
+                        "type": "function",
+                        "config": {
+                            "template_id": "template-webhook-secret",
+                            "inputs": {"url": {"value": "https://example.com"}},
+                        },
+                    },
+                ],
+            },
+            format="json",
+        )
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+        self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+
+        proposal = self._propose(
+            flow_id,
+            content={
+                "actions": [{"id": "action_1", "config": {"inputs": {"api_key": {"value": "sk-live-not-a-real-key"}}}}]
+            },
+        )
+
+        stored = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"])
+        assert "api_key" not in stored.content["actions"][0]["config"]["inputs"]
+        assert "sk-live-not-a-real-key" not in json.dumps(proposal)
+
+    def test_a_field_the_merge_replaces_is_compared_whole(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id,
+            content={
+                "conversion": {
+                    "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events"}]},
+                    "window": "7d",
+                }
+            },
+            base_version=1,
+        )
+        # The person changes a key the suggestion does not name; replacing the value would drop it.
+        patched = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "conversion": {
+                    "filters": {"events": [{"id": "$identify", "name": "$identify", "type": "events"}]},
+                    "window": "30d",
+                }
+            },
+            format="json",
+        )
+        assert patched.status_code == 200, patched.json()
+
+        approve = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {"overwrite": True}
+        )
+
+        assert approve.status_code == 409, approve.json()
+        assert approve.json()["code"] == "proposal_out_of_date"
 
     def test_a_field_change_is_refused_once_that_field_moved(self, _mock_flag):
         flow_id = self._create_active_flow()

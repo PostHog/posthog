@@ -10,7 +10,7 @@ from posthog.test.fixtures import create_app_metric2
 
 
 class TestAppMetrics2Timezone(ClickhouseTestMixin, BaseTest):
-    def _seed(self, when_utc: datetime, app_source_id: str = "fn-1"):
+    def _seed(self, when_utc: datetime, app_source_id: str = "fn-1") -> None:
         create_app_metric2(
             team_id=self.team.pk,
             app_source="hog_function",
@@ -27,7 +27,7 @@ class TestAppMetrics2Timezone(ClickhouseTestMixin, BaseTest):
             ("kind", {"kind": ["success"]}),
         ]
     )
-    def test_totals_optional_filters_are_bound(self, _name: str, filters: dict):
+    def test_totals_optional_filters_are_bound(self, _name: str, filters: dict[str, object]) -> None:
         self._seed(datetime(2026, 6, 8, 12, 0, 0, tzinfo=UTC), app_source_id="fn-filters")
 
         result = fetch_app_metric_totals(

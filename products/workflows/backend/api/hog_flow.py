@@ -532,6 +532,26 @@ def strip_content_secrets(content: dict, template_cache: Optional[TemplateCache]
     return normalized
 
 
+def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Optional[TemplateCache] = None) -> dict:
+    """Strip secret inputs from a proposal's content, classifying each step against the live step it
+    patches. A patch carries only the fields it changes, so it can set a secret input without the
+    `type` or `template_id` that says the input is secret, and `strip_content_secrets` alone would
+    store that value in plaintext."""
+    stripped = strip_content_secrets(content, template_cache)
+    actions = stripped.get("actions")
+    if not isinstance(actions, list):
+        return stripped
+    live_by_id = {_item_id(item): item for item in live_content.get("actions") or []}
+    for item in actions:
+        live_step = live_by_id.get(_item_id(item))
+        inputs = (item.get("config") or {}).get("inputs") if isinstance(item, dict) else None
+        if live_step is None or not isinstance(inputs, dict):
+            continue
+        for key in _secret_keys_for_action(_deep_merge(deepcopy(live_step), item), template_cache):
+            inputs.pop(key, None)
+    return stripped
+
+
 def rehydrate_flow_secrets(actions: list[dict], secrets_by_action: dict[str, dict]) -> list[dict]:
     # Fold decrypted secrets back into each action's config.inputs. Used for inline test runs that
     # ship a config to the executor directly, bypassing the worker's manager (which decrypts normally).
@@ -4205,7 +4225,8 @@ def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[str
     moved_fields = [
         field
         for field in touched_fields
-        if _moved_since(base_content.get(field), live_content.get(field), content[field])
+        # These replace the whole value, so a key the proposal does not name still goes with it.
+        if base_content.get(field) != live_content.get(field) and live_content.get(field) != content[field]
     ]
     return sorted({*moved_steps, *moved_fields})
 
@@ -5662,7 +5683,7 @@ class HogFlowViewSet(
         params = param_serializer.validated_data
 
         # Proposal content is stored in plaintext like a revision snapshot, so secrets are stripped.
-        content = strip_content_secrets(dict(params["content"]))
+        content = strip_proposal_secrets(dict(params["content"]), snapshot_flow_content(instance))
         source_id = params.get("source_id") or None
 
         if "actions" in content or "edges" in content:
