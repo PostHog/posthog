@@ -1,3 +1,5 @@
+import { waitFor } from '@testing-library/react'
+
 import { fileSystemList } from '~/generated/core/api'
 import type { FileSystemApi } from '~/generated/core/api.schemas'
 
@@ -35,8 +37,10 @@ jest.mock('products/product_analytics/frontend/generated/api', () => ({
 }))
 
 describe('PostHog terminal commands', () => {
+    const confirm = jest.fn(async () => true)
     let commands: PosthogCommands
     let filesystem: PosthogFilesystem
+    const navigate = jest.fn()
     const cwd = '/posthog/files/Research'
     const author = {
         id: 1,
@@ -45,8 +49,32 @@ describe('PostHog terminal commands', () => {
         hedgehog_config: null,
     }
 
+    it.each([
+        ['notebook-delete', 'shortnote'],
+        ['notebook-update', 'shortnote', '--deleted'],
+        ['example/echo', '--text', 'hello'],
+    ])('blocks %s until the user approves its exact arguments', async (...argv) => {
+        let answer!: (approved: boolean) => void
+        confirm.mockImplementationOnce(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    answer = resolve
+                })
+        )
+        const operation = commands.execute(argv, cwd)
+        const outcome = operation.catch((error: Error) => error)
+        await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+        expect(notebooksPartialUpdate).not.toHaveBeenCalled()
+        expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
+        answer(false)
+        await expect(outcome).resolves.toEqual(expect.objectContaining({ message: 'Canceled. No changes made.' }))
+        expect(notebooksPartialUpdate).not.toHaveBeenCalled()
+        expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
+    })
+
     beforeEach(async () => {
         jest.clearAllMocks()
+        confirm.mockResolvedValue(true)
         jest.mocked(fileSystemList).mockResolvedValue({
             count: 1,
             next: null,
@@ -121,9 +149,39 @@ describe('PostHog terminal commands', () => {
             structured_content: { echoed: true },
         })
         const signal = new AbortController().signal
-        filesystem = new PosthogFilesystem('42', signal)
+        filesystem = new PosthogFilesystem('42', signal, confirm)
         await filesystem.load()
-        commands = new PosthogCommands('42', signal, filesystem)
+        commands = new PosthogCommands('42', signal, filesystem, navigate)
+    })
+
+    it.each([
+        [[], '/files?folder=Research'],
+        [['.'], '/files?folder=Research'],
+        [['..'], '/files'],
+        [['Notes.md'], '/notebooks/shortnote'],
+        [['/posthog/api/notebook/shortnote.json'], '/notebooks/shortnote'],
+    ])('opens %j in PostHog', async (args, url) => {
+        await commands.execute(['open', ...args], cwd)
+        expect(navigate).toHaveBeenCalledWith(url)
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
+        expect(mcpServerInstallationsAvailableToolsRetrieve).not.toHaveBeenCalled()
+    })
+
+    it.each([['missing.md'], ['/tmp/local.json'], ['Notes.md', 'another.md']])(
+        'does not navigate for invalid open arguments %j',
+        async (...args) => {
+            await expect(commands.execute(['open', ...args], cwd)).rejects.toThrow()
+            expect(navigate).not.toHaveBeenCalled()
+        }
+    )
+
+    it('does not navigate after the terminal stops while resolving a path', async () => {
+        const controller = new AbortController()
+        commands = new PosthogCommands('42', controller.signal, filesystem, navigate)
+        const opening = commands.execute(['open', 'Notes.md'], cwd)
+        controller.abort()
+        await expect(opening).rejects.toThrow('terminal stopped')
+        expect(navigate).not.toHaveBeenCalled()
     })
 
     it.each([

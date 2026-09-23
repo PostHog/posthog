@@ -370,6 +370,7 @@ from posthog.models.usage_ingestion.billing_usage_records import (
     WRITABLE_BILLING_USAGE_RECORDS_TABLE_SQL,
 )
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_SQL, WEB_STATS_SQL
+from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL
 from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
@@ -455,6 +456,7 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE_SQL,
     WEB_STATS_SQL,
     WEB_BOUNCES_SQL,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     QUERY_LOG_ARCHIVE_BUFFER_OPS_TABLE_SQL,
     COHORT_MEMBERSHIP_TABLE_SQL,

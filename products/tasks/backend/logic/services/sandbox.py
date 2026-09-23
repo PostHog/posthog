@@ -223,6 +223,10 @@ class SandboxConfig(BaseModel):
     # surfaced in the run log so image downgrades are never silent.
     image_fallback: str | None = None
     dev_stack_present: bool | None = None
+    # Hogland only: provision from the pluggable-memory golden (boots small, hot-adds
+    # guest RAM up to the cap) instead of the fixed-size default golden. Set from the
+    # tasks-hogland-hotplug-golden flag at context time; ignored by other providers.
+    use_hotplug_golden: bool = False
 
     @model_validator(mode="before")
     @classmethod
