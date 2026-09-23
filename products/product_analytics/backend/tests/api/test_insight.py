@@ -54,6 +54,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.project import Project
 from posthog.query_scan.findings import build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
@@ -66,6 +67,7 @@ from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscr
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
 
@@ -3073,14 +3075,38 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_soft_delete_causes_404(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_200_OK)
+        subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
+        )
+        unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
+        deleted_subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily", deleted=True
+        )
+        delivery = SubscriptionDelivery.objects.create(
+            team=self.team, subscription=subscription, idempotency_key="insight-delete-test", status="completed"
+        )
 
         update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        deletion_log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+        )
+        self.assertEqual(deletion_log.user_id, self.user.id)
+        unrelated.refresh_from_db()
+        self.assertFalse(unrelated.deleted)
+
+        self.assertFalse(Subscription.objects.filter(pk=deleted_subscription.pk).exists())
+        self.assertFalse(SubscriptionDelivery.objects.filter(pk=delivery.pk).exists())
+
     def test_soft_delete_can_be_reversed_by_patch(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "an insight"})
+        subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
+        )
 
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}",
@@ -3123,6 +3149,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "field": "deleted",
             "type": "Insight",
         }
+
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
 
     def test_soft_delete_cannot_be_reversed_for_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
@@ -4289,12 +4317,24 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         insight = self._create_insight()
         tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         alert = AlertConfiguration.objects.create(team=self.team, insight=insight, name="alert")
+        subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight.id, start_date=timezone.now(), frequency="daily"
+        )
+        unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
 
         response = self._bulk_delete([insight.id])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
         self.assertFalse(AlertConfiguration.objects.filter(id=alert.id).exists())
+
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        deletion_log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+        )
+        self.assertEqual(deletion_log.user_id, self.user.id)
+        unrelated.refresh_from_db()
+        self.assertFalse(unrelated.deleted)
 
     def test_bulk_delete_reports_unknown_ids_as_skipped(self) -> None:
         insight = self._create_insight()

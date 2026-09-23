@@ -8,7 +8,9 @@ import {
     type SignalReportAssignmentPrStateEnumApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
+    type SignalScoutEmissionApi,
     type SignalScoutRunSummaryApi,
+    type SignalUserAutonomyConfigApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -50,6 +52,12 @@ export interface EnrichedReviewer {
     /** Short user-facing explanation for this suggestion, derived by the backend. */
     explanation?: string | null
 }
+
+/** What the backend labels a self-driving PR with when the team turns the label on without naming one. */
+export const DEFAULT_PULL_REQUEST_LABEL = 'self-driving'
+
+/** GitHub's own cap on a label name, mirrored so the input stops where the API would reject. */
+export const GITHUB_LABEL_NAME_MAX_LENGTH = 50
 
 /** P0 (highest) – P4 (lowest). Mirrors desktop `SignalReportPriority`. */
 export type SignalReportPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
@@ -386,18 +394,8 @@ export const SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP: SignalReportTaskRelatio
 
 // ── Autonomy config (per-user override; backend SignalUserAutonomyConfigView) ─
 
-export interface SignalUserAutonomyConfig {
-    id?: string
-    autostart_priority: SignalReportPriority | null
-    slack_notification_integration_id?: number | null
-    slack_notification_channel?: string | null
-    slack_notification_min_priority?: SignalReportPriority | null
-    github_assign_on_pull_request?: boolean
-    /** Whether PRs for reports suggesting this user open ready for review. Null follows the project default. */
-    github_open_pull_request_ready?: boolean | null
-    created_at?: string
-    updated_at?: string
-}
+/** The per-user autonomy row, or the subset the optimistic reducers set before the first load lands. */
+export type SignalUserAutonomyConfigDraft = Partial<SignalUserAutonomyConfigApi>
 
 // ── Team-level autonomy config (backend SignalTeamConfigViewSet; singleton per team) ─
 
@@ -421,6 +419,10 @@ export interface SignalTeamConfig {
     default_open_pull_request_ready?: boolean
     /** Whether self-driving comments a link to the report back on a GitHub issue that raised it. */
     github_issue_writeback_enabled?: boolean
+    /** Whether self-driving labels every PR it opens, so GitHub search can separate them from other bot work. */
+    pull_request_label_enabled?: boolean
+    /** The label name to apply, at most 50 characters. Null or blank means the default label. */
+    pull_request_label?: string | null
     /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
     reports_generated_today?: number
     /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */
@@ -462,18 +464,10 @@ export type SignalScoutRunStatus = SignalScoutRunSummaryApi['status']
  * instead of inlining `import(...)` references to the generated type. */
 export interface SignalScoutRunSummary extends SignalScoutRunSummaryApi {}
 
-/** One finding a scout run emitted to the inbox. */
-export interface SignalScoutEmission {
-    id: string
-    run_id: string
-    finding_id: string
-    description: string
-    severity: SignalReportPriority | null
-    /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). */
-    tags: string[]
-    source_id: string
-    emitted_at: string
-}
+/** One finding a scout run emitted to the inbox.
+ * An interface extension (not a type alias) so kea-typegen keeps the domain name
+ * instead of inlining `import(...)` references to the generated type. */
+export interface SignalScoutEmission extends SignalScoutEmissionApi {}
 
 /** Minimal projection of the inbox report a scout finding grouped into (for the linked chip). */
 export interface LinkedSignalReport {

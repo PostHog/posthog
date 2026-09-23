@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
@@ -41,8 +41,8 @@ from statshog.defaults.django import statsd
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud, is_dev_mode
-from posthog.constants import AUTH_BACKEND_KEYS
+from posthog.cloud_utils import get_api_host, is_cloud, is_dev_mode
+from posthog.constants import AUTH_BACKEND_KEYS, POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
@@ -1290,10 +1290,12 @@ def csp_report_endpoint(**params: str) -> str:
         endpoint = _POSTHOG_CSP_REPORT_ENDPOINT if is_cloud() else ""
     if not endpoint or not params:
         return endpoint
-    # The endpoint carries the destination's project token, so it normally already has a query
-    # string; one an operator sets may not.
-    separator = "&" if "?" in endpoint else "?"
-    return f"{endpoint}{separator}{urlencode(params)}"
+    # The endpoint carries the destination's project token and report version, so a param the caller
+    # passes replaces the one already there rather than repeating it.
+    parts = urlsplit(endpoint)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query.update(params)
+    return parts._replace(query=urlencode(query)).geturl()
 
 
 # The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
@@ -1322,14 +1324,47 @@ def is_embeddable_document(path: str) -> bool:
 
 
 CSP_ENFORCE_APP_POLICY_FLAG = "csp-enforce-app-policy"
+CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG = "csp-enforce-signed-out-pages"
+
+# The pages that take a password or a one-time code. Other signed-out pages keep the report-only header.
+SIGNED_OUT_ENFORCEABLE_PATH_PREFIXES = ("/login", "/signup", "/reset", "/reset_2fa", "/verify_email")
+
+
+def is_signed_out_enforceable_path(path: str) -> bool:
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in SIGNED_OUT_ENFORCEABLE_PATH_PREFIXES)
+
+
+def signed_out_csp_enforcement_enabled() -> bool:
+    try:
+        # A signed-out visitor has no person to bucket, so each document draws a random id. The
+        # flag's rollout percentage then applies per document.
+        #
+        # A condition on a person property cannot resolve for a random id, so it evaluates to None
+        # and enforces nothing. Flag events stay off, because each document would add a new
+        # distinct id to the project.
+        return bool(
+            posthoganalytics.feature_enabled(
+                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                str(uuid.uuid4()),
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.warning("csp.signed_out_enforcement_flag_check_failed_defaulting_off", exc_info=True)
+        return False
 
 
 def csp_enforcement_enabled(request: HttpRequest) -> bool:
     user = getattr(request, "user", None)
-    distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
-    if user is None or not distinct_id:
-        # An anonymous page has nobody to bucket, so login, signup and the OAuth pages keep the
-        # report-only header until enforcement covers everyone.
+    if user is None:
+        return False
+    if not user.is_authenticated:
+        # The document keeps the policy it loads with. A visitor who signs in on login goes on to
+        # the app inside the same document, so the draw here also covers that visit.
+        return is_signed_out_enforceable_path(request.path) and signed_out_csp_enforcement_enabled()
+    distinct_id = getattr(user, "distinct_id", None)
+    if not distinct_id:
         return False
     try:
         # Local evaluation only. A network call here would sit in the path of every HTML response,
@@ -1359,6 +1394,30 @@ def app_csp_header_name(request: HttpRequest) -> str:
     if csp_enforcement_enabled(request):
         return "Content-Security-Policy"
     return "Content-Security-Policy-Report-Only"
+
+
+# The app policy reports as v=2 through the endpoint above, and the shadow policy below as v=3.
+NARROWED_APP_POLICY_REPORT_VERSION = "3"
+_WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com"})
+
+
+def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]) -> list[str]:
+    """The app policy's directives named in `replacements`, with their wildcard hosts swapped for
+    the sources given there.
+
+    Sent report-only beside the app policy, it reports each load the wildcards admit and the named
+    sources do not, which is the evidence for dropping the wildcards. worker-src comes along because
+    workers fall back to script-src without it. The shadow names no other directive, so nothing else
+    is restricted in it.
+    """
+    narrowed = []
+    for part in csp_parts:
+        name, *sources = part.split()
+        if name in replacements:
+            narrowed.append(" ".join([name, *(s for s in sources if s not in _WILDCARD_SOURCES), *replacements[name]]))
+        elif name == "worker-src":
+            narrowed.append(part)
+    return narrowed
 
 
 class CSPMiddleware:
@@ -1412,7 +1471,10 @@ class CSPMiddleware:
             )
             return response
 
-        is_admin_view = request.path.startswith("/admin/")
+        # With the admin portal off, Django admin is not mounted and `/admin/` reaches the app catch-all.
+        # Choosing the admin policy by path alone would then enforce it on the app, and it has no
+        # connect-src, so the app's own analytics and feature flag requests are refused.
+        is_admin_view = getattr(settings, "ADMIN_PORTAL_ENABLED", False) and request.path.startswith("/admin/")
         if is_admin_view:
             django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="
             csp_parts = [
@@ -1438,20 +1500,17 @@ class CSPMiddleware:
 
             admin_report_endpoint = csp_report_endpoint()
             if admin_report_endpoint:
-                csp_parts += [f"report-uri {admin_report_endpoint}", "report-to posthog"]
                 # Without a distinct_id the report endpoint mints a new one for every report, so a
-                # single staff session reads as a crowd of users. Only this header carries it, as in
-                # the app policy below.
+                # single staff session reads as a crowd of users.
                 user = getattr(request, "user", None)
                 distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
                 reporting_endpoint = (
                     csp_report_endpoint(distinct_id=distinct_id) if distinct_id else admin_report_endpoint
                 )
-                # Browsers only deliver crash reports to the endpoint named `default`; the CSP
-                # `report-to posthog` directive keeps routing violations to `posthog`.
-                response.headers["Reporting-Endpoints"] = (
-                    f'posthog="{reporting_endpoint}", default="{reporting_endpoint}"'
-                )
+                # The policy has no `report-to` directive. The app policy below gives the reason.
+                csp_parts.append(f"report-uri {reporting_endpoint}")
+                # Browsers only deliver crash reports to the endpoint named `default`.
+                response.headers["Reporting-Endpoints"] = f'default="{reporting_endpoint}"'
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
         elif "Content-Security-Policy" in response.headers:
             # The view picked this policy for this document: a canvas artifact runs untrusted code,
@@ -1553,7 +1612,9 @@ class CSPMiddleware:
                 # SQL editor all render blob URLs, so they lose their images without it.
                 f"img-src 'self' data: blob: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 frame_ancestors,
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
+                # The live debugger's repo browser reads PostHog/posthog from the GitHub API. The path keeps
+                # the rest of the API, and every other repository, out of reach of injected script.
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",
@@ -1590,19 +1651,62 @@ class CSPMiddleware:
             sample_rate = "1" if is_staff else "0.1"
 
             report_uri = csp_report_endpoint(sample_rate=sample_rate)
+            shadow_parts: list[str] = []
+            if report_uri and is_cloud() and resource_url == "https://*.posthog.com" and not settings.E2E_TESTING:
+                bundle = [bundle_origin] if bundle_origin else []
+                agent_proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
+                agent_proxy = (
+                    [urlsplit(agent_proxy_url)._replace(path="", query="", fragment="").geturl()]
+                    if agent_proxy_url
+                    else []
+                )
+                replacements = {
+                    # posthog-js loads its extensions from /static/ and our project's remote config. The
+                    # config path names our token because the same path serves every project's config.
+                    "script-src": [
+                        *bundle,
+                        f"{POSTHOG_JS_CLOUD_HOST}/static/",
+                        f"{POSTHOG_JS_CLOUD_HOST}/array/{POSTHOG_JS_CLOUD_TOKEN}/config.js",
+                    ],
+                    # liveEventsHostOrigin() in the frontend streams from live.<region host>.
+                    "connect-src": [
+                        *bundle,
+                        POSTHOG_JS_CLOUD_HOST,
+                        f"https://live.{urlsplit(settings.SITE_URL).hostname}",
+                        # The onboarding adblock check probes the region's ingestion host.
+                        f"{get_api_host()}/decide/",
+                        # A task run's live stream, when the server hands out the region's agent-proxy.
+                        *agent_proxy,
+                    ],
+                }
+                shadow_uri = csp_report_endpoint(sample_rate=sample_rate, v=NARROWED_APP_POLICY_REPORT_VERSION)
+                shadow_parts = [*narrowed_app_policy(csp_parts, replacements), f"report-uri {shadow_uri}"]
             if report_uri:
-                csp_parts += [f"report-uri {report_uri}", "report-to posthog"]
                 report_endpoint = report_uri
                 if distinct_id:
-                    # Crash reports arrive after the tab already died, so the report body is the
-                    # only chance to attribute them; carrying the distinct_id in the endpoint URL
-                    # ties the event to the person instead of a random per-report id.
+                    # A report body never names the person, and a crash report arrives after the tab
+                    # already died, so only the URL can carry the distinct_id. Without it, the report
+                    # endpoint mints a random id for every report.
                     report_endpoint = csp_report_endpoint(sample_rate=sample_rate, distinct_id=distinct_id)
-                # Browsers only deliver crash reports to the endpoint named `default`; the CSP
-                # `report-to posthog` directive keeps routing violations to `posthog`.
-                response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
+                # The policy has no `report-to` directive, even though CSP3 marks `report-uri` as
+                # deprecated. While a policy names `report-to`, browsers ignore its `report-uri` and
+                # send reports only through the Reporting API. That API drops violations raised in
+                # about:blank and srcdoc frames, because those documents inherit this policy but not
+                # the Reporting-Endpoints header. Without `report-to`, browsers send those violations
+                # to `report-uri`.
+                csp_parts.append(f"report-uri {report_endpoint}")
+                # Browsers only deliver crash reports to the endpoint named `default`.
+                response.headers["Reporting-Endpoints"] = f'default="{report_endpoint}"'
             header_name = app_csp_header_name(request)
             response.headers[header_name] = "; ".join(csp_parts)
+            if shadow_parts:
+                # One header can carry several policies separated by commas, and the browser checks
+                # each on its own.
+                shadow = "; ".join(shadow_parts)
+                reported = response.headers.get("Content-Security-Policy-Report-Only")
+                response.headers["Content-Security-Policy-Report-Only"] = (
+                    f"{reported}, {shadow}" if reported else shadow
+                )
             if header_name == "Content-Security-Policy-Report-Only" and not is_embeddable_document(request.path):
                 # Django owns this header. A responseHeadersPolicy on the Contour ingress replaces
                 # it, and with it the enforced app policy above, so the ingress must not set one.
@@ -1796,6 +1900,10 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
         "POST",
         re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/warehouse_saved_queries/check_incremental/?$"),
     ),
+    # POST but read-only: reads the project facts that decide how to configure a new experiment, for
+    # support on identity and bucketing tickets. The action is named exactly, because the same prefix
+    # hosts the mutating experiment actions.
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/experiments/setup_context/?$")),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
     # POST but read-only: the Logs product sends its queries as POST because the filter payload
