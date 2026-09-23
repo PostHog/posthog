@@ -15,7 +15,8 @@ export interface SankeyNodeInput<Meta = unknown> {
     meta?: Meta
     /** Pin the node to this zero-based column. Use it when the data carries its own stage (the
      *  step in a paths result), so a flow that ends early or starts late still sits under the right
-     *  `columnLabels` header. Nodes without a pin follow `nodeAlign`. */
+     *  `columnLabels` header. Nodes without a pin follow `nodeAlign`. Pins must be monotonic with
+     *  the graph's edges — a link whose target column is at or before its source's draws backwards. */
     column?: number
 }
 
