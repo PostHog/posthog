@@ -404,9 +404,9 @@ function samePresence(a: ChannelPresence, b: ChannelPresence): boolean {
 }
 
 /**
- * Who is recently active in each space, keyed by space id — the faces a
- * collapsed space row wears without expanding it. One project-wide query feeds
- * the whole list, rather than one per space.
+ * Who is recently active in each space, keyed by space id — the faces the work
+ * column's space rows wear. One project-wide query feeds the whole list, rather
+ * than one per space.
  *
  * Each channel's entry keeps its object identity across polls while its faces
  * don't change, so a memoized space row only re-renders when its own presence
