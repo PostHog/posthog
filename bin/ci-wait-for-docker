@@ -23,6 +23,9 @@ COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
 # timeout leaves the whole stack missing.
 LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-3}"
 LAUNCH_RETRY_DELAY="${WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY:-5}"
+# Registry mirror for Docker Hub images, such as https://mirror.gcr.io. Unset keeps the
+# daemon as configured.
+REGISTRY_MIRROR="${WAIT_FOR_DOCKER_REGISTRY_MIRROR:-}"
 
 usage() {
     cat <<'EOF'
@@ -186,6 +189,30 @@ run_launch_once() {
     compose_up "$@"
 }
 
+use_registry_mirror() {
+    local config
+    local pid
+
+    [ -n "$REGISTRY_MIRROR" ] || return 0
+    config=$(sudo cat /etc/docker/daemon.json 2>/dev/null) || config=''
+    [ -n "$config" ] || config='{}'
+    config=$(jq --arg mirror "$REGISTRY_MIRROR" '. + {"registry-mirrors": [$mirror]}' <<< "$config") || config=''
+    # No systemd in some CI sandboxes; dockerd reloads registry-mirrors on SIGHUP instead.
+    if [ -z "$config" ] || ! sudo tee /etc/docker/daemon.json >/dev/null <<< "$config" \
+        || ! pid=$(pidof dockerd) || ! sudo kill -HUP "$pid"; then
+        echo "Could not set registry mirror ${REGISTRY_MIRROR}; pulling from Docker Hub." >&2
+        return 0
+    fi
+    for _ in $(seq 1 10); do
+        if docker info --format '{{json .RegistryConfig.Mirrors}}' | grep -qF "$REGISTRY_MIRROR"; then
+            echo "Docker Hub images come through ${REGISTRY_MIRROR}."
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Docker did not load registry mirror ${REGISTRY_MIRROR}; pulling from Docker Hub." >&2
+}
+
 run_launch() {
     local down_mode="none"
     local background=0
@@ -222,6 +249,7 @@ run_launch() {
     done
 
     launch_services=("$@")
+    use_registry_mirror
 
     launch_runner() {
         local inner_attempt=1
