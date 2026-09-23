@@ -34,6 +34,35 @@ async def fetch_all_clustering_filters_activity(
 
 
 @dataclass
+class TeamAIConsentInput:
+    team_id: int
+
+
+@activity.defn
+async def check_ai_data_processing_consent_activity(inputs: TeamAIConsentInput) -> bool:
+    """Report whether the team's organization approved third-party AI data processing.
+
+    Returns False for a team that no longer exists, so a caller that acts on the answer
+    fails closed.
+    """
+
+    def _is_approved() -> bool:
+        from posthog.models import Team
+
+        rows = list(
+            Team.objects.filter(id=inputs.team_id).values_list(
+                "organization__is_ai_data_processing_approved", flat=True
+            )[:1]
+        )
+        if not rows:
+            return False
+        # The field is nullable with a default of True, so null counts as approved.
+        return rows[0] is not False
+
+    return await asyncio.to_thread(_is_approved)
+
+
+@dataclass
 class JobConfig:
     """One clustering job's configuration, serializable over Temporal."""
 

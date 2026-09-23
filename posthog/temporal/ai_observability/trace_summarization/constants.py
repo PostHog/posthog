@@ -78,6 +78,14 @@ SAMPLE_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - sampling has lo
 # the workflow indefinitely when something is fundamentally broken.
 SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=1200)  # 20 min total for sampling (2 attempts * 900s + backoff)
 
+# Consent check: a single Postgres read, so it is fast and cheap to retry. The patch id keeps
+# executions that started before the check shipped deterministic on replay.
+CONSENT_CHECK_PATCH_ID = "llma-summarization-ai-consent-check-2026-09"
+
+CONSENT_CHECK_START_TO_CLOSE_TIMEOUT = timedelta(seconds=30)
+CONSENT_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=120)
+CONSENT_CHECK_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
+
 # Activity 1: Fetch + format + store in Redis (fast, ClickHouse-bound)
 FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT = timedelta(seconds=120)
 FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(

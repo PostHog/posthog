@@ -6,12 +6,14 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.team_discovery import (
     DEFAULT_DISCOVERY_LOOKBACK_DAYS,
     DEFAULT_GUARANTEED_TEAM_IDS,
     DEFAULT_SAMPLE_PERCENTAGE,
     TeamDiscoveryInput,
     _get_ai_observability_workflow_config,
+    filter_to_ai_consented_teams,
     get_min_traces_override,
     get_team_ids_for_ai_observability,
 )
@@ -23,6 +25,7 @@ async def _noop_heartbeater(*args, **kwargs):
 
 
 FF_PAYLOAD_PATH = "posthog.temporal.ai_observability.team_discovery.posthoganalytics.get_feature_flag_payload"
+CONSENT_FILTER_PATH = "posthog.temporal.ai_observability.team_discovery.filter_to_ai_consented_teams"
 
 
 class TestGetLlmaWorkflowConfig:
@@ -157,6 +160,14 @@ class TestGetMinTracesOverride:
 @patch("posthog.temporal.ai_observability.team_discovery.Heartbeater", _noop_heartbeater)
 @pytest.mark.asyncio
 class TestGetTeamIdsForAIObservability:
+    """Sampling and allowlist behaviour. The consent filter needs a database, so these
+    cases pass it through and TestAIDataProcessingConsentGate covers it."""
+
+    @pytest.fixture(autouse=True)
+    def _pass_through_consent_filter(self):
+        with patch(CONSENT_FILTER_PATH, side_effect=lambda team_ids: list(team_ids)):
+            yield
+
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     async def test_guaranteed_teams_always_included(self, mock_get_teams, _mock_ff):
         mock_get_teams.return_value = [9999, 8888]
@@ -339,3 +350,60 @@ class TestGetTeamIdsForAIObservability:
         begin, end = mock_get_teams.call_args.args[0], mock_get_teams.call_args.args[1]
         delta_days = (end - begin).total_seconds() / 86400
         assert 2.99 < delta_days < 3.01
+
+
+def _create_team(name: str, approved: bool | None):
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    organization = Organization.objects.create(name=name, is_ai_data_processing_approved=approved)
+    return Team.objects.create(organization=organization, name=name)
+
+
+def _create_approved_and_unapproved_teams() -> tuple[int, int]:
+    return _create_team("Approved", True).id, _create_team("Unapproved", False).id
+
+
+@pytest.mark.django_db(transaction=True)
+class TestFilterToAIConsentedTeams:
+    @parameterized.expand(
+        [
+            ("approved", True, True),
+            ("null_counts_as_approved", None, True),
+            ("not_approved", False, False),
+        ]
+    )
+    def test_consent_flag_decides_membership(self, _name, approved, expected_kept):
+        team = _create_team("Org", approved)
+
+        assert (team.id in filter_to_ai_consented_teams([team.id])) is expected_kept
+
+    def test_empty_input(self):
+        assert filter_to_ai_consented_teams([]) == []
+
+
+@patch("posthog.temporal.ai_observability.team_discovery.Heartbeater", _noop_heartbeater)
+@pytest.mark.asyncio
+class TestAIDataProcessingConsentGate:
+    @pytest.mark.django_db(transaction=True)
+    @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
+    @patch(FF_PAYLOAD_PATH)
+    async def test_allowlisted_team_without_consent_is_not_discovered(self, mock_ff, mock_get_teams):
+        approved_id, unapproved_id = await database_sync_to_async(_create_approved_and_unapproved_teams)()
+        mock_ff.return_value = {
+            "guaranteed_team_ids": [approved_id, unapproved_id],
+            "sample_percentage": 1.0,
+        }
+        mock_get_teams.return_value = [unapproved_id]
+
+        result = await get_team_ids_for_ai_observability(TeamDiscoveryInput())
+
+        assert result == [approved_id]
+
+    @patch(CONSENT_FILTER_PATH, side_effect=Exception("Postgres down"))
+    @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
+    @patch(FF_PAYLOAD_PATH, return_value=None)
+    async def test_unreadable_consent_discovers_no_teams(self, _mock_ff, mock_get_teams, _mock_filter):
+        mock_get_teams.return_value = [9999]
+
+        assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == []

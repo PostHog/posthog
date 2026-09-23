@@ -109,6 +109,25 @@ def _get_ai_observability_workflow_config() -> AIObservabilityWorkflowConfig:
         )
 
 
+def filter_to_ai_consented_teams(team_ids: list[int]) -> list[int]:
+    """Drop teams whose organization did not approve third-party AI data processing.
+
+    The field is nullable with a default of True, so null counts as approved. This
+    matches every other reader of the consent flag.
+    """
+    if not team_ids:
+        return []
+
+    from posthog.models import Team
+
+    unapproved = set(
+        Team.objects.filter(id__in=team_ids, organization__is_ai_data_processing_approved=False).values_list(
+            "id", flat=True
+        )
+    )
+    return [team_id for team_id in team_ids if team_id not in unapproved]
+
+
 def get_min_traces_override(team_id: int) -> int | None:
     """Per-team override for the clustering minimum-item threshold, from the flag payload.
 
@@ -188,7 +207,7 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
             # Guaranteed teams first: the coordinator processes teams in this order and
             # may exhaust its run budget before reaching the tail, so allowlisted teams
             # must never sit behind the sampled set.
-            result = sorted(guaranteed - skip) + sorted(sampled)
+            discovered = sorted(guaranteed - skip) + sorted(sampled)
 
             logger.info(
                 "Team discovery completed",
@@ -197,11 +216,9 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
                 ai_event_teams_count=len(ai_event_teams),
                 remaining_count=len(remaining),
                 sampled_count=len(sampled),
-                total_count=len(result),
+                total_count=len(discovered),
                 sample_percentage=sample_percentage,
             )
-
-            return result
 
         except Exception:
             logger.warning(
@@ -210,4 +227,21 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
                 guaranteed_count=len(guaranteed),
                 skip_count=len(skip),
             )
-            return sorted(guaranteed - skip)
+            discovered = sorted(guaranteed - skip)
+
+        try:
+            consented = await asyncio.to_thread(filter_to_ai_consented_teams, discovered)
+        except Exception:
+            # Fail closed: an unreadable consent flag must not let trace content reach a
+            # third-party model.
+            logger.exception("AI data processing consent filter failed, discovering no teams")
+            return []
+
+        if len(consented) != len(discovered):
+            logger.info(
+                "Dropped teams without AI data processing consent",
+                discovered_count=len(discovered),
+                consented_count=len(consented),
+            )
+
+        return consented

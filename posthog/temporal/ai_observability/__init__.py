@@ -76,6 +76,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     execute_trace_llm_judge_activity,
 )
 from posthog.temporal.ai_observability.shared_activities import (
+    check_ai_data_processing_consent_activity,
     fetch_all_clustering_filters_activity,
     fetch_all_clustering_jobs_activity,
 )
@@ -167,6 +168,7 @@ ACTIVITIES = [
     fetch_and_format_activity,
     summarize_and_save_activity,
     # Shared activities
+    check_ai_data_processing_consent_activity,
     fetch_all_clustering_filters_activity,
     fetch_all_clustering_jobs_activity,
     # Clustering activities
