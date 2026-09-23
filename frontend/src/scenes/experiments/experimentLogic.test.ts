@@ -285,7 +285,20 @@ describe('experimentLogic', () => {
             expect(logic.values.secondaryMetricsResultsLoading).toBe(false)
         })
 
-        it('sends no queries for a legacy experiment', async () => {
+        it.each([
+            [
+                'sends no queries for a legacy experiment',
+                [
+                    {
+                        kind: NodeKind.ExperimentTrendsQuery,
+                        uuid: 'legacy-metric',
+                        count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                    },
+                ],
+                false,
+            ],
+            ['sends queries for a new-engine experiment', experiment.metrics, true],
+        ])('%s', async (_, metrics, expectQueries) => {
             const queryHandler = jest.fn(() => [200, {}])
             useMocks({
                 post: {
@@ -293,20 +306,11 @@ describe('experimentLogic', () => {
                     '/api/environments/:team/query/:kind': queryHandler,
                 },
             })
-            logic.actions.setExperiment({
-                ...experiment,
-                metrics: [
-                    {
-                        kind: NodeKind.ExperimentTrendsQuery,
-                        uuid: 'legacy-metric',
-                        count_query: { kind: NodeKind.TrendsQuery, series: [] },
-                    },
-                ],
-            } as Experiment)
+            logic.actions.setExperiment({ ...experiment, metrics } as Experiment)
 
             await logic.asyncActions.refreshExperimentResults(true, 'manual')
 
-            expect(queryHandler).not.toHaveBeenCalled()
+            expect(queryHandler.mock.calls.length > 0).toBe(expectQueries)
         })
 
         it('defers the refresh until feature flags arrive, then replays it once', async () => {

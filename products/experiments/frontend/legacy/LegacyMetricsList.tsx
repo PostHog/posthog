@@ -4,6 +4,7 @@ import { LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { MetricTypeTag } from 'scenes/experiments/MetricsView/shared/MetricTypeTag'
+import { getDefaultMetricTitle } from 'scenes/experiments/MetricsView/shared/utils'
 
 import {
     ExperimentFunnelsQuery,
@@ -40,7 +41,7 @@ const getMetricName = (metric: ListedMetric): string => {
     if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         return getSeriesLabel(metric.count_query?.series?.[0]) || 'Untitled metric'
     }
-    return 'Untitled metric'
+    return getDefaultMetricTitle(metric)
 }
 
 const getMetricRows = (experiment: Experiment, type: 'primary' | 'secondary'): MetricRow[] => {
