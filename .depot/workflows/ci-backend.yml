@@ -15,6 +15,9 @@
 #   so the relay's failure log prints the `depot ci` commands that retry it, and the label
 #   that sends the PR back to GitHub Actions.
 # - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
+# - turbo-discover checks out with fetch-depth: 1000 and filter: blob:none. With no inputs,
+#   Depot CI swaps actions/checkout for a fast clone that has no `origin` remote, and the
+#   history fetch that follows fails.
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
 #   the canonical composites; any deltas are documented in each mirror's header). Every
@@ -686,6 +689,11 @@ jobs:
             # the tree in a second request. Check out at depth 1, then add the history the merge-base
             # steps read, without file contents.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # Depot-only. With no inputs, Depot CI replaces this step with a fast clone that
+              # never adds the `origin` remote the fetch steps below read.
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
             - name: Fetch history without file contents
               # --depth, not --deepen: --deepen adds no history once GitHub has replaced the PR's
               # merge ref, because no ref then points at GITHUB_SHA.
