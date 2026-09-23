@@ -2459,6 +2459,48 @@ class TestShellSplitActionArgsCheck:
         (directory / "action.yml").write_text(content, encoding="utf-8")
         assert unparseable_actions(tmp_path) == [".github/actions/odd"], content
 
+    @pytest.mark.parametrize(
+        ("run", "spliced"),
+        [
+            # single-quoted OPERAND: the outer shell passes the text through, the
+            # inner shell expands "$ARGS" itself -> genuinely one argument
+            ("sh -c 'tool \"$ARGS\"'", False),
+            # double-quoted or bare OPERAND: the OUTER shell expands $ARGS into the
+            # script text first, so inner quoting cannot protect it
+            ("sh -c \"tool '$ARGS'\"", True),
+            ('sh -c "tool \\"$ARGS\\""', True),
+            ('sh -c "$ARGS"', True),
+        ],
+    )
+    def test_inner_quotes_only_protect_inside_a_single_quoted_operand(
+        self, tmp_path: Path, run: str, spliced: bool
+    ) -> None:
+        self._write_action(tmp_path, "operand", run)
+        assert (".github/actions/operand" in derive_shell_split_inputs(tmp_path)) is spliced, run
+
+    @pytest.mark.parametrize(
+        "expression",
+        [
+            "${{ inputs.flags }}",
+            "${{ inputs.flags || '' }}",
+            "${{ format('{0}', inputs.flags) }}",
+            "${{ inputs['flags'] }}",
+        ],
+    )
+    def test_derivation_reads_a_transformed_input_expression(self, tmp_path: Path, expression: str) -> None:
+        # These interpolate exactly the same text as a bare reference; matching
+        # only the bare form left the transformed ones unchecked.
+        self._write_action(tmp_path, "expr", f'sh -c "tool {expression}"', env=False)
+        assert derive_shell_split_inputs(tmp_path).get(".github/actions/expr") == frozenset({"flags"}), expression
+
+    def test_undecodable_action_metadata_is_reported_not_raised(self, tmp_path: Path) -> None:
+        # read_text raises UnicodeDecodeError, which is a ValueError and not an
+        # OSError -- so this used to take the whole lint down rather than report.
+        directory = tmp_path / ".github" / "actions" / "binary"
+        directory.mkdir(parents=True)
+        (directory / "action.yml").write_bytes(b"name: A\ndescription: \xff\xfe\n")
+        assert unparseable_actions(tmp_path) == [".github/actions/binary"]
+
     def test_a_nested_action_with_unreadable_metadata_is_reported(self, tmp_path: Path) -> None:
         # The derivation scans `.github/actions/**` recursively; this alarm has to
         # reach as far, or a nested action it would have scanned goes unmentioned.

@@ -58,9 +58,18 @@ SHELL_C_RE = re.compile(
     r"(?:\"(?P<dquoted>(?:[^\"\\]|\\.)*)\"|'(?P<squoted>[^']*)'|(?P<bare>\S+))",
 )
 VAR_REF_RE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_]\w*)[^}]*\}|(?P<plain>[A-Za-z_]\w*))")
-INPUT_EXPR_RE = re.compile(
-    r"\$\{\{\s*inputs(?:\.(?P<dot>[\w-]+)|\[\s*['\"](?P<bracket>[\w-]+)['\"]\s*\])\s*\}\}",
-)
+# Any `${{ ... }}` block, then the input names inside it. Matching only a bare
+# `${{ inputs.x }}` missed every transformed form -- `${{ inputs.x || '' }}`,
+# `${{ format('{0}', inputs.x) }}` -- which interpolate exactly the same text.
+EXPR_BLOCK_RE = re.compile(r"\$\{\{(?P<body>.*?)\}\}", re.DOTALL)
+INPUT_REF_RE = re.compile(r"\binputs(?:\.(?P<dot>[\w-]+)|\[\s*['\"](?P<bracket>[\w-]+)['\"]\s*\])")
+
+
+def _expression_inputs(text: str) -> Iterator[str]:
+    """Every input named inside a `${{ ... }}` block in `text`."""
+    for block in EXPR_BLOCK_RE.finditer(text):
+        for ref in INPUT_REF_RE.finditer(block.group("body")):
+            yield _input_name(ref)
 
 
 def _input_name(match: re.Match[str]) -> str:
@@ -96,7 +105,7 @@ def _load_action(action_dir: Path) -> dict[str, object] | None:
             continue
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (yaml.YAMLError, OSError):
+        except (yaml.YAMLError, OSError, UnicodeDecodeError):
             return None
         return data if isinstance(data, dict) else None
     return None
@@ -120,7 +129,7 @@ def unparseable_actions(repo_root: Path) -> list[str]:
     for path in sorted(actions_root.rglob("action.y*ml")):
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (yaml.YAMLError, OSError):
+        except (yaml.YAMLError, OSError, UnicodeDecodeError):
             broken.append(path.parent.relative_to(repo_root).as_posix())
             continue
         # Parsing is not the bar; being usable is. An empty file, a list or a
@@ -208,12 +217,18 @@ def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
         for var, value in env.items():
             if not isinstance(value, str):
                 continue
-            match = INPUT_EXPR_RE.fullmatch(value.strip())
-            if match is not None:
-                by_var[str(var)] = _input_name(match)
+            for name in _expression_inputs(value):
+                by_var[str(var)] = name
     for shell_c in SHELL_C_RE.finditer(run):
-        script = shell_c.group("dquoted") or shell_c.group("squoted") or shell_c.group("bare") or ""
-        quoted = _quoted_spans(script)
+        squoted = shell_c.group("squoted")
+        script = shell_c.group("dquoted") or squoted or shell_c.group("bare") or ""
+        # Inner quotes protect a variable ONLY inside a single-quoted operand.
+        # There the outer shell passes the text through untouched and the inner
+        # shell expands `"$ARGS"` itself, giving one argument. With a
+        # double-quoted or bare operand the OUTER shell expands the variable into
+        # the script text first, so a quote in the value closes the quote around
+        # it -- the same pre-substitution problem GitHub expressions have.
+        quoted = _quoted_spans(script) if squoted is not None else []
         for ref in VAR_REF_RE.finditer(script):
             if any(span.start <= ref.start() < span.end for span in quoted):
                 continue
@@ -228,8 +243,7 @@ def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
         # shell runs, so a quote inside the value closes the quote around it and
         # the rest is re-parsed as script. Quoting cannot protect it; only
         # passing it through `env:` and referencing the variable can.
-        for direct in INPUT_EXPR_RE.finditer(script):
-            yield _input_name(direct)
+        yield from _expression_inputs(script)
 
 
 def derive_shell_split_inputs(repo_root: Path) -> dict[str, frozenset[str]]:
