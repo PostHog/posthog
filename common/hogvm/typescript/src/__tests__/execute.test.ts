@@ -50,6 +50,8 @@ describe('hogvm execute', () => {
             ).toBe('data')
             // `throw Error('boom')` in user code.
             expect(kindOf(['_H', 1, op.STRING, 'boom', op.CALL_GLOBAL, 'Error', 1, op.THROW])).toBe('data')
+            // A number where the library expects a string: the engine's TypeError depends on the event.
+            expect(kindOf(['_H', 1, op.STRING, ',', op.INTEGER, 42, op.CALL_GLOBAL, 'splitByString', 2])).toBe('data')
         })
 
         test('limit: the program hit a resource ceiling', () => {
@@ -58,7 +60,7 @@ describe('hogvm execute', () => {
             )
         })
 
-        test('a raw JavaScript error from the standard library is a data error, a JavaScript bug is not', () => {
+        test('a raw JavaScript error from the standard library is a data error with its cause attached', () => {
             // dateDiff throws a plain Error for its unit; the VM wraps it so the caller sees a Hog error.
             let thrown: any
             try {

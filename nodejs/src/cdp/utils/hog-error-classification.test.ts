@@ -48,6 +48,11 @@ describe('classifyHogError', () => {
         it.each<[string, string, Partial<HogFunctionFilterGlobals>]>([
             ['a standard-library function refusing its argument', "return dateDiff('bogus', now(), now()) > 1", {}],
             [
+                'a property of the wrong type for a standard-library function',
+                "return length(splitByString(',', properties.tags)) > 1",
+                { properties: { tags: 42 } },
+            ],
+            [
                 'an invalid regex written into the filter',
                 "return match(properties.url, '(')",
                 { properties: { url: 'x' } },

@@ -34,20 +34,19 @@ import {
 
 const ORDERING_OPERATIONS = new Set([Operation.GT, Operation.GT_EQ, Operation.LT, Operation.LT_EQ])
 
-/** Thrown by the JavaScript engine for a mistake in the library's own code, never for a bad argument. */
-const ENGINE_ERRORS = new Set(['TypeError', 'RangeError', 'ReferenceError'])
-
 /**
- * The standard library reports a bad argument with a plain Error. Callers classify failures by
- * type, so that becomes a Hog data error. Checked by name, because an error from a native module
- * or another realm fails instanceof against this realm's Error.
+ * The standard library reports a bad argument with a plain Error, or lets the engine throw a
+ * TypeError when a value of the wrong type meets a method call. Both depend on the event, so both
+ * become Hog data errors. A ReferenceError can only come from the library's own code and stays
+ * what it is. Checked by name, because an error from a native module or another realm fails
+ * instanceof against this realm's Error.
  */
 function asDataError(error: unknown): unknown {
     if (error instanceof HogVMException || typeof error !== 'object' || error === null) {
         return error
     }
     const { name, message } = error as { name?: unknown; message?: unknown }
-    if (typeof message !== 'string' || (typeof name === 'string' && ENGINE_ERRORS.has(name))) {
+    if (typeof message !== 'string' || name === 'ReferenceError') {
         return error
     }
     return new HogVMException(message, 'data', { cause: error })
