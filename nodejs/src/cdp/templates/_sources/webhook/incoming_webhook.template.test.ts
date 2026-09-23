@@ -175,7 +175,48 @@ describe('incoming webhook template', () => {
         `)
     })
 
-    it('should print the method, query, header names and body if debug is true', async () => {
+    it('captures the query on the default properties mapping, without the credential in it', async () => {
+        // The mapping is left alone so the template's own default is what runs: the case above
+        // passes its own properties and so cannot tell the default apart from a hand-written one.
+        // A pixel authenticates in the query string, so the key arrives beside the real properties.
+        const response = await tester.invoke(
+            {
+                event: '{request.query.event}',
+                distinct_id: '{request.query.distinct_id}',
+                method: 'GET',
+            },
+            {
+                request: {
+                    method: 'GET',
+                    body: {},
+                    stringBody: '',
+                    headers: {},
+                    ip: '127.0.0.1',
+                    query: {
+                        event: 'the event',
+                        distinct_id: 'user-1',
+                        utm_source: 'newsletter',
+                        api_key: 'phc_secret',
+                        Token: 'also-secret',
+                    },
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(true)
+
+        const properties = response.capturedPostHogEvents[0].properties
+        expect(properties.query_params).toEqual({
+            event: 'the event',
+            distinct_id: 'user-1',
+            utm_source: 'newsletter',
+        })
+        expect(JSON.stringify(properties)).not.toContain('phc_secret')
+        expect(JSON.stringify(properties)).not.toContain('also-secret')
+    })
+
+    it('should print the method, query names, header names and body if debug is true', async () => {
         const response = await tester.invoke(
             {
                 event: '{request.body.eventName}',
@@ -201,7 +242,7 @@ describe('incoming webhook template', () => {
         )
 
         expect(response.logs.map((x) => x.message)).toEqual([
-            `Incoming request:, POST, query:, {"utm_source":"newsletter"}, header names:, ["authorization","x-api-key"], body:, {"eventName":"the event"}`,
+            `Incoming request:, POST, query names:, ["utm_source"], header names:, ["authorization","x-api-key"], body:, {"eventName":"the event"}`,
             expect.stringContaining('Function completed'),
         ])
     })
