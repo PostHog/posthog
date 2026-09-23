@@ -243,6 +243,27 @@ const cleanSeries = (
     return cleanSeriesMath(cleanDataWarehouseNodes(series, dataWarehouseNodeKind), mathAvailability)
 }
 
+// A carried-over single series would leave the funnels tab on the "Add another step!" empty state
+// with no chart, so pad it out to what a funnel needs to calculate.
+const seedMissingFunnelSteps = (source: InsightQueryNode): InsightQueryNode => {
+    if (!isFunnelsQuery(source) || source.series.length >= MIN_FUNNEL_STEPS) {
+        return source
+    }
+    const seededSteps = Array.from({ length: MIN_FUNNEL_STEPS - source.series.length }, getDefaultFunnelStep)
+    return { ...source, series: [...source.series, ...seededSteps] }
+}
+
+// A seeded step is nothing the user chose, so keep it out of the cache that feeds the next switch.
+// A step the user edited no longer matches the default, so it does survive.
+const dropSeededFunnelSteps = (series: SeriesArray, cachedSeries: SeriesArray): SeriesArray => {
+    const defaultStep = getDefaultFunnelStep()
+    let kept = series.length
+    while (kept > cachedSeries.length && equal(series[kept - 1], defaultStep)) {
+        kept--
+    }
+    return series.slice(0, kept)
+}
+
 // --- Field capability map ---
 // Defines which "transferable" fields each insight type supports and how to
 // adapt cached values when merging into a new query type. Both
@@ -795,8 +816,8 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     if (caps?.series && !caps?.seriesMath && cache?.series && newCache.series) {
         newCache.series = carryForwardSeriesMath(newCache.series, cache.series)
     }
-    if (isFunnelsQuery(query) && cache?.series?.length && newCache.series) {
-        newCache.series = dropSeededFunnelSteps(newCache.series, cache.series.length)
+    if (isFunnelsQuery(query) && cache?.series && newCache.series) {
+        newCache.series = dropSeededFunnelSteps(newCache.series, cache.series)
     }
     // Retention has no series field, so mirror its target entity into the shared series cache.
     // This keeps the configured event when switching from Retention to a series-based type.
@@ -843,29 +864,6 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     }
 
     return newCache
-}
-
-// A funnel only calculates from two steps up, so a switch that carries a single series over lands on
-// the "Add another step!" empty state with no chart. Seed the missing steps so the switch renders a
-// funnel right away.
-const seedMissingFunnelSteps = (source: InsightQueryNode): InsightQueryNode => {
-    if (!isFunnelsQuery(source) || source.series.length >= MIN_FUNNEL_STEPS) {
-        return source
-    }
-    const seededSteps = Array.from({ length: MIN_FUNNEL_STEPS - source.series.length }, getDefaultFunnelStep)
-    return { ...source, series: [...source.series, ...seededSteps] }
-}
-
-// A seeded step is not a step the user chose, so it must not reach the shared cache. Otherwise a
-// look at the funnels tab and back would leave the previous type with an extra series. A step the
-// user edited no longer matches the default, so it survives.
-const dropSeededFunnelSteps = (series: SeriesArray, cachedLength: number): SeriesArray => {
-    const defaultStep = getDefaultFunnelStep()
-    let kept = series.length
-    while (kept > cachedLength && equal(series[kept - 1], defaultStep)) {
-        kept--
-    }
-    return kept === series.length ? series : series.slice(0, kept)
 }
 
 const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCache): InsightQueryNode => {

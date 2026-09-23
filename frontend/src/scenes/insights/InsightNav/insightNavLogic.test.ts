@@ -43,8 +43,7 @@ import { isFunnelWithEnoughSteps } from 'products/product_analytics/frontend/ins
 
 import { insightDataLogic } from '../insightDataLogic'
 
-// A switch to funnels seeds the steps a funnel needs to calculate, so every expectation below
-// that switches to funnels from a single series carries this second step.
+// A switch to funnels seeds the steps a funnel needs to calculate.
 const SEEDED_FUNNEL_STEP = { kind: 'EventsNode', event: '$pageview', name: 'Pageview' }
 
 describe('insightNavLogic', () => {
@@ -275,9 +274,8 @@ describe('insightNavLogic', () => {
                 },
             }
 
-            // One capability map governs every switch, so a step-count regression on any source type
-            // would leave the funnels tab on the "Add another step!" empty state with no chart.
-            it.each([InsightType.TRENDS, InsightType.STICKINESS, InsightType.LIFECYCLE, InsightType.RETENTION])(
+            // Trends is covered by the exact-query expectations above, so this covers the rest.
+            it.each([InsightType.STICKINESS, InsightType.LIFECYCLE, InsightType.RETENTION])(
                 'lands on a funnel that can calculate when switching from %s',
                 async (sourceView) => {
                     await expectLogic(logic, () => {
