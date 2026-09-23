@@ -217,7 +217,11 @@ function FeedbackModalForm({
   };
 
   const handleImageFiles = async (files: File[]) => {
-    if (submitting || imagesLoadingRef.current || files.length === 0) return;
+    if (submitting || files.length === 0) return;
+    if (imagesLoadingRef.current) {
+      toast.warning("An image is still loading. Wait, then paste it again.");
+      return;
+    }
     const availableSlots = MAX_FEEDBACK_IMAGE_COUNT - attachments.images.length;
     if (files.length > availableSlots) {
       toast.warning(`You can attach up to ${MAX_FEEDBACK_IMAGE_COUNT} images.`);
@@ -292,7 +296,7 @@ function FeedbackModalForm({
             onPaste={(event) => {
               if (mode !== "feedback") return;
               const files = Array.from(event.clipboardData.files).filter(
-                (file) => file.type.startsWith("image/"),
+                (file) => !file.type || file.type.startsWith("image/"),
               );
               if (files.length === 0) return;
               if (!event.clipboardData.getData("text/plain"))
