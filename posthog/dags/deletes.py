@@ -1060,13 +1060,22 @@ def mark_deletions_verified(
     )
     context.add_output_metadata({"unswept_rows": dagster.MetadataValue.json(unswept)})
 
-    # Reported, never raised. No branch of the delete predicate can use an index, because each one
-    # keys a dictionary on team_id and a dictionary lookup is opaque to the primary key, so counting
-    # survivors on events reads the whole table and exhausts every attempt against the cluster's
-    # read-bytes limit rather than its time budget. Failing the run on that stops every request
-    # rather than the ones at risk, and the requests it strands grow the dictionaries the next count
-    # has to read, so each week's stall is worse than the last. Narrowing the count to the teams the
-    # dictionaries name is what makes it affordable, and worth blocking on again.
+    # Reported, never raised, and a non-zero count is not on its own evidence this job skipped work.
+    #
+    # Every mutation is waited to completion before this op runs, and the person and adhoc arms of
+    # the predicate only match rows ingested at or before their request's created_at. That scope
+    # closes when the mutation finishes, so a survivor those arms still match would mean ClickHouse
+    # did not apply a mutation it reported as done.
+    #
+    # The team and event arms carry no such bound, deliberately: a row can arrive after the mutation
+    # was enqueued and still match one. A count that finds those is reading an ordinary straggler
+    # the next sweep converges on, so failing the run on it would stall the queue on live ingestion.
+    #
+    # An unknown count is this check's usual outcome regardless. No branch of the predicate can use
+    # an index, because each keys a dictionary on team_id and a dictionary lookup is opaque to the
+    # primary key, so counting survivors on events reads the whole table and exhausts every attempt
+    # against the cluster's read-bytes limit rather than its time budget. Narrowing the count to the
+    # teams the dictionaries name is what would make it affordable, and worth gating on.
     survivors = {table: count for table, count in unswept.items() if count}
     if survivors:
         context.log.error(

@@ -129,6 +129,18 @@ stranded grew the dictionaries the next count had to read, so each week's stall 
 last. The check is worth blocking on again once it is affordable; narrowing the count to the teams
 named in the dictionaries is the reduction that makes it so.
 
+A non-zero count is not on its own evidence the job skipped work, which is the second reason it does
+not gate.
+
+Every mutation is waited to completion before the count runs, and the person and adhoc arms of the
+predicate only match rows ingested at or before their request's `created_at`. That scope closes when
+the mutation finishes, so a survivor those arms still match would mean ClickHouse did not apply a
+mutation it reported as done.
+
+The team and event arms carry no such bound, deliberately, so a row can arrive after the mutation was
+enqueued and still match one. A count that finds those is reading a straggler the next sweep
+converges on. Failing the run on it would stall the queue on live ingestion.
+
 So a run can mark requests verified without proving the rows are gone. What stops a sweep silently
 removing nothing is upstream of the count: `MutationRunner.reuse_since` keeps a run from adopting a
 mutation an earlier run enqueued, which is the failure the count was added to notice.
