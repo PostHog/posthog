@@ -10444,10 +10444,27 @@ export namespace Schemas {
       type: EnsembleDetectorConfigType;
     }
 
+    export type LLMDetectorConfigType = typeof LLMDetectorConfigType[keyof typeof LLMDetectorConfigType];
+
+
+    export const LLMDetectorConfigType = {
+      Llm: 'llm',
+    } as const;
+
+    export interface LLMDetectorConfig {
+      /** What counts as unusual or interesting for this metric, in your own words. Optional. */
+      instructions?: string | null;
+      /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
+      threshold?: number | null;
+      type: LLMDetectorConfigType;
+      /** How many recent points the model is shown (default: 90) */
+      window?: number | null;
+    }
+
     /**
      * Detector configuration types
      */
-    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
+    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig | LLMDetectorConfig;
 
     /**
      * * `real_time` - real_time
@@ -10503,6 +10520,11 @@ export namespace Schemas {
       readonly insight_short_id: string;
       /** Display name of the insight monitored by this alert. */
       readonly insight_display_name: string;
+      /**
+         * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+         * @nullable
+         */
+      readonly llm_detector_available: boolean | null;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -10661,7 +10683,7 @@ export namespace Schemas {
       data: number[];
       /** Date labels for each point. */
       dates: string[];
-      /** Anomaly score for each point (null if insufficient data). */
+      /** Score for each point. Null can mean insufficient data or a valid unscored point. AI previews report model confidence only for points flagged by an anomaly verdict; all other points are null, including every point in a normal verdict. */
       scores: (number | null)[];
       /** Indices of points flagged as anomalies. */
       triggered_indices: number[];
@@ -13549,6 +13571,8 @@ export namespace Schemas {
      */
     export interface BatchExportRun {
       readonly id: string;
+      /** The end of the data interval. */
+      data_interval_end: string;
       /** The status of this run.
        *
        * * `Cancelled` - Cancelled
@@ -13586,8 +13610,6 @@ export namespace Schemas {
          * @nullable
          */
       data_interval_start?: string | null;
-      /** The end of the data interval. */
-      data_interval_end: string;
       /**
          * An opaque cursor that may be used to resume.
          * @nullable
@@ -13682,8 +13704,11 @@ export namespace Schemas {
       end_at?: string | null;
       /** The 10 most recent runs of this batch export, ordered newest first. */
       readonly latest_runs: readonly BatchExportRun[];
-      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-      hogql_query?: string;
+      /**
+         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+         * @nullable
+         */
+      hogql_query?: string | null;
       /** A schema of custom fields to select when exporting data. */
       readonly schema: unknown;
       filters?: unknown;
@@ -14507,7 +14532,7 @@ export namespace Schemas {
     export interface BatchExportRequest {
       /** Human-readable name for the batch export. */
       name: string;
-      /** Which data model to export (events, persons, sessions).
+      /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
        *
        * * `events` - Events
        * * `persons` - Persons
@@ -14526,8 +14551,11 @@ export namespace Schemas {
       interval: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
-      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-      hogql_query?: string;
+      /**
+         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+         * @nullable
+         */
+      hogql_query?: string | null;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
@@ -19446,6 +19474,126 @@ export namespace Schemas {
     }
 
     /**
+     * * `goal` - Goal
+     * * `feature` - Feature
+     */
+    export type SpaceSetupKindEnum = typeof SpaceSetupKindEnum[keyof typeof SpaceSetupKindEnum];
+
+
+    export const SpaceSetupKindEnum = {
+      Goal: 'goal',
+      Feature: 'feature',
+    } as const;
+
+    /**
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month
+     */
+    export type SpaceGoalPeriodEnum = typeof SpaceGoalPeriodEnum[keyof typeof SpaceGoalPeriodEnum];
+
+
+    export const SpaceGoalPeriodEnum = {
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+    } as const;
+
+    /**
+     * * `at_least` - At least
+     * * `at_most` - At most
+     */
+    export type SpaceGoalDirectionEnum = typeof SpaceGoalDirectionEnum[keyof typeof SpaceGoalDirectionEnum];
+
+
+    export const SpaceGoalDirectionEnum = {
+      AtLeast: 'at_least',
+      AtMost: 'at_most',
+    } as const;
+
+    /**
+     * The metric a goal space should move.
+     */
+    export interface SpaceGoalWrite {
+      /**
+         * The goal in one or two sentences, e.g. 'Increase the weekly activation rate'.
+         * @maxLength 2000
+         */
+      statement: string;
+      /** How often the metric is measured.
+       *
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      period?: SpaceGoalPeriodEnum;
+      /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
+       *
+       * * `at_least` - At least
+       * * `at_most` - At most */
+      direction?: SpaceGoalDirectionEnum;
+      /**
+         * Target value as typed, e.g. '20%' or '1500'.
+         * @maxLength 64
+         * @nullable
+         */
+      target?: string | null;
+      /**
+         * Date the target should be reached.
+         * @nullable
+         */
+      deadline?: string | null;
+      /**
+         * Short id of an existing insight that measures the goal, when there is one.
+         * @maxLength 64
+         * @nullable
+         */
+      insight_short_id?: string | null;
+    }
+
+    /**
+     * The feature a feature space is set up around.
+     */
+    export interface SpaceFeatureWrite {
+      /**
+         * Feature name as people call it.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * What the feature does, in a sentence.
+         * @maxLength 2000
+         */
+      description?: string;
+      /**
+         * Key of the feature flag that gates it, if any.
+         * @maxLength 400
+         * @nullable
+         */
+      flag_key?: string | null;
+    }
+
+    /**
+     * Request body for starting the task that sets a space up for a goal or a feature.
+     */
+    export interface ChannelSetupWrite {
+      /** What the space is set up for.
+       *
+       * * `goal` - Goal
+       * * `feature` - Feature */
+      kind: SpaceSetupKindEnum;
+      /** Required when kind is 'goal'. */
+      goal?: SpaceGoalWrite;
+      /** Required when kind is 'feature'. */
+      feature?: SpaceFeatureWrite;
+      /**
+         * Repository the loops work in, as 'owner/name'. Defaults to the channel's first repository.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+    }
+
+    /**
      * Request body for starring/unstarring a channel for the requesting user.
      */
     export interface ChannelStarWrite {
@@ -22436,8 +22584,12 @@ export namespace Schemas {
     export interface FileDownloadHogQLRequest {
       file: FileDownloadDestinationFileConfig;
       model: FileDownloadHogQLRequestModel;
-      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
+      /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
+      data_interval_start?: string;
+      /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
+      data_interval_end?: string;
     }
 
     export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest | FileDownloadHogQLRequest;
@@ -30806,6 +30958,120 @@ export namespace Schemas {
     }
 
     /**
+     * * `noul` - Yes or no
+     * * `choice` - Multiple choice
+     * * `score` - Rating scale
+     */
+    export type DecisionQuestionTypeEnum = typeof DecisionQuestionTypeEnum[keyof typeof DecisionQuestionTypeEnum];
+
+
+    export const DecisionQuestionTypeEnum = {
+      Noul: 'noul',
+      Choice: 'choice',
+      Score: 'score',
+    } as const;
+
+    /**
+     * For a multiple choice question, the options keyed by name. For a rating question, the scale labels in order from lowest to highest, at least two. Omitted for a yes/no question.
+     */
+    export type DecisionQuestionCriteria = {[key: string]: string} | string[];
+
+    export interface DecisionQuestion {
+      /** What kind of answer to produce: a yes/no probability, one of the given options, or a rating.
+       *
+       * * `noul` - Yes or no
+       * * `choice` - Multiple choice
+       * * `score` - Rating scale */
+      type: DecisionQuestionTypeEnum;
+      /**
+         * The question to ask about the state, phrased for the model.
+         * @maxLength 2000
+         */
+      instructions: string;
+      /** For a multiple choice question, the options keyed by name. For a rating question, the scale labels in order from lowest to highest, at least two. Omitted for a yes/no question. */
+      criteria?: DecisionQuestionCriteria;
+    }
+
+    /**
+     * The questions to ask, keyed by an id of your choice, at most 32 per request. Answers come back under the same ids.
+     */
+    export type DecideRequestQuestions = {[key: string]: DecisionQuestion};
+
+    export interface DecideRequest {
+      /**
+         * The text the questions are about, for example a support ticket or a session summary.
+         * @maxLength 65536
+         */
+      state: string;
+      /** The questions to ask, keyed by an id of your choice, at most 32 per request. Answers come back under the same ids. */
+      questions: DecideRequestQuestions;
+      /**
+         * The decision model to ask, as a gateway model id.
+         * @maxLength 200
+         */
+      model?: string;
+    }
+
+    /**
+     * For multiple choice and rating questions, the probability of each option.
+     * @nullable
+     */
+    export type DecisionAnswerProbabilities = {[key: string]: number} | null;
+
+    export interface DecisionAnswer {
+      /** The question type answered.
+       *
+       * * `noul` - Yes or no
+       * * `choice` - Multiple choice
+       * * `score` - Rating scale */
+      type: DecisionQuestionTypeEnum;
+      /**
+         * For a yes/no question, the probability of yes.
+         * @nullable
+         */
+      probability: number | null;
+      /**
+         * For a multiple choice question, the option chosen.
+         * @nullable
+         */
+      choice: string | null;
+      /**
+         * For a rating question, the expected rating.
+         * @nullable
+         */
+      score: number | null;
+      /**
+         * How far the chosen option stands out from the rest, from 0 (a coin flip) to 1.
+         * @nullable
+         */
+      confidence: number | null;
+      /**
+         * For multiple choice and rating questions, the probability of each option.
+         * @nullable
+         */
+      probabilities: DecisionAnswerProbabilities;
+    }
+
+    /**
+     * One answer per question, under the ids the request used.
+     */
+    export type DecideResponseAnswers = {[key: string]: DecisionAnswer};
+
+    export interface DecideResponse {
+      /** The model that answered, as the serving host names it. */
+      model: string;
+      /** One answer per question, under the ids the request used. */
+      answers: DecideResponseAnswers;
+      /** Tokens the model read, which is what the request is billed on. */
+      input_tokens: number;
+      /**
+         * Time the model spent answering, if reported.
+         * @nullable
+         */
+      latency_ms: number | null;
+    }
+
+    /**
      * * `rule` - rule
      * * `scope` - scope
      * * `team` - team
@@ -38950,7 +39216,7 @@ export namespace Schemas {
       series?: ExperimentApiEventSource[] | null;
       /** For mean metrics: event source. */
       source?: ExperimentApiEventSource | null;
-      /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event; start_handling and conversion window are ignored then. */
+      /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure. */
       start_event?: ExperimentApiRetentionStart | null;
       start_handling?: StartHandling | null;
       /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
@@ -46039,11 +46305,11 @@ export namespace Schemas {
       model: FileDownloadBatchExportOnDemandModelEnum;
       include?: string[];
       exclude?: string[];
-      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query?: string;
-      /** Start of the data interval to export */
+      /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
       data_interval_start?: string;
-      /** End of the data interval to export */
+      /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
       data_interval_end?: string;
     }
 
@@ -46065,8 +46331,12 @@ export namespace Schemas {
        *
        * * `hogql` - hogql */
       model: FileDownloadHogQLModelEnum;
-      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
+      /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
+      data_interval_start?: string;
+      /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
+      data_interval_end?: string;
     }
 
     /**
@@ -46074,7 +46344,7 @@ export namespace Schemas {
      */
     export interface FileDownloadCountRowsResponse {
       /**
-         * Number of rows the query returns now. A HogQL batch export runs its query as of the time the export starts, so a run started now would export this many rows.
+         * Number of rows the query returns with the supplied interval bounds. Data arriving between counting and exporting can change the result.
          * @minimum 0
          */
       count: number;
@@ -46136,6 +46406,19 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    export interface FileSystemHomeFolder {
+      /**
+         * The user's home folder ID, or null if deleted.
+         * @nullable
+         */
+      readonly id: string | null;
+      /**
+         * The current path of the user's home folder.
+         * @nullable
+         */
+      readonly path: string | null;
     }
 
     export interface FileSystemShortcut {
@@ -48124,10 +48407,10 @@ export namespace Schemas {
      * * `minute` - minute
      * * `hour` - hour
      */
-    export type PeriodEnum = typeof PeriodEnum[keyof typeof PeriodEnum];
+    export type HogFlowEmailSendingRateLimitPeriodEnum = typeof HogFlowEmailSendingRateLimitPeriodEnum[keyof typeof HogFlowEmailSendingRateLimitPeriodEnum];
 
 
-    export const PeriodEnum = {
+    export const HogFlowEmailSendingRateLimitPeriodEnum = {
       Minute: 'minute',
       Hour: 'hour',
     } as const;
@@ -48143,7 +48426,7 @@ export namespace Schemas {
        *
        * * `minute` - minute
        * * `hour` - hour */
-      period: PeriodEnum;
+      period: HogFlowEmailSendingRateLimitPeriodEnum;
     }
 
     /**
@@ -53578,6 +53861,35 @@ export namespace Schemas {
       readonly always_include: boolean;
     }
 
+    /**
+     * * `unknown` - Unknown
+     * * `safe` - Safe
+     * * `unsafe` - Unsafe
+     */
+    export type SafetyVerdictEnum = typeof SafetyVerdictEnum[keyof typeof SafetyVerdictEnum];
+
+
+    export const SafetyVerdictEnum = {
+      Unknown: 'unknown',
+      Safe: 'safe',
+      Unsafe: 'unsafe',
+    } as const;
+
+    export interface KnowledgeSourceDocument {
+      /** Document id. */
+      readonly id: string;
+      /** Fetched page URL after redirects. Empty for text and file documents. */
+      readonly url: string;
+      /** Page title extracted while indexing. Falls back to empty when the page had none. */
+      readonly title: string;
+      /** Content-safety verdict. Only `safe` documents are included in search. `unknown` is still waiting on classification.
+       *
+       * * `unknown` - Unknown
+       * * `safe` - Safe
+       * * `unsafe` - Unsafe */
+      readonly safety_verdict: SafetyVerdictEnum;
+    }
+
     export interface KustomerConversationSignalExtra {
       status: string | null;
       priority: string | null;
@@ -53701,6 +54013,18 @@ export namespace Schemas {
      */
     export type LLMPromptListConfig = { [key: string]: unknown } | null;
 
+    export interface LLMPromptResolvedReference {
+      /** Name of the referenced prompt that was spliced in. */
+      name: string;
+      /** Exact version whose content was spliced in. */
+      version: number;
+      /**
+         * Label the reference used, or null when it pinned a version directly.
+         * @nullable
+         */
+      label: string | null;
+    }
+
     export interface LLMPromptList {
       readonly id: string;
       /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
@@ -53734,6 +54058,8 @@ export namespace Schemas {
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
       readonly all_labels: readonly LLMPromptLabelSummary[];
+      /** @nullable */
+      readonly resolved_references: readonly LLMPromptResolvedReference[] | null;
     }
 
     /**
@@ -53741,18 +54067,6 @@ export namespace Schemas {
      * @nullable
      */
     export type LLMPromptPublicConfig = { [key: string]: unknown } | null;
-
-    export interface LLMPromptResolvedReference {
-      /** Name of the referenced prompt that was spliced in. */
-      name: string;
-      /** Exact version whose content was spliced in. */
-      version: number;
-      /**
-         * Label the reference used, or null when it pinned a version directly.
-         * @nullable
-         */
-      label: string | null;
-    }
 
     export interface LLMPromptPublic {
       id: string;
@@ -59454,6 +59768,95 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotebookRunCell {
+      /** Durable cell identity, the same id the cell run endpoints take. */
+      node_id: string;
+      /** Cell kind: 'sql' or 'python'. */
+      cell_type: string;
+      /** Name other cells reference this cell's result by; blank means display-only. */
+      dataframe_name: string;
+      /**
+         * This cell's run in the whole-notebook run; null until the run reaches the cell.
+         * @nullable
+         */
+      run_id?: string | null;
+      /**
+         * The cell's own state: 'running', 'done', 'failed', or 'interrupted'; null before it starts.
+         * @nullable
+         */
+      status?: string | null;
+      /**
+         * Why this cell failed, when it did.
+         * @nullable
+         */
+      error?: string | null;
+    }
+
+    export interface NotebookRunInterruptResponse {
+      /** True when this call stopped the run. False when it had already finished, which is not an error. */
+      interrupted: boolean;
+      /** The run's state after the call: 'done', 'failed', or 'interrupted'. */
+      status: string;
+    }
+
+    export interface NotebookRunStartRequest {
+      /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
+      variables?: NotebookVariable[];
+    }
+
+    export interface NotebookRunStartResponse {
+      /** Identifier of the whole-notebook run. Poll the run status endpoint with it until the status is terminal. */
+      run_id: string;
+      /** How many cells the run will execute, frozen when it started. */
+      cell_count: number;
+      /** True when this run has to provision a sandbox because it holds a Python cell and none is live for the caller. Tell the user what that costs. */
+      starts_sandbox: boolean;
+      /**
+         * What the sandbox this run provisions costs per hour in USD. Null when the run needs no new sandbox, or when the backend is not charged.
+         * @nullable
+         */
+      sandbox_hourly_price?: number | null;
+    }
+
+    export interface NotebookRunStatusResponse {
+      /** Identifier of the whole-notebook run. */
+      run_id: string;
+      /** Run state: 'running' (keep polling), or terminal — 'done', 'failed', or 'interrupted'. */
+      status: string;
+      /** Which surface started the run: 'ui' or 'mcp'. */
+      trigger: string;
+      /** The variable values this run bound, snapshotted when it started. */
+      variables: NotebookVariable[];
+      /** How many cells the run executes. */
+      cell_count: number;
+      /** Position in the plan the run has reached, counting from 0. */
+      current_index: number;
+      /**
+         * The cell the run is on; null once the plan is finished.
+         * @nullable
+         */
+      current_node_id?: string | null;
+      /**
+         * The cell that stopped the run, when one did.
+         * @nullable
+         */
+      failed_node_id?: string | null;
+      /**
+         * Why the run stopped, in one sentence a person can read.
+         * @nullable
+         */
+      error?: string | null;
+      /** Every planned cell in run order, with the state of its run in this notebook run. */
+      cells: NotebookRunCell[];
+      /** When the run started. */
+      created_at: string;
+      /**
+         * When the run reached a terminal state; null while running.
+         * @nullable
+         */
+      finished_at?: string | null;
+    }
+
     /**
      * Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the node-run metrics.
      */
@@ -60441,18 +60844,6 @@ export namespace Schemas {
       Number9: 9,
     } as const;
 
-    /**
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist
-     */
-    export type OrganizationDefaultExperimentStatsMethodEnum = typeof OrganizationDefaultExperimentStatsMethodEnum[keyof typeof OrganizationDefaultExperimentStatsMethodEnum];
-
-
-    export const OrganizationDefaultExperimentStatsMethodEnum = {
-      Bayesian: 'bayesian',
-      Frequentist: 'frequentist',
-    } as const;
-
     export interface Organization {
       readonly id: string;
       /** @maxLength 64 */
@@ -60517,11 +60908,6 @@ export namespace Schemas {
       readonly is_ai_training_cta_shown: boolean | null;
       /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
       readonly has_signed_baa: boolean;
-      /** Default statistical method for new experiments in this organization.
-       *
-       * * `bayesian` - Bayesian
-       * * `frequentist` - Frequentist */
-      default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnum | BlankEnum | null;
       /** Default setting for 'Discard client IP data' for new projects in this organization. */
       default_anonymize_ips?: boolean;
       /**
@@ -62347,6 +62733,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: KnowledgeGapSuggestion[];
+    }
+
+    export interface PaginatedKnowledgeSourceDocumentList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: KnowledgeSourceDocument[];
     }
 
     export interface PaginatedKnowledgeSourceList {
@@ -65122,7 +65517,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint.
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -65131,7 +65526,7 @@ export namespace Schemas {
       source_product: SignalSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
       config?: SignalSourceConfigConfig;
       readonly created_at: string;
       readonly updated_at: string;
@@ -68571,6 +68966,11 @@ export namespace Schemas {
       /** Display name of the insight monitored by this alert. */
       readonly insight_display_name?: string;
       /**
+         * Whether this alert can use the AI detector, judged for the person who created it, since scheduled checks run as the creator. Only computed when retrieving a single alert; null elsewhere.
+         * @nullable
+         */
+      readonly llm_detector_available?: boolean | null;
+      /**
          * Human-readable name for the alert.
          * @maxLength 255
          */
@@ -68823,7 +69223,7 @@ export namespace Schemas {
     export interface PatchedBatchExportRequest {
       /** Human-readable name for the batch export. */
       name?: string;
-      /** Which data model to export (events, persons, sessions).
+      /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
        *
        * * `events` - Events
        * * `persons` - Persons
@@ -68842,8 +69242,11 @@ export namespace Schemas {
       interval?: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
-      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-      hogql_query?: string;
+      /**
+         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+         * @nullable
+         */
+      hogql_query?: string | null;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
@@ -73086,11 +73489,6 @@ export namespace Schemas {
       readonly is_ai_training_cta_shown?: boolean | null;
       /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
       readonly has_signed_baa?: boolean;
-      /** Default statistical method for new experiments in this organization.
-       *
-       * * `bayesian` - Bayesian
-       * * `frequentist` - Frequentist */
-      default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnum | BlankEnum | null;
       /** Default setting for 'Discard client IP data' for new projects in this organization. */
       default_anonymize_ips?: boolean;
       /**
@@ -75160,7 +75558,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint.
      */
     export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -75169,7 +75567,7 @@ export namespace Schemas {
       source_product?: SignalSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
       config?: PatchedSignalSourceConfigConfig;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -76199,6 +76597,7 @@ export namespace Schemas {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
+     * * `space_setup` - Space Setup
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -76225,6 +76624,7 @@ export namespace Schemas {
       SignalsChat: 'signals_chat',
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
+      SpaceSetup: 'space_setup',
     } as const;
 
     /**
@@ -76281,7 +76681,8 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
-       * * `workflow` - Workflow */
+       * * `workflow` - Workflow
+       * * `space_setup` - Space Setup */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -86350,6 +86751,38 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `announced` - announced
+     * * `retired` - retired
+     */
+    export type ScoutDeprecationPhaseEnum = typeof ScoutDeprecationPhaseEnum[keyof typeof ScoutDeprecationPhaseEnum];
+
+
+    export const ScoutDeprecationPhaseEnum = {
+      Announced: 'announced',
+      Retired: 'retired',
+    } as const;
+
+    /**
+     * What PostHog has said about retiring this scout, for the chip and the banner to render.
+     */
+    export interface ScoutDeprecation {
+      /** How far the retirement has got: `announced` while the scout still runs, `retired` once its sunset has passed. A retired scout is paused and does not run again.
+       *
+       * * `announced` - announced
+       * * `retired` - retired */
+      phase: ScoutDeprecationPhaseEnum;
+      /** Why PostHog is retiring the scout, written to be shown to a person as-is. */
+      reason: string;
+      /** Skill name of the scout that takes over, or blank when nothing replaces it. */
+      superseded_by: string;
+      /**
+         * When the scout stops running. Null means the next fleet reconcile retires it.
+         * @nullable
+         */
+      sunset_at: string | null;
+    }
+
+    /**
      * * `active` - Active
      * * `pending_pause` - Pending pause
      * * `paused_by_system` - Paused by system
@@ -86369,6 +86802,7 @@ export namespace Schemas {
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
+     * * `retired` - Retired
      */
     export type SignalScoutConfigPauseReasonEnum = typeof SignalScoutConfigPauseReasonEnum[keyof typeof SignalScoutConfigPauseReasonEnum];
 
@@ -86377,6 +86811,7 @@ export namespace Schemas {
       NoOutput: 'no_output',
       Ignored: 'ignored',
       RepeatedFailures: 'repeated_failures',
+      Retired: 'retired',
     } as const;
 
     /**
@@ -86406,6 +86841,8 @@ export namespace Schemas {
       readonly scout_origin: ScoutOriginEnum;
       /** What this scout is to the harness: `specialist` for one that watches a product surface, or `operational` for one PostHog ships to watch the self-driving system itself. An operational scout is exempt from the inactivity sweep and from the enabled-scout cap, and is not a scout a project should delete. Always `specialist` for a custom scout. */
       readonly scout_role: ScoutRoleEnum;
+      /** Set when PostHog is retiring this scout, and null otherwise. Carries the phase, the reason to show, what replaces the scout, and when it stops running. Only a canonical scout the project has not edited is ever marked: a project's own copy keeps running and reads as null. */
+      readonly deprecation: ScoutDeprecation | null;
       /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
       readonly owners: readonly UserBasic[];
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
@@ -86421,7 +86858,8 @@ export namespace Schemas {
        *
        * * `no_output` - No output
        * * `ignored` - Ignored
-       * * `repeated_failures` - Repeated failures */
+       * * `repeated_failures` - Repeated failures
+       * * `retired` - Retired */
       readonly pause_reason: SignalScoutConfigPauseReasonEnum | null;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
       readonly emit: boolean;
@@ -86911,6 +87349,7 @@ export namespace Schemas {
      * * `stale` - Stale
      * * `failed` - Failed
      * * `empty` - Empty
+     * * `low_activity` - Low activity
      */
     export type SignalScoutSuggestionSetStatusEnum = typeof SignalScoutSuggestionSetStatusEnum[keyof typeof SignalScoutSuggestionSetStatusEnum];
 
@@ -86920,15 +87359,17 @@ export namespace Schemas {
       Stale: 'stale',
       Failed: 'failed',
       Empty: 'empty',
+      LowActivity: 'low_activity',
     } as const;
 
     export interface ScoutSuggestionSet {
-      /** `fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet.
+      /** `fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet. `low_activity`: the project was too quiet to scan, so nothing was generated.
        *
        * * `fresh` - Fresh
        * * `stale` - Stale
        * * `failed` - Failed
-       * * `empty` - Empty */
+       * * `empty` - Empty
+       * * `low_activity` - Low activity */
       status: SignalScoutSuggestionSetStatusEnum;
       /**
          * When the current batch was generated; null before the first run.
@@ -87416,6 +87857,48 @@ export namespace Schemas {
     }
 
     /**
+     * Single entry in a PUT body for a `suggested_reviewers` artefact.
+     *
+     * Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A
+     * `user_uuid` only has to name an org member on this team — a member with no linked GitHub
+     * account is stored by uuid and routes like any other reviewer.
+     */
+    export interface SuggestedReviewerEntryWrite {
+      /**
+         * GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.
+         * @maxLength 200
+         */
+      github_login?: string;
+      /** PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins. */
+      user_uuid?: string;
+      /**
+         * Optional human-readable display name. Not backfilled from GitHub by the server.
+         * @maxLength 200
+         */
+      github_name?: string;
+      /**
+         * Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.
+         * @maxLength 500
+         * @nullable
+         */
+      reason?: string | null;
+    }
+
+    /**
+     * PUT body for replacing a `suggested_reviewers` artefact's content.
+     *
+     * Only `suggested_reviewers` artefacts may be modified via this endpoint;
+     * the viewset enforces the type check before validation runs.
+     */
+    export interface SignalReportArtefactWrite {
+      /**
+         * Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.
+         * @maxItems 10
+         */
+      content: SuggestedReviewerEntryWrite[];
+    }
+
+    /**
      * Response shape for the log-artefact create/update endpoints — echoes the stored row.
      */
     export interface SignalReportArtefactWriteResponse {
@@ -87548,6 +88031,31 @@ export namespace Schemas {
       pr_url?: string;
       /** Release ownership while preserving any attached pull request. */
       release?: boolean;
+    }
+
+    /**
+     * * `deletion_started` - deletion_started
+     * * `already_running` - already_running
+     */
+    export type SignalReportDeletionStatusStatusEnum = typeof SignalReportDeletionStatusStatusEnum[keyof typeof SignalReportDeletionStatusStatusEnum];
+
+
+    export const SignalReportDeletionStatusStatusEnum = {
+      DeletionStarted: 'deletion_started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Envelope the report delete returns once it has kicked off the deletion workflow.
+     */
+    export interface SignalReportDeletionStatus {
+      /** Whether this request started the deletion or found one already running.
+       *
+       * * `deletion_started` - deletion_started
+       * * `already_running` - already_running */
+      status: SignalReportDeletionStatusStatusEnum;
+      /** Report being deleted. */
+      report_id: string;
     }
 
     export interface SignalReportFeedbackRequest {
@@ -87683,6 +88191,31 @@ export namespace Schemas {
       quota_limited: boolean;
     }
 
+    /**
+     * * `reingestion_started` - reingestion_started
+     * * `already_running` - already_running
+     */
+    export type SignalReportReingestionStatusStatusEnum = typeof SignalReportReingestionStatusStatusEnum[keyof typeof SignalReportReingestionStatusStatusEnum];
+
+
+    export const SignalReportReingestionStatusStatusEnum = {
+      ReingestionStarted: 'reingestion_started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Envelope the reingest action returns once it has kicked off the re-ingestion workflow.
+     */
+    export interface SignalReportReingestionStatus {
+      /** Whether this request started the re-ingestion or found one already running.
+       *
+       * * `reingestion_started` - reingestion_started
+       * * `already_running` - already_running */
+      status: SignalReportReingestionStatusStatusEnum;
+      /** Report being re-ingested. */
+      report_id: string;
+    }
+
     export interface SignalReportStateRequest {
       /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
        *
@@ -87719,6 +88252,118 @@ export namespace Schemas {
          * @maximum 100000
          */
       snooze_for?: number;
+    }
+
+    /**
+     * * `suggested_reviewers` - suggested_reviewers
+     */
+    export type SignalReportSuggestedReviewersArtefactTypeEnum = typeof SignalReportSuggestedReviewersArtefactTypeEnum[keyof typeof SignalReportSuggestedReviewersArtefactTypeEnum];
+
+
+    export const SignalReportSuggestedReviewersArtefactTypeEnum = {
+      SuggestedReviewers: 'suggested_reviewers',
+    } as const;
+
+    /**
+     * Commit evidence behind a suggested reviewer.
+     */
+    export interface SuggestedReviewerCommit {
+      /** Commit SHA. */
+      sha: string;
+      /** Link to the commit. */
+      url: string;
+      /** Why the commit makes this reviewer relevant. */
+      reason: string;
+    }
+
+    /**
+     * One reviewer as the read path returns it: the stored entry plus read-time enrichment.
+     *
+     * `source_label`, `explanation` and `user` are computed on read, not stored, so a caller cannot
+     * write them.
+     */
+    export interface SuggestedReviewerEntryRead {
+      /**
+         * GitHub login, lowercased. Null when the reviewer has no linked account.
+         * @nullable
+         */
+      github_login: string | null;
+      /**
+         * PostHog user this entry routes to. Null on entries written before reviewers had one.
+         * @nullable
+         */
+      user_uuid: string | null;
+      /**
+         * Display name, when the writer supplied one.
+         * @nullable
+         */
+      github_name: string | null;
+      /** Commits attributed to this reviewer. Empty when the pick came from elsewhere. */
+      relevant_commits: SuggestedReviewerCommit[];
+      /**
+         * Why this reviewer was chosen.
+         * @nullable
+         */
+      reason: string | null;
+      /** True when the scout owner guardrail added the entry rather than commit authorship. */
+      is_skill_owner: boolean;
+      /**
+         * Scout skill whose run wrote the entry. Null when no scout did.
+         * @nullable
+         */
+      source_skill: string | null;
+      /** Where the suggestion came from, for display. */
+      source_label: string;
+      /**
+         * One line of evidence for display. Null when there is none to show.
+         * @nullable
+         */
+      explanation: string | null;
+      /** Resolved org member. Null when the entry resolves to nobody. */
+      user: _User | null;
+    }
+
+    /**
+     * The artefact, for a path that only ever returns a `suggested_reviewers` one.
+     *
+     * `content` is polymorphic on the base serializer, so a generated client types it as unknown.
+     * Here the type is fixed, so the entry shape can be declared. Runtime output is unchanged —
+     * `get_content` delegates to the base.
+     */
+    export interface SignalReportSuggestedReviewersArtefact {
+      /**
+         * Work claim that produced this artefact.
+         * @nullable
+         */
+      readonly claim_id: string | null;
+      /**
+         * Shared PR record linked by this artefact.
+         * @nullable
+         */
+      readonly pull_request_id: string | null;
+      readonly id: string;
+      /** Always `suggested_reviewers` on this path.
+       *
+       * * `suggested_reviewers` - suggested_reviewers */
+      readonly type: SignalReportSuggestedReviewersArtefactTypeEnum;
+      readonly content: readonly SuggestedReviewerEntryRead[];
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** Actor kind. Legacy rows without attribution are returned as system. */
+      readonly actor_kind: SignalActorKindEnum;
+      /**
+         * MCP client name when an external agent produced the artefact.
+         * @nullable
+         */
+      readonly actor_agent: string | null;
+      /** Authenticated user principal for user or external agent writes. Null for internal task and system writes. */
+      readonly created_by: _User | null;
+      /**
+         * Internal task the artefact is attributed to. Null for user, external agent, and system writes.
+         * @nullable
+         */
+      readonly task_id: string | null;
     }
 
     /**
@@ -88106,6 +88751,69 @@ export namespace Schemas {
       edited_report_ids: string[];
       /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunSummaryMetadata;
+    }
+
+    /**
+     * Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch.
+     */
+    export type SignalTeamConfigAutostartBaseBranches = {[key: string]: string};
+
+    /**
+     * Where in the tracker the issues land. Required keys depend on the integration kind: github -> {repository}; linear -> {team_id}; jira -> {project_key}; gitlab needs none, because its integration is already bound to one project. An optional 'label' is applied to created GitHub issues.
+     */
+    export type SignalTeamConfigIssueTrackingConfig = {[key: string]: string};
+
+    export interface SignalTeamConfig {
+      readonly id: string;
+      /**
+         * Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set false to opt out, so actionable reports still generate and notify but the team never auto-starts an implementation task or opens a PR — reviewers open PRs manually.
+         * @nullable
+         */
+      autostart_enabled?: boolean | null;
+      default_autostart_priority?: AutonomyPriorityEnum;
+      /**
+         * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
+         * @maxLength 255
+         * @nullable
+         */
+      default_slack_notification_channel?: string | null;
+      /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
+      autostart_base_branches?: SignalTeamConfigAutostartBaseBranches;
+      /**
+         * Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.
+         * @nullable
+         */
+      issue_tracking_integration?: number | null;
+      /** Where in the tracker the issues land. Required keys depend on the integration kind: github -> {repository}; linear -> {team_id}; jira -> {project_key}; gitlab needs none, because its integration is already bound to one project. An optional 'label' is applied to created GitHub issues. */
+      issue_tracking_config?: SignalTeamConfigIssueTrackingConfig;
+      /**
+         * Daily cap on new reports surfacing to the inbox, counted per calendar day in the project's timezone. Once reached, signal ingestion, scout runs, and report research pause until local midnight. Null means unlimited.
+         * @minimum 1
+         * @maximum 2147483647
+         * @nullable
+         */
+      max_reports_per_day?: number | null;
+      /** Whether self-driving pull requests open ready for review instead of draft, so the full CI matrix starts when the pull request is created. False by default. A reviewer's own github_open_pull_request_ready overrides this for reports that suggest them as reviewer. */
+      default_open_pull_request_ready?: boolean;
+      /** Whether self-driving comments back on a GitHub issue that raised a report, linking to the report so everybody watching the issue knows it is being researched. The comment is public on the issue thread and carries a link only, never report content. False by default. Needs a GitHub integration that can reach the issue's repository. */
+      github_issue_writeback_enabled?: boolean;
+      /** Whether self-driving adds a label to every pull request it opens, so GitHub search, saved searches, and notification rules can separate them from other automation on the repository. False by default. Needs a GitHub integration that can reach the repository. */
+      pull_request_label_enabled?: boolean;
+      /**
+         * The label name self-driving applies, at most 50 characters. Null or blank means 'self-driving'. The label is created in the repository when it does not exist yet. Only used while pull_request_label_enabled is true.
+         * @maxLength 50
+         * @nullable
+         */
+      pull_request_label?: string | null;
+      /**
+         * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
+         * @minimum 0
+         */
+      readonly reports_generated_today: number;
+      /** Whether the team hit its daily report limit, pausing new report generation until local midnight. Always false when max_reports_per_day is null. */
+      readonly daily_report_limit_reached: boolean;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface SignalUserAutonomyConfig {
@@ -92791,6 +93499,13 @@ export namespace Schemas {
     }
 
     /**
+     * The setup task that was started for the channel.
+     */
+    export interface SpaceSetupStartedDTO {
+      task_id: string;
+    }
+
+    /**
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -94660,7 +95375,8 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
-       * * `workflow` - Workflow */
+       * * `workflow` - Workflow
+       * * `space_setup` - Space Setup */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -96249,7 +96965,8 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
-       * * `workflow` - Workflow */
+       * * `workflow` - Workflow
+       * * `space_setup` - Space Setup */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -104115,6 +104832,10 @@ export namespace Schemas {
 
     export type BusinessKnowledgeSourcesListParams = {
     /**
+     * Filter by who added the source: human (you added it) or learned (from a resolved support ticket).
+     */
+    added_by?: BusinessKnowledgeSourcesListAddedBy;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -104132,6 +104853,14 @@ export namespace Schemas {
     source_type?: BusinessKnowledgeSourcesListSourceType;
     };
 
+    export type BusinessKnowledgeSourcesListAddedBy = typeof BusinessKnowledgeSourcesListAddedBy[keyof typeof BusinessKnowledgeSourcesListAddedBy];
+
+
+    export const BusinessKnowledgeSourcesListAddedBy = {
+      Human: 'human',
+      Learned: 'learned',
+    } as const;
+
     export type BusinessKnowledgeSourcesListSourceType = typeof BusinessKnowledgeSourcesListSourceType[keyof typeof BusinessKnowledgeSourcesListSourceType];
 
 
@@ -104140,6 +104869,17 @@ export namespace Schemas {
       Text: 'text',
       Url: 'url',
     } as const;
+
+    export type BusinessKnowledgeSourcesDocumentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type BusinessKnowledgeSourcesTextRetrieve200 = {
       text?: string;
@@ -110025,6 +110765,10 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled results with full content. Set to false to get the raw text with the reference tags.
+     */
+    resolve?: boolean;
+    /**
      * Optional substring filter applied to prompt names and prompt content.
      */
     search?: string;
@@ -110673,6 +111417,10 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean;
+    /**
      * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
      * @minimum 1
      * @maximum 500
@@ -110687,6 +111435,10 @@ export namespace Schemas {
      * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
      */
     order_by?: string;
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string;
     /**
      * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
      */
@@ -110706,6 +111458,10 @@ export namespace Schemas {
      */
     date_from?: string;
     /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean;
+    /**
      * Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected.
      * @minimum 1
      * @maximum 500
@@ -110716,6 +111472,21 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string;
+    };
+
+    export type McpAnalyticsSessionsActivityOverviewParams = {
+    /**
+     * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
+     */
+    filter_test_accounts?: boolean;
+    /**
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     */
+    properties?: string;
     };
 
     export type McpGatewayAuditListParams = {
@@ -112228,6 +112999,20 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SignalsReportsAvailableReviewersRetrieveParams = {
+    /**
+     * Case-insensitive filter on name or email.
+     */
+    query?: string;
+    };
+
+    export type SignalsReportsAvailableReviewersRetrieve200 = {[key: string]: {
+      /** Member's full name. */
+      name: string;
+      /** Member's email address. */
+      email: string;
+    }};
+
     export type SignalsReportsPrCiStatusesParams = {
     /**
      * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
@@ -112964,6 +113749,7 @@ export namespace Schemas {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
+     * * `space_setup` - Space Setup
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -113106,6 +113892,7 @@ export namespace Schemas {
       SignalsChat: 'signals_chat',
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
+      SpaceSetup: 'space_setup',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];

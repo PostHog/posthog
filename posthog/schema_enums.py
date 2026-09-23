@@ -1064,6 +1064,7 @@ class DetectorType(StrEnum):
     LOF = "lof"
     OCSVM = "ocsvm"
     PCA = "pca"
+    LLM = "llm"
 
 
 class DistanceFunc(StrEnum):
