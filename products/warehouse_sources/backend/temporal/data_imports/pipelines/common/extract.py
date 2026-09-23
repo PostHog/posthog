@@ -363,6 +363,7 @@ async def persist_primary_keys(
     logger: FilteringBoundLogger,
 ) -> None:
     await _persist_detected_primary_keys(schema, resource, is_incremental, logger)
+    await _persist_reported_primary_keys(schema, resource, logger)
     await persist_verified_primary_keys(schema, resource, logger)
 
 
@@ -410,6 +411,23 @@ async def _persist_detected_primary_keys(
         await logger.aexception("Failed to persist detected primary keys into sync_type_config")
 
 
+async def _persist_reported_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Record the key the source reported, so the sync settings form can show it before a merge
+    key is stored.
+
+    Kept out of `primary_key_columns`: a stored merge key overrides the source's own key and locks
+    once data syncs, and a full refresh run must do neither. Best-effort, like the write above.
+    """
+    reported = resource.primary_keys
+    if not reported or schema.primary_key_columns or list(reported) == list(schema.reported_primary_keys or []):
+        return
+    await _update_sync_type_config(schema, "reported_primary_keys", list(reported), logger)
+
+
 async def persist_verified_primary_keys(
     schema: "ExternalDataSchema",
     resource: SourceResponse,
@@ -422,7 +440,12 @@ async def persist_verified_primary_keys(
     verified = resource.verified_primary_keys
     if not verified or list(verified) == list(schema.verified_primary_keys or []):
         return
+    await _update_sync_type_config(schema, "verified_primary_keys", list(verified), logger)
 
+
+async def _update_sync_type_config(
+    schema: "ExternalDataSchema", key: str, value: list[str], logger: FilteringBoundLogger
+) -> None:
     from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
         update_sync_type_config_keys,
     )
@@ -431,11 +454,11 @@ async def persist_verified_primary_keys(
         config = await database_sync_to_async_pool(update_sync_type_config_keys)(
             schema.id,
             schema.team_id,
-            updates={"verified_primary_keys": list(verified)},
+            updates={key: value},
         )
         schema.sync_type_config = config
     except Exception:
-        await logger.aexception("Failed to persist verified primary keys into sync_type_config")
+        await logger.aexception("Failed to persist a key into sync_type_config", key=key)
 
 
 def validate_incremental_sync(
