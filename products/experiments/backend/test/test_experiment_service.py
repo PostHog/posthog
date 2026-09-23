@@ -5615,6 +5615,7 @@ class TestExperimentService(APIBaseTest):
             service.update_experiment(experiment, update_data)
         self.assertIn("legacy metric formats", str(cm.exception))
         self.assertIn(f"Cannot update: {expected_field_in_error}", str(cm.exception))
+        self.assertIn(f"/experiments/{experiment.id}/migrate", str(cm.exception))
 
     @parameterized.expand(
         [

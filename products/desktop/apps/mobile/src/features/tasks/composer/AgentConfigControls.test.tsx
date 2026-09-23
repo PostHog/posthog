@@ -58,7 +58,7 @@ const ladderModelOption: CloudTaskConfigOption = {
   currentValue: "claude-sonnet-5",
   options: [
     { value: "claude-sonnet-5", name: "Claude Sonnet 5" },
-    { value: "claude-opus-5", name: "Claude Opus 5" },
+    { value: "claude-opus-5-5", name: "Claude Opus 5.5" },
     { value: "claude-fable-5-1", name: "Claude Fable 5.1" },
   ],
   category: "model",
@@ -78,8 +78,8 @@ const modelGroups: CloudTaskConfigSelectGroup[] = [
         _meta: { [HARNESS_META]: "claude" },
       },
       {
-        value: "claude-opus-5",
-        name: "Claude Opus 5",
+        value: "claude-opus-5-5",
+        name: "Claude Opus 5.5",
         _meta: { [HARNESS_META]: "claude" },
       },
       {
@@ -161,11 +161,11 @@ describe("AgentConfigControls", () => {
     act(() =>
       findPressableWithText(
         renderer,
-        "Claude Opus 5 · Extra High",
+        "Claude Opus 5.5 · Extra High",
       ).props.onPress(),
     );
 
-    expect(props.onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(props.onModelChange).toHaveBeenCalledWith("claude-opus-5-5");
     expect(props.onReasoningChange).toHaveBeenCalledWith("xhigh");
   });
 
@@ -202,9 +202,11 @@ describe("AgentConfigControls", () => {
       ).props.onPress(),
     );
     act(() => findPressableWithText(renderer, "Advanced").props.onPress());
-    act(() => findPressableWithText(renderer, "Claude Opus 5").props.onPress());
+    act(() =>
+      findPressableWithText(renderer, "Claude Opus 5.5").props.onPress(),
+    );
 
-    expect(props.onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(props.onModelChange).toHaveBeenCalledWith("claude-opus-5-5");
     expect(props.onAdapterChange).not.toHaveBeenCalled();
   });
 
@@ -222,17 +224,20 @@ describe("AgentConfigControls", () => {
 
     expect(() => findPressableWithText(renderer, "GPT-5.6 Sol")).toThrow();
     expect(() =>
-      findPressableWithText(renderer, "Claude Opus 5"),
+      findPressableWithText(renderer, "Claude Opus 5.5"),
     ).not.toThrow();
   });
 
   it("only surfaces the fast mode toggle when the flag is on and the model supports it", () => {
     flagState.fastMode = true;
-    const props = { ...baseProps(), model: "claude-opus-5" };
+    const props = { ...baseProps(), model: "claude-opus-5-5" };
     const renderer = render(props);
 
     act(() =>
-      findPressableWithText(renderer, "Claude Opus 5 · Medium").props.onPress(),
+      findPressableWithText(
+        renderer,
+        "Claude Opus 5.5 · Medium",
+      ).props.onPress(),
     );
     expect(() => renderer.root.findByType("Lightning" as never)).not.toThrow();
 
