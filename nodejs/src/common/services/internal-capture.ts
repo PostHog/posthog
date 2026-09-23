@@ -24,11 +24,16 @@ export class InternalCaptureError extends Error {
     }
 }
 
+// undici throws an AggregateError when every address for a host fails. Its own message is empty,
+// so the per-address reasons in `errors` are what carry the meaning.
+function causesOf(error: unknown): unknown[] {
+    return error instanceof AggregateError && error.errors.length > 0 ? error.errors : [error]
+}
+
 function describeCause(cause: unknown): string {
-    if (cause instanceof AggregateError && cause.errors.length > 0) {
-        return cause.errors.map((e) => (e instanceof Error ? e.message : String(e))).join('; ')
-    }
-    return cause instanceof Error ? cause.message : String(cause)
+    return causesOf(cause)
+        .map((e) => (e instanceof Error ? e.message : String(e)))
+        .join('; ')
 }
 
 const REMOTE_ORIGIN_CODES = new Set([
@@ -50,18 +55,12 @@ const REMOTE_ORIGIN_CODES = new Set([
 
 // True when the write failed on the network or beyond it, which no caller can act on.
 export function isRemoteOriginError(error: unknown): boolean {
-    if (error instanceof InternalCaptureError) {
-        return isRemoteOriginError(error.cause)
-    }
-    if (error instanceof AggregateError && error.errors.length > 0) {
-        return error.errors.every((e) => isRemoteOriginError(e))
-    }
-    const candidate = error as { name?: string; code?: string } | null | undefined
-    if (!candidate) {
-        return false
-    }
-    // AbortSignal.timeout aborts with a DOMException named TimeoutError.
-    return candidate.name === 'TimeoutError' || REMOTE_ORIGIN_CODES.has(candidate.code ?? '')
+    const raw = error instanceof InternalCaptureError ? error.cause : error
+    return causesOf(raw).every((cause) => {
+        const candidate = cause as { name?: string; code?: string } | null | undefined
+        // AbortSignal.timeout aborts with a DOMException named TimeoutError.
+        return candidate?.name === 'TimeoutError' || REMOTE_ORIGIN_CODES.has(candidate?.code ?? '')
+    })
 }
 
 export type InternalCaptureEvent = {

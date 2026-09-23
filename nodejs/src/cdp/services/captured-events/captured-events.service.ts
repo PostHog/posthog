@@ -100,9 +100,8 @@ export class CapturedEventsService {
             return
         }
 
-        // capture() logs and counts every failure. A batch holds thousands of events and one slow
-        // window fails all of them, so the flush reports at most one exception and drops the
-        // remote-origin failures that no caller can act on.
+        // One slow window on the capture endpoint fails a whole batch of thousands, so the flush
+        // reports at most one exception. capture() has already logged and counted each failure.
         let unexpectedFailure: unknown
         let unexpectedFailures = 0
 
@@ -112,7 +111,7 @@ export class CapturedEventsService {
                     if (isRemoteOriginError(error)) {
                         return
                     }
-                    unexpectedFailure ??= error
+                    unexpectedFailure = error
                     unexpectedFailures++
                 })
             )
