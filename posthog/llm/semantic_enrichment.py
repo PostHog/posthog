@@ -21,6 +21,8 @@ from typing import Any
 from django.utils import timezone
 
 import posthoganalytics
+from anthropic import APIStatusError as AnthropicAPIStatusError
+from openai import APIStatusError as OpenAIAPIStatusError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -128,6 +130,15 @@ def get_team_business_context(team: Team) -> str:
 
     core_memory = CoreMemory.objects.filter(team=team).first()
     return (core_memory.text or "").strip() if core_memory else ""
+
+
+class TransientGatewayError(RuntimeError):
+    """The gateway answered the call with a 5xx, so the failure is upstream and passes on its own.
+
+    A distinct type so a caller can keep such a failure in its logs and its analytics without
+    reporting it to error tracking: the SDK has already retried, the run recovers on its next
+    trigger, and one gateway blip otherwise files an issue for every consumer of this core.
+    """
 
 
 class TruncatedCompletionError(ValueError):
@@ -256,13 +267,21 @@ def generate_json_completion(
 
     `client` lets a caller inject an already-resolved enrichment client (the warehouse path does this
     so its existing test seam keeps working); when omitted we resolve one for `product`/`team_id`.
-    Raises `TruncatedCompletionError` when the reply was cut off by the output ceiling.
+    Raises `TruncatedCompletionError` when the reply was cut off by the output ceiling, and
+    `TransientGatewayError` when the gateway answered the call with a 5xx.
     """
     if client is None:
         client = build_enrichment_client(product, team_id)
-    completion = client.complete(
-        model=model, prompt=prompt, temperature=temperature, team_id=team_id, max_output_tokens=max_output_tokens
-    )
+    try:
+        completion = client.complete(
+            model=model, prompt=prompt, temperature=temperature, team_id=team_id, max_output_tokens=max_output_tokens
+        )
+    except (AnthropicAPIStatusError, OpenAIAPIStatusError) as e:
+        # Both request shapes reach a gateway that can answer 5xx, so both legs are classified here
+        # rather than in each consumer. A 4xx is ours to fix, so it keeps the ordinary path.
+        if e.status_code >= 500:
+            raise TransientGatewayError(f"gateway answered {e.status_code} for the enrichment call") from e
+        raise
     if completion.truncated:
         # Terminal even when the fragment parses: the view consumer stores its enrichment hash on
         # any non-exception return, so a partial column set latches and no later run retries.

@@ -8,7 +8,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS
+from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, TransientGatewayError
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
@@ -237,6 +237,27 @@ class TestEnrichViewSemanticsSync:
         assert result["status"] == "partial"
         assert result["error"] == "llm_failed"
         assert result["ai_annotations"] > 0, "the first batch's columns are already persisted"
+        sq.refresh_from_db()
+        assert not sq.semantic_enrichment_hash
+
+    def test_a_transient_gateway_failure_stays_out_of_error_tracking(self):
+        # A gateway 5xx recovers on its own and the failed run withholds the hash, so the next
+        # materialization enriches again. The log line still records it.
+        team = _team()
+        sq = _saved_query(team, columns=_columns("amount"))
+
+        with (
+            patch.object(enrich, "get_team_business_context", return_value=""),
+            patch.object(enrich, "_gather_lineage", return_value=[]),
+            patch.object(enrich, "_get_row_sample", return_value=[]),
+            patch.object(enrich, "generate_json_completion", side_effect=TransientGatewayError("gateway answered 502")),
+            patch.object(enrich, "capture_exception") as mock_capture,
+        ):
+            result = enrich_view_semantics_sync(team.pk, str(sq.id))
+
+        mock_capture.assert_not_called()
+        assert result["status"] == "partial"
+        assert result["error"] == "llm_failed"
         sq.refresh_from_db()
         assert not sq.semantic_enrichment_hash
 

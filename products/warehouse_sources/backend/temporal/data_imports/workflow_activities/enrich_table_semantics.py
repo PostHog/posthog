@@ -34,6 +34,7 @@ from posthog.llm.semantic_enrichment import (
     MAX_COLUMNS_PER_TABLE,
     MAX_PROMPT_CHARS,
     BoundedPrompt,
+    TransientGatewayError,
     bound_prompt_over_columns,
     build_enrichment_client,
     capture_enrichment_event,
@@ -453,7 +454,11 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             "error": "llm_gateway_not_configured",
         }
     except Exception as e:
-        capture_exception(e)
+        # A gateway 5xx is upstream and passes on its own: the SDK has already retried, and the
+        # columns this pass left undescribed carry no annotation, so the next sync asks again. The
+        # log line and the events below still record it, so a sustained outage stays visible.
+        if not isinstance(e, TransientGatewayError):
+            capture_exception(e)
         log.error(
             "warehouse_enrichment.llm_failed",
             error=str(e),
