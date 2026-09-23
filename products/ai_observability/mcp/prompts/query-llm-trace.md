@@ -84,17 +84,15 @@ If the trace is old, provide a date range to help the query find it efficiently:
 `detail` controls how much of each event you get back.
 
 - `"full"` (default) returns every retained property in full, bounded by the response size limit below.
-- `"summary"` opts into trace fields, plus each event's `id`, `createdAt`, `event` type, and its navigation properties: `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_model`, `$ai_provider`, `$ai_latency`, token counts, costs, `$ai_tools_called`, `$ai_is_error`, `$ai_error`, `$ai_http_status`, `$ai_metric_name`, `$ai_metric_value`, and `$ai_feedback_text`. Prompts, outputs, span states, and `inputState` / `outputState` are left out, not shortened: their names are listed under `_summaryOmittedKeys`. A summarized trace carries `_detail: { "mode": "summary" }`.
+- `"summary"` opts into trace fields, plus each event's `id`, `createdAt`, `event` type, and its navigation properties: `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_model`, `$ai_provider`, `$ai_latency`, token counts, costs, `$ai_tools_called`, `$ai_is_error`, `$ai_error`, `$ai_http_status`, `$ai_metric_name`, `$ai_metric_value`, and `$ai_feedback_text`. Prompts, outputs, span states, and `inputState` / `outputState` are left out, not shortened: their names are listed in `_summaryOmittedKeys` beside the bag. A summarized trace carries `_detail: { "mode": "summary" }`.
 
 For a cost or latency survey, request `detail: "summary"` — it carries no conversation content at all. Find the events that matter from their metadata, then re-run with `detail: "full"` when you need the prompts and outputs. Keep relevant date and property filters when requesting full detail.
 
 # Withheld properties
 
-A trace response carries the AI payload of each event and nothing else. Only `$ai_*` properties PostHog's taxonomy defines, plus `$session_id`, `$lib`, and `$lib_version`, reach you. Every other property of an event, and every person property, is withheld whichever `detail` you ask for, and its name is listed under `properties._redactedKeys`. The bag is caller-controlled, so it routinely carries credentials, session handles, request headers, user identity, permissions, and budget context next to the prompt.
+Only `$ai_*` properties PostHog's taxonomy defines, plus `$session_id`, `$lib`, and `$lib_version`, reach you. Every other event property, and every person property, is withheld whichever `detail` you ask for, and its name is listed in `_redactedKeys` beside the bag. `$ai_base_url` and `$ai_request_url` arrive without their query string.
 
-`$ai_base_url` and `$ai_request_url` arrive without their query string, which is where an API key usually sits.
-
-A withheld property is unchanged in PostHog: it still works as a filter on this tool, and you can read its value in the PostHog UI or with `execute-sql`.
+A withheld property is unchanged in PostHog: it still works as a filter here, and you can read its value in the PostHog UI or with `execute-sql`.
 
 # Response size
 

@@ -496,7 +496,7 @@ describe('createQueryWrapper trace redaction and compaction', () => {
         const serialized = JSON.stringify(result)
         expect(serialized).not.toContain(secret)
         expect(serialized).not.toContain('invented@example.com')
-        expect(result.results[0].events[0].properties._redactedKeys).toEqual(['authorization_header'])
+        expect(result.results[0].events[0]._redactedKeys).toEqual(['authorization_header'])
     })
 
     it('never surfaces the formatted string, which the backend renders before redaction', async () => {

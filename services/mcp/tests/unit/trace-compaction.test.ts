@@ -159,7 +159,7 @@ describe('compactTrace summary detail', () => {
         expect(properties.$ai_input).toBeUndefined()
         expect(properties.$ai_output_choices).toBeUndefined()
         expect(properties.custom_payload).toBeUndefined()
-        expect(properties._summaryOmittedKeys).toEqual(['$ai_input', '$ai_output_choices', 'custom_payload'])
+        expect(result.events[0]._summaryOmittedKeys).toEqual(['$ai_input', '$ai_output_choices', 'custom_payload'])
         expect(result.events[0].createdAt).toBe('2026-09-02T11:30:23Z')
         expect(result.totalCost).toBe(0.42)
         expect(result._detail.mode).toBe('summary')
@@ -180,7 +180,7 @@ describe('compactTrace summary detail', () => {
         ) as any
 
         expect(JSON.stringify(result)).not.toContain('checkout funnel')
-        expect(result.events[0].properties._summaryOmittedKeys).toEqual(['$ai_input'])
+        expect(result.events[0]._summaryOmittedKeys).toEqual(['$ai_input'])
     })
 
     it('leaves out trace-level input and output state', () => {

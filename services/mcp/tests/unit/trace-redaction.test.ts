@@ -72,10 +72,10 @@ describe('trace redaction', () => {
     })
 
     it('withholds every non-AI property value and reports its name instead', () => {
-        const properties = (redactTrace(traceWithSecrets()) as any).events[0].properties
+        const event = (redactTrace(traceWithSecrets()) as any).events[0]
 
-        expect(secretsIn(properties)).toEqual([])
-        expect(properties._redactedKeys).toEqual([
+        expect(secretsIn(event)).toEqual([])
+        expect(event._redactedKeys).toEqual([
             'api_key',
             'auth',
             'request_headers',
@@ -94,7 +94,7 @@ describe('trace redaction', () => {
         expect(person.uuid).toBe('person-1')
         expect(person.distinct_id).toBe('distinct-1')
         expect(secretsIn(person)).toEqual([])
-        expect(person.properties._redactedKeys).toEqual(['email', '$geoip_city_name'])
+        expect(person._redactedKeys).toEqual(['email', '$geoip_city_name'])
     })
 
     it.each([
@@ -103,10 +103,10 @@ describe('trace redaction', () => {
     ])('withholds %s, which the namespace does not reserve', (_label, key) => {
         const trace = { id: 't1', events: [{ id: 'e1', properties: { [key]: SECRETS.credential } }] }
 
-        const properties = (redactTrace(trace) as any).events[0].properties
+        const event = (redactTrace(trace) as any).events[0]
 
-        expect(secretsIn(properties)).toEqual([])
-        expect(properties._redactedKeys).toEqual([key])
+        expect(secretsIn(event)).toEqual([])
+        expect(event._redactedKeys).toEqual([key])
     })
 
     it.each([
@@ -119,6 +119,12 @@ describe('trace redaction', () => {
 
         expect(secretsIn(properties)).toEqual([])
         expect(properties[key]).toContain('https://api.example.com/v1')
+    })
+
+    it('returns a bag that holds only retained properties unchanged', () => {
+        const trace = { id: 't1', events: [{ id: 'e1', properties: { $ai_model: 'gpt-4' } }] }
+
+        expect(redactTrace(trace)).toEqual(trace)
     })
 
     it('leaves a trace without a properties bag alone', () => {

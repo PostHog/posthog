@@ -20,6 +20,8 @@
  * trace in PostHog.
  */
 
+import { assignKey, isRecord } from '@/lib/plain-object'
+
 /** Longest single string value kept verbatim; longer values are truncated. */
 export const PER_VALUE_CHAR_LIMIT = 10_000
 
@@ -106,8 +108,12 @@ const SUMMARY_METADATA_PROPERTIES = new Set([
 /** Trace-level fields that carry conversation content rather than metadata. */
 const SUMMARY_OMITTED_TRACE_FIELDS = new Set(['inputState', 'outputState'])
 
-/** Names of the content fields a summary leaves out, reported in place of their values. */
-export const SUMMARY_OMITTED_KEYS_FIELD = '_summaryOmittedKeys'
+/**
+ * Names of the content fields a summary leaves out, reported in place of their
+ * values. It sits beside `properties` rather than inside it, so it cannot
+ * collide with a captured property of the same name.
+ */
+const SUMMARY_OMITTED_KEYS_FIELD = '_summaryOmittedKeys'
 
 const SUMMARY_NOTE =
     'Event content is omitted; only the names of the omitted properties are listed. Re-run this tool with detail: "full" for prompts and outputs, or open the trace in PostHog.'
@@ -118,10 +124,6 @@ function metaReserveFor(budget: number): number {
 
 function minItemBudgetFor(budget: number): number {
     return Math.min(MIN_ITEM_BUDGET, Math.floor(Math.max(0, budget) * SMALL_BUDGET_MIN_ITEM_RATIO))
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function serializedLength(value: unknown): number {
@@ -141,21 +143,6 @@ function serializedLength(value: unknown): number {
  */
 function encodedStringLength(value: string): number {
     return JSON.stringify(value).length
-}
-
-/**
- * Assign a key without triggering the inherited `__proto__` setter. Trace
- * payloads are arbitrary parsed JSON and can legitimately carry an own
- * `__proto__` key (e.g. a tool payload being debugged); a plain `out[key] = v`
- * would set the clone's prototype instead of creating an own property and drop
- * the value from serialization.
- */
-export function assignKey(target: Record<string, unknown>, key: string, value: unknown): void {
-    if (key === '__proto__') {
-        Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true })
-    } else {
-        target[key] = value
-    }
 }
 
 function truncateString(value: string, budget: number): string {
@@ -280,26 +267,24 @@ function summarizeEvent(event: unknown): unknown {
         return event
     }
     const out: Record<string, unknown> = {}
+    const omitted: string[] = []
     for (const [key, value] of Object.entries(event)) {
         if (key !== 'properties' || !isRecord(value)) {
             assignKey(out, key, value)
             continue
         }
         const properties: Record<string, unknown> = {}
-        const omitted: string[] = []
         for (const [propertyKey, propertyValue] of Object.entries(value)) {
-            // `_`-prefixed names are this pipeline's own annotations, such as the
-            // list of properties redaction withheld. They carry no content.
-            if (SUMMARY_METADATA_PROPERTIES.has(propertyKey) || propertyKey.startsWith('_')) {
+            if (SUMMARY_METADATA_PROPERTIES.has(propertyKey)) {
                 assignKey(properties, propertyKey, propertyValue)
             } else {
                 omitted.push(propertyKey)
             }
         }
-        if (omitted.length > 0) {
-            assignKey(properties, SUMMARY_OMITTED_KEYS_FIELD, omitted)
-        }
         assignKey(out, 'properties', properties)
+    }
+    if (omitted.length > 0) {
+        assignKey(out, SUMMARY_OMITTED_KEYS_FIELD, omitted)
     }
     return out
 }
