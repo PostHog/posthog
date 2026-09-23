@@ -23,7 +23,7 @@ import {
 } from './__mocks__/inboxMocks'
 import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
 import { InboxScene } from './InboxScene'
-import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
+import { INBOX_LAST_UI_STATE_STORAGE_KEY, inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
 
 // Full Inbox scene with a populated report list. Use this to polish the holistic
 // layout: header, page tabs, the Reports view switcher, scope picker, filter bar, and the
@@ -263,6 +263,41 @@ export const SelfDrivingVerdictPending: Story = {
                 '/api/projects/:id/signals/reports': () => new Promise(() => {}),
                 '/api/projects/:id/signals/source_configs': () => new Promise(() => {}),
                 '/api/projects/:id/signals/scout/configs': () => new Promise(() => {}),
+            },
+        }),
+    ],
+}
+
+// First visit that settles on the takeover, then re-checks its inputs (return to the tab, or a
+// tab reloading one of the shared config loaders) while the re-check is still in flight. The
+// welcome page must stay put: the answer is already known, so replaying the skeleton would take
+// away the UI the user is reading. No cached verdict here, so only a settled verdict holds it.
+export const SelfDrivingVerdictReChecked: Story = {
+    decorators: [
+        (StoryFn) => {
+            window.localStorage.removeItem(INBOX_LAST_UI_STATE_STORAGE_KEY)
+            useMountedLogic(inboxOnboardingLogic)
+            useEffect(() => {
+                const id = window.setTimeout(() => inboxOnboardingLogic.actions.refreshSetupState(), 1500)
+                return () => window.clearTimeout(id)
+            }, [])
+            return <StoryFn />
+        },
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
+                '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
+                // The re-check never lands, so the hold it opens is permanent.
+                '/api/projects/:id/signals/scout/configs': (() => {
+                    let served = false
+                    return () => {
+                        if (served) {
+                            return new Promise(() => {})
+                        }
+                        served = true
+                        return [200, []]
+                    }
+                })(),
             },
         }),
     ],

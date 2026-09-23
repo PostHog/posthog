@@ -1,6 +1,7 @@
 import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
 
 import {
+    applyVerdictLatch,
     computeOnboardingDecision,
     InboxOnboardingDecision,
     InboxOnboardingMode,
@@ -21,7 +22,7 @@ describe('inboxOnboardingLogic', () => {
             bannerDismissed: false,
             isWizardRunning: false,
             isWizardStateResolved: true,
-            isRefetching: false,
+            isRefreshing: false,
             manualSetupRequested: false,
         }
 
@@ -107,22 +108,22 @@ describe('inboxOnboardingLogic', () => {
                 { isSetupLoaded: false, hasExistingWork: true },
                 { mode: 'none', reason: 'setup_loading' },
             ],
-            // A refetch in flight (wizard just finished, or the user came back to the tab) means
-            // the loaded values may be stale – never commit to the takeover on them.
+            // A refresh this logic asked for (wizard just finished, or the user came back to the
+            // tab) means the loaded values may be stale – never commit to the takeover on them.
             [
-                'refetch in flight, would otherwise take over',
-                { isRefetching: true },
+                'refresh in flight, would otherwise take over',
+                { isRefreshing: true },
                 { mode: 'pending', reason: 'refetching' },
             ],
-            // The refetch hold only guards the takeover; settled inbox verdicts stay put.
+            // The refresh hold only guards the takeover; settled inbox verdicts stay put.
             [
-                'refetch in flight, set up',
-                { isRefetching: true, isSelfDrivingSetUp: true },
+                'refresh in flight, set up',
+                { isRefreshing: true, isSelfDrivingSetUp: true },
                 { mode: 'none', reason: 'already_set_up' },
             ],
             [
-                'refetch in flight, with work',
-                { isRefetching: true, hasExistingWork: true },
+                'refresh in flight, with work',
+                { isRefreshing: true, hasExistingWork: true },
                 { mode: 'banner', reason: null },
             ],
             // "Set up manually" opens the Configuration and Scouts tabs the takeover was covering,
@@ -147,6 +148,42 @@ describe('inboxOnboardingLogic', () => {
             ],
         ])('%s', (_label, overrides, expected) => {
             expect(computeOnboardingDecision({ ...base, ...overrides })).toEqual(expected)
+        })
+    })
+
+    describe('applyVerdictLatch', () => {
+        const takeover: InboxOnboardingDecision = { mode: 'takeover', reason: null }
+
+        it.each<[string, InboxOnboardingDecision, InboxOnboardingDecision | null, InboxOnboardingDecision]>([
+            // The regression this exists for: a re-check after the takeover settled must not send
+            // the user back to the skeleton.
+            [
+                'hold after a settled takeover keeps the takeover',
+                { mode: 'pending', reason: 'refetching' },
+                takeover,
+                takeover,
+            ],
+            // Nothing has settled yet, so the hold is the honest answer.
+            [
+                'hold with nothing settled stays pending',
+                { mode: 'pending', reason: 'setup_loading' },
+                null,
+                { mode: 'pending', reason: 'setup_loading' },
+            ],
+            // The latch holds holds back, never real verdicts: a re-check that finds the team set
+            // up must still flip the UI.
+            [
+                'a new settled verdict wins over the latch',
+                { mode: 'none', reason: 'already_set_up' },
+                takeover,
+                { mode: 'none', reason: 'already_set_up' },
+            ],
+        ])('%s', (_label, decision, settledDecision, expected) => {
+            expect(applyVerdictLatch(decision, settledDecision)).toEqual(expected)
+        })
+
+        it('returns the stored object itself, so an unchanged verdict does no downstream work', () => {
+            expect(applyVerdictLatch({ mode: 'pending', reason: 'refetching' }, takeover)).toBe(takeover)
         })
     })
 
