@@ -101,7 +101,6 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
                         const retention = await eventsRetentionRetrieve(String(values.currentTeamId))
                         return retention.retention_months ?? null
                     } catch (e) {
-                        // The endpoint answers 404 while no retention window applies to the project.
                         if (e instanceof ApiError && e.status === 404) {
                             return null
                         }

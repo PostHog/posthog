@@ -6,15 +6,12 @@ from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.event_retention import events_retention_floor_date, events_retention_months_for_team
 
 EVENTS_RETENTION_DOCS_URL = "https://posthog.com/docs/data/events-retention"
 
 
-# The viewset serves this from `list`, so tell the schema it is one object and not a collection.
 @extend_schema_serializer(many=False)
 class EventsRetentionSerializer(serializers.Serializer):
     retention_months = serializers.IntegerField(
@@ -31,7 +28,7 @@ class EventsRetentionSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["events_retention"], extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
+@extend_schema(tags=["events_retention"])
 class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "project"
     pagination_class = None

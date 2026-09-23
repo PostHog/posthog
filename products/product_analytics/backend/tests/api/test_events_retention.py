@@ -1,8 +1,8 @@
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from django.test import override_settings
 
-from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
@@ -18,7 +18,7 @@ class TestEventsRetentionAPI(APIBaseTest):
             ("ahead_of_utc", "Pacific/Auckland", "2025-09-23"),
         ]
     )
-    @freeze_time("2026-09-22T23:30:00Z")
+    @time_machine.travel("2026-09-22T23:30:00Z", tick=False)
     def test_reports_the_window_in_the_project_timezone(self, _name: str, tz: str, retained_from: str) -> None:
         self.team.timezone = tz
         self.team.event_retention_months = 12
