@@ -5453,9 +5453,9 @@ snapshots:
     marketing-analytics-retention-return-table--loading--light:
         hash: v1.k794b7964.28b07e6c34bc713636ece46c7de01c86b2784440e94bcd887af02593bf20fbdc.uooAJyNjEUNL_G36OnAsLDWXG2NF_Ziq7s6YEISVrbU
     marketing-analytics-retention-return-table--narrow--dark:
-        hash: v1.k794b7964.b0e2457f4e7c3d9cd41b8286764f4a130e45e8aefab1ca1a43bdc707e4cde26f.QWdtbaxu_ftARmnLtcNiGdmKnOaQWP9ZiTYaJfO_2zw
+        hash: v1.k794b7964.baf138f8dbba948c651792d64f53c718bd8befc0721d71fc0ffaa01544773812.sNTvN5YAhaBUctuZRdneUoE7gTmk6OtwlmHFo4XNj0k
     marketing-analytics-retention-return-table--narrow--light:
-        hash: v1.k794b7964.2448e233c83f0224ea1329d50a29360ac6ccd5422b64a575ee8533bf32fb1baa.OKe1fXZkPTGTfTuyN8Q5mm3nhcvCTkhXS45cwXntOZU
+        hash: v1.k794b7964.9062e2f38b92c3f263f59f82c49ac1a1235cc8ac1749ee42acbffcada5681fae.7GDEauCCmUfYV0ccAX_cUtLVbvRMjC2vuBA5FoY52Es
     mcp-apps-actions--list--light:
         hash: v1.k794b7964.7bdc20fc1da4e4a172e15101a23f9e72b257280598a56a9883080d8af7a12614.Wz5K1jifC5KxYKDSFTcNkoO4TiCkjFVZxxeVsObrZfo
     mcp-apps-actions--multi-step--light:
@@ -9825,9 +9825,9 @@ snapshots:
     scenes-app-marketing-analytics-dashboard-change-value-cell--duration--light:
         hash: v1.k794b7964.3cde4c804c7448d6ece25debff96e7a36377b87890910059d3c535eaaeb7e4d5.VtfsENIxNsgnypzn_sNC9-UeAezicqU8kPyMkl6laW8
     scenes-app-marketing-analytics-dashboard-change-value-cell--interactive-table--dark:
-        hash: v1.k794b7964.7a40b4f2794c76031620be7e1d88adb6a37b3e7edf5a028d024e1047ab0f59da.D3ciTTiGBwj94sXwRUBDc871D06_OemyQSrHrZ9OQaQ
+        hash: v1.k794b7964.74c6c7f6b82b0efb2a7308fcae655afc904ef15e368dffaf8771c8250a359461.fbPrR4nWxGldigT8pO2rQi8rLpWbsztppew2sAKKhEU
     scenes-app-marketing-analytics-dashboard-change-value-cell--interactive-table--light:
-        hash: v1.k794b7964.c40e228c0a0bc236eb2157d68fbbd9ed3b03f1a7930d84a0f46f76a9eb6d7aca.ngcDe0Tt55ZP4B-Nmm7X0lvoZrgQc2oGoei73zMCHg4
+        hash: v1.k794b7964.b4ed878c5b2b0c63d34a87f57cdbb8f64b5fe31079282d700c0b70720ee3717b.okYTr19qNMuYE_03SNBeIgKv6Nc0MU_T6wpcVSty2i4
     scenes-app-marketing-analytics-dashboard-change-value-cell--negative-currency--dark:
         hash: v1.k794b7964.789d1f0afd837adfd0efa09a542e9f2d378288421df5d8d80b673d748daaeeda.WwxuZ22NM2Zz99PbOJRY_P1cnd8BVQ7wbSMjwLEk7xg
     scenes-app-marketing-analytics-dashboard-change-value-cell--negative-currency--light:
