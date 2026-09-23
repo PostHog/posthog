@@ -164,9 +164,6 @@ export interface tracingSceneLogicActions {
         extraProps: Record<string, unknown> | undefined
         filterType: string
     } // tracingDataLogic
-    keepSqlEditorMounted: (editorTabId: string) => {
-        editorTabId: string
-    }
     loadMoreTraceSpans: () => {
         value: true
     } // tracingDataLogic
@@ -263,6 +260,9 @@ export interface tracingSceneLogicActions {
     selectSpan: (spanId: string | null) => {
         spanId: string | null
     } // tracingViewerLogic
+    keepSqlEditorMounted: (editorTabId: string) => {
+        editorTabId: string
+    }
     selectSceneTab: (tab: TracingSceneTab) => {
         tab: 'sql' | 'viewer'
     }
