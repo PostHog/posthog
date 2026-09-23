@@ -2329,20 +2329,20 @@ Note: Diffed against the vendor's own OpenAPI specs (openapi-v2.yaml, openapi-v3
 
 ## Debugbear — gaps
 
-Today (2): `PageMetrics`, `Projects`
+Today (6): `Annotations`, `PageMetrics`, `Pages`, `Projects`, `RumMetrics`, `RumPageViews`
 
 Diffed against: <https://www.debugbear.com/docs/api>
 
-- [ ] `GET /api/v1/project/{projectId}/rumMetrics` — real-user Core Web Vitals aggregates — DebugBear's headline product, with nothing synced today (high)
-- [ ] `GET /api/v1/project/{projectId}/rumPageViews` — page-view-grain RUM data for slicing real-user performance by page, device and country (high)
-- [ ] `GET /api/v1/projects/{projectId}/pages` — lookup resolving the page IDs that every PageMetrics row is keyed on (URL, name, test settings) (high)
+- [x] `GET /api/v1/project/{projectId}/rumMetrics` — real-user Core Web Vitals aggregates — DebugBear's headline product, with nothing synced today (high) — added as `rum_metrics`, one row per metric per day (`groupByTime=day`)
+- [x] `GET /api/v1/project/{projectId}/rumPageViews` — page-view-grain RUM data for slicing real-user performance by page, device and country (high) — added as `rum_page_views`
+- [x] `GET /api/v1/projects/{projectId}/pages` — lookup resolving the page IDs that every PageMetrics row is keyed on (URL, name, test settings) (high) — added as `pages`. That path is documented for POST only; the readable representation of a page is the `pages` array on each project in `GET /api/v1/projects`, which is where the table reads from.
 - [ ] `GET /api/v1/analysis/{analysisId}` — individual lab test results behind the aggregated page metrics, including test metadata and status (medium)
 - [ ] `GET /api/v1/analysis/{analysisId}/requests` — request-level waterfall breakdown — which resources drive the page weight and load time (medium)
-- [ ] `GET /api/v1/project/{projectId}/annotations` — timeline annotations (deploy markers) needed to attribute metric changes to releases (medium)
+- [x] `GET /api/v1/project/{projectId}/annotations` — timeline annotations (deploy markers) needed to attribute metric changes to releases (medium) — added as `annotations`
 - [ ] `GET /api/v1/analysis/{analysisId}/lhr` — full Lighthouse report per test, including audit-level scores (low)
 - [ ] `GET /api/v1/project/{projectId}/quickTests` — one-off test results run outside monitored pages (low)
 
-Note: Enumerated all five API areas from the docs index (/docs/api) and extracted paths from each sub-page: projects-api, lab-test-api, quick-tests-api, rum-api, timeline-annotation-api. Twelve documented paths in total; the source syncs two. The RUM API being absent is the biggest miss since real-user monitoring is half the product.
+Note: Enumerated all five API areas from the docs index (/docs/api) and extracted paths from each sub-page: projects-api, lab-test-api, quick-tests-api, rum-api, timeline-annotation-api. Twelve documented paths in total; the source synced two when the sweep ran.
 
 ## Decagon — could not verify
 
