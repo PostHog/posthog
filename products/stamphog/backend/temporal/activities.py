@@ -1212,6 +1212,9 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
                 "stamphog_team_id": input.team_id,
                 "stamphog_runtime": "hosted",
                 "stamphog_error": first_error_line,
+                "stamphog_review_trigger": trigger_for_run(
+                    output=run.output, review_mode=pull_request.repo_config.review_mode
+                ),
             },
         )
 
