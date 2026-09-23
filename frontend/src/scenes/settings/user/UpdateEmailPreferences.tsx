@@ -565,6 +565,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
             </div>
         ),
+        [NotificationBlock.AiEvaluationDisabled]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="ai_evaluation_disabled"
+                    label="Disabled AI evaluations"
+                    description="Get notified when an AI observability evaluation stops because of an error"
+                    dataAttr="ai_evaluation_disabled_enabled"
+                />
+            </div>
+        ),
         [NotificationBlock.MaterializedViewSync]: (
             <div className="border rounded p-4 space-y-3">
                 <SimpleSwitch
@@ -574,16 +584,6 @@ export function UpdateEmailPreferences(): JSX.Element {
                     dataAttr="materialized_view_sync_failed_enabled"
                 />
                 <MatviewFailureEmailOptions />
-            </div>
-        ),
-        [NotificationBlock.AiEvaluationDisabled]: (
-            <div className="border rounded p-4">
-                <SimpleSwitch
-                    setting="ai_evaluation_disabled"
-                    label="Disabled AI evaluations"
-                    description="Get notified when an AI observability evaluation stops because of an error"
-                    dataAttr="ai_evaluation_disabled_enabled"
-                />
             </div>
         ),
     }

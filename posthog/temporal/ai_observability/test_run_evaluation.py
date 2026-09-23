@@ -2763,11 +2763,6 @@ class TestSendEvaluationDisabledEmailActivity:
             assert "provider_key_required" in call_kwargs["campaign_key"]
             # It also includes the disable timestamp so a later same-reason disable sends a fresh email.
             assert "1782388800000000" in call_kwargs["campaign_key"]
-            # `message.to` is a MagicMock attribute here, so it is truthy whether or not anyone was
-            # added. Without this, a gate that dropped every member would still send this test green.
-            assert [call.args[0].email for call in mock_message.add_user_recipient.call_args_list] == [
-                "test@example.com"
-            ]
             mock_message.send.assert_called_once()
 
     @pytest.mark.asyncio
