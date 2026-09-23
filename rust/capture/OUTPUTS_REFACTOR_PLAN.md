@@ -22,7 +22,7 @@ All three use one mechanism:
 - Every output a deployment can reach must be fully configured.
 - Each output's topics are checked against its producer's broker at boot.
 
-A fallback is then a configuration of an output's targets, not a new code path. `Output::failover` already composes two outputs; it needs targets that can be configured independently, and for objective 3, a target selection that can change at runtime.
+A fallback is then a configuration of an output's targets, not a new code path. The policy tree already composes two outputs (Step 7). It needs targets that can be configured independently, a policy that picks the live target at boot (Step 17), and for objective 3, a way to change that pick at runtime.
 
 Today this is not possible. One deployment-wide `KafkaConfig` holds ten topic names, each with a compiled-in default, so a boot check cannot tell a configured topic from a missing one. The existing completeness flag demands all ten on every pod, so no deployment can enable it. v1 publishes through its own sinks, so nothing in the outputs layer moves its traffic.
 
@@ -37,17 +37,17 @@ lane decision     → Address {(Pipeline, Lane {Main, Overflow, Historical}) | D
                      + ordering guarantee
 prepared event    → address, ordering + key, header values, JSON body; built once per event
 outputs           → Address → output = 1..n targets + selection policy
-                     (single | failover | split | dual-write);
+                     (single | select | split | dual-write);
                      target = own topics + a named producer
 sinks             → transport encoding (Kafka: topic, key, headers, optional lz4 envelope;
-                     S3: JSON lines), enqueue, ack
+                     S3 until Step 18: JSON lines), enqueue, ack
 producers         → named connections (brokers, TLS, tuning), instantiated once,
                      shared by every output that names them
 ```
 
 - **Pipeline** is decided by the HTTP handler that receives the request, from the endpoint and the event name, and stamped on the event as its `DataType`.
 - **Lane** is decided once per event, by `pipeline::resolve` in v0 and by assign-then-reroute in v1. Precedence: dlq > custom > historical > overflow > main.
-- **Prepared event** is everything a destination's consumers see, independent of transport: the address, the ordering guarantee and its key, the header values, and the event body as JSON. It is built once, so a failover retry resends the same bytes.
+- **Prepared event** is everything a destination's consumers see, independent of transport: the address, the ordering guarantee and its key, the header values, and the event body as JSON. It is built once, and every target of an output receives the same bytes.
 - **Output** is the destination for an address. It owns 1..n targets and the policy that picks between them per batch. A target maps the address to its own topic and publishes through its named producer. All multi-target behavior lives here.
 - **Sink** is one transport. It turns a prepared event into its wire record and acks it. The lz4 envelope and its `content-encoding` header are Kafka encoding, set per target. The sink makes no routing decision.
 - **Producer** is a named connection, configured under its own namespace, like Node.js ingestion's `KafkaProducerRegistry`. Outputs share producers by name and never open their own connection. The ingestion-warnings producer (fire-and-forget, its own hosts) stays outside this model.
@@ -63,7 +63,7 @@ producers         → named connections (brokers, TLS, tuning), instantiated onc
 
 ### Invariants
 
-- Metric names and labels stay stable: `capture_events_rerouted_*`, `capture_primary_sink_health`, `capture_fallback_sink_failovers_total`, `capture_event_batch_size`. Steps that retire a stack's own metrics list them as accepted differences.
+- Metric names and labels stay stable: `capture_events_rerouted_*`, `capture_event_batch_size`, and until Step 18, `capture_primary_sink_health` and `capture_fallback_sink_failovers_total`. Steps that retire a metric list it as an accepted difference.
 - Wire parity: the Step-1 goldens and existing endpoint and integration tests pass **unmodified**, unless a step says otherwise.
 - Never mix a mechanical move with a behavior change in one commit.
 - Every step ships green (`cargo test -p capture`, clippy `-D warnings`, fmt).
@@ -99,15 +99,15 @@ Steps 9–10 move configuration onto named producers and outputs. Steps 11–12 
 ### Step 10 · An output owns its topics and names its producer
 
 - **Goal.** Each leaf output is built from its own config block: its topic names and a producer name. It no longer reads `KafkaConfig`. Two outputs can name different producers (different clusters) or the same one (one connection).
-- **Why.** `Output::failover` composes any two outputs; it is Kafka→S3 only because `setup` builds it that way. After this step, a second cluster is one more producer and one more output block: a `setup` change and a values file.
+- **Why.** The policy tree composes any two outputs; the only pair today is Kafka→S3 because `setup` builds it that way. After this step, a second cluster is one more producer and one more output block: a `setup` change and a values file.
 - **Topic defaults stay** until Step 15.
 - **Size.** M.
 
 ### Step 11 · Outputs accept prepared events
 
-- **Goal.** A second route into the outputs layer: `publish_prepared(Vec<PreparedEvent>) -> Vec<SinkResult>`, one result per event. Each target maps the event's address to its own topic, and its sink does the transport encoding: the Kafka sink builds the record, and the S3 sink writes the JSON body as a line. The failover policy works on this route. v0's event route is unchanged.
+- **Goal.** A second route into the outputs layer: `publish_prepared(Vec<PreparedEvent>) -> Vec<SinkResult>`, one result per event. Each target maps the event's address to its own topic, and its sink does the transport encoding: the Kafka sink builds the record, and the S3 sink writes the JSON body as a line. Every policy works on this route. v0's event route is unchanged.
 - **Why.** v1 already produces prepared events with per-event results. Joining at this level leaves v1's lane decision, JSON body, and response model untouched, so there is no second pass through `resolve` and no parity mapping of v1 decisions onto v0 metadata.
-- **Parity proof.** New tests drive prepared events through each leaf and a failover pair. Goldens unmodified.
+- **Parity proof.** New tests drive prepared events through each leaf and each policy. Goldens unmodified.
 - **Size.** M.
 
 ### Step 12 · v1 publishes through the outputs layer
@@ -155,7 +155,7 @@ Example of what this catches: until [charts#14941](https://github.com/PostHog/ch
 
 - **Shape.** The capture-analytics output tree holds two Kafka outputs, primary and fallback. Each names its own producer (own brokers, own TLS) and its own topic names. The fallback cluster does not have to copy the primary's topic names. v0 and v1 traffic both publish through this tree.
 - **Arming.** One environment variable, matched exactly against a sentinel value. `"1"`, `"true"`, or `"yes"` does not arm it; any value other than the sentinel refuses to boot. Unset is normal operation.
-- **Static at boot.** One target publishes; switching means setting the variable and rolling the pods. A person decides to move off a degraded MSK. Automatic switching is objective 3.
+- **Static at boot.** A new `select` policy holds both targets and publishes to one, picked by the arming variable. It does not react to health: switching means setting the variable and rolling the pods, because a person decides to move off a degraded MSK. Automatic switching is objective 3. The health-gated `failover` policy is not used here; it serves only S3.
 - **The idle fallback is checked on every boot.** capture-analytics enables Step 16, and the tree always holds the fallback, so a broken fallback config shows up on an ordinary deploy, not in the emergency.
 - **What an idle-fallback failure does is configuration.** It covers a failed Step-16 check on the fallback cluster and a fallback producer that cannot connect:
   - `strict`: capture refuses to boot, and a dead fallback producer fails pod liveness.
@@ -163,13 +163,14 @@ Example of what this catches: until [charts#14941](https://github.com/PostHog/ch
 - **Gauge** for the live target, emitted in both states, so a dashboard can tell "on primary" from "not reporting".
 - **Scope.** capture-analytics only. Other modes have no fallback output and are not asked to configure one.
 - **Known gaps, for the runbook.** Consumers have no matching switch. capture-import writes the same topics and must be stopped before any drain-to-zero check. The AI lane's bridges read MSK topic names.
-- **Size.** M.
+- **Size.** M/L.
 
 ### Step 18 · Delete the S3 fallback
 
-- **Goal.** Delete `S3Sink`, the `s3_fallback_*` config, and the Kafka→S3 wiring in `setup`.
+- **Goal.** Delete `S3Sink`, the `s3_fallback_*` config, the Kafka→S3 wiring in `setup`, and the health-gated `failover` policy, which serves only S3.
 - **Why it is safe.** No production deployment enables it. The charts set `S3_FALLBACK_ENABLED: "false"` in six values files and `"true"` only in `apps/capture-analytics/values.dev.yaml`.
 - **Why Step 17 replaces it.** A second Kafka cluster keeps events flowing to consumers. S3 needs a replay path that has never run in production.
+- **Accepted differences.** `capture_primary_sink_health` and `capture_fallback_sink_failovers_total` go with the policy that emits them.
 - **What is lost.** S3 failover is automatic; Step 17 is manual. No deployment uses the automatic path today, but the capability goes. Objective 3 brings it back through Step 23.
 - **Cross-repo.** The seven charts values entries, the `CaptureAnalyticsV0S3FallbackActive` alert spec and runbook, and the IAM role in cloud-infra.
 - **Size.** M.
@@ -208,9 +209,9 @@ v0's lane decision moves to v1's model.
 
 A separate circuit-breaker service decides; how it decides is out of scope. Capture sends producer health and receives switch signals. These steps are scheduled with parity proofs once objectives 1 and 2 close.
 
-### Step 23 · Failover target selection at runtime
+### Step 23 · Target selection at runtime
 
-The failover output's target selection becomes swappable state with no lock on the request path. Step 17's arming sets its boot value. A signal switches the target. No signal, or an unreachable control plane, keeps the current target: missing information must never move traffic. The Step-17 gauge reports the live target. With no service configured, behavior matches Step 17 exactly.
+The `select` policy's live target becomes swappable state with no lock on the request path. Step 17's arming sets its boot value. A signal switches the target. No signal, or an unreachable control plane, keeps the current target: missing information must never move traffic. The Step-17 gauge reports the live target. With no service configured, behavior matches Step 17 exactly.
 
 ### Step 24 · Producer health out
 
@@ -230,7 +231,7 @@ Handlers bind on sealed traits (`PublishesAnalyticsFamily`, `PublishesSessionRep
 
 ### Steps 34–35 · Outputs as an open trait
 
-`Outputs` becomes an open trait replacing the closed policy enum: `KafkaOutputs`, `PrintOutputs`/`NoopOutputs`, and `FailoverOutputs`/`SplitOutputs` over `Arc<dyn Outputs>`. A test-only prototype (`outputs::dynamic`, Step 35) has `DynamicKafkaOutputs` take config pushes from an in-process `KafkaManagerService` and switch topics and brokers partition by partition.
+`Outputs` becomes an open trait replacing the closed policy enum: `KafkaOutputs`, `PrintOutputs`/`NoopOutputs`, and `SelectOutputs`/`SplitOutputs` over `Arc<dyn Outputs>`. A test-only prototype (`outputs::dynamic`, Step 35) has `DynamicKafkaOutputs` take config pushes from an in-process `KafkaManagerService` and switch topics and brokers partition by partition.
 
 Steps 30 and 33 are listed in the tracker only. Steps 26, 28, 31, and 32 are superseded; the tracker says by what.
 
@@ -258,7 +259,7 @@ When the three objectives close:
 - Every prepared event publishes through the `OutputRegistry`. The `Output` policy tree owns all multi-target behavior. The v1 sink stack is gone.
 - Connection config lives with named producers, one per cluster. Pointing an output at another cluster means naming another producer.
 - Sinks do transport encoding only and make no routing decisions.
-- The failover target can be switched at runtime by the breaker service, and a silent control plane keeps the current target.
+- The `select` policy's live target can be switched at runtime by the breaker service, and a silent control plane keeps the current target.
 
 ## Agent conventions
 
@@ -292,15 +293,15 @@ One step = one commit, subject from the tracker. No `--no-verify`.
 | 14 · Per-mode output registries | pending | `feat(capture): per-mode output registries with required rows` |
 | 15 · A reachable output must be configured | pending | `feat(capture): require configuration for every reachable output` |
 | 16 · Verify topics against the producer's broker | pending | `feat(capture): verify each output's topics against its producer's broker at boot` |
-| 17 · capture-analytics emergency fallback | pending | `feat(capture): emergency fallback output for capture-analytics` |
-| 18 · Delete the S3 fallback | pending | `refactor(capture): delete the s3 fallback output` |
+| 17 · capture-analytics emergency fallback | pending | `feat(capture): select policy and emergency fallback for capture-analytics` |
+| 18 · Delete the S3 fallback | pending | `refactor(capture): delete the s3 fallback and the health-gated failover policy` |
 | 19 · One producer per cluster | objective 2 | `refactor(capture): v0 and v1 share one producer per cluster` |
 | 20 · v0 builds prepared events | objective 2 | `refactor(capture): v0 publishes prepared events; PublishEvents retired` |
 | 21 · One prepared-event builder | objective 2 | `refactor(capture): v0 and v1 share one prepared-event builder` |
 | 22 · One lane-decision model | objective 2 | `refactor(capture): v0 lane decision moves to the v1 model` |
-| 23 · Failover selection behind a control-plane seam | objective 3 | `feat(capture): failover target selection behind a control-plane seam` |
+| 23 · Target selection at runtime | objective 3 | `feat(capture): select policy target switchable at runtime` |
 | 24 · Producer health metrics out | objective 3 | `feat(capture): producers report health for the breaker service` |
-| 25 · Switch signals in | objective 3 | `feat(capture): apply breaker switch signals to the failover output` |
+| 25 · Switch signals in | objective 3 | `feat(capture): apply breaker switch signals to the select policy` |
 | 26 · Prep hoist; `PublishEvents` retired | superseded | — (became Step 20) |
 | 27 · AI membership stamp; `AiRouting` retired | done | — (landed with the AI lane rollout, outside this plan's sequence) |
 | 28 · Sinks realize namespaces | superseded | — (targets map addresses to topics from Step 11) |
