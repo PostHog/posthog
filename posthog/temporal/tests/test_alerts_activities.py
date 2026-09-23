@@ -519,14 +519,14 @@ class TestEvaluateAlert:
         mock_notify.assert_not_called()
 
     @pytest.mark.parametrize(
-        "rows,has_more,expected_error",
+        "rows,has_more,expected_error,expect_disabled",
         [
-            ([[f"hour-{i}", float(i)] for i in range(100)], True, "paginated"),
-            ([[f"hour-{i}", float(i)] for i in range(50)], None, "at least"),
+            ([[f"hour-{i}", float(i)] for i in range(100)], True, "newest rows are missing", True),
+            ([[f"hour-{i}", float(i)] for i in range(50)], None, "at least", False),
         ],
     )
     async def test_detector_unavailable_data_routes_through_evaluate_alert(
-        self, ateam, rows, has_more, expected_error
+        self, ateam, rows, has_more, expected_error, expect_disabled
     ) -> None:
         # Cross-layer guard: the dispatcher must route a detector-configured HogQL alert into the
         # extractor whose AlertDataUnavailableError reaches evaluate_alert's typed handler. Only the
@@ -547,7 +547,7 @@ class TestEvaluateAlert:
                 return_value=calculation,
             ),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
-            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled") as mock_notify,
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", return_value=[]) as mock_notify,
         ):
             result = await ActivityEnvironment().run(
                 evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
@@ -557,9 +557,12 @@ class TestEvaluateAlert:
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.error is not None and expected_error in check.error["message"]
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
-        assert refreshed.enabled is True
+        # A capped result is a configuration error that recurs every check, so it disables and
+        # notifies; a short-but-uncapped history can be a young project growing into its window.
+        assert refreshed.enabled is (not expect_disabled)
         mock_capture.assert_not_called()
-        mock_notify.assert_not_called()
+        if not expect_disabled:
+            mock_notify.assert_not_called()
 
     async def test_evaluate_auto_disables_and_skips_error_tracking_on_extraction_error(self, alert_with_user) -> None:
         # A misconfigured query (wrong shape / bad config) fails loud with AlertExtractionError. That's

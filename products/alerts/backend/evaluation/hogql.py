@@ -4,10 +4,11 @@ from typing import Any
 
 from posthog.schema import AlertCondition, AlertConditionType, HogQLAlertConfig, HogQLAlertEvaluation
 
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 
@@ -44,6 +45,16 @@ def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
     return HogQLAlertConfig.model_validate(raw or _DEFAULT_HOGQL_CONFIG)
 
 
+_TRUNCATION_FIX = "Add an explicit SQL LIMIT that covers the full history, or reduce the detector window."
+
+
+@frozen
+class _FetchedRows:
+    rows: list
+    column_names: list[str] | None
+    truncated: bool
+
+
 def _calculate_rows_and_columns(
     insight: Insight,
     team: Any,
@@ -51,11 +62,10 @@ def _calculate_rows_and_columns(
     user: Any,
     execution_mode: ExecutionMode,
     require_complete_result: bool = False,
-    limit_context: LimitContext = LimitContext.QUERY_ASYNC,
-) -> tuple[list, list[str] | None]:
-    """Run a SQL insight and return (rows, column_names) — the fetch-and-validate prologue shared by
-    the threshold and detector extractors. A ``None`` result means the query layer swallowed an error
-    (raise to avoid a misfire, matching trends); a non-list result is a malformed shape.
+) -> _FetchedRows:
+    """Run a SQL insight — the fetch-and-validate prologue shared by the threshold and detector
+    extractors. A ``None`` result means the query layer swallowed an error (raise to avoid a
+    misfire, matching trends); a non-list result is a malformed shape.
     """
     calculation_result = calculate_for_query_based_insight(
         insight,
@@ -63,12 +73,16 @@ def _calculate_rows_and_columns(
         execution_mode=execution_mode,
         user=user,
         analytics_props={"source": EventSource.ALERT},
-        limit_context=limit_context,
     )
-    if require_complete_result and calculation_result.has_more is True:
-        raise AlertDataUnavailableError(
-            "The SQL anomaly alert result is paginated, so its last row is not the latest point. "
-            "Use an explicit SQL LIMIT that includes the full history, or order newest first and use first-row evaluation."
+    truncated = calculation_result.has_more is True
+    if require_complete_result and truncated:
+        # The rows come back oldest first, so the cut falls on the newest point — the one a
+        # last-row evaluation scores. This recurs identically on every check until the query is
+        # edited, so it is a configuration error: the caller disables the alert and emails the
+        # owner rather than retrying forever at full scan cost.
+        raise AlertExtractionError(
+            "The query returns more rows than its row limit, so the newest rows are missing from the result. "
+            + _TRUNCATION_FIX
         )
     rows = calculation_result.result
     if rows is None:
@@ -77,7 +91,7 @@ def _calculate_rows_and_columns(
         raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
     columns = calculation_result.columns if isinstance(calculation_result.columns, list) else None
     column_names = [str(c) for c in columns] if columns else None
-    return rows, column_names
+    return _FetchedRows(rows=rows, column_names=column_names, truncated=truncated)
 
 
 def _check_row_caps(rows: list, evaluation: HogQLAlertEvaluation) -> None:
@@ -143,9 +157,9 @@ class HogQLExtractor:
         config = hogql_config_or_default(alert.config)
         evaluation = config.evaluation
 
-        rows, column_names = _calculate_rows_and_columns(
-            insight, alert.team, user=alert.created_by, execution_mode=execution_mode
-        )
+        fetched = _calculate_rows_and_columns(insight, alert.team, user=alert.created_by, execution_mode=execution_mode)
+        rows = fetched.rows
+        column_names = fetched.column_names
         if len(rows) == 0:
             # No rows means the metric is genuinely 0 this check (matching trends), so a lower
             # bound can still breach.
@@ -233,14 +247,15 @@ def extract_hogql_detector_series(
             "entities, not a time series. Use last-row or first-row evaluation."
         )
 
-    rows, column_names = _calculate_rows_and_columns(
+    fetched = _calculate_rows_and_columns(
         insight,
         team,
         user=user,
         execution_mode=execution_mode,
         require_complete_result=config.evaluation == HogQLAlertEvaluation.LAST_ROW,
-        limit_context=LimitContext.ALERT_DETECTOR,
     )
+    rows = fetched.rows
+    column_names = fetched.column_names
     if len(rows) == 0:
         return ExtractionResult(
             series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False, empty_query_result=True
@@ -265,9 +280,16 @@ def extract_hogql_detector_series(
     # A short series cannot establish that the alert is not firing.
     min_samples = _compute_min_samples_for_detector(detector_config)
     if len(values) < min_samples:
+        if fetched.truncated:
+            # The history is short because the row limit cut it, not because the data is young,
+            # so waiting never heals it — same configuration-error routing as the last-row guard.
+            raise AlertExtractionError(
+                f"The detector needs at least {min_samples} rows, but the row limit cut the result to {len(values)}. "
+                + _TRUNCATION_FIX
+            )
         raise AlertDataUnavailableError(
             f"The SQL anomaly alert needs at least {min_samples} rows, but the query returned {len(values)}. "
-            "Expand the query history or reduce the detector window, and check the SQL LIMIT."
+            "Expand the query history or reduce the detector window."
         )
 
     # Score only the most recent window the detector needs (current stays last). A SQL query can

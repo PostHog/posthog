@@ -29,14 +29,12 @@ See [Temporal development guidance](../../posthog/temporal/README.md) for worker
 ## Existing SQL alert evaluation
 
 The existing SQL alert evaluator in `posthog/temporal/alerts/activities.py` runs separately from the noop product queues described here.
-SQL anomaly queries without an explicit limit return up to 500 rows; ordinary SQL insight queries retain their 100-row default.
-The detector fetches one extra row in the same query to identify truncation, and uses a separate cache context with the existing extended execution timeout.
-A last-row anomaly check cannot use a paginated result because the returned tail may exclude the newest point.
-A nonempty result also needs enough rows for the detector's history window.
-These unavailable-data checks record an `ERRORED` result and leave the alert enabled for its next scheduled check.
-They follow the ordinary error-notification policy, without sending an automatic-disable notification.
-They do not fetch another page, and preserve explicit SQL limits.
-First-row evaluation can use a paginated result when its newest-first rows contain enough history.
+SQL anomaly queries run with the ordinary 100-row default limit, and an explicit SQL LIMIT is always respected.
+A result cut by the row limit cannot be evaluated: for last-row evaluation the newest point is missing, and for first-row evaluation the remaining history can be too short.
+A capped result is a configuration error that recurs identically on every check, so it auto-disables the alert and emails the owner with the fix: add an explicit LIMIT that covers the full history, or reduce the detector window.
+A result that is short without being capped records an `ERRORED` check and leaves the alert enabled, because a young project grows into its window.
+These checks do not fetch another page.
+First-row evaluation can use a capped result when its newest-first rows contain enough history.
 Checks that previously lacked history because of the 100-row default can now evaluate and fire.
 A larger result limit does not narrow the query time range or guarantee lower source reads.
 
