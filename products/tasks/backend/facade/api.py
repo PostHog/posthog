@@ -51,9 +51,11 @@ from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
 from posthog.utils import absolute_uri
 
 from products.canvas.backend.models import Canvas
+from products.cdp.backend.facade import api as cdp_facade
 from products.posthog_ai.backend.task_ownership import (
     detach_conversations_for_task_handoff,
     soft_delete_conversations_for_task,
@@ -69,6 +71,7 @@ from products.tasks.backend.constants import (
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     DEV_STACK_PREVIEW_PORT,
     DEV_STACK_PREVIEW_STATE_KEY,
+    GITHUB_PR_URL_PREFIX as GITHUB_PR_URL_PREFIX,  # re-exported for signals billing
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     PR_LOOP_ENABLED_STATE_KEY,
@@ -103,6 +106,15 @@ from products.tasks.backend.logic.services.network_policy import (
     normalize_requested_domains,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
+from products.tasks.backend.logic.services.space_setup import (
+    SPACE_SETUP_FEED_EVENT,
+    SPACE_SETUP_MODEL,
+    SPACE_SETUP_REASONING_EFFORT,
+    SPACE_SETUP_RUNTIME_ADAPTER,
+    SpaceSetupUnavailableError as SpaceSetupUnavailableError,
+    build_space_setup_prompt,
+    space_setup_task_title,
+)
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
@@ -2484,6 +2496,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
         "use_modal_vm_sandbox",
+        # The image a run boots from; a PATCHed value would pick an image the task never asked for.
+        "sandbox_template",
         # Rollout stamps written once at dispatch by _capture_run_feature_flags or at run
         # creation; a PATCHable value would let a task controller bypass the org feature flags
         # (for telemetry, that means injecting the internal OTLP capture token into their
@@ -2928,7 +2942,7 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
         # recompute for any other output.pr_url string is a guaranteed no-op; don't let arbitrary
         # client-written values enqueue org-wide refreshes. Literal kept local because tasks code
         # must not import signals internals.
-        if not new_pr_url.startswith("https://github.com/"):
+        if not new_pr_url.startswith(GITHUB_PR_URL_PREFIX):
             return
         organization_id = Team.objects.filter(id=run.task.team_id).values_list("organization_id", flat=True).first()
         if organization_id is None:
@@ -9619,6 +9633,93 @@ def set_channel_context_generation(
             channel_id=channel.id, defaults={"team_id": team_id, "task_id": task_id}
         )
         return str(task_id) if task_id else None
+
+
+def start_space_setup(
+    channel_id: str | UUID,
+    team: Team,
+    user_id: int,
+    *,
+    request: contracts.SpaceSetupRequest,
+    client_provenance: TaskClientProvenance | None = None,
+) -> contracts.SpaceSetupStartedDTO | None:
+    """Start the one task that sets a space up for a goal or a feature.
+
+    The task runs unattended in the channel and publishes the context page itself, so it
+    takes over the channel's context generation marker the same way a CONTEXT.md
+    generation task does. ``None`` when the channel is not visible to the user.
+    """
+    if _visible_channel(channel_id, team.id, user_id) is None:
+        return None
+    if request.kind == "goal" and not cdp_facade.is_hog_function_template_available(
+        "template-posthog-create-task", team
+    ):
+        raise SpaceSetupUnavailableError(
+            "Goal setup is not available because the Create AI task workflow action is unavailable. "
+            "Ask an administrator to sync workflow templates and enable the action, then retry setup."
+        )
+    with transaction.atomic():
+        channel = _locked_visible_channel(channel_id, team.id, user_id)
+        if channel is None:
+            return None
+        active_setup = (
+            Task.objects.filter(team_id=team.id, channel_id=channel.id, origin_product=Task.OriginProduct.SPACE_SETUP)
+            .annotate(
+                setup_run_status=Subquery(
+                    TaskRun.objects.filter(team_id=team.id, task_id=OuterRef("pk"))
+                    .order_by("-created_at", "-id")
+                    .values("status")[:1]
+                )
+            )
+            .filter(
+                setup_run_status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS]
+            )
+            .exists()
+        )
+        if active_setup:
+            raise contracts.SpaceSetupInProgressError("Space setup is already running. Open its task to see progress.")
+        repository = request.repository or (channel.repositories[0] if channel.repositories else None)
+        request = replace(request, repository=repository)
+        task = Task.create_and_run(
+            team=team,
+            title=space_setup_task_title(channel.name, request),
+            description=build_space_setup_prompt(
+                team_id=team.id, channel_id=str(channel.id), channel_name=channel.name, request=request
+            ),
+            origin_product=Task.OriginProduct.SPACE_SETUP,
+            user_id=user_id,
+            channel=channel,
+            create_pr=False,
+            posthog_mcp_scopes=[*contracts.SPACE_SETUP_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
+            runtime_adapter=SPACE_SETUP_RUNTIME_ADAPTER,
+            model=SPACE_SETUP_MODEL,
+            reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
+            initial_permission_mode="auto",
+            client_provenance=client_provenance,
+        )
+        ChannelContextGeneration.objects.update_or_create(
+            channel_id=channel.id, defaults={"team_id": team.id, "task_id": task.id}
+        )
+        _emit_space_setup_started(channel, user_id, request=request, task_id=task.id)
+        return contracts.SpaceSetupStartedDTO(task_id=task.id)
+
+
+def _emit_space_setup_started(
+    channel: Channel, user_id: int, *, request: contracts.SpaceSetupRequest, task_id: UUID
+) -> None:
+    subject = request.goal.statement if request.goal is not None else request.feature.name if request.feature else ""
+    try:
+        with transaction.atomic():
+            ChannelFeedMessage.objects.create(
+                team_id=channel.team_id,
+                channel_id=channel.id,
+                author_id=user_id,
+                author_kind=ChannelFeedMessage.AuthorKind.SYSTEM,
+                event=SPACE_SETUP_FEED_EVENT,
+                payload={"kind": request.kind, "subject": subject, "task_id": str(task_id)},
+            )
+    except Exception:
+        logger.exception("Failed to emit space_setup_started feed message", extra={"channel_id": str(channel.id)})
 
 
 def star_channel(channel_id: str | UUID, team_id: int, user_id: int, *, starred: bool) -> bool:

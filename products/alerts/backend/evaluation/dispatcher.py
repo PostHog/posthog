@@ -79,7 +79,9 @@ def run_extractor(
         raise AlertExtractionError(rule_violation_message(err)) from err
 
 
-def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: object) -> AlertEvaluationResult:
+def check_detector_alert(
+    alert: AlertConfiguration, insight: Insight, query: object, *, evaluation_id: str | None = None
+) -> AlertEvaluationResult:
     """Route a detector (anomaly) alert to its kind's detector extractor, then score the series.
 
     Shared by the dispatcher and the detector tests. The registry lookup is the kind gate — an
@@ -93,10 +95,10 @@ def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: obj
     if detector_extractor is None:
         raise NotImplementedError(f"AlertCheckError: Detector alerts for {kind} are not supported yet")
     result = run_extractor(detector_extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query))
-    return evaluate_with_detector(result, detector_config)
+    return evaluate_with_detector(result, detector_config, insight=insight, alert=alert, evaluation_id=evaluation_id)
 
 
-def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
+def check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:
     """Dispatch an alert to its insight-kind extractor, then run the shared comparator.
 
     If ``detector_config`` is set, routes through the anomaly-detector registry (one extractor per
@@ -117,7 +119,7 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
             kind = get_from_dict_or_attr(query, "kind")
 
         if alert.detector_config:
-            return check_detector_alert(alert, insight, query)
+            return check_detector_alert(alert, insight, query, evaluation_id=evaluation_id)
 
         extractor = EXTRACTORS.get(kind)
         if extractor is None:

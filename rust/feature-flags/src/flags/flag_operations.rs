@@ -104,6 +104,35 @@ impl FeatureFlag {
             .any(|group| group.rollout_percentage_unwrapped() < 100.0)
     }
 
+    /// Returns the variant this condition pins, if it names one of the flag's variants.
+    /// An override that names no real variant is ignored, so the variant comes from the hash.
+    pub fn pinned_variant<'c>(&self, condition: &'c FlagPropertyGroup) -> Option<&'c str> {
+        let variant = condition.variant.as_deref()?;
+        self.filters
+            .multivariate
+            .as_ref()
+            .is_some_and(|m| m.variants.iter().any(|v| v.key == variant))
+            .then_some(variant)
+    }
+
+    /// Returns true if the bucketing hash decides the outcome of this condition.
+    ///
+    /// This does not use `has_hash_dependent_variants`. That method treats a single reachable
+    /// variant as hash-independent, but hashes past that variant's share still map to no
+    /// variant, and reading it here would let such a flag bucket its variant on `distinct_id`.
+    pub fn condition_needs_bucketing_hash(&self, condition: &FlagPropertyGroup) -> bool {
+        if condition.rollout_percentage_unwrapped() < 100.0 {
+            return true;
+        }
+        let first_live_variant = self.filters.multivariate.as_ref().and_then(|m| {
+            m.variants
+                .iter()
+                .find(|variant| variant.rollout_percentage > 0.0)
+        });
+        first_live_variant.is_some_and(|variant| variant.rollout_percentage < 100.0)
+            && self.pinned_variant(condition).is_none()
+    }
+
     /// Returns true if this flag requires a hash key override lookup for experience continuity.
     ///
     /// Experience continuity lookups are only meaningful when the hash affects the result:
@@ -1598,6 +1627,47 @@ mod tests {
             },
         ];
         assert!(flag.has_partial_rollout());
+    }
+
+    #[rstest::rstest]
+    #[case::no_variants(None, None, 100.0, false)]
+    #[case::empty_variants(Some(vec![]), None, 100.0, false)]
+    #[case::single_variant_at_100(Some(vec![100.0]), None, 100.0, false)]
+    #[case::zero_before_100(Some(vec![0.0, 100.0]), None, 100.0, false)]
+    #[case::all_zero(Some(vec![0.0, 0.0]), None, 100.0, false)]
+    #[case::single_variant_short_of_range(Some(vec![50.0]), None, 100.0, true)]
+    #[case::unpinned_variants(Some(vec![50.0, 50.0]), None, 100.0, true)]
+    #[case::pinned_variant(Some(vec![50.0, 50.0]), Some("variant-0"), 100.0, false)]
+    #[case::pin_names_no_variant(Some(vec![50.0, 50.0]), Some("nonexistent"), 100.0, true)]
+    #[case::pinned_variant_partial_rollout(Some(vec![50.0, 50.0]), Some("variant-0"), 50.0, true)]
+    fn test_condition_needs_bucketing_hash(
+        #[case] variant_percentages: Option<Vec<f64>>,
+        #[case] variant: Option<&str>,
+        #[case] rollout_percentage: f64,
+        #[case] expected: bool,
+    ) {
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate =
+            variant_percentages.map(|percentages| MultivariateFlagOptions {
+                variants: percentages
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, rollout_percentage)| MultivariateFlagVariant {
+                        key: format!("variant-{i}"),
+                        name: None,
+                        rollout_percentage,
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            });
+        let condition = FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: Some(rollout_percentage),
+            variant: variant.map(str::to_string),
+            ..Default::default()
+        };
+        assert_eq!(flag.condition_needs_bucketing_hash(&condition), expected);
     }
 
     #[test]

@@ -21,6 +21,7 @@ from posthog.models.team.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.context_layer.backend import repo_lint, store
+from products.context_layer.backend.legacy_pages import migrate_legacy_channel_pages
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.scaffold import AGENTS_MD
 from products.tasks.backend.facade import api as tasks_facade
@@ -126,6 +127,9 @@ def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
         if not agents_path.is_file() or agents_path.read_text(encoding="utf-8") != AGENTS_MD:
             agents_path.write_text(AGENTS_MD, encoding="utf-8")
             written.append("AGENTS.md")
+        written.extend(
+            migrate_legacy_channel_pages(root, {channel_id: team_id for team_id, channel_id, _, _ in candidates})
+        )
         index = _existing_channel_pages(root)
         for team_id, team_name in projects:
             overview_path = f"projects/{team_id}/overview.md"

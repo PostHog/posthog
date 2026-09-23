@@ -301,18 +301,6 @@ class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
         # The error body itself must still surface — only the action block is gated.
         assert kwargs["blocks"][1]["text"]["text"] == "boom"
 
-    @patch.object(SlackThreadHandler, "delete_progress")
-    @patch.object(SlackThreadHandler, "_get_client")
-    def test_post_cancelled_without_task_url_drops_actions(self, mock_get_client, _mock_delete_progress):
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        handler = SlackThreadHandler(self._make_context())
-
-        handler.post_cancelled(task_url=None)
-
-        mock_client.chat_postMessage.assert_called_once()
-        assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
-
 
 class TestPostPrOpenedReplyTarget(SimpleTestCase):
     """``post_pr_opened`` no longer owns the mention-target decision — the

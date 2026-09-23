@@ -30,4 +30,4 @@ rules:
     - match: '/warehouse/'
       owners: team-data-stack
     - match: '*llm_prompt*.py'
-      owners: [team-ai-observability, team-experiments]
+      owners: team-experiments

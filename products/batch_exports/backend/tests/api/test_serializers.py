@@ -19,16 +19,13 @@ from posthog.models.integration import Integration
 from products.batch_exports.backend.api.batch_export import (
     BatchExportDestinationSerializer,
     BatchExportSerializer,
-    HogQLSelectQueryField,
+    parse_events_hogql_query,
 )
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
     """Parse and resolve a HogQL query string into a prepared AST."""
-    serializer = BatchExportSerializer(context={"team_id": team_id, "request": SimpleNamespace(user=None)})
-    field = HogQLSelectQueryField()
-    field.bind("hogql_query", serializer)
-    return cast(ast.SelectQuery, field.to_internal_value(query))
+    return cast(ast.SelectQuery, parse_events_hogql_query(query, team_id=team_id, user=None))
 
 
 class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):

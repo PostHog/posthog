@@ -1636,15 +1636,9 @@ def test_role_change_preserves_only_user_exemptions(tmp_path: Path, explicit_exe
     skill_dir.mkdir()
     skill_file = skill_dir / "SKILL.md"
     frontmatter = f"---\nname: {_OPERATIONAL_SCOUT}\ndescription: test scout\nscout-role: {{role}}\n---\nBody\n"
-    caches = (
-        lazy_seed.canonical_skill_names,
-        lazy_seed._canonical_config_tags,
-        lazy_seed._canonical_operational_scouts,
-    )
     try:
         with team_scope(team.id, canonical=True), patch.object(lazy_seed, "_SKILLS_DIR", tmp_path):
-            for cache in caches:
-                cache.cache_clear()
+            lazy_seed.reset_canonical_caches()
             skill_file.write_text(frontmatter.format(role="operational"))
             sync_canonical_skills(team)
             register_missing_configs(team.id)
@@ -1659,8 +1653,7 @@ def test_role_change_preserves_only_user_exemptions(tmp_path: Path, explicit_exe
                 serializer.save()
 
             skill_file.write_text(frontmatter.format(role="specialist"))
-            for cache in caches:
-                cache.cache_clear()
+            lazy_seed.reset_canonical_caches()
             sync_canonical_skills(team)
             register_missing_configs(team.id)
 
@@ -1668,8 +1661,7 @@ def test_role_change_preserves_only_user_exemptions(tmp_path: Path, explicit_exe
             assert config.auto_pause_exempt is (explicit_exemption is True)
             assert config.enabled is True
     finally:
-        for cache in caches:
-            cache.cache_clear()
+        lazy_seed.reset_canonical_caches()
 
 
 @pytest.mark.django_db
