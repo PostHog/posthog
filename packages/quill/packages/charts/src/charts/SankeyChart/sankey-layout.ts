@@ -71,7 +71,9 @@ export interface SankeyLayout<N extends SankeyExtraProperties, L extends SankeyE
     nodeAlign(nodeAlign: (node: SankeyNode<N, L>, n: number) => number): this
 
     /** Pins a node to a column regardless of its depth in the graph; return `undefined` to fall
-     *  back to `nodeAlign` for that node. The column count grows to fit the highest pin. */
+     *  back to `nodeAlign` for that node. The column count grows to fit the highest pin. The caller
+     *  owns monotonicity: a pin at or before a source feeding it draws that link backwards, with no
+     *  error. */
     nodeColumn(): ((node: SankeyNode<N, L>) => number | undefined) | null
     nodeColumn(nodeColumn: ((node: SankeyNode<N, L>) => number | undefined) | null): this
 
@@ -448,7 +450,12 @@ export function sankeyLayout<
     }
 
     function computeNodeLayers({ nodes: nodeList }: { nodes: SankeyNode<N, L>[] }): SankeyNode<N, L>[][] {
-        const pinned = (node: SankeyNode<N, L>): number | undefined => column?.(node)
+        // A non-finite pin (e.g. NaN from a caller's bad parse) would otherwise flow into `layer`/`x0`
+        // and silently drop the node from the render; treat it as unpinned instead.
+        const pinned = (node: SankeyNode<N, L>): number | undefined => {
+            const value = column?.(node)
+            return value !== undefined && Number.isFinite(value) ? value : undefined
+        }
         const x = Math.max(max(nodeList, (d) => d.depth)!, max(nodeList, (d) => pinned(d) ?? 0)!) + 1
         const kx = x <= 1 ? 0 : (x1 - x0 - dx) / (x - 1)
         const columns = Array.from({ length: x }, () => [] as SankeyNode<N, L>[])
