@@ -66,9 +66,7 @@ describe('PostHog terminal commands', () => {
         expect(notebooksPartialUpdate).not.toHaveBeenCalled()
         expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
         answer(false)
-        await expect(outcome).resolves.toEqual(
-            expect.objectContaining({ message: expect.stringContaining('canceled') })
-        )
+        await expect(outcome).resolves.toEqual(expect.objectContaining({ message: 'Canceled. No changes made.' }))
         expect(notebooksPartialUpdate).not.toHaveBeenCalled()
         expect(mcpServerInstallationsCallToolCreate).not.toHaveBeenCalled()
     })

@@ -296,7 +296,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
 
     async confirmOperation(confirmation: TerminalConfirmation): Promise<void> {
         if (this.signal.aborted || !(await this.confirm(confirmation)) || this.signal.aborted) {
-            throw new Error('Operation canceled. No changes were sent to the API.')
+            throw new Error('Canceled. No changes made.')
         }
     }
 
@@ -382,7 +382,10 @@ export class PosthogFilesystem extends TerminalFilesystem {
                 await fileSystemDestroy(this.projectId, source.entry.id, { recursive: false }, { signal: this.signal })
             } catch (error) {
                 const status = error && typeof error === 'object' && 'status' in error ? error.status : undefined
-                throw new FilesystemError(status === 409 ? 39 : status === 403 ? 13 : status === 404 ? 2 : 5)
+                throw new FilesystemError(
+                    status === 409 ? 39 : status === 403 ? 13 : status === 404 ? 2 : 5,
+                    `Could not delete ${this.mountedPath(node)}${status ? ` (HTTP ${status})` : ''}:\n${error instanceof Error ? error.message : 'API request failed'}\nRun ph refresh to check the remaining files before trying again.`
+                )
             }
         }
         this.references.delete(this.mountedPath(node))

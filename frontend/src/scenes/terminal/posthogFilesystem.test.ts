@@ -361,9 +361,27 @@ describe('PostHog filesystem projection', () => {
         const note = folder.children!.get('Notes.md')!
         await expect(folder.remove!()).rejects.toMatchObject({ errno: 39 })
         expect(fileSystemDestroy).not.toHaveBeenCalled()
-        jest.mocked(fileSystemDestroy).mockRejectedValueOnce({ status: 403 })
-        await expect(note.remove!()).rejects.toMatchObject({ errno: 13 })
+        jest.mocked(fileSystemDestroy).mockRejectedValueOnce(
+            Object.assign(new Error('You do not have permission to delete this file.'), { status: 403 })
+        )
+        await expect(note.remove!()).rejects.toMatchObject({
+            errno: 13,
+            message:
+                'Could not delete /posthog/files/Research/Notes.md (HTTP 403):\nYou do not have permission to delete this file.\nRun ph refresh to check the remaining files before trying again.',
+        })
         expect(fs.resolveReference('Research/Notes.md', '/posthog/files')).toBe('note1')
+        jest.mocked(fileSystemDestroy).mockRejectedValueOnce({ status: 500 })
+        await expect(note.remove!()).rejects.toMatchObject({
+            errno: 5,
+            message: expect.stringContaining('Could not delete /posthog/files/Research/Notes.md (HTTP 500)'),
+        })
+        expect(folder.children!.get('Notes.md')).toBe(note)
+        jest.mocked(fileSystemDestroy).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        await expect(note.remove!()).rejects.toMatchObject({
+            errno: 5,
+            message: expect.stringContaining('Could not delete /posthog/files/Research/Notes.md:\nFailed to fetch'),
+        })
+        expect(folder.children!.get('Notes.md')).toBe(note)
         jest.mocked(fileSystemDestroy).mockResolvedValue(undefined)
         await note.remove!()
         expect(fileSystemDestroy).toHaveBeenLastCalledWith('42', 'note1', { recursive: false }, expect.anything())
@@ -428,7 +446,7 @@ describe('PostHog filesystem projection', () => {
                 ])
             } else {
                 await expect(outcome).resolves.toEqual(
-                    expect.objectContaining({ message: expect.stringContaining('canceled') })
+                    expect.objectContaining({ message: 'Canceled. No changes made.' })
                 )
                 expect(fileSystemDestroy).not.toHaveBeenCalled()
             }
@@ -448,7 +466,7 @@ describe('PostHog filesystem projection', () => {
             operation === 'remove'
                 ? node.remove!()
                 : (await node.open!()).save!(new TextEncoder().encode(JSON.stringify({ deleted: true })))
-        await expect(pending).rejects.toThrow('canceled')
+        await expect(pending).rejects.toThrow('Canceled. No changes made.')
         expect(fileSystemDestroy).not.toHaveBeenCalled()
         expect(notebooksPartialUpdate).not.toHaveBeenCalled()
     })

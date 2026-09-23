@@ -36,7 +36,7 @@ arguments=$(
         printf '\n'
     done | jq -Rsc '{argv: (split("\n")[:-1] | map(@base64d))}'
 )
-exec ph terminal-remove --json "$arguments"
+exec ph terminal-remove --json "$arguments" > /dev/null
 `
 
 export function parseRemovalArguments(argv: string[]): { paths: string[]; recursive: boolean; force: boolean } {

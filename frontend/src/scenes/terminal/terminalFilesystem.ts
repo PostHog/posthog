@@ -21,8 +21,11 @@ export interface TerminalNode {
 }
 
 export class FilesystemError extends Error {
-    constructor(readonly errno: number) {
-        super(`Filesystem error ${errno}`)
+    constructor(
+        readonly errno: number,
+        message = `Filesystem error ${errno}`
+    ) {
+        super(message)
     }
 }
 
