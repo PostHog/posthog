@@ -179,6 +179,11 @@ When set, `AgentServer` ships an allowlisted metadata subset of the session log 
 
 The `task_run` root span is ended and exported at the run's in-process terminal point — a background run's prompt settling, a terminal failure, or session cleanup (`close`). It cannot wait for teardown: agent-server is an exec'd process inside the sandbox, so `docker stop` / Modal terminate kill it without SIGTERM ever arriving, and a span still open at that moment is lost. Interactive sessions that end via hard teardown (e.g. inactivity timeout) therefore lose the root span; turn/tool spans and logs still assemble under the same trace id.
 
+When run tracing records spans, cloud Claude and Codex gateway requests include `task_run_trace_id` and `task_run_span_id` on their AI events.
+These fields identify the enclosing `task_run` span, preserve the existing `$ai_*` identity, and are omitted when tracing is disabled or sampled out.
+Both gateways accept these custom names; `$`-prefixed custom properties are reserved by the Go gateway.
+Resolve the hexadecimal IDs within the telemetry project, after the root span exports; export failure or hard teardown can leave the span unavailable.
+
 ## Agent SDK
 
 The `Agent` class (`src/agent.ts`) is the entrypoint for local/programmatic usage. It handles LLM gateway configuration, log writer setup, and model filtering — then delegates to `createAcpConnection()`.
