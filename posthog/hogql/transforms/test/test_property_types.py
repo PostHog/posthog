@@ -1554,7 +1554,7 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
                 "$active_feature_flags": ["false-variant", "only-in-array", "secret"],
                 "$feature_flags": {
                     "checkout": "true",
-                    "disabled": "false",
+                    "disabled": False,
                     "false-variant": "false",
                     "only-in-map": "true",
                     "secret": "false",
@@ -1572,7 +1572,7 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
             team=self.team,
             distinct_id="native-inactive-flags",
             event="schema-parity",
-            properties={"$feature_flags": {"disabled": "false"}},
+            properties={"$feature_flags": {"disabled": False}},
         )
         restricted_only_uuid = _create_event(
             team=self.team,
@@ -1594,7 +1594,9 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
             "properties.$feature_flags.checkout, JSONHas(properties, '$feature_flags', 'checkout'), "
             "properties.$active_feature_flags, properties.$active_feature_flags.1, "
             "JSONHas(properties, '$active_feature_flags', 99), "
-            "toJSONString(properties.`$feature/variant`), JSONExtractString(properties, '$feature/variant') "
+            "toJSONString(properties.`$feature/variant`), JSONExtractString(properties, '$feature/variant'), "
+            "properties.`$feature/false-variant`, properties.$feature_flags.`false-variant`, "
+            "properties.`$feature/disabled`, properties.$feature_flags "
             f"FROM events WHERE uuid = '{native_uuid}'",
             team=self.team,
             context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
@@ -1605,21 +1607,31 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
         assert legacy.results[0][1] == "true"
         assert native.results is not None
         assert native.results[0][:4] == ("true", "control", "true", 1)
-        assert json.loads(native.results[0][4]) == ["checkout", "only-in-map", "variant"]
+        assert json.loads(native.results[0][4]) == ["checkout", "false-variant", "only-in-map", "secret", "variant"]
         assert native.results[0][5] == "checkout"
         assert native.results[0][6] == 0
-        assert native.results[0][7:] == ('"control"', "control")
+        assert native.results[0][7:12] == ('"control"', "control", "false", "false", "false")
+        assert json.loads(native.results[0][12]) == {
+            "checkout": "true",
+            "disabled": "false",
+            "false-variant": "false",
+            "only-in-map": "true",
+            "secret": "false",
+            "variant": "control",
+        }
 
         operators = execute_hogql_query(
             "SELECT properties.$active_feature_flags IN ('only-in-map', 'missing'), "
             "properties.$active_feature_flags NOT IN ('checkout'), "
             "properties.$active_feature_flags ILIKE 'vari%', "
-            "multiSearchAnyCaseInsensitive(properties.$active_feature_flags, ['ONLY-IN']) > 0 "
+            "multiSearchAnyCaseInsensitive(properties.$active_feature_flags, ['ONLY-IN']) > 0, "
+            "properties.$active_feature_flags = 'false-variant', properties.$active_feature_flags = 'disabled', "
+            "properties.`$feature/false-variant` = 'false', properties.`$feature/disabled` = 'false' "
             f"FROM events WHERE uuid = '{native_uuid}'",
             team=self.team,
             context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
         )
-        assert operators.results == [(1, 0, 1, 1)]
+        assert operators.results == [(1, 0, 1, 1, 1, 0, 1, 1)]
 
         restricted_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True)
         restricted_context.restricted_properties = {
@@ -1636,12 +1648,12 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
         assert json.loads(restricted.results[0][0])["$feature_flags"] == {
             "checkout": "true",
             "disabled": "false",
-            "false-variant": "false",
+            "false-variant": "$false",
             "only-in-map": "true",
             "variant": "control",
         }
         assert restricted.results[0][1] == 0
-        assert json.loads(restricted.results[0][2]) == ["checkout", "only-in-map", "variant"]
+        assert json.loads(restricted.results[0][2]) == ["checkout", "false-variant", "only-in-map", "variant"]
 
         restricted_only = execute_hogql_query(
             "SELECT properties.$active_feature_flags, properties.$active_feature_flags != null, "

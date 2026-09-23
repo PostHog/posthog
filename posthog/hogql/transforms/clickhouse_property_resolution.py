@@ -27,7 +27,7 @@ from typing import Literal, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
+from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, FEATURE_FLAG_FALSE_VARIANT_SENTINEL
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField
 from posthog.hogql.errors import QueryError
@@ -515,6 +515,36 @@ def _map_value_read(blob: ast.Expr, key: str) -> ast.Expr:
     )
 
 
+def _false_variant_read(value: ast.Expr) -> ast.Expr:
+    """`value` with the `$false` sentinel read back as the variant name "false".
+
+    The cleaner stores a variant named "false" as `$false` so it stays apart from a flag that was evaluated and switched
+    off, which the typed map holds as 'false'.
+    """
+    return _call(
+        "if",
+        [
+            _call("equals", [clone_expr(value), _const(FEATURE_FLAG_FALSE_VARIANT_SENTINEL)]),
+            _sentinel("false"),
+            value,
+        ],
+    )
+
+
+def _feature_flag_value_read(feature_flags: ast.Expr, key: str, context: HogQLContext) -> ast.Expr:
+    """`has(map, key) ? map[key] : null`, with the `$false` sentinel mapped back on the native table."""
+    if not context.uses_new_events_schema():
+        return _map_value_read(feature_flags, key)
+    return ast.Call(
+        name="if",
+        args=[
+            ast.Call(name="has", args=[clone_expr(feature_flags), ast.Constant(value=key)]),
+            _false_variant_read(ast.ArrayAccess(array=clone_expr(feature_flags), property=ast.Constant(value=key))),
+            ast.Constant(value=None),
+        ],
+    )
+
+
 def _is_events_properties(field_type: ast.FieldType, context: HogQLContext) -> bool:
     table_type = _unwrap_to_table_type(field_type)
     field = field_type.resolve_database_field(context)
@@ -582,10 +612,27 @@ def _filter_feature_flags(feature_flags: ast.Expr, restricted_keys: list[str]) -
     )
 
 
-def _compact_feature_flags_map(feature_flags: ast.Expr, restricted_keys: list[str], context: HogQLContext) -> ast.Expr:
+def _compact_feature_flags_map(
+    feature_flags: ast.Expr, restricted_keys: list[str], context: HogQLContext, *, map_values: bool = True
+) -> ast.Expr:
+    """The visible flags map, with legacy `$feature/` prefixes stripped and `$false` read back as "false".
+
+    Presence checks pass `map_values=False`: the mapping cannot change the key set, so they skip the per-row `mapApply`.
+    """
     filtered = _filter_feature_flags(feature_flags, restricted_keys)
     if context.uses_new_events_schema():
-        return filtered
+        if not map_values:
+            return filtered
+        return ast.Call(
+            name="mapApply",
+            args=[
+                ast.Lambda(
+                    args=["key", "value"],
+                    expr=ast.Tuple(exprs=[_lambda_string_arg("key"), _false_variant_read(_lambda_string_arg("value"))]),
+                ),
+                filtered,
+            ],
+        )
     return ast.Call(
         name="mapApply",
         args=[
@@ -622,7 +669,10 @@ def _nonempty_container_json(value: ast.Expr, empty_json: str) -> ast.Expr:
 
 
 def _active_flag_lambda(restricted_keys: list[str] | None, key_predicate: ast.Expr | None = None) -> ast.Lambda:
-    """`(key, value) -> value is active, key is not restricted, and `key_predicate` holds."""
+    """`(key, value) -> value is active, key is not restricted, and `key_predicate` holds.
+
+    A variant named "false" is stored as `$false`, so it counts as active here.
+    """
     predicates: list[ast.Expr] = [_not_in_lambda_values("value", ["", "false"])]
     if restricted_keys:
         predicates.append(_not_in_lambda_values("key", restricted_keys, is_sensitive=True))
@@ -693,7 +743,7 @@ def _feature_flag_compatibility_read(
     restricted_keys = _restricted_feature_flag_keys(field_type, context)
 
     if context.uses_new_events_schema() and first_key.startswith(FEATURE_FLAG_PROPERTY_PREFIX):
-        value = _map_value_read(feature_flags, first_key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX))
+        value = _feature_flag_value_read(feature_flags, first_key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX), context)
         return ast.PropertyAccess(expr=value, keys=deeper_keys) if deeper_keys else value
 
     if context.uses_new_events_schema() and first_key == "$active_feature_flags":
@@ -706,7 +756,7 @@ def _feature_flag_compatibility_read(
         map_key = _physical_feature_flag_key(str(deeper_keys[0]), context)
         if map_key in restricted_keys:
             return ast.Constant(value=None, type=ast.StringType(nullable=True))
-        value = _map_value_read(feature_flags, map_key)
+        value = _feature_flag_value_read(feature_flags, map_key, context)
         return ast.PropertyAccess(expr=value, keys=deeper_keys[1:]) if len(deeper_keys) > 1 else value
     return _nonempty_container_json(_compact_feature_flags_map(feature_flags, restricted_keys, context), "{}")
 
@@ -1269,7 +1319,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             map_key = node.args[2]
             if not isinstance(map_key, ast.Constant) or not isinstance(map_key.value, str):
                 compact_map = _nonempty_container_json(
-                    _compact_feature_flags_map(feature_flags, restricted_keys, self.context), "{}"
+                    _compact_feature_flags_map(feature_flags, restricted_keys, self.context, map_values=False), "{}"
                 )
                 return ast.Call(
                     name="JSONHas",
@@ -1314,7 +1364,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if first_key == "$feature_flags":
             return ast.Call(
                 name="notEmpty",
-                args=[_compact_feature_flags_map(feature_flags, restricted_keys, self.context)],
+                args=[_compact_feature_flags_map(feature_flags, restricted_keys, self.context, map_values=False)],
             )
         return None
 

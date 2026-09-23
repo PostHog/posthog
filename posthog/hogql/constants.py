@@ -20,6 +20,11 @@ KEYWORDS = ["true", "false", "null"]
 # Keywords you can't alias to
 RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
+# The ingest cleaner stores a feature flag variant named "false" under this sentinel in the `$feature_flags` map, because
+# the map holds strings and a flag that was evaluated and switched off is already stored as 'false'. Reads map the
+# sentinel back to "false", and the flag API refuses it as a variant key.
+FEATURE_FLAG_FALSE_VARIANT_SENTINEL = "$false"
+
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports

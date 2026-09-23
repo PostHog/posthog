@@ -16,11 +16,11 @@ from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.models import Team
 
-from products.batch_exports.backend.hogql_source import native_event_property_chain
+from products.batch_exports.backend.hogql_source import native_event_property_chain, native_feature_flag_read
 from products.batch_exports.backend.service import SUPPORTED_FILTER_TYPES
 
 
@@ -32,13 +32,16 @@ class UpdatePropertiesToPersonProperties(TraversingVisitor):
             node.chain = ["events", "poe", "properties", *node.chain[1:]]
 
 
-class UpdatePropertiesToNativePaths(TraversingVisitor):
+class UpdatePropertiesToNativePaths(CloningVisitor):
     """Move event property paths to where the native events source's JSON keeps them."""
 
-    def visit_field(self, node: ast.Field):
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        node = super().visit_field(node)
         index = 1 if node.chain and node.chain[0] == "events" else 0
-        if node.chain[index : index + 1] == ["properties"]:
-            node.chain[index + 1 :] = native_event_property_chain(node.chain[index + 1 :])
+        if node.chain[index : index + 1] != ["properties"]:
+            return node
+        node.chain[index + 1 :] = native_event_property_chain(node.chain[index + 1 :])
+        return native_feature_flag_read(node, node.chain[index + 1 :])
 
 
 class InvalidFilterError(Exception):
@@ -129,9 +132,9 @@ def compose_filters_clause(
                 # Reachable only if SUPPORTED_FILTER_TYPES gains a type without a handler here.
                 raise TypeError(f"Unhandled filter type: '{filter_type}'")
 
-    and_expr = ast.And(exprs=exprs)
+    and_expr: ast.Expr = ast.And(exprs=exprs)
     if native_events_source:
-        UpdatePropertiesToNativePaths().visit(and_expr)
+        and_expr = UpdatePropertiesToNativePaths().visit(and_expr)
     # This query only supports events at the moment.
     # TODO: Extend for other models that also wish to implement property filtering.
     select_query = ast.SelectQuery(

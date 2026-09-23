@@ -7,6 +7,7 @@ should not import from `products.batch_exports.backend.temporal` or any DRF code
 import typing
 
 from posthog.hogql import ast
+from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, QueryError
@@ -15,7 +16,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 
@@ -130,6 +131,25 @@ def native_event_property_chain(property_chain: list[str | int]) -> list[str | i
     return list(property_chain)
 
 
+def native_feature_flag_read(field: ast.Field, property_chain: list[str | int]) -> ast.Expr:
+    """A native `$feature_flags.<key>` read with the `$false` sentinel mapped back to the variant name "false".
+
+    The hidden alias carries the column name the resolver would give the bare field, so an un-aliased select column
+    still serializes to a stable name instead of the parameterized expression.
+    """
+    if len(property_chain) != 2 or property_chain[0] != "$feature_flags":
+        return field
+    mapped = ast.Call(
+        name="if",
+        args=[
+            ast.Call(name="equals", args=[clone_expr(field), ast.Constant(value=FEATURE_FLAG_FALSE_VARIANT_SENTINEL)]),
+            ast.Constant(value="false"),
+            field,
+        ],
+    )
+    return ast.Alias(alias="__".join(str(part) for part in property_chain), expr=mapped, hidden=True)
+
+
 class SerializedExportProperties(CloningVisitor):
     """Rebind event fields while preserving property access restrictions."""
 
@@ -189,6 +209,7 @@ class SerializedExportProperties(CloningVisitor):
                 return ast.Constant(value=None)
         if self.use_native_schema and is_event_property:
             node.chain[index + 1 :] = native_event_property_chain(property_chain)
+            return native_feature_flag_read(node, node.chain[index + 1 :])
         return node
 
 

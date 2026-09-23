@@ -238,6 +238,22 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
         expression = schema["fields"][0]["expression"]
         assert expression == expected if expected == "NULL" else expected in expression, expression
 
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
+    def test_native_export_names_a_bare_flag_column(self, _use_new_events_schema):
+        serializer = BatchExportSerializer(
+            context={"team_id": self.team.pk, "request": SimpleNamespace(user=self.user)}
+        )
+
+        schema = serializer.serialize_hogql_query_to_batch_export_schema(
+            prepare_query("SELECT properties.`$feature/checkout` FROM events", self.team.pk)
+        )
+
+        field = schema["fields"][0]
+        assert field["alias"] == "`$feature_flags__checkout`", field
+        assert "%(" not in field["alias"]
+        assert "JSONExtractRaw(" in field["expression"], field
+
 
 class TestBatchExportDestinationSerializerTeamScoping(BaseTest):
     def _make_integration(self, team: Team) -> Integration:
