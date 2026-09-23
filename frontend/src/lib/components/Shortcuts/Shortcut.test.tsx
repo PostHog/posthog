@@ -51,6 +51,27 @@ describe('Shortcut', () => {
         expect(onClick).toHaveBeenCalledTimes(triggered ? 1 : 0)
     })
 
+    test('captured input interrupts a pending shortcut sequence', () => {
+        const onClick = jest.fn()
+        render(
+            <>
+                <div data-shortcuts-ignore="all" tabIndex={0} aria-label="Game" />
+                <Shortcut name="TestSequence" keybind={[['g', 'then', 'p']]} intent="Test sequence" interaction="click">
+                    <LemonButton onClick={onClick}>Sequence shortcut</LemonButton>
+                </Shortcut>
+            </>
+        )
+
+        fireEvent.keyDown(document.body, { key: 'g' })
+        fireEvent.keyDown(screen.getByLabelText('Game'), { key: 'ArrowUp' })
+        fireEvent.keyDown(document.body, { key: 'p' })
+        expect(onClick).not.toHaveBeenCalled()
+
+        fireEvent.keyDown(document.body, { key: 'g' })
+        fireEvent.keyDown(document.body, { key: 'p' })
+        expect(onClick).toHaveBeenCalledTimes(1)
+    })
+
     // AccessControlAction injects disabledReason through Shortcut, which must forward it to the child.
     test.each([
         [AccessControlLevel.Viewer, false],

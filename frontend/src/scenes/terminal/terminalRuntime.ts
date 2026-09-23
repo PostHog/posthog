@@ -1,6 +1,7 @@
 import type { V86 } from 'v86'
 import wasmUrl from 'v86/build/v86.wasm?url'
 
+import kernelUrl from './assets/buildroot-bzimage.bin?url'
 import assetHashes from './assets/hashes.json'
 import jqUrl from './assets/jq-linux-i386.bin?url'
 import biosUrl from './assets/seabios.bin?url'
@@ -108,7 +109,7 @@ export class TerminalRuntime {
             verifiedImage(vgaBiosUrl, 'a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880', signal),
             verifiedImage(
                 // This image's uncached 9P reads work before API file sizes are known; Linux 6.8 clamps them to zero.
-                `${packageManifest.baseUrl}/${packageManifest.kernel.file}`,
+                kernelUrl,
                 packageManifest.kernel.sha256,
                 signal
             ),

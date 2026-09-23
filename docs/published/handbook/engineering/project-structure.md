@@ -96,7 +96,8 @@ Arrow keys move, Ctrl fires, Space opens doors, Shift runs, and Escape opens the
 Capture mouse enables relative mouse movement; Escape releases capture.
 Focus loss releases held keys and mouse buttons.
 Other framebuffer programs can use `display on` and `display off` to show and hide the same window.
-The framebuffer kernel also comes from the pinned assets commit and is verified before boot.
+The framebuffer kernel is bundled with the boot assets and verified before boot, so starting the terminal does not depend on GitHub being available.
+Closing the display reopens the terminal dock if needed and returns focus to the shell.
 Add future tools to `terminal-packages.json` with pinned archive metadata, dependencies, and command entrypoints, and publish their reproducible build recipes in the assets repository.
 
 ### `posthog`

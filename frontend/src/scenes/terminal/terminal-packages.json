@@ -17,8 +17,8 @@
             "name": "pi",
             "version": "0.87.1",
             "file": "archives/pi-0.87.1.tar.gz",
-            "sha256": "95ffd3dac5996b471b7d5d3495128c403d3240202913156efb255f2045b4fb8e",
-            "size": 20421625,
+            "sha256": "ad9261590d1617edfb52a2fd8b71351079a37cc18515fd4b6b85f6d8d2511b6d",
+            "size": 20423074,
             "archiveSize": 76257280,
             "dependencies": ["node"],
             "commands": {

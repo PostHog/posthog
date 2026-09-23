@@ -116,6 +116,7 @@ describe('terminal VM lifecycle', () => {
                 new AbortController().signal,
                 ready
             )
+            expect(fetch).toHaveBeenCalledWith('kernel', expect.any(Object))
             expect(V86).toHaveBeenCalledWith(expect.objectContaining({ autostart: false }))
             if (phase === 'loaded') {
                 listeners.get('emulator-loaded')!()

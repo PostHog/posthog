@@ -1,7 +1,7 @@
 import './TerminalFramebufferWindow.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconExpand, IconX } from '@posthog/icons'
@@ -12,8 +12,16 @@ import { DraggableWithSnapZones } from 'lib/components/DraggableWithSnapZones/Dr
 import { terminalLogic } from './terminalLogic'
 
 export function TerminalFramebufferWindow(): JSX.Element | null {
-    const { displayOpen } = useValues(terminalLogic)
     const {
+        displayOpen,
+        displayFullscreen: fullscreen,
+        displayCaptured: captured,
+        displayError: error,
+    } = useValues(terminalLogic)
+    const {
+        setDisplayFullscreen: setFullscreen,
+        setDisplayCaptured: setCaptured,
+        setDisplayError: setError,
         closeDisplay,
         attachDisplay,
         detachDisplay,
@@ -25,9 +33,6 @@ export function TerminalFramebufferWindow(): JSX.Element | null {
     const windowRef = useRef<HTMLDivElement>(null)
     const screenRef = useRef<HTMLDivElement>(null)
     const resizeRef = useRef<{ x: number; y: number; width: number } | null>(null)
-    const [fullscreen, setFullscreen] = useState(false)
-    const [captured, setCaptured] = useState(false)
-    const [error, setError] = useState<string | null>(null)
 
     const resizeWindow = (width: number): void => {
         const maximum = Math.min(window.innerWidth - 32, ((window.innerHeight - 160) * 4) / 3)
@@ -86,7 +91,7 @@ export function TerminalFramebufferWindow(): JSX.Element | null {
             document.removeEventListener('pointerlockerror', onPointerError)
             document.removeEventListener('fullscreenchange', onFullscreen)
         }
-    }, [displayOpen, attachDisplay, detachDisplay, releaseDisplayInput])
+    }, [displayOpen, attachDisplay, detachDisplay, releaseDisplayInput, setCaptured, setFullscreen, setError])
 
     if (!displayOpen) {
         return null
@@ -213,9 +218,10 @@ export function TerminalFramebufferWindow(): JSX.Element | null {
                         displayButtons(event.buttons)
                     }}
                     onPointerUp={(event) => displayButtons(event.buttons)}
-                    onLostPointerCapture={releaseDisplayInput}
+                    onLostPointerCapture={() => displayButtons(0)}
                     onPointerCancel={releaseDisplayInput}
                     onPointerMove={(event) => {
+                        displayButtons(event.buttons)
                         if (
                             document.pointerLockElement === event.currentTarget ||
                             (document.activeElement === event.currentTarget && event.buttons)

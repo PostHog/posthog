@@ -82,7 +82,11 @@ describe('terminal lifecycle', () => {
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
         terminalLogic.actions.setDisplayOpen(true)
+        terminalDockLogic.actions.setDockOpen(false)
+        terminalLogic.actions.setDisplayError('Display error')
         terminalLogic.actions.closeDisplay()
+        expect(terminalDockLogic.values.dockOpen).toBe(true)
+        expect(terminalLogic.values.displayError).toBeNull()
         expect(terminalLogic.values.displayOpen).toBe(false)
         expect(runtime.write).toHaveBeenCalledWith('\x03')
         expect(runtime.displayInput.release).toHaveBeenCalled()

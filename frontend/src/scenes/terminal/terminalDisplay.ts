@@ -91,6 +91,7 @@ const SCANCODES: Record<string, number> = {
 
 export class TerminalDisplayInput {
     private pressed = new Set<string>()
+    private lastButtons = 0
 
     constructor(
         private keyboard: (codes: number[]) => void,
@@ -111,6 +112,10 @@ export class TerminalDisplayInput {
     }
 
     buttons(buttons: number): void {
+        if (buttons === this.lastButtons) {
+            return
+        }
+        this.lastButtons = buttons
         this.mouse([!!(buttons & 1), !!(buttons & 4), !!(buttons & 2)])
     }
 
