@@ -4,7 +4,6 @@ import { createPortal } from 'react-dom'
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { useComposerOverride, useWelcomeOverride } from 'products/posthog_ai/frontend/api/logics'
 import { SidePanelRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { getNotebookBtwContext } from './notebookBtwContext'
@@ -32,8 +31,6 @@ export function NotebookBtw({
     presentation: 'sidebar' | 'modal'
 }): JSX.Element {
     const contextItems = useMemo(() => getNotebookBtwContext(session.context), [session.context])
-    useComposerOverride(COMPOSER_OVERRIDE)
-    useWelcomeOverride(['What would you like to know?'])
 
     // Move the portal host so resizing preserves the composer draft and active conversation.
     const [chatContainer] = useState(() => document.createElement('div'))
@@ -78,6 +75,8 @@ export function NotebookBtw({
                 <SidePanelRunner
                     panelId={session.panelId}
                     contextItems={contextItems}
+                    composerOverride={COMPOSER_OVERRIDE}
+                    welcomeHeadlines={['What would you like to know?']}
                     attachApplyBackInstructions={false}
                 />,
                 chatContainer

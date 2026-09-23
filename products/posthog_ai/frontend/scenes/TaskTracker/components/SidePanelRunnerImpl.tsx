@@ -6,7 +6,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { useAttachedContext } from '../../../hooks/useAttachedContext'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
-import { composerOverrideLogic } from '../../../logics/composerOverrideLogic'
+import type { ComposerOverride } from '../../../logics/composerOverrideLogic'
 import type { AttachedContextItem } from '../../../types/contextTypes'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
@@ -22,6 +22,8 @@ export interface SidePanelRunnerImplProps {
     attachApplyBackInstructions?: boolean
     /** Context exclusive to this runner, rather than the app-wide attached-context registry. */
     contextItems?: AttachedContextItem[]
+    composerOverride?: ComposerOverride
+    welcomeHeadlines?: string[]
 }
 
 /**
@@ -36,9 +38,11 @@ export function SidePanelRunnerImpl({
     composer,
     attachApplyBackInstructions = true,
     contextItems,
+    composerOverride,
+    welcomeHeadlines,
 }: SidePanelRunnerImplProps): JSX.Element {
     return (
-        <BindLogic logic={taskTrackerSceneLogic} props={{ panelId, contextItems }}>
+        <BindLogic logic={taskTrackerSceneLogic} props={{ panelId, contextItems, composerOverride, welcomeHeadlines }}>
             <SidePanelRunnerContent
                 composer={composer}
                 attachApplyBackInstructions={attachApplyBackInstructions}
@@ -57,8 +61,11 @@ function SidePanelRunnerContent({
     attachApplyBackInstructions: boolean
     contextItems?: AttachedContextItem[]
 }): JSX.Element {
-    const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
-    const { composerOverride } = useValues(composerOverrideLogic)
+    const {
+        activeCreation,
+        historyExpanded,
+        effectiveComposerOverride: composerOverride,
+    } = useValues(taskTrackerSceneLogic)
     const { toggleHistory, updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
     const startupFocusedRef = useRef(false)
 

@@ -128,8 +128,9 @@ The bookmark toggle **Keep question with answer** is on by default, retaining th
 When the notebook area is too narrow for both, the conversation opens in a modal.
 Resizing between these layouts keeps the conversation and any unsent question.
 It is the second option in the notebook's `/` menu, after **Ask AI**, and the last action in the text selection toolbar and a component block's **More actions** menu.
-The conversation receives the current notebook and any selected content as context; replies are not inserted into the notebook.
-The agent is instructed to answer without edits.
+The conversation receives a snapshot of the notebook and any selected content from when BTW was opened, including unsaved changes at that time.
+Later notebook edits do not update that snapshot; replies are not inserted into the notebook.
+The agent is instructed to answer without edits, but BTW does not enforce a separate read-only tool permission policy.
 Sent messages are saved in PostHog AI history separately from the notebook.
 Closing BTW or refreshing the page closes the panel; reopen the saved conversation from PostHog AI history.
 It requires the same AI data processing consent as **Ask AI**.

@@ -359,7 +359,7 @@ export function FormattingToolbar({
                 <LemonButton
                     size="xsmall"
                     icon={<IconSparkles />}
-                    tooltip="BTW"
+                    tooltip="Ask a side question"
                     aria-label="BTW"
                     data-attr="notebook-btw-selection"
                     disabledReason={askAIDisabledReason}

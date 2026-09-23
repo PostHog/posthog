@@ -517,9 +517,7 @@ export interface runInteractionLogicMeta {
         ) => boolean
         isSubmitting: (sending: boolean, startingRun: boolean, clearing: boolean) => boolean
         pendingContextItems: (
-            arg:
-                | AttachedContextItem[]
-                | ((state: any, props?: RunInteractionLogicProps | undefined) => AttachedContextItem[]),
+            arg: AttachedContextItem[],
             sentContextKeysByTask: Record<string, string[]>,
             seenContextLinesByTask: Record<string, string[]>,
             arg2: string
@@ -1008,7 +1006,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // text is intentional, e.g. consecutive error snippets).
         pendingContextItems: [
             (s) => [
-                (_, p: RunInteractionLogicProps) => p.contextItems ?? s.contextItems,
+                (state, p: RunInteractionLogicProps) => p.contextItems ?? s.contextItems(state, p),
                 s.sentContextKeysByTask,
                 s.seenContextLinesByTask,
                 (_, p: RunInteractionLogicProps) => p.taskId,

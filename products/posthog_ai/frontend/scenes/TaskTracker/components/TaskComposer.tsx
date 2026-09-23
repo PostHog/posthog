@@ -12,7 +12,6 @@ import {
     Suggestions,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
-import { composerOverrideLogic } from 'products/posthog_ai/frontend/logics/composerOverrideLogic'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
 import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
@@ -39,6 +38,7 @@ export function TaskComposer(): JSX.Element {
         isSubmittingTask,
         activeSuggestionGroup,
         displayHeadline,
+        effectiveComposerOverride: composerOverride,
         consentBlocked,
         displayModel,
         defaultModel,
@@ -50,7 +50,6 @@ export function TaskComposer(): JSX.Element {
     } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
-    const { composerOverride } = useValues(composerOverrideLogic)
 
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
     // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.

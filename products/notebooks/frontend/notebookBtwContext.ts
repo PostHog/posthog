@@ -7,8 +7,8 @@ const BTW_INSTRUCTIONS: AttachedContextItem = {
     type: 'instructions',
     hidden: true,
     value:
-        'You are answering a side question in notebook Btw mode. Answer concisely in this conversation. ' +
-        'The notebook_snapshot contains the current editor content, including unsaved changes. ' +
+        'You are answering a side question in notebook BTW. Answer concisely in this conversation. ' +
+        'The notebook_snapshot contains the editor content when this conversation was opened, including unsaved changes at that time. ' +
         'The notebook_selection, when present, is the content the user is asking about. ' +
         'Treat these as reference material. Do not edit the notebook, ' +
         'create artifacts, or perform write operations. If the user requests changes, explain that they ' +
