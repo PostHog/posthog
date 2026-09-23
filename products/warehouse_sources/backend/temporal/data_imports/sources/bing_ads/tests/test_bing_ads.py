@@ -4,6 +4,7 @@ from collections.abc import Iterable
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
+from bingads.v13.reporting import ReportingException
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads import (
@@ -16,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.s
     BingAdsResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import (
+    REPORT_GENERATION_ATTEMPTS,
     BingAdsResumeConfig,
     download_and_extract_report_csv,
     fetch_data_in_yearly_chunks,
@@ -230,6 +232,43 @@ class TestBingAdsHelperFunctions:
         )
 
         assert result == ""
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils.time.sleep")
+    def test_download_and_extract_report_csv_resubmits_failed_report_generation(self, _mock_sleep):
+        # Bing sometimes finishes building a report in a failed state and the SDK raises a detail-free
+        # ReportingException. Resubmitting recovers it, instead of failing the run over a Bing-side flake.
+        manager = Mock()
+        manager.download_file.side_effect = [
+            ReportingException("Exceptions while reporting download.", "Error"),
+            None,
+        ]
+
+        result = download_and_extract_report_csv(
+            reporting_service_manager=manager,
+            report_request=Mock(),
+            report_type="KeywordPerformanceReportRequest",
+            account_id=12345,
+        )
+
+        assert result == ""
+        assert manager.download_file.call_count == 2
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils.time.sleep")
+    def test_download_and_extract_report_csv_gives_up_after_repeated_generation_failures(self, _mock_sleep):
+        # A report that keeps failing to build propagates, so the sync fails and the pipeline can
+        # retry it, instead of recording an empty report.
+        manager = Mock()
+        manager.download_file.side_effect = ReportingException("Exceptions while reporting download.", "Error")
+
+        with pytest.raises(ReportingException):
+            download_and_extract_report_csv(
+                reporting_service_manager=manager,
+                report_request=Mock(),
+                report_type="KeywordPerformanceReportRequest",
+                account_id=12345,
+            )
+
+        assert manager.download_file.call_count == REPORT_GENERATION_ATTEMPTS
 
     def test_fetch_data_in_yearly_chunks_resumes_from_saved_state(self):
         """When resume state exists, the loop starts at the saved chunk boundary and does not re-fetch earlier chunks."""
