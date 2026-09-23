@@ -47,6 +47,10 @@ class MembershipRoster:
 
     # False when no membership snapshot could be read at all, either unsynced or a failed read.
     synced: bool
+    # True when the read itself failed, so a snapshot may well be synced. The two need telling
+    # apart: a caller that reports a timeout as "turn the sync on" sends a scout to change a
+    # setting that is already right.
+    read_failed: bool
     # Lowercased GitHub login -> the teams that login is on, sorted by slug.
     teams_by_login: Mapping[str, tuple[MemberTeam, ...]]
     # Every slug the snapshot holds, including teams with no PostHog member on them, which is what
@@ -57,7 +61,8 @@ class MembershipRoster:
         return self.teams_by_login.get(login, ()) if login else ()
 
 
-_UNSYNCED = MembershipRoster(synced=False, teams_by_login={}, covered_slugs=frozenset())
+_UNSYNCED = MembershipRoster(synced=False, read_failed=False, teams_by_login={}, covered_slugs=frozenset())
+_READ_FAILED = MembershipRoster(synced=False, read_failed=True, teams_by_login={}, covered_slugs=frozenset())
 
 
 def resolve_membership_roster(team: Team) -> MembershipRoster:
@@ -67,14 +72,15 @@ def resolve_membership_roster(team: Team) -> MembershipRoster:
     the member list beside it reads project access straight from the ORM. A scout token is an
     automation rather than a person choosing warehouse sources, and team scoping is the boundary.
 
-    A failed read degrades to unsynced rather than raising. Routing is one field of a report, so a
-    warehouse hiccup must not fail the roster call that also answers "who can review here".
+    A failed read degrades rather than raising. Routing is one field of a report, so a warehouse
+    hiccup must not fail the roster call that also answers "who can review here". It comes back
+    marked ``read_failed`` so a caller can offer a retry instead of a sync it does not need.
     """
     try:
         roster = get_github_team_roster(team=team)
     except Exception:
         logger.warning("signals.team_membership.roster_read_failed", team_id=team.pk, exc_info=True)
-        return _UNSYNCED
+        return _READ_FAILED
     if not roster.synced:
         return _UNSYNCED
 
@@ -93,6 +99,7 @@ def resolve_membership_roster(team: Team) -> MembershipRoster:
         )
     return MembershipRoster(
         synced=True,
+        read_failed=False,
         teams_by_login={
             login: tuple(sorted(teams, key=lambda member_team: member_team.slug))
             for login, teams in teams_by_login.items()

@@ -896,6 +896,8 @@ class ProjectMemberRoster:
     members: tuple[ProjectMemberIdentity, ...]
     # False when nothing is synced, so every member's `teams` is empty and a filter cannot resolve.
     membership_synced: bool
+    # True when the roster read failed, which is a retry rather than a sync to turn on.
+    membership_read_failed: bool
     # False when the snapshot holds no rows under the asked-for slug. Distinct from an empty
     # ``members``, which means the team is synced but nobody on it can review here.
     team_is_covered: bool
@@ -960,6 +962,7 @@ def list_project_members(
     return ProjectMemberRoster(
         members=tuple(members[:limit]),
         membership_synced=roster.synced,
+        membership_read_failed=roster.read_failed,
         team_is_covered=team_slug is None or team_slug in roster.covered_slugs,
     )
 

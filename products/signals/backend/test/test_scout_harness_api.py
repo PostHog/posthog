@@ -4493,6 +4493,16 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected in response.json()["detail"]
 
+    def test_team_filter_reports_a_failed_roster_read_as_retryable(self) -> None:
+        # A read failure and an unsynced project both resolve nothing, but the fixes differ. Telling
+        # a scout to turn a sync on when the sync is already on sends it to change a correct setting,
+        # and it caches that reason.
+        with patch(_TEAM_ROSTER, side_effect=RuntimeError("warehouse down")):
+            response = self.client.get(self._url(), data={"team": "team-desktop"})
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert "Try the call again" in response.json()["detail"]
+
     def test_unfiltered_roster_survives_a_failing_membership_read(self) -> None:
         # Teams ride along on the member list, so a warehouse failure must not take the roster down.
         with patch(_TEAM_ROSTER, side_effect=RuntimeError("warehouse down")):

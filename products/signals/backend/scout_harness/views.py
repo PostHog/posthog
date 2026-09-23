@@ -2292,6 +2292,19 @@ TEAM_NOT_IN_ROSTER = (
 )
 
 
+class _TeamRosterUnavailable(exceptions.APIException):
+    """503 for a team roster the warehouse could not answer for. The project may well sync it, so
+    this must not read as the "turn the sync on" message above, which would send a scout to change
+    a setting that is already right."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "team_roster_unavailable"
+    default_detail = (
+        "Couldn't read this project's team roster, so a team slug can't be resolved right now. Try the "
+        "call again. If it keeps failing, match the owner by name or email instead."
+    )
+
+
 class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Project member roster for reviewer routing — sandbox-only.
 
@@ -2352,6 +2365,8 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         canonical_team = self.team.parent_team or self.team
         team_slug = (validated.get("team") or "").strip().lstrip("@").rsplit("/", 1)[-1].lower() or None
         roster = list_project_members(canonical_team, search=validated.get("search") or None, team_slug=team_slug)
+        if team_slug is not None and roster.membership_read_failed:
+            raise _TeamRosterUnavailable
         if team_slug is not None and not roster.membership_synced:
             raise exceptions.ValidationError({"detail": MEMBERSHIP_NOT_SYNCED})
         if team_slug is not None and not roster.team_is_covered:
