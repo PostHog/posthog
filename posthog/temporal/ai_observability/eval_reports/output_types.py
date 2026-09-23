@@ -110,7 +110,7 @@ SUPPORTED_EVAL_REPORT_OUTPUT_TYPES = (*_DEFINITION_BUILDERS, "numeric")
 
 def _numeric_definition(output_config: dict | None) -> EvaluationReportOutcomeDefinition:
     config = NumericOutputConfig.model_validate(output_config or {})
-    score = "toFloat(properties.$ai_score)"
+    score = "toFloat(properties.$ai_evaluation_numeric_result)"
     applicable = "(isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')"
     passed = failed = "false"
     if config.passing_rule is not None:

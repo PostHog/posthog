@@ -853,16 +853,16 @@ class TestNumericReportMetrics(ClickhouseTestMixin, BaseTest):
     ) -> None:
         if score_registered:
             PropertyDefinition.objects.create(
-                team=self.team, name="$ai_score", property_type="Numeric", is_numerical=True
+                team=self.team, name="$ai_evaluation_numeric_result", property_type="Numeric", is_numerical=True
             )
         if registered:
             PropertyDefinition.objects.create(team=self.team, name="$ai_evaluation_applicable", property_type="Boolean")
         start = dt.datetime(2026, 7, 1, tzinfo=dt.UTC)
         rows: list[dict[str, object]] = [
-            {"$ai_score": 0},
-            {"$ai_score": 7},
-            {"$ai_score": 7.5},
-            {"$ai_score": 8},
+            {"$ai_evaluation_numeric_result": 0},
+            {"$ai_evaluation_numeric_result": 7},
+            {"$ai_evaluation_numeric_result": 7.5},
+            {"$ai_evaluation_numeric_result": 8},
             {"$ai_evaluation_applicable": False},
             {"$ai_evaluation_skipped": True},
         ]

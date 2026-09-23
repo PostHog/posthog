@@ -24,7 +24,7 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
         status: 'completed' as const,
         skipped: isExplicitEvaluationPass(eventProperties.$ai_evaluation_skipped),
         ...normalizeEvaluationResultProperties({
-            rawScore: eventProperties.$ai_score,
+            rawScore: eventProperties.$ai_evaluation_numeric_result,
             rawScoreMin: eventProperties.$ai_score_min,
             rawScoreMax: eventProperties.$ai_score_max,
             rawResult: eventProperties.$ai_evaluation_result,

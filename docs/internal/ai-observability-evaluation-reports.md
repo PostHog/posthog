@@ -21,6 +21,9 @@ The execution budget limits query work; it does not discard older results or gua
 
 ### Numeric evaluation eligibility
 
+Numeric evaluation events store their raw score in `$ai_evaluation_numeric_result`, with `$ai_evaluation_result_type` set to `numeric`.
+Optional bounds use `$ai_score_min` and `$ai_score_max`.
+
 Numeric evaluations need a passing rule to generate reports.
 Adding the first passing rule creates its default report if none exists, including while the evaluation is paused.
 Delivery waits until the evaluation is enabled.

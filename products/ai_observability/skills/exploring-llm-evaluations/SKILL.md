@@ -33,7 +33,7 @@ Results from all types land in ClickHouse as `$ai_evaluation` events. Boolean
 evaluations (`llm_judge` and `hog`) set `$ai_evaluation_result`; sentiment
 evaluations set `$ai_sentiment_*` properties instead.
 Both `hog` and `llm_judge` also support `output_type: "numeric"`.
-Numeric runs store their raw score in `$ai_score`, with optional `$ai_score_min` and `$ai_score_max`.
+Numeric runs store their raw score in `$ai_evaluation_numeric_result`, with optional `$ai_score_min` and `$ai_score_max`.
 They never set `$ai_evaluation_result`.
 Use `output_config.passing_rule` to interpret scores: `gte` means at least the threshold and `lte` means at most.
 Changing the rule reinterprets historical scores. Saved reports retain the rule and metrics used when generated.

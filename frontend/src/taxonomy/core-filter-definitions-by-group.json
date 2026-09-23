@@ -353,6 +353,16 @@
             ],
             "label": "AI Evaluation Name (LLM)"
         },
+        "$ai_evaluation_numeric_result": {
+            "description": "The raw numeric score returned by an online evaluation.",
+            "examples": [
+                0,
+                0.75,
+                10
+            ],
+            "label": "AI evaluation numeric result",
+            "type": "Numeric"
+        },
         "$ai_evaluation_provider": {
             "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
             "examples": [
@@ -5149,6 +5159,16 @@
                 "Response relevance"
             ],
             "label": "AI Evaluation Name (LLM)"
+        },
+        "$ai_evaluation_numeric_result": {
+            "description": "The raw numeric score returned by an online evaluation.",
+            "examples": [
+                0,
+                0.75,
+                10
+            ],
+            "label": "AI evaluation numeric result",
+            "type": "Numeric"
         },
         "$ai_evaluation_provider": {
             "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",

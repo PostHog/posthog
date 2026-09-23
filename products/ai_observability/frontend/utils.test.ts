@@ -2995,5 +2995,6 @@ describe('queryEvaluationRuns', () => {
         await queryEvaluationRuns({ evaluationId: 'eval-1' })
 
         expect(queryHogQL.mock.calls[0][0]).not.toContain('$ai_evaluation_backfill_id')
+        expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result as score')
     })
 })
