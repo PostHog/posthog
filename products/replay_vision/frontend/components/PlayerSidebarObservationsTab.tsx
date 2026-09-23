@@ -209,8 +209,8 @@ function ObservationRuns({
                     retrying={retryingObservationIds.includes(focused.id)}
                 />
             )}
-            <div className="sticky top-0 z-10 flex items-center gap-2 px-2 py-1 border-b bg-surface-primary">
-                <span className="text-xs font-semibold uppercase tracking-wide text-secondary">Runs</span>
+            <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 border-y border-primary bg-surface-tertiary dark:bg-surface-secondary text-xs">
+                <span className="font-semibold">Runs</span>
                 <LemonBadge.Number count={observations.length} maxDigits={2} size="small" status="muted" showZero />
                 {flaggedCount > 0 && (
                     <Tooltip title={`${flaggedCount} flagged`}>
@@ -218,48 +218,53 @@ function ObservationRuns({
                     </Tooltip>
                 )}
             </div>
-            <div className="p-1">
+            <div>
                 {observations.map((observation) => {
                     const count = marksByRun.get(observation.id)?.length ?? 0
                     const scannerType = observation.scanner_snapshot?.scanner_type
                     return (
-                        <LemonButton
+                        <div
                             key={observation.id}
-                            fullWidth
-                            size="small"
-                            active={observation.id === focused?.id}
-                            icon={
-                                scannerType ? (
-                                    <Tooltip title={scannerTypeLabel(scannerType)}>
-                                        <LemonTag type={SCANNER_TYPE_TAG_TYPE[scannerType]} size="small">
-                                            {scannerTypeIcon(scannerType)}
-                                        </LemonTag>
-                                    </Tooltip>
-                                ) : undefined
-                            }
-                            onClick={() => {
-                                focusObservation(observation.id)
-                                setFollowMoments(false)
-                            }}
-                            data-attr="vision-run-row"
+                            className="border-b border-[var(--color-posthog-3000-300)] dark:border-[var(--color-neutral-cool-700)]"
                         >
-                            <span className="flex items-center gap-2 min-w-0 w-full font-normal">
-                                <span className="text-sm truncate flex-1">{scannerLabel(observation)}</span>
-                                <span className="flex items-center gap-2 min-w-0 max-w-[60%]">
-                                    <RunResult observation={observation} />
-                                    {count > 0 && (
-                                        <Tooltip title={`${count} cited moment${count === 1 ? '' : 's'}`}>
-                                            <LemonBadge.Number
-                                                count={count}
-                                                maxDigits={2}
-                                                size="small"
-                                                status={isFlaggedObservation(observation) ? 'primary' : 'muted'}
-                                            />
+                            <LemonButton
+                                fullWidth
+                                size="small"
+                                className="rounded-none"
+                                active={observation.id === focused?.id}
+                                icon={
+                                    scannerType ? (
+                                        <Tooltip title={scannerTypeLabel(scannerType)}>
+                                            <LemonTag type={SCANNER_TYPE_TAG_TYPE[scannerType]} size="small">
+                                                {scannerTypeIcon(scannerType)}
+                                            </LemonTag>
                                         </Tooltip>
-                                    )}
+                                    ) : undefined
+                                }
+                                onClick={() => {
+                                    focusObservation(observation.id)
+                                    setFollowMoments(false)
+                                }}
+                                data-attr="vision-run-row"
+                            >
+                                <span className="flex items-center gap-2 min-w-0 w-full font-normal">
+                                    <span className="text-sm truncate flex-1">{scannerLabel(observation)}</span>
+                                    <span className="flex items-center gap-2 min-w-0 max-w-[60%]">
+                                        <RunResult observation={observation} />
+                                        {count > 0 && (
+                                            <Tooltip title={`${count} cited moment${count === 1 ? '' : 's'}`}>
+                                                <LemonBadge.Number
+                                                    count={count}
+                                                    maxDigits={2}
+                                                    size="small"
+                                                    status={isFlaggedObservation(observation) ? 'primary' : 'muted'}
+                                                />
+                                            </Tooltip>
+                                        )}
+                                    </span>
                                 </span>
-                            </span>
-                        </LemonButton>
+                            </LemonButton>
+                        </div>
                     )
                 })}
             </div>
@@ -305,7 +310,7 @@ const FocusPane = forwardRef<
             data-attr="vision-focus-run"
         >
             <div ref={contentRef}>
-                <div className="flex items-center gap-2 px-2 py-1">
+                <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-surface-secondary">
                     <Tooltip title={prompt}>
                         <span className="text-sm font-semibold truncate">{scannerLabel(observation)}</span>
                     </Tooltip>
@@ -313,7 +318,7 @@ const FocusPane = forwardRef<
                         <RunResult observation={observation} />
                     </span>
                 </div>
-                <div className="flex flex-col gap-2 px-2 pb-2">
+                <div className="flex flex-col gap-2 px-2 py-2">
                     {observation.status === 'failed' && observation.error_reason && (
                         <FailureDetail errorReason={observation.error_reason} />
                     )}
@@ -339,7 +344,15 @@ const FocusPane = forwardRef<
                             compact
                         />
                     )}
-                    {marks.length > 0 && <ObservationTimeline sessionId={sessionId} marks={marks} onSeek={onSeek} />}
+                    {marks.length > 0 && (
+                        <>
+                            <div className="flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-secondary">
+                                Moments
+                                <LemonBadge.Number count={marks.length} maxDigits={2} size="small" status="muted" />
+                            </div>
+                            <ObservationTimeline sessionId={sessionId} marks={marks} onSeek={onSeek} />
+                        </>
+                    )}
                     {observation.status === 'succeeded' && marks.length === 0 && (
                         <span className="text-xs text-muted">No cited moments.</span>
                     )}
@@ -387,14 +400,33 @@ const FocusPane = forwardRef<
 function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, seekbarMarks, followMoments } = useValues(logic)
-    const { setFollowMoments } = useActions(logic)
+    const { setFollowMoments, focusObservation } = useActions(logic)
+    const lastJumpMs = useRef<number | null>(null)
     // The player logic is keyed; seek the exact mounted instance, not a propless default
     const { logicProps, sessionPlayerMetaData, currentPlayerTime } = useValues(sessionRecordingPlayerLogic)
     const seekToTime = (ms: number): void => {
         sessionRecordingPlayerLogic.findMounted(logicProps)?.actions.seekToTime(ms)
     }
     const scanBlock = recordingScanBlock(sessionPlayerMetaData)
-    const nextMoment = nextMarkAfter(seekbarMarks, currentPlayerTime)
+    // A seek can land just short of its target, so step from the last jump while the playhead is still on it.
+    const nextFrom =
+        lastJumpMs.current !== null && Math.abs(currentPlayerTime - lastJumpMs.current) < 1000
+            ? lastJumpMs.current
+            : currentPlayerTime
+    const nextMoment = nextMarkAfter(seekbarMarks, nextFrom)
+    const jumpToNextMoment = (): void => {
+        if (!nextMoment) {
+            return
+        }
+        lastJumpMs.current = nextMoment.timestampMs
+        seekToTime(nextMoment.timestampMs)
+        const owner = observations.find((o) =>
+            observationSeekbarMarks([o]).some((m) => m.timestampMs === nextMoment.timestampMs)
+        )
+        if (owner) {
+            focusObservation(owner.id)
+        }
+    }
 
     return (
         <div className="flex flex-col flex-1 min-h-0" data-attr="vision-observations-tab">
@@ -441,7 +473,7 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
                                         type="secondary"
                                         sideIcon={<IconChevronRight />}
                                         disabledReason={nextMoment ? undefined : 'No later moments'}
-                                        onClick={() => nextMoment && seekToTime(nextMoment.timestampMs)}
+                                        onClick={jumpToNextMoment}
                                         data-attr="vision-next-moment"
                                     >
                                         Next moment
