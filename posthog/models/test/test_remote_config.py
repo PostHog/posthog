@@ -273,6 +273,7 @@ class TestRemoteConfig(_RemoteConfigBase):
             == "Please provide your details so we can help you better."
         )
         assert self.remote_config.config["conversations"]["placeholderText"] == "Type your message..."
+        assert self.remote_config.config["conversations"]["restoreEnabled"] is True
 
     def test_conversations_enabled_with_custom_config(self):
         self.team.conversations_enabled = True
@@ -288,6 +289,7 @@ class TestRemoteConfig(_RemoteConfigBase):
             "widget_identification_form_title": "Let's get started",
             "widget_identification_form_description": "Tell us about yourself",
             "widget_placeholder_text": "Ask away...",
+            "widget_restore_enabled": False,
         }
         self.team.save()
         self.sync_remote_config()
@@ -302,6 +304,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.config["conversations"]["identificationFormTitle"] == "Let's get started"
         assert self.remote_config.config["conversations"]["identificationFormDescription"] == "Tell us about yourself"
         assert self.remote_config.config["conversations"]["placeholderText"] == "Ask away..."
+        assert self.remote_config.config["conversations"]["restoreEnabled"] is False
 
     def test_conversations_disabled_returns_false(self):
         self.team.conversations_enabled = False

@@ -36,6 +36,10 @@ from products.conversations.backend.services.restore import RestoreService
 logger = logging.getLogger(__name__)
 
 
+def _is_restore_enabled(team: Team) -> bool:
+    return bool((team.conversations_settings or {}).get("widget_restore_enabled", True))
+
+
 def _build_restore_url(base_url: str, token: str) -> str:
     """
     Build the restore URL by appending the token to the user's site URL.
@@ -68,6 +72,7 @@ class WidgetRestoreRequestView(APIView):
 
     Always returns {"ok": true} to prevent email enumeration.
     If the email has associated tickets, a restore link will be sent.
+    Returns 403 when the team turned ticket recovery off.
     """
 
     authentication_classes = [WidgetAuthentication]
@@ -81,6 +86,9 @@ class WidgetRestoreRequestView(APIView):
 
         if not validate_origin(request, team):
             return Response({"error": "Origin not allowed"}, status=status.HTTP_403_FORBIDDEN)
+
+        if not _is_restore_enabled(team):
+            return Response({"error": "Ticket recovery is disabled"}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = RestoreRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -134,6 +142,7 @@ class WidgetRestoreRedeemView(APIView):
     Redeem a restore token to migrate tickets to the current browser session.
 
     Returns the migration result including status and migrated ticket IDs.
+    Returns 403 when the team turned ticket recovery off.
     """
 
     authentication_classes = [WidgetAuthentication]
@@ -147,6 +156,9 @@ class WidgetRestoreRedeemView(APIView):
 
         if not validate_origin(request, team):
             return Response({"error": "Origin not allowed"}, status=status.HTTP_403_FORBIDDEN)
+
+        if not _is_restore_enabled(team):
+            return Response({"error": "Ticket recovery is disabled"}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = RestoreRedeemSerializer(data=request.data)
         if not serializer.is_valid():

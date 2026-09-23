@@ -376,6 +376,10 @@ class TestRestoreAPI(BaseTest):
         }
         self.team.save()
 
+    def _disable_recovery(self):
+        self.team.conversations_settings = {**self.team.conversations_settings, "widget_restore_enabled": False}
+        self.team.save()
+
     def test_restore_request_authentication_required(self):
         response = self.client.post(
             "/api/conversations/v1/widget/restore/request",
@@ -427,6 +431,54 @@ class TestRestoreAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"ok": True})
         mock_send_email.delay.assert_not_called()
+
+    @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
+    @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
+    def test_restore_request_refused_when_recovery_disabled(self, mock_send_email, mock_throttle):
+        self._enable_allowlist()
+        self._disable_recovery()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="user-1",
+            anonymous_traits={"email": self.customer_email},
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore/request",
+            {
+                "email": self.customer_email,
+                "request_url": "https://example.com/support",
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_send_email.delay.assert_not_called()
+
+    @patch("products.conversations.backend.api.restore.RestoreRedeemThrottle.allow_request", return_value=True)
+    def test_restore_redeem_refused_when_recovery_disabled(self, mock_throttle):
+        old_session_id = str(uuid.uuid4())
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=old_session_id,
+            distinct_id="user-1",
+            anonymous_traits={"email": self.customer_email},
+        )
+        _, raw_token = ConversationRestoreToken.create_token(
+            team=self.team,
+            recipient_email=self.customer_email,
+        )
+        self._disable_recovery()
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore",
+            {"restore_token": raw_token, "widget_session_id": str(uuid.uuid4())},
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Ticket.objects.get(team=self.team).widget_session_id, old_session_id)
 
     def test_restore_request_invalid_email(self):
         self._enable_allowlist()
