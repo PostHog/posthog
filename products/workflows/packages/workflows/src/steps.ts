@@ -5,7 +5,6 @@ import type {
     JsonValue,
     PropertyCondition,
     PropertyOperator,
-    PropertyType,
 } from './definition.js'
 
 /**
@@ -479,7 +478,7 @@ export function path(...steps: Path): Path {
     return steps
 }
 
-function condition(type: PropertyType) {
+function condition(type: 'event' | 'person') {
     return (
         key: string,
         operator: PropertyOperator,
@@ -529,6 +528,7 @@ export const eventProperty = condition('event')
 /**
  * A condition on a group property, for a branch arm or an event trigger.
  *
+ * @param groupTypeIndex - The PostHog group type index, for example `0` for the first group type.
  * @param key - The group property, for example `industry`.
  * @param operator - How to compare. `is_set` and `is_not_set` take no value.
  * @param value - The values to compare against. Several values match any of them.
@@ -537,7 +537,16 @@ export const eventProperty = condition('event')
  * ```ts
  * import { group } from '@posthog/workflows'
  *
- * const enterpriseAccount = group('tier', 'exact', ['enterprise'])
+ * const enterpriseAccount = group(0, 'tier', 'exact', ['enterprise'])
  * ```
  */
-export const group = condition('group')
+export function group(
+    groupTypeIndex: number,
+    key: string,
+    operator: PropertyOperator,
+    value?: readonly (string | number | boolean)[]
+): PropertyCondition {
+    return value === undefined
+        ? { key, operator, type: 'group', group_type_index: groupTypeIndex }
+        : { key, operator, value, type: 'group', group_type_index: groupTypeIndex }
+}

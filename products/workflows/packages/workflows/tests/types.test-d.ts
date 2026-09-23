@@ -1,7 +1,7 @@
 // `tsc` fails this file when an `@ts-expect-error` line stops being an error, so a
 // type rule that relaxes breaks the build.
 
-import { branch, delay, email, fn, onSchedule, path, person, secret, workflow } from '../src/index.js'
+import { branch, delay, email, fn, group, onSchedule, path, person, secret, workflow } from '../src/index.js'
 
 const wait = delay('1d', { name: 'Wait a day' })
 const onPaidPlan = [person('plan', 'exact', ['pro'])] as const
@@ -102,3 +102,8 @@ workflow({
     steps: path(wait),
     exit: { reason: 'Done' },
 })
+
+// Group conditions need the group type index PostHog uses to resolve the property.
+// @ts-expect-error - groupTypeIndex is required
+const accountTier = group('tier', 'exact', ['enterprise'])
+void accountTier

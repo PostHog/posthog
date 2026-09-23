@@ -47,6 +47,8 @@ export interface PropertyCondition {
     readonly value?: readonly (string | number | boolean)[]
     readonly operator: PropertyOperator
     readonly type: PropertyType
+    /** Required when `type` is `group`, because PostHog resolves the property from its group type. */
+    readonly group_type_index?: number
 }
 
 /** One event an event trigger fires on, inside the trigger's filters. */
@@ -212,7 +214,8 @@ export type ExitCondition = 'exit_only_at_end' | 'exit_on_trigger_not_matched'
  * Whether the workflow runs.
  *
  * `draft` accepts no one and sends nothing, `active` runs, and `archived` is retired.
- * A workflow with no `status` is a `draft`.
+ * A definition includes this field only when the file sets it. When a new workflow is
+ * created without it, PostHog creates the workflow as a draft.
  */
 export type WorkflowStatus = 'draft' | 'active' | 'archived'
 
@@ -243,14 +246,14 @@ export interface WorkflowDefinition {
     /**
      * The workflow's identity in source and push tooling.
      *
-     * This package emits it in the definition. The backend on this branch does not store
-     * or resolve it, so the API still creates and updates workflows by HogFlow id.
+     * This package emits it in the definition. PostHog stores it as the workflow's
+     * source identity, and push tooling uses it to create or update the same workflow.
      */
     readonly key: string
     readonly name: string
     /** Empty when the file sets no description. */
     readonly description: string
-    readonly status: WorkflowStatus
+    readonly status?: WorkflowStatus
     readonly exit_condition: ExitCondition
     /** Empty when the file declares no variables. */
     readonly variables: readonly WorkflowVariable[]

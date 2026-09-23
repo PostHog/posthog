@@ -64,7 +64,7 @@ Each rule is stated in full in the JSDoc of the symbol that owns it, which your 
 - **An action id is the step's explicit `id`, or the slug of its name when `id` is omitted.** A second placement is numbered in graph order. See `path` and `workflow`.
 - **Edges come from placement**, including the branch indexes. See `branch`.
 - **A sub-path takes at least one step.** See `Path`.
-- **The status defaults to `draft`.** See `WorkflowOptions.status`.
+- **PostHog owns the status unless the file sets it.** A new workflow starts as a draft because that is the PostHog model default. See `WorkflowOptions.status`.
 - **A secret is named in the file and resolved at emit.** See `secret`.
 - **Every refusal carries `status`, `message`, `why` and `fix`.** See `WorkflowError`, and each function's `@throws` for the statuses it can produce.
 

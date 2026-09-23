@@ -27,6 +27,8 @@ const RESERVED_IDS = new Set([TRIGGER_ID, EXIT_ID])
 const MAX_ACTION_ID_LENGTH = 200
 const MAX_STEP_NAME_LENGTH = 400
 const EXPLICIT_ID_PATTERN = /^[A-Za-z0-9_-]+$/
+const WORKFLOW_KEY_PATTERN = /^[A-Za-z0-9_-]+$/
+const MAX_WORKFLOW_KEY_LENGTH = 400
 
 /** `HogFlowVariableSerializer` caps the whole list at this many bytes. */
 const VARIABLES_MAX_BYTES = 5120
@@ -102,6 +104,17 @@ export interface CompileOptions {
     readonly trigger: TriggerConfig
     readonly steps: Path
     readonly exit: { readonly reason: string }
+}
+
+function checkKey(key: string): void {
+    if (key.length === 0 || key.length > MAX_WORKFLOW_KEY_LENGTH || !WORKFLOW_KEY_PATTERN.test(key)) {
+        throw new WorkflowError({
+            status: 'invalid_key',
+            message: `The workflow key "${key}" is not valid.`,
+            why: 'PostHog stores the key as the workflow source identity. It accepts letters, numbers, hyphens and underscores, up to 400 characters.',
+            fix: 'Use letters, numbers, hyphens or underscores, and keep the key to 400 characters or fewer.',
+        })
+    }
 }
 
 function slug(name: string): string {
@@ -535,8 +548,8 @@ function emitPath(placements: readonly Placement[], continuation: string, contex
  * @returns The definition, and the secret inputs it resolved.
  * @throws {WorkflowError} The first rule the workflow breaks. The statuses are
  * `duplicate_action_id`, `reserved_action_id`, `invalid_action_id`,
- * `action_id_too_long`, `unnamed_action_id`, `step_name_too_long`, `invalid_duration`,
- * `duration_over_unit_cap`, `empty_path`, `invalid_email_sender`,
+ * `action_id_too_long`, `unnamed_action_id`, `step_name_too_long`, `invalid_key`,
+ * `invalid_duration`, `duration_over_unit_cap`, `empty_path`, `invalid_email_sender`,
  * `invalid_sender_address`, `missing_secret`, `nested_secret`, `duplicate_variable_key`
  * and `variables_too_large`.
  * @example
@@ -556,6 +569,7 @@ function emitPath(placements: readonly Placement[], continuation: string, contex
  * ```
  */
 export function compile(options: CompileOptions, emitOptions: EmitOptions = {}): EmitResult {
+    checkKey(options.key)
     const variables = options.variables ?? []
     checkVariables(variables)
 
@@ -579,7 +593,7 @@ export function compile(options: CompileOptions, emitOptions: EmitOptions = {}):
         key: options.key,
         name: options.name,
         description: options.description ?? '',
-        status: options.status ?? 'draft',
+        ...(options.status === undefined ? {} : { status: options.status }),
         exit_condition: options.exitCondition ?? 'exit_only_at_end',
         variables,
         actions: context.actions,

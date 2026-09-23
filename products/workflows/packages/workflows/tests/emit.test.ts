@@ -7,6 +7,7 @@ import {
     delay,
     email,
     fn,
+    group,
     onEvent,
     onSchedule,
     path,
@@ -52,7 +53,7 @@ const onboarding = workflow({
             branches: [
                 {
                     name: 'Paid plan',
-                    when: [person('plan', 'exact', ['pro'])],
+                    when: [person('plan', 'exact', ['pro']), group(0, 'tier', 'exact', ['enterprise'])],
                     then: path(welcomeEmail, notifyCrm),
                 },
                 {
@@ -125,7 +126,6 @@ describe('@posthog/workflows', () => {
             key: 'onboarding-nudge',
             name: 'Onboarding nudge',
             description: '',
-            status: 'draft',
             exit_condition: 'exit_only_at_end',
             variables: [],
             actions: [
@@ -159,7 +159,12 @@ describe('@posthog/workflows', () => {
                         conditions: [
                             {
                                 name: 'Paid plan',
-                                filters: { properties: [person('plan', 'exact', ['pro'])] },
+                                filters: {
+                                    properties: [
+                                        person('plan', 'exact', ['pro']),
+                                        group(0, 'tier', 'exact', ['enterprise']),
+                                    ],
+                                },
                             },
                             {
                                 name: 'Free plan',
@@ -625,7 +630,7 @@ describe('@posthog/workflows', () => {
         })
     }
 
-    test('defaults the status to draft, so a first push sends nothing to a real person', () => {
+    test('leaves status out when the file sets none, so PostHog owns it after create', () => {
         const flow = workflow({
             key: 'status',
             name: 'Status',
@@ -634,7 +639,27 @@ describe('@posthog/workflows', () => {
             exit: { reason: 'Done' },
         })
 
-        assert.strictEqual(flow.emit({ env }).definition.status, 'draft')
+        assert.ok(!('status' in flow.emit({ env }).definition))
+    })
+
+    test('refuses a workflow key that PostHog will not accept', () => {
+        const flow = workflow({
+            key: '../not-a-key',
+            name: 'Invalid key',
+            on: onSchedule(),
+            steps: path(delay('1d', { name: 'Wait' })),
+            exit: { reason: 'Done' },
+        })
+
+        assert.deepStrictEqual(
+            refusal(() => flow.emit({ env })),
+            {
+                status: 'invalid_key',
+                message: 'The workflow key "../not-a-key" is not valid.',
+                why: 'PostHog stores the key as the workflow source identity. It accepts letters, numbers, hyphens and underscores, up to 400 characters.',
+                fix: 'Use letters, numbers, hyphens or underscores, and keep the key to 400 characters or fewer.',
+            }
+        )
     })
 
     test('carries the status and the variables the file declares', () => {

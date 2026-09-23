@@ -21,9 +21,9 @@ export interface WorkflowOptions {
     /** What the workflow is for. Emitted as an empty string when omitted. */
     readonly description?: string
     /**
-     * Whether the workflow runs. Defaults to `draft`, so a first push accepts no one and
-     * sends nothing. Set `active` in the file to turn the workflow on, which makes
-     * enabling it a reviewed change.
+     * Whether the workflow runs. Omit it to let PostHog own the status. A new workflow
+     * starts as a draft because that is the PostHog model default. Set `active` or
+     * `draft` in the file only when the file must control the status.
      */
     readonly status?: WorkflowStatus
     /** When a person leaves early. Defaults to `exit_only_at_end`. */
@@ -56,7 +56,7 @@ export interface Workflow {
      * @throws {WorkflowError} The first rule the workflow breaks, as a refusal carrying
      * `status`, `message`, `why` and `fix`. The statuses are `duplicate_action_id`,
      * `reserved_action_id`, `invalid_action_id`, `action_id_too_long`,
-     * `unnamed_action_id`, `step_name_too_long`, `invalid_duration`,
+     * `unnamed_action_id`, `step_name_too_long`, `invalid_key`, `invalid_duration`,
      * `duration_over_unit_cap`, `empty_path`, `invalid_email_sender`,
      * `invalid_sender_address`, `missing_secret`, `nested_secret`, `duplicate_variable_key`
      * and `variables_too_large`.
@@ -81,7 +81,8 @@ export interface Workflow {
  * - The trigger action and the exit action always use the ids `trigger_node` and
  *   `exit_node`.
  * - Edges come from placement, including each branch arm's index.
- * - `status` defaults to `draft`.
+ * - The definition includes `status` only when the file sets it. PostHog owns the
+ *   status otherwise, and a new workflow starts as a draft.
  *
  * Export every workflow the file declares, because the CLI pushes what the file exports
  * and skips the rest. The export name is yours; the identity is the key. Nothing here
