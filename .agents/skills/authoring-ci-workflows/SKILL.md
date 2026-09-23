@@ -282,22 +282,26 @@ Measured checkout-step durations, from the GitHub API on real runs:
   Sparse-checkout `.nvmrc` if the job has no checkout.
 - **Pin `setup-uv`'s `version:`** — an unpinned `setup-uv` calls the GitHub API on every job and burns the rate limit.
 
-## A `#` in an input a composite action re-parses
+## Never splice a caller's input into a command an inner shell re-parses
 
-`.github/actions/semgrep-ci` builds `sh -c "... semgrep ci ... $SEMGREP_ARGS"`, so the container's `sh` re-parses the value — that re-parse is what performs the documented whitespace split into flags.
-Inside a YAML block scalar (`args: >-`) a `#` is **data**, not a YAML comment, and `>-` folds the block onto one line, so a `#` note written in the block comments out every flag after it and the job still exits 0.
-Measured on [#101671](https://github.com/PostHog/posthog/pull/101671): `semgrep-go` loaded 5 of the 7 configs it lists, `semgrep-rust` 5 of 7, `semgrep-general` 4 of 6, and the `--exclude-rule` / `--include` scopes below the comment went with them.
-Quoting is not the fix: the value already sits inside double quotes, so a second pair collapses every flag into one argument.
-Put the note above the key instead, where YAML strips it:
+A composite action that builds `sh -c "... $INPUT"` hands the container's shell a **script**, not a flag list. That inner shell re-parses it, and `exec` replaces the shell on the first command — so every token that ends a command there silently truncates the rest: `#`, a newline, `;`, `&`, `|`. The job still exits 0.
 
-```yaml
-with:
-  # p/python is off until the trailofbits overlap is sorted
-  args: >-
-    --config p/security-audit
+The input reaches it looking innocent. Inside a YAML block scalar (`args: >-`) a `#` is **data**, not a YAML comment, and a more-indented line is not folded, so it keeps its newlines. Neither needs unusual input — a note or an indented flag is enough.
+
+Measured on [#101671](https://github.com/PostHog/posthog/pull/101671) before this was fixed: `semgrep-go` loaded 5 of the 7 configs it listed, `semgrep-rust` 5 of 7, `semgrep-general` 4 of 6, and the `--exclude-rule` / `--include` scopes below the comment went with them. CI was green throughout.
+
+Quoting harder is not the fix — the value already sits inside double quotes, and another pair collapses every flag into one argument. **Split it yourself and pass positional parameters**, the way `.github/actions/semgrep-ci` now does:
+
+```bash
+set -f                          # split on whitespace WITHOUT expanding globs
+semgrep_args=($SEMGREP_ARGS)
+set +f
+... sh -c 'exec tool ... "$@"' sh "${semgrep_args[@]}"
 ```
 
-`WF012` rejects a literal `#` in any input its `SHELL_SPLIT_INPUTS` table lists, and the action itself rejects one that arrives through a `${{ }}` expansion, which the linter cannot see.
+Nothing re-parses the value: each word reaches the tool verbatim, a glob arrives unexpanded for the tool to match itself, and a stray `#` becomes an argument the tool rejects loudly instead of a comment that eats the rest.
+
+`WF012` watches for the pattern coming back. It flags any action that splices an input into an inner shell, and checks that action's callers until it stops. An empty `SHELL_SPLIT_INPUTS` is the healthy state.
 `#` stays fine in every other input — `dorny/paths-filter` `filters:`, `actions/github-script` `script:`, a webhook `payload:` — so the rule is per-input, never blanket.
 
 ## Network fetches

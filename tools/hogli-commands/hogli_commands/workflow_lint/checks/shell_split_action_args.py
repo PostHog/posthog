@@ -100,6 +100,32 @@ def _load_action(action_dir: Path) -> dict[str, object] | None:
     return None
 
 
+def unparseable_actions(repo_root: Path) -> list[str]:
+    """Actions whose metadata exists but does not parse.
+
+    These must be REPORTED, never skipped. `_load_action` returns None for an
+    unreadable action exactly as it does for an absent one, so without this a
+    malformed `action.yml` makes `derive_shell_split_inputs` find nothing and the
+    whole check passes clean -- the check silently doing nothing, which is the
+    failure mode it exists to catch.
+    """
+    broken: list[str] = []
+    actions_root = repo_root / ACTIONS_DIR
+    if not actions_root.is_dir():
+        return broken
+    for directory in sorted(p for p in actions_root.iterdir() if p.is_dir()):
+        for name in ("action.yml", "action.yaml"):
+            path = directory / name
+            if not path.is_file():
+                continue
+            try:
+                yaml.safe_load(path.read_text(encoding="utf-8"))
+            except (yaml.YAMLError, OSError):
+                broken.append(f"{ACTIONS_DIR}/{directory.name}")
+            break
+    return broken
+
+
 def _declared_inputs(action_dir: Path) -> frozenset[str] | None:
     """Input names an action declares, or None when the action is not there."""
     data = _load_action(action_dir)
@@ -121,6 +147,27 @@ def _composite_steps(data: dict[str, object]) -> Iterator[dict[str, object]]:
             yield step
 
 
+def _double_quoted_spans(script: str) -> list[tuple[int, int]]:
+    """Index ranges inside double quotes. `"$VAR"` is ONE argument: the inner shell
+    expands it without splitting it, so a `#` in it cannot start a comment."""
+    spans: list[tuple[int, int]] = []
+    start: int | None = None
+    index = 0
+    while index < len(script):
+        char = script[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == '"':
+            if start is None:
+                start = index + 1
+            else:
+                spans.append((start, index))
+                start = None
+        index += 1
+    return spans
+
+
 def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
     """Input names this composite step splices into an inner shell command string."""
     run = step.get("run")
@@ -137,12 +184,17 @@ def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
                 by_var[str(var)] = _input_name(match)
     for shell_c in SHELL_C_RE.finditer(run):
         script = shell_c.group("dquoted") or shell_c.group("squoted") or ""
+        quoted = _double_quoted_spans(script)
         for ref in VAR_REF_RE.finditer(script):
+            if any(lo <= ref.start() < hi for lo, hi in quoted):
+                continue
             name = by_var.get(ref.group("braced") or ref.group("plain") or "")
             if name is not None:
                 yield name
         # an input interpolated straight into the script, with no env hop
         for direct in INPUT_EXPR_RE.finditer(script):
+            if any(lo <= direct.start() < hi for lo, hi in quoted):
+                continue
             yield _input_name(direct)
 
 
@@ -264,6 +316,18 @@ class ShellSplitActionArgsCheck(WorkflowCheck):
                         file=str(self._repo_root / action),
                     )
                 )
+        for action in unparseable_actions(self._repo_root):
+            issues.append(
+                Issue(
+                    workflow=action,
+                    message=(
+                        f"{action}/action.yml does not parse, so this check cannot tell whether it splices an "
+                        "input into an inner shell — fix the file; an unreadable action reads exactly like a "
+                        "safe one here"
+                    ),
+                    file=str(self._repo_root / action),
+                )
+            )
         derived = derive_shell_split_inputs(self._repo_root)
         for action in sorted(set(SHELL_SPLIT_INPUTS) - set(derived)):
             # A missing action is already reported above, and more precisely;
@@ -296,4 +360,4 @@ class ShellSplitActionArgsCheck(WorkflowCheck):
         return issues
 
 
-__all__ = ["SHELL_SPLIT_INPUTS", "ShellSplitActionArgsCheck", "derive_shell_split_inputs"]
+__all__ = ["SHELL_SPLIT_INPUTS", "ShellSplitActionArgsCheck", "derive_shell_split_inputs", "unparseable_actions"]

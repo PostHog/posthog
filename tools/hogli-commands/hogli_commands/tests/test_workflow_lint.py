@@ -43,6 +43,7 @@ from hogli_commands.workflow_lint.checks.shell_split_action_args import (
     SHELL_SPLIT_INPUTS,
     ShellSplitActionArgsCheck,
     derive_shell_split_inputs,
+    unparseable_actions,
 )
 from hogli_commands.workflow_lint.cli import cmd_lint_workflows
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
@@ -2388,6 +2389,52 @@ class TestShellSplitActionArgsCheck:
             encoding="utf-8",
         )
         assert derive_shell_split_inputs(tmp_path).get(".github/actions/envhop") == frozenset({"flags"})
+
+    @staticmethod
+    def _write_action(repo_root: Path, name: str, run: str, *, env: bool = True) -> None:
+        directory = repo_root / ".github" / "actions" / name
+        directory.mkdir(parents=True, exist_ok=True)
+        env_block = "      env:\n        ARGS: ${{ inputs.flags }}\n" if env else ""
+        (directory / "action.yml").write_text(
+            "name: A\ndescription: A\ninputs:\n  flags:\n    description: d\n    required: true\n"
+            f"runs:\n  using: composite\n  steps:\n    - shell: bash\n{env_block}      run: {run}\n",
+            encoding="utf-8",
+        )
+
+    @pytest.mark.parametrize(
+        ("run", "spliced"),
+        [
+            # bare -- the inner shell re-parses it, so the hazard is real
+            ('sh -c "tool $ARGS"', True),
+            ("sh -c 'tool $ARGS'", True),
+            # double-quoted -- ONE argument, nothing re-parses it
+            ("sh -c 'tool \"$ARGS\"'", False),
+            ("sh -c 'tool --flag \"${ARGS}\" --other'", False),
+            # quoted somewhere, bare somewhere else: still a hazard
+            ("sh -c 'tool \"$OTHER\" $ARGS'", True),
+        ],
+    )
+    def test_derivation_ignores_a_reference_the_inner_shell_cannot_split(
+        self, tmp_path: Path, run: str, spliced: bool
+    ) -> None:
+        self._write_action(tmp_path, "probe", run)
+        derived = derive_shell_split_inputs(tmp_path)
+        assert (".github/actions/probe" in derived) is spliced, derived
+
+    def test_an_action_whose_metadata_does_not_parse_is_reported(self, tmp_path: Path) -> None:
+        # An unreadable action returns None exactly as an absent one does, so
+        # without this the derivation finds nothing and the check passes clean --
+        # the check silently doing nothing, which is what it exists to catch.
+        broken = tmp_path / ".github" / "actions" / "broken"
+        broken.mkdir(parents=True)
+        (broken / "action.yml").write_text("name: A\n  bad: [unclosed\n", encoding="utf-8")
+        assert unparseable_actions(tmp_path) == [".github/actions/broken"]
+        issues = self._run(tmp_path, _caller("--config p/python"))
+        assert any("does not parse" in issue for issue in issues), issues
+
+    def test_a_parseable_action_is_not_reported_as_unparseable(self, tmp_path: Path) -> None:
+        self._write_action(tmp_path, "fine", """sh -c 'tool "$ARGS"'""")
+        assert unparseable_actions(tmp_path) == []
 
     def test_reverse_drift_stays_quiet_while_the_action_still_splices(self, tmp_path: Path) -> None:
         _write_table_actions(tmp_path)
