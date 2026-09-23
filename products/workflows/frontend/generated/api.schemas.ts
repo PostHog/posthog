@@ -390,9 +390,10 @@ export interface HogFlowConversionApi {
  * * `minute` - minute
  * * `hour` - hour
  */
-export type PeriodEnumApi = (typeof PeriodEnumApi)[keyof typeof PeriodEnumApi]
+export type HogFlowEmailSendingRateLimitPeriodEnumApi =
+    (typeof HogFlowEmailSendingRateLimitPeriodEnumApi)[keyof typeof HogFlowEmailSendingRateLimitPeriodEnumApi]
 
-export const PeriodEnumApi = {
+export const HogFlowEmailSendingRateLimitPeriodEnumApi = {
     Minute: 'minute',
     Hour: 'hour',
 } as const
@@ -408,7 +409,7 @@ export interface HogFlowEmailSendingRateLimitApi {
      *
      * * `minute` - minute
      * * `hour` - hour */
-    period: PeriodEnumApi
+    period: HogFlowEmailSendingRateLimitPeriodEnumApi
 }
 
 /**
