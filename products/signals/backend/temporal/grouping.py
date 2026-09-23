@@ -269,6 +269,7 @@ or if it should start a new group.
 
 Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
 Your task is to identify signals that are RELATED - they may be different signal types but connected by the same underlying cause, feature, or user journey.
+Look for a shared underlying cause, not simply structural similarity.
 
 IMPORTANT: Signals should be grouped if they are meaningfully related, not just superficially similar:
 - An experiment reaching significance AND an error spike on the same feature SHOULD match (related by feature)
