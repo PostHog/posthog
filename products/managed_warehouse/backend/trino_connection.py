@@ -87,12 +87,7 @@ def connect_managed_warehouse_trino(organization_id: str) -> Iterator[Connection
     from trino.dbapi import connect  # noqa: PLC0415 -- keeps the optional driver off startup paths
     from trino.exceptions import HttpError  # noqa: PLC0415 -- keeps the optional driver off startup paths
 
-    try:
-        config = resolve_managed_warehouse_trino_connection(organization_id)
-    except ManagedWarehouseTrinoConnectionUnavailable:
-        record_trino_connection("unresolved")
-        raise
-
+    config = resolve_managed_warehouse_trino_connection(organization_id)
     with requests.Session() as http_session:
         # Only known hosted Trino endpoints bypass the proxy's private-IP restrictions.
         if source_management.is_posthog_managed_trino_host(config.host) and config.port == 443:
