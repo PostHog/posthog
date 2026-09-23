@@ -877,7 +877,7 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
 MAX_PROJECT_MEMBERS = 200
 
 
-@dataclass
+@frozen
 class ProjectMemberIdentity:
     """One project member's routing identity — enough for a scout to pick a `suggested_reviewers` entry."""
 
@@ -894,11 +894,10 @@ class ProjectMemberRoster:
     """The members a roster call resolved, plus what the membership snapshot could say about them."""
 
     members: tuple[ProjectMemberIdentity, ...]
-    # False when no team membership is synced for this project, so a team filter has nothing to
-    # resolve against and every member's `teams` is empty.
+    # False when nothing is synced, so every member's `teams` is empty and a filter cannot resolve.
     membership_synced: bool
-    # False when a ``team_slug`` was asked for and the snapshot holds no rows under it. Separate
-    # from an empty ``members``, which means the team is synced but nobody on it can review here.
+    # False when the snapshot holds no rows under the asked-for slug. Distinct from an empty
+    # ``members``, which means the team is synced but nobody on it can review here.
     team_is_covered: bool
 
 
@@ -938,9 +937,8 @@ def list_project_members(
     if team_slug is None:
         users = users[:limit]
     else:
-        # Narrow in SQL to the people who could hold one of the team's logins, so a team filter
-        # never pulls a whole org's roster into memory to keep a handful of rows. The cap then
-        # applies after the maintainer ordering below, which needs the whole team to sort.
+        # Narrowed in SQL, so a team filter never pulls a whole org's roster into memory to keep a
+        # handful of rows. The cap waits for the maintainer ordering, which needs the whole team.
         users = _users_holding_logins(users, team, _logins_on_team(roster, team_slug))
     members: list[ProjectMemberIdentity] = []
     for user in users:

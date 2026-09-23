@@ -4448,9 +4448,8 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
         assert "outsider@example.com" not in emails
 
     def test_team_filter_returns_the_team_with_its_maintainers_first(self) -> None:
-        # Routing input names a team while the artefact only holds individuals, so the slug has to
-        # resolve to the people on it, ordered so the first few picks are the likeliest owners.
-        # Guards both halves: the filter dropping a non-member, and the maintainer split.
+        # Routing input names a team while the artefact holds individuals, so the slug resolves to
+        # people. Guards both halves: the filter dropping a non-member, and the maintainer split.
         self._link_github(self.user, "Plain")
         maintainer = User.objects.create_and_join(self.organization, "boss@posthog.com", None, first_name="Boss")
         self._link_github(maintainer, "boss")
@@ -4477,11 +4476,9 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # Nothing synced: the slug is unresolvable here, and a 200 with an empty list would read
-            # as "that team has nobody on it".
+            # Nothing synced, so a 200 with an empty list would read as "nobody is on that team".
             ("unsynced", GitHubTeamRoster(memberships=(), synced=False), "no synced team roster"),
-            # Synced, but this slug has no rows. Teams sync one at a time, so the honest answer is
-            # "not synced here", never "no such team".
+            # Synced, but no rows under this slug. Teams sync one at a time, so it is not a missing team.
             (
                 "slug_not_covered",
                 GitHubTeamRoster(memberships=(_membership("someone", "team-signals"),), synced=True),
@@ -4497,8 +4494,7 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
         assert expected in response.json()["detail"]
 
     def test_unfiltered_roster_survives_a_failing_membership_read(self) -> None:
-        # Teams ride along on the member list, so a warehouse hiccup resolving them must not take
-        # down the reviewer-routing path the whole tool exists for.
+        # Teams ride along on the member list, so a warehouse failure must not take the roster down.
         with patch(_TEAM_ROSTER, side_effect=RuntimeError("warehouse down")):
             response = self.client.get(self._url())
 

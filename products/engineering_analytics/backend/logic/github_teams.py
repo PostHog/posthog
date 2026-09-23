@@ -21,8 +21,7 @@ from products.engineering_analytics.backend.logic.views import team_members
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-# A whole org's memberships, read in one pass. PostHog's own org sits in the low thousands of rows;
-# this clears any plausible org while keeping a runaway snapshot off the caller's memory.
+# A whole org's memberships in one pass, with a ceiling that keeps a runaway snapshot out of memory.
 _ROSTER_ROW_LIMIT = 100_000
 
 
@@ -39,9 +38,8 @@ def build_github_team_roster(*, team: Team, user_access_control: "UserAccessCont
             query=parse_select(sql),
             team=team,
             query_type="engineering_analytics.github_team_roster",
-            # Same two paths as ``CuratedGitHubSource.run``: forward the real user so HogQL honors the
-            # per-table warehouse ACL, and bypass it only for the documented userless caller, which has
-            # no principal to honor it with and would otherwise fail closed on every warehouse table.
+            # Same two paths as ``CuratedGitHubSource.run``: the real user lets HogQL honor the per-table
+            # warehouse ACL, and the userless caller must bypass it or fail closed on every such table.
             user=user_access_control.user if user_access_control is not None else None,
             user_access_control=user_access_control,
             bypass_warehouse_access_control=user_access_control is None,

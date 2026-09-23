@@ -27,8 +27,7 @@ from products.engineering_analytics.backend.facade.api import get_github_team_ro
 logger = structlog.get_logger(__name__)
 
 
-# The integration kind the membership came from, matching the vocabulary
-# ``RoleExternalReference.provider`` uses for the same external-group idea.
+# Matches the vocabulary ``RoleExternalReference.provider`` uses for the same external-group idea.
 GITHUB_PROVIDER = "github"
 
 
@@ -50,8 +49,8 @@ class MembershipRoster:
     synced: bool
     # Lowercased GitHub login -> the teams that login is on, sorted by slug.
     teams_by_login: Mapping[str, tuple[MemberTeam, ...]]
-    # Every slug the snapshot holds, including teams with no PostHog member on them. This is what
-    # separates "we have no rows for that team" from "that team has no one who can review here".
+    # Every slug the snapshot holds, including teams with no PostHog member on them, which is what
+    # separates "no rows for that team" from "nobody on that team can review here".
     covered_slugs: frozenset[str]
 
     def teams_for(self, login: str | None) -> tuple[MemberTeam, ...]:

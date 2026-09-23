@@ -92,8 +92,8 @@ class TestResolveGitHubTables(BaseTest):
 
     @parameterized.expand(
         [
-            # The role column is absent from GitHub's documented member object, so a snapshot can land
-            # without it. Probing it is what keeps the roster read off a column that isn't there.
+            # GitHub's documented member object omits role, so probing keeps the roster read off a
+            # column a snapshot may not have.
             ("with_roles", ["login", "team_slug", "role"], True),
             ("without_roles", ["login", "team_slug"], False),
         ]
@@ -101,8 +101,7 @@ class TestResolveGitHubTables(BaseTest):
     def test_resolves_membership_snapshot_without_the_pull_request_endpoints(
         self, _name: str, columns: list[str], expected_roles: bool
     ) -> None:
-        # Membership is org-scoped and syncs on its own, so routing a team slug to people must not
-        # depend on pull_requests + workflow_runs the way every curated read does.
+        # Membership syncs on its own, so routing must not depend on pull_requests + workflow_runs.
         source = self._connect(prefix="roster", schemas=[])
         table = create_warehouse_table_row(self.team, name="rostergithub_team_members", source=source)
         table.columns = {
@@ -116,8 +115,8 @@ class TestResolveGitHubTables(BaseTest):
         )
 
     def test_resolves_no_membership_snapshot_when_the_endpoint_is_unsynced(self) -> None:
-        # The endpoint is off by default (it needs the org Members grant), so a fully connected
-        # source without it must report "not synced" rather than resolve some other table.
+        # The endpoint is off by default, so a connected source without it reports "not synced"
+        # rather than resolving some other table.
         self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
         assert resolve_team_membership_table(team=self.team) is None
 
