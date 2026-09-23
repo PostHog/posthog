@@ -7,7 +7,7 @@ import {
     notebooksRunsCreate,
     notebooksRunsInterruptCreate,
     notebooksRunsRetrieve,
-    notebooksWidgetSnapshotCreate,
+    notebooksWidgetSnapshotPublish,
     notebooksWidgetSnapshotRetrieve,
     notebooksWidgetSource,
 } from '../generated/api'
@@ -17,7 +17,7 @@ export interface NotebookDashboardWidgetProps {
     tileId: number
     notebookShortId: string
     snapshotId: string
-    onUpdateSnapshot?: (snapshotId: string) => void | Promise<void>
+    onSnapshotPublished?: () => void
 }
 
 export interface notebookDashboardWidgetValues {
@@ -80,7 +80,7 @@ export const notebookDashboardWidgetLogic = kea<notebookDashboardWidgetLogicType
                     notebooksWidgetSnapshotRetrieve(
                         String(teamLogic.values.currentTeamId),
                         props.notebookShortId,
-                        props.snapshotId
+                        values.snapshot?.id ?? props.snapshotId
                     ),
             },
         ],
@@ -122,7 +122,7 @@ export const notebookDashboardWidgetLogic = kea<notebookDashboardWidgetLogicType
             }
         },
         refresh: async () => {
-            if (values.refreshing || !values.snapshot || !props.onUpdateSnapshot) {
+            if (values.refreshing || !values.snapshot || !props.onSnapshotPublished) {
                 return
             }
             const signal: AbortSignal = cache.abortSignal
@@ -176,20 +176,18 @@ export const notebookDashboardWidgetLogic = kea<notebookDashboardWidgetLogicType
                     throw new Error(run.error || 'The notebook did not finish. Your saved results have not changed.')
                 }
                 actions.setProgress('Saving results…')
-                const snapshot = await notebooksWidgetSnapshotCreate(projectId, props.notebookShortId, {
+                const snapshot = await notebooksWidgetSnapshotPublish(projectId, props.notebookShortId, {
                     node_id: values.snapshot.node_id,
                     version_id: values.snapshot.version_id,
                     notebook_run_id: run.run_id,
                     previous_snapshot_id: values.snapshot.id,
+                    tile_id: props.tileId,
                 })
                 if (signal.aborted) {
                     return
                 }
-                await props.onUpdateSnapshot?.(snapshot.id)
-                if (signal.aborted) {
-                    return
-                }
                 actions.loadSnapshotSuccess(snapshot)
+                props.onSnapshotPublished?.()
             } catch (error) {
                 if (signal.aborted) {
                     return

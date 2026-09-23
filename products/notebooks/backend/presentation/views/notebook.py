@@ -139,6 +139,7 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetVersionQuerySerializer,
 )
 from products.notebooks.backend.presentation.widget_snapshot_serializers import (
+    WidgetSnapshotPublishSerializer,
     WidgetSnapshotRequestSerializer,
     WidgetSnapshotSerializer,
 )
@@ -818,6 +819,32 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         service = WidgetSnapshots(self.get_object(), self._authorize_widget_run)
         try:
             snapshot = service.capture(**serializer.validated_data)
+            return Response(WidgetSnapshotSerializer(service.describe(snapshot)).data, status=201)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+
+    @extend_schema(
+        operation_id="notebooks_widget_snapshot_publish",
+        request=WidgetSnapshotPublishSerializer,
+        responses={201: WidgetSnapshotSerializer, 400: WidgetErrorSerializer, 409: WidgetErrorSerializer},
+    )
+    @action(
+        methods=["POST"],
+        url_path="widget_snapshots/publish",
+        detail=True,
+        required_scopes=["notebook:write", "query:read", "dashboard:write"],
+        throttle_classes=[WidgetSnapshotThrottle],
+    )
+    def widget_snapshot_publish(self, request: Request, **kwargs) -> Response:
+        self._require_query_access()
+        user = self._current_user()
+        if user is None or not is_notebook_widget_enabled(user):
+            raise Http404()
+        serializer = WidgetSnapshotPublishSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service = WidgetSnapshots(self.get_object(), self._authorize_widget_run)
+        try:
+            snapshot = service.publish(user=user, **serializer.validated_data)
             return Response(WidgetSnapshotSerializer(service.describe(snapshot)).data, status=201)
         except WidgetError as error:
             return self._widget_error_response(error)
@@ -2019,7 +2046,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     # A session cookie is the editor; anything else is a programmatic client.
                     trigger=classify_request_source(request)[0],
                 )
-        except NotebookRunNothingToRun as e:
+        except (NotebookRunNothingToRun, NotebookCellLimitExceeded) as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunAlreadyRunning as e:
             # 409, not 429: a conflict with the notebook's state rather than a rate — the same

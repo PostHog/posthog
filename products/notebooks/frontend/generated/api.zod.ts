@@ -787,6 +787,37 @@ export const NotebooksWidgetSnapshotCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const notebooksWidgetSnapshotPublishBodyNodeIdMax = 128
+
+export const notebooksWidgetSnapshotPublishBodyNameDefault = ``
+export const notebooksWidgetSnapshotPublishBodyNameMax = 400
+
+export const NotebooksWidgetSnapshotPublishBody = /* @__PURE__ */ zod.object({
+    node_id: zod
+        .string()
+        .max(notebooksWidgetSnapshotPublishBodyNodeIdMax)
+        .describe('Notebook widget node to add to a dashboard.'),
+    version_id: zod.uuid().describe('Immutable widget version to keep on the dashboard.'),
+    notebook_run_id: zod
+        .uuid()
+        .optional()
+        .describe('Completed whole-notebook run supplying every input after refresh.'),
+    previous_snapshot_id: zod
+        .uuid()
+        .optional()
+        .describe('Snapshot being refreshed; its version and input mappings must match.'),
+    dashboard_id: zod.number().min(1).optional().describe('Dashboard to add the widget to.'),
+    tile_id: zod.number().min(1).optional().describe('Existing dashboard tile to refresh.'),
+    name: zod
+        .string()
+        .max(notebooksWidgetSnapshotPublishBodyNameMax)
+        .default(notebooksWidgetSnapshotPublishBodyNameDefault)
+        .describe('Title for a new dashboard widget.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const NotebooksWidgetAttachBody = /* @__PURE__ */ zod.object({
     widget_id: zod.uuid().describe('Reusable widget to place in this notebook node.'),
     version_id: zod

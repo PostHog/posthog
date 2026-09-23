@@ -37,7 +37,7 @@ from products.notebooks.backend.sql_v2_metrics import (
     record_notebook_run_terminal,
 )
 from products.notebooks.backend.sql_v2_runs import finish_node_run
-from products.notebooks.backend.sql_v2_state import extract_cells
+from products.notebooks.backend.sql_v2_state import MAX_NOTEBOOK_CELLS, NotebookCellLimitExceeded, extract_cells
 from products.notebooks.backend.sql_v2_variables import build_notebook_variables
 
 logger = structlog.get_logger(__name__)
@@ -91,7 +91,7 @@ def plan_notebook_cells(notebook: Notebook) -> list[PlannedCell]:
     check, closes that. It also makes the run reproducible — a cell edited or deleted
     mid-run still executes what the plan captured, which is what the record claims it ran.
     """
-    return [
+    plan = [
         PlannedCell(
             node_id=cell.node_id,
             cell_type="sql" if cell.cell_type == "saved_insight" else cell.cell_type,
@@ -103,6 +103,11 @@ def plan_notebook_cells(notebook: Notebook) -> list[PlannedCell]:
         for cell in extract_cells(notebook.content)
         if cell.cell_type in RUNNABLE_CELL_TYPES and cell.code.strip()
     ]
+    if len(plan) > MAX_NOTEBOOK_CELLS:
+        raise NotebookCellLimitExceeded(
+            f"A notebook run can execute at most {MAX_NOTEBOOK_CELLS} cells. Remove cells before running it again."
+        )
+    return plan
 
 
 def _create_notebook_run(

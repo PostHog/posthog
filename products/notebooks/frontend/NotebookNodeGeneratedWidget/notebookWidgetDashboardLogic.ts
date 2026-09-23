@@ -5,9 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 
-import { dashboardsWidgetsBatchCreate } from 'products/dashboards/frontend/generated/api'
-
-import { notebooksWidgetSnapshotCreate } from '../generated/api'
+import { notebooksWidgetSnapshotPublish } from '../generated/api'
 
 export interface NotebookWidgetDashboardProps {
     notebookShortId: string
@@ -70,18 +68,11 @@ export const notebookWidgetDashboardLogic: LogicWrapper<notebookWidgetDashboardL
                 try {
                     await props.persistNotebook()
                     const projectId = String(teamLogic.values.currentTeamId)
-                    const snapshot = await notebooksWidgetSnapshotCreate(projectId, props.notebookShortId, {
+                    await notebooksWidgetSnapshotPublish(projectId, props.notebookShortId, {
                         node_id: props.nodeId,
                         version_id: props.versionId,
-                    })
-                    await dashboardsWidgetsBatchCreate(projectId, dashboardId, {
-                        widgets: [
-                            {
-                                widget_type: 'notebook_widget',
-                                name: props.title,
-                                config: { notebookShortId: props.notebookShortId, snapshotId: snapshot.id },
-                            },
-                        ],
+                        dashboard_id: dashboardId,
+                        name: props.title,
                     })
                     lemonToast.success('Widget added to dashboard')
                     actions.close()

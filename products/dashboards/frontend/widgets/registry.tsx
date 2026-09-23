@@ -214,6 +214,7 @@ export type DashboardWidgetComponentProps = {
     /** Support list only — assignee controls when false stay read-only. */
     canMutateConversationsTickets?: boolean
     onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
+    onConfigPublished?: () => void
 }
 
 export type DashboardWidgetMetadataPatch = {

@@ -16,6 +16,7 @@ The estimate does not include separate failed or canceled generation jobs, or no
 
 Choose **Add to dashboard** from a generated widget's notebook menu to save its selected version, input mappings, and completed dataframe results.
 Both generated notebook widgets and dashboard widgets must be enabled.
+Notebook widgets are added from the notebook, rather than the dashboard's generic widget picker.
 Each snapshot holds up to 5,000 rows per dataframe and 8 MiB in total. Adding a widget fails if any required result has expired or cannot be fully captured within these limits.
 Opening a dashboard reads these saved rows without starting notebook compute. Each viewer still needs access to the source notebook, queries, and connected data sources, and must consent to the exact generated build before it reads data.
 Public dashboards show a placeholder instead of notebook results.
@@ -23,7 +24,9 @@ Public dashboards show a placeholder instead of notebook results.
 **Refresh from notebook** runs the saved notebook's data cells in document order through the backend notebook runner.
 Prepared embedded insights run their saved dataframe query alongside SQL and Python cells. Insights without a prepared dataframe query cannot supply widget inputs.
 Refresh keeps the existing results visible and replaces the snapshot only after every cell and the new capture succeed.
-Keep the dashboard open until the refresh finishes. Closing it leaves the previous snapshot in place and does not stop the backend notebook run.
+The snapshot and dashboard tile are saved together. A refused dashboard save leaves no new snapshot, and a stale refresh cannot overwrite a newer snapshot.
+Keep the dashboard open until the refresh finishes. Closing it before publication leaves the previous snapshot in place and does not stop the backend notebook run.
+Notebook runs can execute up to 50 cells, including prepared insights. Display-only insights do not count toward this limit.
 Dashboard date ranges and filters do not change notebook variables. Refresh uses the notebook's saved variables and can incur Python compute charges.
 The dashboard keeps the selected generated version; generating a new version in the notebook does not replace dashboard widgets.
 

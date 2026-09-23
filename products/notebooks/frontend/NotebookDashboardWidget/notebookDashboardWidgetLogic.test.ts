@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 import {
     notebooksRunsCreate,
     notebooksRunsRetrieve,
-    notebooksWidgetSnapshotCreate,
+    notebooksWidgetSnapshotPublish,
     notebooksWidgetSnapshotRetrieve,
 } from '../generated/api'
 import type {
@@ -19,7 +19,7 @@ jest.mock('../generated/api', () => ({
     notebooksRunsCreate: jest.fn(),
     notebooksRunsRetrieve: jest.fn(),
     notebooksRunsInterruptCreate: jest.fn(),
-    notebooksWidgetSnapshotCreate: jest.fn(),
+    notebooksWidgetSnapshotPublish: jest.fn(),
     notebooksWidgetSnapshotRetrieve: jest.fn(),
     notebooksWidgetSource: jest.fn(),
 }))
@@ -42,7 +42,7 @@ describe('notebookDashboardWidgetLogic', () => {
             tileId: 1,
             notebookShortId: 'notebook',
             snapshotId: snapshot.id,
-            onUpdateSnapshot: update,
+            onSnapshotPublished: update,
         })
         await expectLogic(logic, () => {
             logic.mount()
@@ -63,7 +63,7 @@ describe('notebookDashboardWidgetLogic', () => {
         const started = new Promise<void>((resolve) => {
             captureStarted = resolve
         })
-        jest.mocked(notebooksWidgetSnapshotCreate).mockImplementation(
+        jest.mocked(notebooksWidgetSnapshotPublish).mockImplementation(
             () =>
                 new Promise((resolve) => {
                     finishCapture = resolve
@@ -77,13 +77,14 @@ describe('notebookDashboardWidgetLogic', () => {
         expect(update).not.toHaveBeenCalled()
         expect(notebooksRunsCreate).toHaveBeenCalledTimes(1)
         await expectLogic(logic, () => finishCapture({ ...snapshot, id: 'new' })).toFinishAllListeners()
-        expect(update).toHaveBeenCalledWith('new')
+        expect(update).toHaveBeenCalledTimes(1)
         expect(logic.values.snapshot?.id).toBe('new')
-        expect(notebooksWidgetSnapshotCreate).toHaveBeenCalledWith(expect.any(String), 'notebook', {
+        expect(notebooksWidgetSnapshotPublish).toHaveBeenCalledWith(expect.any(String), 'notebook', {
             node_id: 'widget',
             version_id: 'version',
             notebook_run_id: 'run',
             previous_snapshot_id: 'saved',
+            tile_id: 1,
         })
     })
 
@@ -100,7 +101,7 @@ describe('notebookDashboardWidgetLogic', () => {
                     cell_count: 1,
                 } as NotebookRunStatusResponseApi)
                 .mockResolvedValue({ run_id: 'run', status: 'done' } as NotebookRunStatusResponseApi)
-            jest.mocked(notebooksWidgetSnapshotCreate).mockResolvedValue({ ...snapshot, id: 'new' })
+            jest.mocked(notebooksWidgetSnapshotPublish).mockResolvedValue({ ...snapshot, id: 'new' })
             update.mockResolvedValue(undefined)
             await expectLogic(logic, () => logic.actions.refresh()).toFinishAllListeners()
             expect(logic.values.runId).toBe('run')
@@ -110,37 +111,30 @@ describe('notebookDashboardWidgetLogic', () => {
             await expectLogic(logic, () => {
                 jest.advanceTimersByTime(2000)
             }).toFinishAllListeners()
-            expect(update).toHaveBeenCalledWith('new')
+            expect(update).toHaveBeenCalledTimes(1)
             expect(notebooksRunsCreate).toHaveBeenCalledTimes(1)
         } finally {
             jest.useRealTimers()
         }
     })
 
-    it.each(['run', 'capture', 'save'])('keeps the previous snapshot after a failed %s', async (step) => {
+    it.each(['run', 'publish'])('keeps the previous snapshot after a failed %s', async (step) => {
         jest.mocked(notebooksRunsCreate).mockResolvedValue({ run_id: 'run' } as NotebookRunStartResponseApi)
         jest.mocked(notebooksRunsRetrieve).mockResolvedValue({
             run_id: 'run',
             status: step === 'run' ? 'failed' : 'done',
             error: step === 'run' ? 'Cell failed' : null,
         } as NotebookRunStatusResponseApi)
-        jest.mocked(notebooksWidgetSnapshotCreate).mockImplementation(async () => {
-            if (step === 'capture') {
+        jest.mocked(notebooksWidgetSnapshotPublish).mockImplementation(async () => {
+            if (step === 'publish') {
                 throw new Error('Results expired')
             }
             return { ...snapshot, id: 'new' }
-        })
-        update.mockImplementation(async () => {
-            if (step === 'save') {
-                throw new Error('Dashboard save failed')
-            }
         })
         await expectLogic(logic, () => logic.actions.refresh()).toFinishAllListeners()
         expect(logic.values.snapshot).toEqual(snapshot)
         expect(logic.values.refreshing).toBe(false)
         expect(logic.values.error).toBeTruthy()
-        if (step !== 'save') {
-            expect(update).not.toHaveBeenCalled()
-        }
+        expect(update).not.toHaveBeenCalled()
     })
 })

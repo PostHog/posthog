@@ -52,6 +52,7 @@ import type {
     WidgetPinRequestApi,
     WidgetRevertRequestApi,
     WidgetSnapshotApi,
+    WidgetSnapshotPublishApi,
     WidgetSnapshotRequestApi,
     WidgetSourceApi,
     WidgetStatusApi,
@@ -881,6 +882,27 @@ export const notebooksWidgetSnapshotFrame = async (
             method: 'GET',
         }
     )
+}
+
+export const getNotebooksWidgetSnapshotPublishUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widget_snapshots/publish/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSnapshotPublish = async (
+    projectId: string,
+    shortId: string,
+    widgetSnapshotPublishApi: WidgetSnapshotPublishApi,
+    options?: RequestInit
+): Promise<WidgetSnapshotApi> => {
+    return apiMutator<WidgetSnapshotApi>(getNotebooksWidgetSnapshotPublishUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(widgetSnapshotPublishApi),
+    })
 }
 
 export const getNotebooksWidgetAttachUrl = (projectId: string, shortId: string, nodeId: string) => {

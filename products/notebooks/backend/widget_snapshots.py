@@ -5,10 +5,12 @@ from collections.abc import Callable
 from typing import Any, cast
 from uuid import UUID
 
+from django.db import transaction
 from django.http import Http404
 
 from posthog.models import User
 
+from products.dashboards.backend.facade.widget_publication import publish_widget
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun, NotebookWidgetSnapshot
 from products.notebooks.backend.sql_v2_direct import sync_direct_run
 from products.notebooks.backend.widgets import (
@@ -32,7 +34,51 @@ class WidgetSnapshots:
         self.notebook = notebook
         self.authorize_run = authorize_run
 
+    def publish(
+        self,
+        *,
+        user: User,
+        node_id: str,
+        version_id: UUID,
+        dashboard_id: int | None = None,
+        tile_id: int | None = None,
+        name: str = "",
+        notebook_run_id: UUID | None = None,
+        previous_snapshot_id: UUID | None = None,
+    ) -> NotebookWidgetSnapshot:
+        def attach(snapshot: NotebookWidgetSnapshot) -> None:
+            publish_widget(
+                team_id=self.notebook.team_id,
+                user_id=user.id,
+                dashboard_id=dashboard_id,
+                tile_id=tile_id,
+                widget_type="notebook_widget",
+                config={"notebookShortId": self.notebook.short_id, "snapshotId": str(snapshot.id)},
+                name=name,
+                expected_config={"notebookShortId": self.notebook.short_id, "snapshotId": str(previous_snapshot_id)}
+                if previous_snapshot_id is not None
+                else None,
+            )
+
+        return self.capture(node_id, version_id, notebook_run_id, previous_snapshot_id, publish=attach)
+
     def capture(
+        self,
+        node_id: str,
+        version_id: UUID,
+        notebook_run_id: UUID | None = None,
+        previous_snapshot_id: UUID | None = None,
+        *,
+        publish: Callable[[NotebookWidgetSnapshot], None] | None = None,
+    ) -> NotebookWidgetSnapshot:
+        snapshot = self._prepare(node_id, version_id, notebook_run_id, previous_snapshot_id)
+        with transaction.atomic():
+            snapshot.save(force_insert=True)
+            if publish is not None:
+                publish(snapshot)
+        return snapshot
+
+    def _prepare(
         self,
         node_id: str,
         version_id: UUID,
@@ -88,8 +134,9 @@ class WidgetSnapshots:
             first["runId"] = str(run.id)
             rows = list(cast(list[list[object]], first["rows"]))
             target = min(cast(int, first["totalRowCount"]), MAX_FRAME_TOTAL_ROWS)
-            preview = run.envelope.get("first_page", [])
-            cached_rows = preview if len(preview) >= target else sync_direct_run(run)
+            envelope = run.envelope if isinstance(run.envelope, dict) else {}
+            preview = envelope.get("first_page")
+            cached_rows = preview if isinstance(preview, list) and len(preview) >= target else sync_direct_run(run)
             if cached_rows is None and run.node_type == NotebookNodeRun.NodeType.HOGQL:
                 # Kernel HogQL paging re-executes the query and could mix rows from different results.
                 raise WidgetConflictError(
@@ -150,7 +197,7 @@ class WidgetSnapshots:
             raise WidgetConflictError(
                 "The widget's inputs changed while saving. Try adding it again.", "snapshot_inputs_changed"
             )
-        return NotebookWidgetSnapshot.objects.for_team(self.notebook.team_id).create(
+        return NotebookWidgetSnapshot(
             team_id=self.notebook.team_id,
             notebook=self.notebook,
             node_id=node_id,

@@ -152,6 +152,7 @@ export type DashboardWidgetCatalogEntry = {
     badge?: string
     description: string
     defaultConfig: Record<string, unknown>
+    hideFromPicker?: boolean
     defaultLayout: { w: number; h: number; minW: number; minH?: number }
     productAccess?: DashboardWidgetProductAccess
     headerLayout?: DashboardWidgetHeaderLayout
@@ -174,6 +175,7 @@ export type DashboardWidgetCatalogEntry = {
 /** New widget types: add here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_CATALOG = {
     notebook_widget: {
+        hideFromPicker: true,
         groupId: 'notebooks',
         label: 'Notebook widget',
         description: 'Saved results from a generated notebook widget.',
@@ -415,6 +417,9 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
     const groupsById = new Map<string, DashboardWidgetCatalogGroup>()
 
     for (const [widgetType, entry] of Object.entries(DASHBOARD_WIDGET_CATALOG)) {
+        if ('hideFromPicker' in entry && entry.hideFromPicker) {
+            continue
+        }
         let group = groupsById.get(entry.groupId)
 
         if (!group) {

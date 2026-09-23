@@ -1,3 +1,5 @@
+from typing import Any
+
 from rest_framework import serializers
 
 from products.notebooks.backend.presentation.widget_serializers import (
@@ -16,6 +18,21 @@ class WidgetSnapshotRequestSerializer(serializers.Serializer):
     previous_snapshot_id = serializers.UUIDField(
         required=False, help_text="Snapshot being refreshed; its version and input mappings must match."
     )
+
+
+class WidgetSnapshotPublishSerializer(WidgetSnapshotRequestSerializer):
+    dashboard_id = serializers.IntegerField(required=False, min_value=1, help_text="Dashboard to add the widget to.")
+    tile_id = serializers.IntegerField(required=False, min_value=1, help_text="Existing dashboard tile to refresh.")
+    name = serializers.CharField(
+        required=False, max_length=400, default="", help_text="Title for a new dashboard widget."
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if ("dashboard_id" in attrs) == ("tile_id" in attrs):
+            raise serializers.ValidationError("Choose a dashboard to add to or a tile to refresh.")
+        if "tile_id" in attrs and ("previous_snapshot_id" not in attrs or "notebook_run_id" not in attrs):
+            raise serializers.ValidationError("Refreshing requires the previous snapshot and a completed notebook run.")
+        return attrs
 
 
 class WidgetSnapshotSerializer(serializers.Serializer):

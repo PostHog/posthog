@@ -55,7 +55,7 @@ const meta: Meta<typeof NotebookDashboardWidget> = {
         config: { notebookShortId: 'example', snapshotId: snapshot.id },
         result: {},
         loading: false,
-        onUpdateConfig: () => undefined,
+        onConfigPublished: () => undefined,
     },
     parameters: {
         msw: {

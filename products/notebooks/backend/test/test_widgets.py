@@ -30,6 +30,9 @@ from products.canvas.backend.notebook_integration import (
     _strip_legacy_frame_bridge,
     validate_notebook_canvas_source,
 )
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.notebooks.backend.models import (
     GeneratedWidget,
     GeneratedWidgetGenerationJob,
@@ -625,15 +628,29 @@ class TestWidgetData(APIBaseTest):
         assert version is not None
         return version
 
-    def test_dashboard_snapshot_keeps_rows_and_version_after_the_kernel_stops(self) -> None:
+    @parameterized.expand(
+        [
+            ("preview", {"types": [["lat", "float64"]], "first_page": [[1]], "row_count": 3}, [[2]]),
+            ("null_envelope", None, [[]]),
+            ("non_object_envelope", [], [[]]),
+            ("null_preview", {"types": [["lat", "float64"]], "first_page": None, "row_count": 3}, [[2]]),
+        ]
+    )
+    def test_dashboard_snapshot_keeps_rows_and_version_after_the_kernel_stops(
+        self, _name: str, envelope: Any, expected_rows: list[list[int]]
+    ) -> None:
         version = self._pinned_version(self._mapping())
         run = self._run(value=1)
-        run.envelope = {"types": [["lat", "float64"]], "first_page": [[1]], "row_count": 3}
+        run.envelope = envelope
         run.save(update_fields=["envelope"])
         authorize = MagicMock()
         snapshots = WidgetSnapshots(self.notebook, authorize)
         with patch(
-            "products.notebooks.backend.widgets.fetch_sql_v2_page", return_value={"rows": [[2], [3]], "row_count": 3}
+            "products.notebooks.backend.widgets.fetch_sql_v2_page",
+            side_effect=lambda *args, **kwargs: {
+                "rows": [[1]] if kwargs["offset"] == 0 else [[2], [3]],
+                "row_count": 3,
+            },
         ) as fetch:
             snapshot = snapshots.capture(self.NODE_ID, version.id)
         assert fetch.call_args.kwargs == {"offset": 1, "limit": 500}
@@ -644,7 +661,7 @@ class TestWidgetData(APIBaseTest):
             saved = snapshots.get(snapshot.id)
             frame = snapshots.read_frame(saved, self.INPUT_NAME, 1, 1)
         assert saved.version_id == version.id
-        assert frame["rows"] == [[2]]
+        assert frame["rows"] == expected_rows
         assert frame["nextOffset"] == 2
         assert str(frame["runId"]) == str(run.id)
         authorize.assert_called_with(run)
@@ -706,6 +723,83 @@ class TestWidgetData(APIBaseTest):
             with self.assertRaises(WidgetConflictError):
                 WidgetSnapshots(self.notebook, lambda _run: None).capture(self.NODE_ID, version.id)
         assert not NotebookWidgetSnapshot.objects.for_team(self.team.id).exists()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
+    @patch("products.dashboards.backend.widget_publication.dashboard_widgets_enabled", return_value=True)
+    @patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=True)
+    @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
+    @patch("products.canvas.backend.notebook_integration.list_notebook_canvas_versions", return_value=[])
+    def test_dashboard_publication_attaches_results_atomically(self, *_mocks: MagicMock) -> None:
+        version = self._pinned_version(self._mapping())
+        run = self._run()
+        run.envelope = {"first_page": [[1]], "row_count": 1}
+        run.save(update_fields=["envelope"])
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        path = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widget_snapshots/publish/"
+        payload = {
+            "node_id": self.NODE_ID,
+            "version_id": str(version.id),
+            "dashboard_id": dashboard.id,
+            "name": "Results",
+        }
+
+        with patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=False):
+            assert self.client.post(path, payload).status_code == 400
+        assert not NotebookWidgetSnapshot.objects.for_team(self.team.id).exists()
+        assert not dashboard.tiles.exists()
+
+        response = self.client.post(path, payload)
+        assert response.status_code == 201, response.json()
+        snapshot_id = response.json()["id"]
+        tile = dashboard.tiles.get()
+        assert tile.widget is not None
+        assert tile.widget.config == {"notebookShortId": self.notebook.short_id, "snapshotId": snapshot_id}
+        assert tile.widget.name == "Results"
+
+        parent = NotebookRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id, notebook=self.notebook, user=self.user, status=NotebookRun.Status.DONE
+        )
+        run.notebook_run = parent
+        run.envelope["first_page"] = [[2]]
+        run.save(update_fields=["notebook_run", "envelope"])
+        refresh = {
+            "node_id": self.NODE_ID,
+            "version_id": str(version.id),
+            "tile_id": tile.id,
+            "previous_snapshot_id": snapshot_id,
+            "notebook_run_id": str(parent.id),
+        }
+        response = self.client.post(path, refresh)
+        assert response.status_code == 201, response.json()
+        tile.widget.refresh_from_db()
+        assert tile.widget.config["snapshotId"] == response.json()["id"]
+        assert self.client.post(path, refresh).status_code == 409
+        assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 2
+        tile.widget.refresh_from_db()
+        assert tile.widget.config["snapshotId"] == response.json()["id"]
+
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        other_dashboard = Dashboard.objects.create(team=other_team)
+        other_widget = DashboardWidget.objects.for_team(other_team.id).create(
+            team_id=other_team.id, widget_type="notebook_widget", config=tile.widget.config
+        )
+        other_tile = DashboardTile.objects.create(team_id=other_team.id, dashboard=other_dashboard, widget=other_widget)
+        assert self.client.post(path, {**payload, "dashboard_id": other_dashboard.id}).status_code == 404
+        assert self.client.post(path, {**refresh, "tile_id": other_tile.id}).status_code == 404
+        assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 2
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        viewer = self._create_user("viewer@example.com", level=OrganizationMembership.Level.MEMBER)
+        AccessControl.objects.create(
+            resource="dashboard", resource_id=str(dashboard.id), team=self.team, access_level="viewer"
+        )
+        self.client.force_login(viewer)
+        assert self.client.post(path, payload).status_code == 403
+        assert self.client.post(path, {**refresh, "previous_snapshot_id": response.json()["id"]}).status_code == 403
+        assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 2
 
     @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
     def test_snapshot_frame_endpoint_checks_query_access_and_notebook_ownership(self, _flag: MagicMock) -> None:

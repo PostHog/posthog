@@ -14,6 +14,7 @@ from posthog.models.utils import UUIDT
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.notebook_run import node_run_request_for, plan_notebook_cells
+from products.notebooks.backend.sql_v2_state import MAX_NOTEBOOK_CELLS
 from products.notebooks.backend.temporal.notebook_run import (
     NotebookRunCellInput,
     NotebookRunInput,
@@ -104,6 +105,35 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "nothing to run" in response.json()["detail"]
         mock_start.assert_not_called()
+
+    @parameterized.expand([("at_limit", MAX_NOTEBOOK_CELLS, 200), ("over_limit", MAX_NOTEBOOK_CELLS + 1, 400)])
+    def test_prepared_insights_obey_the_run_limit(
+        self, mock_start: MagicMock, _flag: MagicMock, _name: str, count: int, status: int
+    ) -> None:
+        self.notebook.content = markdown_content(
+            "\n\n".join(
+                [
+                    '<PythonV2 nodeId="python" code="print(1)" />',
+                    '<Insight nodeId="display" id="example" />',
+                    *(
+                        f'<Query nodeId="i{index}" dataframeQuery="select 1" returnVariable="df_{index}" />'
+                        for index in range(count - 1)
+                    ),
+                ]
+            )
+        )
+        self.notebook.save(update_fields=["content"])
+        response = self.client.post(
+            self.runs_url, data={"variables": [{"name": "country", "type": "string", "value": "US"}]}, format="json"
+        )
+        assert response.status_code == status, response.json()
+        if status == 200:
+            assert response.json()["cell_count"] == count
+        else:
+            mock_start.assert_not_called()
+            assert not NotebookRun.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
+            self.notebook.refresh_from_db()
+            assert self.notebook.variables is None
 
     def test_a_second_run_while_one_is_active_is_refused(self, _start, _flag) -> None:
         assert self.client.post(self.runs_url, data={}, format="json").status_code == 200

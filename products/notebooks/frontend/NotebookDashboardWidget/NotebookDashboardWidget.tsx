@@ -22,7 +22,7 @@ import { NotebookDashboardWidgetProps, notebookDashboardWidgetLogic } from './no
 export function NotebookDashboardWidget({
     tileId,
     config,
-    onUpdateConfig,
+    onConfigPublished,
 }: DashboardWidgetComponentProps): JSX.Element {
     if (typeof config.notebookShortId !== 'string' || typeof config.snapshotId !== 'string') {
         return <NotebookWidgetPreview />
@@ -32,7 +32,7 @@ export function NotebookDashboardWidget({
             tileId={tileId}
             notebookShortId={config.notebookShortId}
             snapshotId={config.snapshotId}
-            onUpdateSnapshot={onUpdateConfig ? (snapshotId) => onUpdateConfig({ ...config, snapshotId }) : undefined}
+            onSnapshotPublished={onConfigPublished}
         />
     )
 }
@@ -88,7 +88,7 @@ function SavedNotebookWidget(props: NotebookDashboardWidgetProps): JSX.Element {
                 <LemonButton size="xsmall" to={urls.notebook(props.notebookShortId)}>
                     Open notebook
                 </LemonButton>
-                {props.onUpdateSnapshot ? (
+                {props.onSnapshotPublished ? (
                     <LemonButton
                         size="xsmall"
                         loading={refreshing}

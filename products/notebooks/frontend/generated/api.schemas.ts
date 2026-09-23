@@ -1345,6 +1345,35 @@ export interface WidgetSnapshotApi {
     security_review: WidgetSecurityReviewApi | null
 }
 
+export interface WidgetSnapshotPublishApi {
+    /**
+     * Notebook widget node to add to a dashboard.
+     * @maxLength 128
+     */
+    node_id: string
+    /** Immutable widget version to keep on the dashboard. */
+    version_id: string
+    /** Completed whole-notebook run supplying every input after refresh. */
+    notebook_run_id?: string
+    /** Snapshot being refreshed; its version and input mappings must match. */
+    previous_snapshot_id?: string
+    /**
+     * Dashboard to add the widget to.
+     * @minimum 1
+     */
+    dashboard_id?: number
+    /**
+     * Existing dashboard tile to refresh.
+     * @minimum 1
+     */
+    tile_id?: number
+    /**
+     * Title for a new dashboard widget.
+     * @maxLength 400
+     */
+    name?: string
+}
+
 /**
  * Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows.
  */
