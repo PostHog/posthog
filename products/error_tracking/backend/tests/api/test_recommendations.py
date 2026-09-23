@@ -335,6 +335,23 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([i["name"] for i in meta["issues"]], [f"Quiet {i:02d}" for i in range(5)])
         self.assertEqual(meta["total"], 8)
 
+    def test_quiet_keeps_the_count_and_the_sample_when_rows_are_stale(self):
+        # ClickHouse limits per team before Postgres hydration runs, and a deleted issue still
+        # has fingerprint state, so a stale row must not eat a slot or zero the count.
+        for i in range(6):
+            stale = self._create_issue(created_at=timezone.now() - timedelta(days=200 + i), name=f"Stale {i}")
+            self._create_exception(stale.id, _days_ago(90))
+            ErrorTrackingIssue.objects.filter(id=stale.id).delete()
+        for i in range(3):
+            live = self._create_issue(created_at=timezone.now() - timedelta(days=120 - i), name=f"Live {i}")
+            self._create_exception(live.id, _days_ago(90))
+        flush_persons_and_events()
+
+        meta = QuietIssuesRecommendation().compute(self.team)
+
+        self.assertEqual([i["name"] for i in meta["issues"]], ["Live 0", "Live 1", "Live 2"])
+        self.assertEqual(meta["total"], 9)
+
     def test_quiet_ignores_other_teams_issues(self):
         other_issue_id = str(uuid4())
         self._create_exception(other_issue_id, _days_ago(90))

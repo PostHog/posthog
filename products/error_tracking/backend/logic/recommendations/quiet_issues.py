@@ -11,6 +11,9 @@ from .fingerprints import FINGERPRINT_STATE_QUERY, fingerprint_expr
 from .issue_list import IssueListRecommendation
 
 ISSUE_LIMIT = 5
+# ClickHouse applies the per-team limit before Postgres hydration drops rows for deleted
+# issues, and those rows sort first here, so ask for a margin and cut after hydration.
+CANDIDATE_LIMIT = ISSUE_LIMIT * 4
 QUIET_DAYS = 30
 
 # The inverse of long_running_issues: active issues that stopped firing. An issue is quiet
@@ -73,7 +76,7 @@ class QuietIssuesRecommendation(IssueListRecommendation):
                 fingerprint_state=FINGERPRINT_STATE_QUERY,
                 quiet_days=QUIET_DAYS,
             ),
-            {"team_ids": team_ids, "issue_limit": ISSUE_LIMIT},
+            {"team_ids": team_ids, "issue_limit": CANDIDATE_LIMIT},
             workload=Workload.OFFLINE,
         )
 
@@ -83,11 +86,15 @@ class QuietIssuesRecommendation(IssueListRecommendation):
             team_id: {"quiet_days": QUIET_DAYS, "total": 0, "issues": []} for team_id in team_ids
         }
         for team_id, issue_id, first_seen, quiet_total in rows:
+            # The count covers the whole quiet set, so it holds even when every sampled row
+            # below turns out to be stale.
+            metas[team_id]["total"] = quiet_total
             issue = issues_by_id.get(issue_id)
             # Stale state rows can reference issues deleted from Postgres — skip them.
             if issue is None or first_seen is None:
                 continue
-            metas[team_id]["total"] = quiet_total
+            if len(metas[team_id]["issues"]) >= ISSUE_LIMIT:
+                continue
             metas[team_id]["issues"].append(
                 {
                     "id": str(issue_id),

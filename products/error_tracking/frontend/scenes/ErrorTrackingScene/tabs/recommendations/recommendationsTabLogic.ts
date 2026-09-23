@@ -200,6 +200,9 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
 
     listeners(({ actions, values, cache }) => {
         async function setIssueStatus(issueId: string, status: ErrorTrackingIssue['status']): Promise<void> {
+            // nosemgrep: prefer-codegen-api-namespaced-error_tracking (this logic is on the
+            // api.errorTracking namespace throughout; moving one call to the generated client
+            // would mix two clients and two recommendation types in one file)
             await api.errorTracking.updateIssue(issueId, { status })
             posthog.capture('error_tracking_issue_update_status', {
                 status,
@@ -214,6 +217,7 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                     .filter((r) => Array.isArray(r.meta.issues))
                     .map(async (r) =>
                         actions.upsertRecommendation(
+                            // nosemgrep: prefer-codegen-api-namespaced-error_tracking (see above)
                             await api.errorTracking.refreshRecommendation(r.id, { force: false })
                         )
                     )
