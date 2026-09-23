@@ -87,9 +87,8 @@ from posthog.tasks.usage_report import (
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_task_sandbox_usage_in_period,
     get_teams_with_zero_duration_recording_count_in_period,
-    get_usage_counter_service,
 )
-from posthog.usage_counters import UsageCounter
+from posthog.usage_counters import UsageCounter, UsageCounterService
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade import api as error_tracking_api
@@ -351,11 +350,11 @@ QUERIES: list[QuerySpec] = [
     # ---- ClickHouse: feature flag requests -----------------------------------
     QuerySpec(
         name="teams_with_decide_requests_count_in_period",
-        fn=lambda b, e: get_usage_counter_service().get(UsageCounter.FEATURE_FLAG_REQUESTS, b, e),
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.FEATURE_FLAG_REQUESTS, b, e),
     ),
     QuerySpec(
         name="teams_with_local_evaluation_requests_count_in_period",
-        fn=lambda b, e: get_usage_counter_service().get(UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, b, e),
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, b, e),
     ),
     # ---- ClickHouse: query metrics -------------------------------------------
     QuerySpec(
@@ -478,7 +477,7 @@ QUERIES: list[QuerySpec] = [
     ),
     QuerySpec(
         name="teams_with_cdp_billable_invocations_in_period",
-        fn=lambda b, e: get_usage_counter_service().get(UsageCounter.CDP_INVOCATIONS, b, e),
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.CDP_INVOCATIONS, b, e),
     ),
     # ---- ClickHouse: AI ------------------------------------------------------
     QuerySpec(
@@ -521,19 +520,19 @@ QUERIES: list[QuerySpec] = [
     # ---- ClickHouse: workflows / messaging ----------------------------------
     QuerySpec(
         name="teams_with_workflow_emails_sent_in_period",
-        fn=lambda b, e: get_usage_counter_service().get(UsageCounter.WORKFLOW_EMAILS, b, e),
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_EMAILS, b, e),
     ),
     QuerySpec(
         name="teams_with_workflow_push_sent_in_period",
-        fn=lambda b, e: get_usage_counter_service().get(UsageCounter.WORKFLOW_PUSH, b, e),
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_PUSH, b, e),
     ),
     QuerySpec(
         name="teams_with_workflow_sms_sent_in_period",
-        fn=lambda b, e: get_usage_counter_service().get(UsageCounter.WORKFLOW_SMS, b, e),
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_SMS, b, e),
     ),
     QuerySpec(
         name="teams_with_workflow_billable_invocations_in_period",
-        fn=lambda b, e: get_usage_counter_service().get(UsageCounter.WORKFLOW_INVOCATIONS, b, e),
+        fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_INVOCATIONS, b, e),
     ),
     # ---- ClickHouse: logs ---------------------------------------------------
     QuerySpec(

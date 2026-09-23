@@ -227,6 +227,11 @@ The usage report task queries ClickHouse for aggregated billing data.
 
 **Source file:** `posthog/tasks/usage_report.py`
 
+Daily reports, usage reports v2, and quota limiting read the billed request counters through `posthog.usage_counters.UsageCounterService`.
+Each counter's feature flag selects `legacy` (billing events), `both` (billing events plus a comparison from `billing_usage_records`), or `realtime` (usage records).
+The mode selects the same queries for every caller and time window; `both` keeps the legacy count authoritative.
+Each run keeps its resolved plan, and flag lookups are cached for 60 seconds per process.
+
 ### Billable calculation
 
 Local evaluation requests are weighted 10x compared to decide requests:
@@ -242,7 +247,7 @@ This reflects the higher resource cost of local evaluation requests, which retur
 
 ### Token validation
 
-Queries filter events by the billing token to ensure only legitimate usage events are counted:
+Legacy queries filter events by the billing token to ensure only legitimate usage events are counted:
 
 ```sql
 AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
