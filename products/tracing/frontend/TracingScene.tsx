@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useCallback, useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconFeedback } from 'lib/lemon-ui/icons'
@@ -235,17 +235,6 @@ function TracingSceneContents(): JSX.Element {
                     </>
                 }
             />
-            <LemonBanner
-                type="warning"
-                dismissKey="tracing-beta-notice"
-                action={{
-                    icon: <IconFeedback />,
-                    children: 'Share feedback',
-                    onClick: onFeedbackClick,
-                }}
-            >
-                Tracing is now in beta. Please share feedback on how to improve the product.
-            </LemonBanner>
             {sceneTabsEnabled && (
                 <LemonTabs<TracingSceneTab>
                     activeKey={activeSceneTab}

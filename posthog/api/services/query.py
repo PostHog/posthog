@@ -16,6 +16,7 @@ from posthog.schema import (
     DatabaseSchemaQuery,
     DatabaseSchemaQueryResponse,
     DataWarehouseViewLink,
+    HogLanguage,
     HogQLAutocomplete,
     HogQLAutocompleteResponse,
     HogQLMetadata,
@@ -584,16 +585,19 @@ def process_query_model(
                     with timings.measure("fallback_error_tracking"):
                         _capture_malformed_language_service_response("autocomplete", route.malformed_stage)
                 if autocomplete_response is None:
-                    with timings.measure("fallback_database"):
-                        _, database = resolve_database_for_connection(
-                            team,
-                            query.connectionId,
-                            user=user,
-                            error_factory=ValidationError,
-                            modifiers=create_default_modifiers_for_team(team),
-                            # Editor-assist only: query execution never reads cached sources.
-                            use_cached_sources=True,
-                        )
+                    database: Database | None = None
+                    # Hog and template languages answer from globals, so building the schema is wasted work.
+                    if query.language in (HogLanguage.HOG_QL, HogLanguage.HOG_QL_EXPR):
+                        with timings.measure("fallback_database"):
+                            _, database = resolve_database_for_connection(
+                                team,
+                                query.connectionId,
+                                user=user,
+                                error_factory=ValidationError,
+                                modifiers=create_default_modifiers_for_team(team),
+                                # Editor-assist only: query execution never reads cached sources.
+                                use_cached_sources=True,
+                            )
                     with timings.measure("fallback_python_autocomplete"):
                         autocomplete_response = get_hogql_autocomplete(
                             query=query, team=team, database_arg=database, user=user

@@ -34,6 +34,9 @@ The estimate does not include separate failed or canceled generation jobs, or no
 
 “Widget” is the umbrella term. Data visualizations are one possible widget type.
 
+Whole-notebook runs stop when their notebook is deleted, including while a cell is running.
+If cell dispatch fails after its retry budget, the run records the failure and stops any child execution already submitted.
+
 ## Reusable widgets
 
 The reusable catalog fields, demo data, input bindings, and pending reviews share one schema migration: `notebooks.0022_reusable_widgets`, after `0021_kernelruntime_sandbox_end`.
