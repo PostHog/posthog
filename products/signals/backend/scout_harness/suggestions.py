@@ -82,6 +82,14 @@ SUGGESTIONS_AI_STAGE = "scout_suggestions"
 # refusal hid, and only a read that finishes has numbers — the small projects the check is about.
 ACTIVITY_READ_MAX_ROWS = 100_000
 
+# Wall-clock cap on the same read. `sync_execute` adds none of its own and the pooled client's
+# socket timeout is effectively infinite in production, so a stalled read would hold its worker
+# thread past the planning activity's own deadline, which Temporal cannot reclaim. A capped read
+# over the events primary-key prefix takes milliseconds, and the planner reads its candidates one
+# after another inside a five-minute activity, so this leaves room for every candidate a tick
+# picks at the default cap.
+ACTIVITY_READ_MAX_EXECUTION_S = 10
+
 SuggestionKind = Literal["canonical", "custom"]
 SuggestionConfidence = Literal["low", "medium", "high"]
 
@@ -558,7 +566,14 @@ def read_team_activity(team_id: int, *, window_days: int) -> TeamActivity:
               AND timestamp >= now() - toIntervalDay(%(window_days)s)
             """,
             {"team_ids": team_ids, "window_days": window_days},
-            settings={"max_rows_to_read": ACTIVITY_READ_MAX_ROWS, "read_overflow_mode": "throw"},
+            settings={
+                "max_rows_to_read": ACTIVITY_READ_MAX_ROWS,
+                "read_overflow_mode": "throw",
+                "max_execution_time": ACTIVITY_READ_MAX_EXECUTION_S,
+                # Both overflow modes throw for the same reason: a partial aggregate reads as a
+                # quiet project. A timed-out read raises instead, and the caller dispatches.
+                "timeout_overflow_mode": "throw",
+            },
             team_id=team_id,
         )
     except InternalCHQueryError as error:
