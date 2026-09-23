@@ -1,5 +1,5 @@
 import { isChunkLoadError } from './isChunkLoadError'
-import { retryBootImport, retryImport } from './retryImport'
+import { retryImport } from './retryImport'
 
 describe('retryImport', () => {
     beforeEach(() => {
@@ -47,20 +47,28 @@ describe('retryImport', () => {
         expect(factory).toHaveBeenCalledTimes(3)
     })
 
-    it('marks a minified boot module-evaluation TypeError without retrying', async () => {
-        const error = new TypeError('g is not a function')
+    it.each([
+        ['V8 call shape', 'g is not a function'],
+        ['Firefox property access', `can't access property "message", _ is undefined`],
+    ])('marks a minified module-evaluation TypeError without retrying (%s)', async (_name, message) => {
+        const error = new TypeError(message)
         const factory = jest.fn().mockRejectedValue(error)
 
-        await expect(retryBootImport(factory)).rejects.toBe(error)
+        await expect(retryImport(factory)).rejects.toBe(error)
         expect(factory).toHaveBeenCalledTimes(1)
         expect(isChunkLoadError(error)).toBe(true)
     })
 
-    it('rethrows a non-chunk error immediately without retrying', async () => {
-        const factory = jest.fn().mockRejectedValue(new TypeError('undefined is not a function'))
+    it.each([
+        ['a multi-character subject', 'undefined is not a function'],
+        ['a subject-free property access', `Cannot read properties of undefined (reading 'message')`],
+    ])('rethrows a non-chunk error immediately without retrying (%s)', async (_name, message) => {
+        const error = new TypeError(message)
+        const factory = jest.fn().mockRejectedValue(error)
 
-        await expect(retryImport(factory)).rejects.toThrow('undefined is not a function')
+        await expect(retryImport(factory)).rejects.toBe(error)
         expect(factory).toHaveBeenCalledTimes(1)
+        expect(isChunkLoadError(error)).toBe(false)
     })
 
     it('retries a generic network TypeError and marks it as a chunk load error once exhausted', async () => {

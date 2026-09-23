@@ -2,12 +2,32 @@ import { ComponentType, LazyExoticComponent, lazy } from 'react'
 
 import { isChunkLoadError, isGenericNetworkTypeError, markAsChunkLoadError } from 'lib/utils/isChunkLoadError'
 
-function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
+/**
+ * A chunk that loads but then evaluates against a cross-chunk binding from a previous deploy
+ * throws on a minified local, so the message names a bundler identifier instead of anything in
+ * our source. Each engine words that differently:
+ *   - V8 call shape: `g is not a function`
+ *   - Firefox property access: `can't access property "message", _ is undefined`
+ * Both patterns require a single-character subject, which is what makes them specific to a
+ * bundler local. V8's property-access wording (`Cannot read properties of undefined (reading
+ * 'message')`) names no subject at all, so it also matches an ordinary bug in a module's
+ * top-level code — it stays out, because classifying one of those would reload the page
+ * instead of reporting the bug.
+ */
+const MINIFIED_MODULE_EVALUATION_MESSAGES = [
+    /^[A-Za-z_$] is not a function$/,
+    /^can't access property "[^"]+", [A-Za-z_$] is (undefined|null)$/,
+]
+
+function isMinifiedModuleEvaluationError(error: unknown): boolean {
     if (!error || typeof error !== 'object') {
         return false
     }
     const { name, message } = error as { name?: string; message?: string }
-    return name === 'TypeError' && typeof message === 'string' && /^[A-Za-z_$] is not a function$/.test(message)
+    if (name !== 'TypeError' || typeof message !== 'string') {
+        return false
+    }
+    return MINIFIED_MODULE_EVALUATION_MESSAGES.some((pattern) => pattern.test(message))
 }
 
 /**
@@ -27,6 +47,12 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
     try {
         return await factory()
     } catch (error) {
+        if (isMinifiedModuleEvaluationError(error)) {
+            // The chunk already loaded, so a re-attempt evaluates the same stale binding again.
+            // Classify it for ChunkLoadErrorBoundary and give up on this attempt.
+            markAsChunkLoadError(error)
+            throw error
+        }
         if (!isChunkLoadError(error) && !isGenericNetworkTypeError(error)) {
             throw error
         }
@@ -37,17 +63,6 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
         }
         await new Promise<void>((resolve) => setTimeout(resolve, baseDelayMs))
         return retryImport(factory, retries - 1, baseDelayMs * 2)
-    }
-}
-
-export async function retryBootImport<T>(factory: () => T): Promise<Awaited<T>> {
-    try {
-        return await retryImport(factory)
-    } catch (error) {
-        if (isMinifiedBootModuleEvaluationError(error)) {
-            markAsChunkLoadError(error)
-        }
-        throw error
     }
 }
 
