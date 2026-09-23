@@ -161,7 +161,7 @@ describe("AgentConfigControls", () => {
     act(() =>
       findPressableWithText(
         renderer,
-        "Claude Opus 5.5 · Extra High",
+        "Claude Opus 5.5 · Extra high",
       ).props.onPress(),
     );
 
