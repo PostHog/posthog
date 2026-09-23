@@ -816,6 +816,12 @@ def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
     return f"Can't enable this workflow. Fix {'; '.join(parts) or 'the invalid steps'} and try again."
 
 
+def _event_trigger_targets_something(filters: Any) -> bool:
+    if not isinstance(filters, dict):
+        return False
+    return any(filters.get(key) for key in ("events", "actions", "properties"))
+
+
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
     # Non-draft saves always validate fully. Drafts stay lenient for the web UI builder (which saves
     # incomplete graphs mid-edit) and for internal re-saves (e.g. the refresh management command), which
@@ -1448,6 +1454,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                 # Move filter_test_accounts into filters for bytecode compilation
                 if data.get("config", {}).get("filter_test_accounts") is not None:
                     filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
+                # The builder refuses this; the API and MCP paths did not. Stored without an event the
+                # trigger has no bytecode and fails on every event instead of matching any.
+                if strict and not _event_trigger_targets_something(filters):
+                    raise serializers.ValidationError(
+                        {"filters": "Pick at least one event, or the trigger will never fire."}
+                    )
                 if filters:
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                     if not strict:

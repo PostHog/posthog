@@ -1182,6 +1182,34 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
+    def test_event_trigger_without_an_event_is_refused_when_it_would_run(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["actions"][0]["config"]["filters"] = {}
+
+        # A web draft stays lenient, so the builder can save mid-edit.
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Activating it is where the trigger would start failing on every event, so that is refused.
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert response.status_code == 400, response.json()
+        assert "Pick at least one event, or the trigger will never fire." in response.json()["detail"]
+
+        hog_flow["status"] = "active"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "Pick at least one event, or the trigger will never fire." in response.json()["detail"]
+
+        # A property filter alone is a real target.
+        hog_flow["actions"][0]["config"]["filters"] = {
+            "properties": [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
     def test_activating_draft_with_invalid_template_names_offending_step(self):
         hog_flow, action = self._create_hog_flow_with_action(
             {
