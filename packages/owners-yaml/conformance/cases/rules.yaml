@@ -111,7 +111,7 @@ cases:
               source: owners.yaml
               slack: '#team-a'
 
-    - name: an earlier matching rule has no effect even for fields the last rule does not set
+    - name: every matching rule applies and replaces only the fields it sets
       files:
           owners.yaml: |
               version: 1
@@ -125,7 +125,7 @@ cases:
           special.py:
               owners: [team-b]
               unowned_by_design: false
-              status: active
+              status: generated
               source: owners.yaml
               slack: '#team-b'
           other.py:
@@ -134,6 +134,24 @@ cases:
               status: generated
               source: owners.yaml
               slack: '#team-a'
+
+    - name: a later rule that sets only status keeps an earlier rule's null owners
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              rules:
+                - match: 'vendor/'
+                  owners: null
+                - match: '*.gen.py'
+                  status: generated
+      expect:
+          vendor/x.gen.py:
+              owners: []
+              unowned_by_design: true
+              status: generated
+              source: owners.yaml
+              slack: null
 
     - name: a rule with a list of patterns acts as one rule per pattern in list order
       files:

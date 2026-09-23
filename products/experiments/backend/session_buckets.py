@@ -65,6 +65,7 @@ from posthog.session_recordings.data_retention import retention_period_in_days
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.utils import get_safe_cache, safe_cache_set
 
+from products.access_control.backend.facade.property_access import sort_restricted_properties
 from products.access_control.backend.property_access_control import (
     get_restricted_properties_with_group_type_index_for_team,
 )
@@ -380,13 +381,8 @@ def _restriction_signature(team: Team, user: User) -> str:
                 "property_type": restriction.property_type,
                 "group_type_index": restriction.group_type_index,
             }
-            for restriction in sorted(
-                get_restricted_properties_with_group_type_index_for_team(user=user, team=team),
-                key=lambda restriction: (
-                    restriction.name,
-                    restriction.property_type,
-                    restriction.group_type_index if restriction.group_type_index is not None else -1,
-                ),
+            for restriction in sort_restricted_properties(
+                get_restricted_properties_with_group_type_index_for_team(user=user, team=team)
             )
         ]
     )

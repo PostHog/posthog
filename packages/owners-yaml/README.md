@@ -82,7 +82,7 @@ version: 1
 owners: team-billing
 ```
 
-A file can override its own subtree with `rules:`. Within one file, the last matching rule wins:
+A file can override its own subtree with `rules:`. Every rule that matches a path applies in file order, and each one replaces only the fields it sets:
 
 ```yaml
 version: 1
@@ -93,6 +93,22 @@ rules:
   - match: 'vendor/'
     owners: null
 ```
+
+`additions` names the owners of additions below a directory, separate from the owners of the files already in it.
+It never changes `owners`, so a directory can name owners of additions while the unowned files below it still show up as unowned:
+
+```yaml
+# products/owners.yaml
+version: 1
+owners: []
+rules:
+  - match: '/*'
+    additions: team-architecture
+```
+
+Resolve the new directory itself, not a file inside it: `owners resolve --json products/new-thing` returns `"additions": ["team-architecture"]`, and a deeper path does not.
+The owners of additions from every file on the walk add up, so a nested file cannot drop what an ancestor declared.
+The format only names these owners. A review bot or CI check decides from the change set what counts as an addition and what to do with the list.
 
 The root file can also hold repository settings:
 
@@ -124,12 +140,14 @@ For editor completion, point your YAML language server at [`owners.schema.json`]
 $ owners resolve --json billing/vendor/stripe.py web/app.ts
 {
   "billing/vendor/stripe.py": {
+    "additions": [],
     "owners": [],
     "slack": null,
     "source": "billing/owners.yaml",
     "status": "active"
   },
   "web/app.ts": {
+    "additions": [],
     "owners": [
       "team-platform"
     ],
@@ -153,7 +171,8 @@ $ uvx owners-yaml==0.2.0 lint
 ✓ owners.yaml lint passed (1 warning(s))
 ```
 
-`lint` fails on schema errors, a directory with two ownership files, and `owners.yaml` files in reserved locations.
+`lint` fails on schema errors, a directory with two ownership files, `owners.yaml` files in reserved locations, and a rule that names a directory without the trailing `/`.
+Write `docs/` for a directory, because `docs` also matches a file called `docs`.
 It warns about rule patterns that match no tracked file, and it reports coverage.
 `lint --live` also checks each team slug and `@handle` against the GitHub organization in `github_org`, or in `--org`.
 Pass the changed ownership files as arguments to check only those.
