@@ -110,14 +110,18 @@ impl EventFactory {
         }
         share += u16::from(self.mix.dangerous_merges);
         if roll < share {
-            // Fixed pairs bound a person to two pool users; the last user of an odd pool has no partner.
-            return match self.distinct_ids.get(index ^ 1) {
-                Some(partner) => Self::dangerous_merge_event(base, partner),
-                None => RawEvent {
+            // Fixed pairs bound a person to two pool users. Only the even user
+            // merges, so the pair has one survivor on every backend.
+            let pairs = self.distinct_ids.len() / 2;
+            if pairs == 0 {
+                return RawEvent {
                     event: self.random_event_name(rng),
                     ..base
-                },
-            };
+                };
+            }
+            let even = 2 * rng.gen_range(0..pairs);
+            let sender = self.base_event(&self.distinct_ids[even]);
+            return Self::dangerous_merge_event(sender, &self.distinct_ids[even + 1]);
         }
         let event = self.random_event_name(rng);
         share += u16::from(self.mix.person_updates);
@@ -156,10 +160,17 @@ impl EventFactory {
             seeded.push_back((anon_id.clone(), Instant::now()));
             anon_id
         };
+        // The shared key is contested between the seed and the survivor; the
+        // per-id key has one writer and names which seeds reached the person.
+        let seed_value = Uuid::now_v7().to_string();
         let mut set = HashMap::new();
         set.insert(
             "loadgen_anon_seed".to_string(),
-            Value::String(Uuid::now_v7().to_string()),
+            Value::String(seed_value.clone()),
+        );
+        set.insert(
+            format!("loadgen_anon_seed_{seed_id}"),
+            Value::String(seed_value),
         );
         RawEvent {
             event: self.random_event_name(rng),
@@ -404,7 +415,12 @@ mod tests {
         let (seed, claim) = (&batch[0], &batch[1]);
         assert!(distinct_id(seed).starts_with("loadgen-anon-"));
         assert_ne!(seed.event, "$identify");
-        assert!(seed.set.as_ref().unwrap().contains_key("loadgen_anon_seed"));
+        let seed_set = seed.set.as_ref().unwrap();
+        assert!(seed_set.contains_key("loadgen_anon_seed"));
+        assert_eq!(
+            seed_set[&format!("loadgen_anon_seed_{}", distinct_id(seed))],
+            seed_set["loadgen_anon_seed"]
+        );
 
         assert_eq!(claim.event, "$identify");
         assert!(distinct_id(claim).starts_with("loadgen-user-"));
@@ -480,10 +496,14 @@ mod tests {
                 .unwrap()
         };
 
-        for event in f.batch(50, &mut rng) {
+        for event in f.batch(200, &mut rng) {
             assert_eq!(event.event, "$merge_dangerously");
-            let partner = event.properties["alias"].as_str().unwrap();
-            assert_eq!(index(partner), index(distinct_id(&event)) ^ 1);
+            let sender = index(distinct_id(&event));
+            assert_eq!(sender % 2, 0, "only the even user of a pair merges");
+            assert_eq!(
+                index(event.properties["alias"].as_str().unwrap()),
+                sender + 1
+            );
         }
     }
 

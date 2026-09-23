@@ -64,6 +64,7 @@ export interface issuesDataNodeLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // nodeLogic
     responseLoading: boolean // nodeLogic
     results: ErrorTrackingIssue[]
@@ -168,6 +169,7 @@ export interface issuesDataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined,
         payload?:
@@ -199,6 +201,7 @@ export interface issuesDataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined
     } // nodeLogic
@@ -258,6 +261,7 @@ export interface issuesDataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => ErrorTrackingIssue[]
     }

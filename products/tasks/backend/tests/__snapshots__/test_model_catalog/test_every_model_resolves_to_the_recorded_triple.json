@@ -1,7 +1,79 @@
 {
+  "capability_ladders": {
+    "claude": [
+      {
+        "effort": "medium",
+        "model": "claude-sonnet-5"
+      },
+      {
+        "effort": "high",
+        "model": "claude-sonnet-5"
+      },
+      {
+        "effort": "medium",
+        "model": "claude-opus-5-5"
+      },
+      {
+        "effort": "xhigh",
+        "model": "claude-opus-5-5"
+      },
+      {
+        "effort": "max",
+        "model": "claude-fable-5-1"
+      }
+    ],
+    "codex": [
+      {
+        "effort": "low",
+        "model": "gpt-6-luna"
+      },
+      {
+        "effort": "low",
+        "model": "gpt-6-sol"
+      },
+      {
+        "effort": "medium",
+        "model": "gpt-6-sol"
+      },
+      {
+        "effort": "high",
+        "model": "gpt-6-sol"
+      },
+      {
+        "effort": "xhigh",
+        "model": "gpt-6-sol"
+      },
+      {
+        "effort": "max",
+        "model": "gpt-6-astra"
+      }
+    ]
+  },
   "model_families": [
     {
       "prefix": "gpt-6-astra",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "runtime_adapter": "codex"
+    },
+    {
+      "prefix": "gpt-6-sol",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "runtime_adapter": "codex"
+    },
+    {
+      "prefix": "gpt-6-luna",
       "reasoning_efforts": [
         "low",
         "medium",
@@ -33,6 +105,14 @@
       "runtime_adapter": "codex"
     }
   ],
+  "reasoning_effort_labels": {
+    "high": "High",
+    "low": "Low",
+    "max": "Max",
+    "medium": "Medium",
+    "ultracode": "Ultracode",
+    "xhigh": "Extra high"
+  },
   "reasoning_efforts": [
     "low",
     "medium",
@@ -117,6 +197,17 @@
         },
         "claude-opus-5": {
           "cost_multiplier": "2.5×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ]
+        },
+        "claude-opus-5-5": {
+          "cost_multiplier": "2×",
           "reasoning_efforts": [
             "low",
             "medium",
@@ -227,6 +318,26 @@
         },
         "gpt-6-astra": {
           "cost_multiplier": "5×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "gpt-6-luna": {
+          "cost_multiplier": "0.05×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "gpt-6-sol": {
+          "cost_multiplier": "1×",
           "reasoning_efforts": [
             "low",
             "medium",

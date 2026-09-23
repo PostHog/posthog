@@ -538,6 +538,8 @@ export const BatchExportRunStatusEnumApi = {
  */
 export interface BatchExportRunApi {
     readonly id: string
+    /** The end of the data interval. */
+    data_interval_end: string
     /** The status of this run.
      *
      * * `Cancelled` - Cancelled
@@ -575,8 +577,6 @@ export interface BatchExportRunApi {
      * @nullable
      */
     data_interval_start?: string | null
-    /** The end of the data interval. */
-    data_interval_end: string
     /**
      * An opaque cursor that may be used to resume.
      * @nullable
