@@ -86,7 +86,7 @@ import {
     DataWarehouseSavedQueryIncremental,
     DataWarehouseSavedQueryIncrementalCheck,
     ExportContext,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import {
@@ -281,7 +281,7 @@ export interface QueryTab {
     name: string
     description?: string
     sourceQuery?: DataVisualizationNode
-    insight?: QueryBasedInsightModel
+    insight?: InsightModel
     response?: Record<string, any>
     draft?: DataWarehouseSavedQueryDraft
     metricName?: string
@@ -386,7 +386,7 @@ function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizat
 }
 
 export function toDataVisualizationNode(
-    query: QueryBasedInsightModel['query'] | null | undefined
+    query: InsightModel['query'] | null | undefined
 ): DataVisualizationNode | undefined {
     if (!query) {
         return undefined
@@ -570,7 +570,7 @@ export interface sqlEditorLogicValues {
     dataLogicKey: string
     diffShowRunButton: boolean | undefined
     editingAccessControlObject: DataWarehouseAccessControlModalProps | null
-    editingInsight: QueryBasedInsightModel | null
+    editingInsight: InsightModel | null
     editingMetricName: string | null
     editingView: DataWarehouseSavedQuery | undefined
     editorKey: string
@@ -801,14 +801,14 @@ export interface sqlEditorLogicActions {
     createTab: (
         query?: string,
         view?: DataWarehouseSavedQuery,
-        insight?: QueryBasedInsightModel,
+        insight?: InsightModel,
         draft?: DataWarehouseSavedQueryDraft,
         metricName?: string,
         biEditorState?: BIEditorState
     ) => {
         biEditorState: BIEditorState | undefined
         draft: DataWarehouseSavedQueryDraft | undefined
-        insight: QueryBasedInsightModel<Node<Record<string, any>>> | undefined
+        insight: InsightModel<Node<Record<string, any>>> | undefined
         metricName: string | undefined
         query: string | undefined
         view: DataWarehouseSavedQuery | undefined
@@ -821,11 +821,11 @@ export interface sqlEditorLogicActions {
     }
     editInsight: (
         query: string,
-        insight: QueryBasedInsightModel,
+        insight: InsightModel,
         biEditorState?: BIEditorState
     ) => {
         biEditorState: BIEditorState | undefined
-        insight: QueryBasedInsightModel<Node<Record<string, any>>>
+        insight: InsightModel<Node<Record<string, any>>>
         query: string
     }
     editView: (
@@ -1274,7 +1274,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         createTab: (
             query?: string,
             view?: DataWarehouseSavedQuery,
-            insight?: QueryBasedInsightModel,
+            insight?: InsightModel,
             draft?: DataWarehouseSavedQueryDraft,
             metricName?: string,
             biEditorState?: BIEditorState
@@ -1356,7 +1356,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             view,
             biEditorState,
         }),
-        editInsight: (query: string, insight: QueryBasedInsightModel, biEditorState?: BIEditorState) => ({
+        editInsight: (query: string, insight: InsightModel, biEditorState?: BIEditorState) => ({
             query,
             insight,
             biEditorState,
@@ -1628,7 +1628,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         editingInsight: [
-            null as QueryBasedInsightModel | null,
+            null as InsightModel | null,
             {
                 updateTab: (_, { tab }) => tab.insight ?? null,
             },
@@ -2841,7 +2841,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const insightDescription = values.activeTab?.description
                 const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
 
-                const insightRequest: Partial<QueryBasedInsightModel> = {
+                const insightRequest: Partial<InsightModel> = {
                     name: insightName ?? values.editingInsight.name,
                     description: insightDescription ?? values.editingInsight.description ?? '',
                     query: currentVisualizationQuery,
@@ -2858,7 +2858,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     insightRequest.dashboards = Array.from(new Set([...existingDashboardIds, dashboardId]))
                 }
 
-                let savedInsight: QueryBasedInsightModel
+                let savedInsight: InsightModel
                 try {
                     savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
                 } catch (e) {
@@ -3650,7 +3650,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     // Open Insight
                     actions.setInsightLoading(true)
-                    let insight: QueryBasedInsightModel | null
+                    let insight: InsightModel | null
                     try {
                         insight = await insightsApi.getByShortId(shortId, undefined, 'async')
                     } catch {

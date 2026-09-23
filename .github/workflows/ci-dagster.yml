@@ -179,6 +179,9 @@ jobs:
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
                         - 'posthog/personhog_client/**'
+                        # The gRPC stubs personhog_client imports. check-dagster-paths.py reads
+                        # `personhog` as third-party, so it cannot flag this entry as missing.
+                        - 'packages/personhog-proto/**'
                         - 'posthog/redis.py'
                         - 'posthog/storage/**'
                         - 'posthog/event_usage.py'
@@ -524,7 +527,6 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image }}
-                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   bin/ci-wait-for-docker launch --down

@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -35,7 +36,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
-import api from '~/lib/api'
+import api, { ApiConfig } from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
 import { tagsModel } from '~/models/tagsModel'
@@ -45,6 +46,8 @@ import type { Breadcrumb, CommentType, PersonType, UserType } from '~/types'
 import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import {
+    conversationsTicketsAiFeedbackCreate,
+    conversationsTicketsAiHumanOutcomeCreate,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
@@ -60,9 +63,17 @@ import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/feat
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
+import { aiDraftAction, aiDraftComposerHtml } from '../../components/Chat/aiDraftAction'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
-import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
+import type {
+    AiReplyFeedbackRating,
+    ChatMessage,
+    MessageDeliveryStatus,
+    Ticket,
+    TicketPriority,
+    TicketStatus,
+} from '../../types'
 import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeLogic'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
@@ -71,6 +82,7 @@ const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
 const DISCUSSION_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
 const SEND_RECOVERY_WINDOW_SECONDS = 120
+const EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID = new Map<string, MessageDeliveryStatus>()
 
 /**
  * How a failed send request should be treated. `null` means the send definitely did not happen:
@@ -225,10 +237,13 @@ export interface supportTicketSceneLogicValues {
     availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
+    aiDraftApplying: boolean
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
+    composerPrefillAt: number
+    deliveryStatusByMessageId: Map<string, MessageDeliveryStatus>
     discussionsEnabled: boolean
     draftContent: string | JSONContent | null
     draftIsPrivate: boolean
@@ -244,6 +259,7 @@ export interface supportTicketSceneLogicValues {
     hasMoreMessages: boolean
     hasPendingWork: boolean
     hasUnsavedChanges: boolean
+    latestAiDraftId: string | null
     latestAiMessage: ChatMessage | null
     linkedReports: SignalReportApi[]
     linkedReportsLoading: boolean
@@ -279,6 +295,12 @@ export interface supportTicketSceneLogicActions {
     } // tagsModel
     appendMessage: (message: CommentType) => {
         message: CommentType
+    }
+    applyAiDraft: (message: ChatMessage) => {
+        message: ChatMessage
+    }
+    bumpComposerPrefill: () => {
+        value: true
     }
     cancelEditingMessage: () => {
         value: true
@@ -405,6 +427,9 @@ export interface supportTicketSceneLogicActions {
         richContent: Record<string, unknown> | null
         statusAfterSend: TicketStatus | undefined
     }
+    setAiDraftApplying: (applying: boolean) => {
+        applying: boolean
+    }
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
     }
@@ -512,9 +537,14 @@ export interface supportTicketSceneLogicMeta {
         ) => boolean
         hasPendingWork: (hasUnsavedChanges: boolean, editingMessageId: string | null) => boolean
         chatMessages: (messages: CommentType[], ticket: Ticket | null, featureFlags: FeatureFlagsSet) => ChatMessage[]
+        deliveryStatusByMessageId: (
+            chatMessages: ChatMessage[],
+            ticket: Ticket | null
+        ) => Map<string, MessageDeliveryStatus>
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
+        latestAiDraftId: (chatMessages: ChatMessage[]) => string | null
     }
 }
 
@@ -560,6 +590,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         appendMessage: (message: CommentType) => ({ message }),
 
         pollDiscussionThread: true,
+
+        applyAiDraft: (message: ChatMessage) => ({ message }),
+        setAiDraftApplying: (applying: boolean) => ({ applying }),
+        bumpComposerPrefill: true,
 
         loadOlderMessages: true,
         setOlderMessages: (olderMessages: CommentType[]) => ({ olderMessages }),
@@ -840,6 +874,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setMessageSending: (_, { sending }) => sending,
             },
         ],
+        aiDraftApplying: [
+            false,
+            {
+                applyAiDraft: () => true,
+                setAiDraftApplying: (_, { applying }) => applying,
+            },
+        ],
+        composerPrefillAt: [
+            0,
+            {
+                bumpComposerPrefill: (state) => state + 1,
+            },
+        ],
         draftContent: [
             null as string | JSONContent | null,
             {
@@ -1092,8 +1139,52 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             emailDeliveryStatus: message.item_context?.email_delivery_status,
                             fromZendesk: message.item_context?.from_zendesk === true,
                             hasFullEmailContent: message.item_context?.has_full_email_content === true,
+                            citations: Array.isArray(message.item_context?.citations)
+                                ? message.item_context.citations.filter(
+                                      (item: unknown): item is string => typeof item === 'string' && !!item
+                                  )
+                                : undefined,
+                            confidence:
+                                typeof message.item_context?.confidence === 'number'
+                                    ? message.item_context.confidence
+                                    : undefined,
+                            persistAs:
+                                message.item_context?.persist_as === 'reply' ||
+                                message.item_context?.persist_as === 'findings' ||
+                                message.item_context?.persist_as === 'clarification'
+                                    ? message.item_context.persist_as
+                                    : undefined,
+                            clarifyingQuestions: Array.isArray(message.item_context?.clarifying_questions)
+                                ? message.item_context.clarifying_questions.filter(
+                                      (item: unknown): item is string => typeof item === 'string'
+                                  )
+                                : undefined,
                         }
                     })
+            },
+        ],
+        deliveryStatusByMessageId: [
+            (s) => [s.chatMessages, s.ticket],
+            (chatMessages: ChatMessage[], ticket: Ticket | null): Map<string, MessageDeliveryStatus> => {
+                if (ticket?.channel_source !== 'widget') {
+                    return EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID
+                }
+
+                const statusMap = new Map<string, MessageDeliveryStatus>()
+                let unreadRemaining = ticket.unread_customer_count ?? 0
+                for (let i = chatMessages.length - 1; i >= 0; i--) {
+                    const message = chatMessages[i]
+                    if (message.authorType === 'customer' || message.isPrivate) {
+                        continue
+                    }
+                    if (unreadRemaining > 0) {
+                        statusMap.set(message.id, 'sent')
+                        unreadRemaining--
+                    } else {
+                        statusMap.set(message.id, 'read')
+                    }
+                }
+                return statusMap
             },
         ],
         eventsQuery: [
@@ -1124,6 +1215,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
                 }
                 return null
+            },
+        ],
+        latestAiDraftId: [
+            (s) => [s.chatMessages],
+            (chatMessages: ChatMessage[]): string | null => {
+                let latestDraft: ChatMessage | null = null
+                for (const message of chatMessages) {
+                    if (
+                        aiDraftAction(message) !== null &&
+                        (!latestDraft || new Date(message.createdAt) >= new Date(latestDraft.createdAt))
+                    ) {
+                        latestDraft = message
+                    }
+                }
+                return latestDraft?.id ?? null
             },
         ],
     }),
@@ -1451,6 +1557,39 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             actions.loadTickets()
         },
+        applyAiDraft: async ({ message }) => {
+            try {
+                if (values.editingMessageId) {
+                    cache.noteEditActive = false
+                    actions.clearEditingMessage()
+                }
+                actions.setDraftIsPrivate(false)
+                actions.setDraftContent(aiDraftComposerHtml(message))
+                actions.bumpComposerPrefill()
+                if (!values.ticket?.id) {
+                    return
+                }
+                try {
+                    await conversationsTicketsAiHumanOutcomeCreate(String(getCurrentTeamId()), values.ticket.id, {
+                        message_id: message.id,
+                        outcome: 'used',
+                    })
+                    const ticket = values.ticket
+                    if (ticket) {
+                        actions.setTicket({
+                            ...ticket,
+                            ai_triage: { ...ticket.ai_triage, human_outcome: 'used' },
+                        })
+                    }
+                } catch (error: unknown) {
+                    if (!(error instanceof ApiError && error.status === 409)) {
+                        lemonToast.error("Couldn't record that you used the draft.")
+                    }
+                }
+            } finally {
+                actions.setAiDraftApplying(false)
+            }
+        },
         startEditingMessage: ({ message }) => {
             // Only stash the composer draft on first enter; switching notes keeps the original stash.
             if (!cache.noteEditActive) {
@@ -1516,7 +1655,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     if (rating !== 'bad') {
                         return
                     }
-                    await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                    await conversationsTicketsAiFeedbackCreate(String(ApiConfig.getCurrentProjectId()), ticket.id, {
                         message_id: messageId,
                         rating,
                         feedback_text: feedbackText,
@@ -1526,7 +1665,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (values.feedbackByMessageId[messageId]) {
                     return
                 }
-                await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                await conversationsTicketsAiFeedbackCreate(String(ApiConfig.getCurrentProjectId()), ticket.id, {
                     message_id: messageId,
                     rating,
                 })

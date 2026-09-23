@@ -1,5 +1,5 @@
 import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from '~/common/outputs'
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { isAiEventName } from '~/ingestion/common/ai-event-types'
 import { EventToEmit } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -27,7 +27,7 @@ function hasLargeAiProperties(properties: Record<string, unknown>): boolean {
 function splitAiEvent(entry: EventToEmit<EventOutput>): EventToEmit<EventOutput | AiEventOutput>[] {
     const properties = entry.event.properties ?? {}
 
-    if (!AI_EVENT_TYPES.has(entry.event.event)) {
+    if (!isAiEventName(entry.event.event)) {
         return [entry]
     }
 

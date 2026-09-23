@@ -420,6 +420,7 @@ describe("AgentServer HTTP Mode", () => {
   let server: AgentServer | undefined;
   let mswServer: SetupServerApi;
   let appendLogCalls: unknown[][];
+  let updateTaskRunCalls: unknown[];
   let port: number;
 
   // msw patches fetch process-wide. A second listen() on an already-patched
@@ -429,6 +430,7 @@ describe("AgentServer HTTP Mode", () => {
       ...createPostHogHandlers({
         baseUrl: "http://localhost:8000",
         onAppendLog: (entries) => appendLogCalls.push(entries),
+        onUpdateTaskRun: (body) => updateTaskRunCalls.push(body),
       }),
     );
     mswServer.listen({ onUnhandledRequest: "bypass" });
@@ -441,6 +443,7 @@ describe("AgentServer HTTP Mode", () => {
   beforeEach(async () => {
     repo = await createTestRepo("agent-server-http");
     appendLogCalls = [];
+    updateTaskRunCalls = [];
     // Use a unique high port per test to avoid reuse and browser-blocked ports.
     port = getNextTestPort();
   }, 30_000);
@@ -986,6 +989,7 @@ describe("AgentServer HTTP Mode", () => {
           {
             status: "failed",
             error_message: `agent_error: ${expected}`,
+            state: { agent_version: expect.any(String) },
           },
         );
       },
@@ -1127,6 +1131,7 @@ describe("AgentServer HTTP Mode", () => {
         {
           status: "failed",
           error_message: "agent_error: old run failed",
+          state: { agent_version: expect.any(String) },
         },
       );
     });
@@ -2590,27 +2595,32 @@ describe("AgentServer HTTP Mode", () => {
       };
     }
 
-    it("enqueues and buffers events raised before a session is assigned", () => {
-      // Regression: an MCP relay request can fire the instant the client
-      // subprocess starts, ahead of session assignment. broadcastEvent must
-      // not silently drop it.
-      const testServer = exposeBroadcastEvent(createServer());
-      testServer.eventStreamSender = {
-        enqueue: vi.fn(),
-        stop: vi.fn(async () => {}),
-      };
-      testServer.session = null;
+    it.each([null, { sseController: null }])(
+      "enqueues events without retaining an SSE replay buffer for session %j",
+      (session) => {
+        // Regression: an MCP relay request can fire the instant the client
+        // subprocess starts, ahead of session assignment. broadcastEvent must
+        // not silently drop it.
+        const testServer = exposeBroadcastEvent(createServer());
+        testServer.eventStreamSender = {
+          enqueue: vi.fn(),
+          stop: vi.fn(async () => {}),
+        };
+        testServer.session = session;
 
-      const event = {
-        type: "mcp_request",
-        requestId: "req-1",
-        server: "slack",
-      };
-      testServer.broadcastEvent(event);
+        const event = {
+          type: "mcp_request",
+          requestId: "req-1",
+          server: "slack",
+        };
+        testServer.broadcastEvent(event);
 
-      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(event);
-      expect(testServer.pendingEvents).toEqual([event]);
-    });
+        expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
+          event,
+        );
+        expect(testServer.pendingEvents).toEqual([]);
+      },
+    );
 
     it("buffers events with no event stream sender configured and no session", () => {
       const testServer = exposeBroadcastEvent(createServer());
@@ -2624,6 +2634,27 @@ describe("AgentServer HTTP Mode", () => {
       expect(() => testServer.broadcastEvent(event)).not.toThrow();
 
       expect(testServer.pendingEvents).toEqual([event]);
+    });
+
+    it("delivers events to an attached SSE controller with event ingest enabled", () => {
+      const testServer = exposeBroadcastEvent(createServer());
+      testServer.eventStreamSender = {
+        enqueue: vi.fn(),
+        stop: vi.fn(async () => {}),
+      };
+      const controller = { send: vi.fn(), close: vi.fn() };
+      testServer.session = { sseController: controller };
+      const event = {
+        type: "mcp_request",
+        requestId: "req-1",
+        server: "slack",
+      };
+
+      testServer.broadcastEvent(event);
+
+      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(event);
+      expect(controller.send).toHaveBeenCalledWith(event);
+      expect(testServer.pendingEvents).toEqual([]);
     });
 
     it("redacts authorization headers before an event leaves the sandbox", () => {
@@ -2656,7 +2687,7 @@ describe("AgentServer HTTP Mode", () => {
       const serialized = JSON.stringify(broadcast);
       expect(serialized).not.toContain("mcp-secret");
       expect(serialized).toContain("x-posthog-mcp-consumer");
-      expect(testServer.pendingEvents).toEqual([broadcast]);
+      expect(testServer.pendingEvents).toEqual([]);
     });
   });
 
@@ -4930,6 +4961,34 @@ describe("AgentServer HTTP Mode", () => {
       );
     }, 30000);
 
+    it.each([
+      ["a configured version", "9.9.9", "9.9.9"],
+      ["the package version", undefined, undefined],
+    ])(
+      "stamps %s on the in_progress run update",
+      async (_label, version, expected) => {
+        await createServer({ version }).start();
+
+        await vi.waitFor(
+          () => {
+            const inProgress = updateTaskRunCalls.find(
+              (body) => (body as { status?: string }).status === "in_progress",
+            ) as { state?: { agent_version?: unknown } } | undefined;
+            expect(inProgress).toBeDefined();
+            const agentVersion = inProgress?.state?.agent_version;
+            if (expected === undefined) {
+              expect(typeof agentVersion).toBe("string");
+              expect((agentVersion as string).length).toBeGreaterThan(0);
+            } else {
+              expect(agentVersion).toBe(expected);
+            }
+          },
+          { timeout: 15000, interval: 100 },
+        );
+      },
+      30000,
+    );
+
     it("emits a completed _posthog/progress for the agent step after session initialization", async () => {
       await createServer().start();
 
@@ -6785,6 +6844,7 @@ describe("AgentServer HTTP Mode", () => {
         "If the user explicitly asks you to open a pull request",
       );
       expect(prompt).not.toContain("No Repository Mode");
+      expect(prompt).not.toContain("## Summarizing a question you answered");
     });
 
     it("returns review-first prompt for existing PRs on non-Slack runs", () => {
@@ -6841,6 +6901,7 @@ describe("AgentServer HTTP Mode", () => {
         config: { repositoryPath: undefined },
         shouldContain: [
           "Cloud Task Execution — No Repository Mode",
+          "## Summarizing a question you answered",
           "call `list_repos`",
           "Call `clone_repo`",
           "It creates a shallow clone",
@@ -6882,6 +6943,7 @@ describe("AgentServer HTTP Mode", () => {
         config: { repositoryPath: undefined, createPr: false },
         shouldContain: [
           "Cloud Task Execution — No Repository Mode",
+          "## Summarizing a question you answered",
           "Call `clone_repo`",
           "You may make local edits in a repository cloned with `clone_repo`",
           "Do NOT create branches, commits, push changes, or open pull requests in this run",

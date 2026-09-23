@@ -1144,6 +1144,10 @@ export class AgentServer {
    * the multi-hour inactivity timeout. Best-effort and self-contained so it can
    * run from a process-level handler with no session context.
    */
+  private get agentVersion(): string {
+    return this.config.version ?? packageJson.version;
+  }
+
   async reportFatalError(error: unknown): Promise<void> {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
@@ -1163,6 +1167,7 @@ export class AgentServer {
         {
           status: "failed",
           error_message: `Agent server crashed: ${errorMessage}`,
+          state: { agent_version: this.agentVersion },
         },
       );
     } catch (updateError) {
@@ -2444,9 +2449,12 @@ export class AgentServer {
     this.posthogAPI
       .updateTaskRun(payload.task_id, payload.run_id, {
         status: "in_progress",
-        ...(isBenjaminEnabled() && {
-          state: { benjamin_version: BENJAMIN_UPSTREAM_COMMIT },
-        }),
+        state: {
+          agent_version: this.agentVersion,
+          ...(isBenjaminEnabled() && {
+            benjamin_version: BENJAMIN_UPSTREAM_COMMIT,
+          }),
+        },
       })
       .catch((err) =>
         this.logger.debug("Failed to set task run to in_progress", err),
@@ -4596,6 +4604,7 @@ export class AgentServer {
       await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
         status,
         error_message: persistedErrorMessage,
+        state: { agent_version: this.agentVersion },
       });
       this.logger.debug("Task completion signaled", { status, stopReason });
     } catch (error) {
@@ -5642,7 +5651,7 @@ export class AgentServer {
       this.session?.sseController ?? this.initializingSseController;
     if (controller) {
       this.sendSseEvent(controller, event);
-    } else {
+    } else if (!this.eventStreamSender) {
       // Buffers events raised before a session exists yet (e.g. an MCP relay
       // request fired the instant the client subprocess starts, ahead of
       // `this.session` assignment) or before its SSE controller attaches.

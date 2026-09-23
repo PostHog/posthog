@@ -34,6 +34,15 @@ class TestMatomoSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
+    def test_instance_url_not_found_is_non_retryable_with_actionable_message(self):
+        # Left unclassified, this is retried on every schedule and stored with the customer's host in it.
+        error = "404 Client Error: Not Found for url: https://myorg.matomo.cloud/index.php"
+        messages = [message for key, message in self.source.get_non_retryable_errors().items() if key in error]
+        assert messages, "A missing Matomo instance should stop the sync with a message"
+        assert messages[0] is not None
+        assert "instance URL" in messages[0]
+        assert "matomo.cloud" not in messages[0]
+
     def test_non_retryable_errors_does_not_match_server_errors(self):
         non_retryable_errors = self.source.get_non_retryable_errors()
         error = "500 Server Error for url: https://myorg.matomo.cloud/index.php"
@@ -51,6 +60,14 @@ class TestMatomoSource:
         # exhausts; keeps this benign, self-recovering failure out of error tracking.
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in observed_error for key in retryable_errors)
+
+    def test_retry_exhausted_message_replaces_the_internal_marker(self):
+        # Without this the job stores the raw marker, HTTP status and all, as what the customer reads.
+        error = "Matomo API error (retryable): status=502"
+        messages = [message for key, message in self.source.get_retry_exhausted_errors().items() if key in error]
+        assert messages, "An exhausted Matomo retry should store a customer-facing message"
+        assert "502" not in messages[0]
+        assert "next sync runs on schedule" in messages[0]
 
     def test_get_schemas(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}

@@ -230,18 +230,55 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
         self.assertEqual(run.state["agent_otel_telemetry_enabled"], True)
-        # Patching the shared posthoganalytics module attribute covers both evaluation
-        # sites (event ingest in client.py, telemetry in feature_flags.py).
-        self.assertEqual(flag.call_count, 2)
-        for flag_key in ("tasks-cloud-runs-sandbox-event-ingest", "tasks-agent-run-otel-telemetry"):
+        self.assertEqual(run.state["agent_proxy_keep_stream_open"], True)
+        self.assertEqual(run.state["overlap_clone_boot_enabled"], True)
+        self.assertEqual(run.state["use_modal_network_allowlist"], True)
+        # Patching the shared posthoganalytics module attribute covers every evaluation
+        # site (client.py for the rollout stamps, feature_flags.py for telemetry).
+        self.assertEqual(flag.call_count, 5)
+        actor_distinct_id = f"user_{self.user.id}"
+        for flag_key, expected_distinct_id in (
+            ("tasks-cloud-runs-sandbox-event-ingest", "process_task_workflow"),
+            ("tasks-agent-run-otel-telemetry", "process_task_workflow"),
+            ("tasks-agent-proxy-keep-stream-open", actor_distinct_id),
+            ("tasks-overlap-clone-boot", actor_distinct_id),
+            ("tasks-modal-network-allowlist", actor_distinct_id),
+        ):
             flag.assert_any_call(
                 flag_key,
-                distinct_id="process_task_workflow",
+                distinct_id=expected_distinct_id,
                 groups={"organization": str(self.organization.id)},
                 group_properties={"organization": {"id": str(self.organization.id)}},
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
+
+    def test_boot_flag_capture_keeps_existing_stamp_and_survives_one_flag_error(self) -> None:
+        run = self._create_run()
+        TaskRun.update_state_atomic(str(run.id), updates={"overlap_clone_boot_enabled": False})
+        client = Mock()
+        client.start_workflow = AsyncMock()
+
+        def _feature_enabled(flag_key: str, **kwargs: object) -> bool:
+            if flag_key == "tasks-agent-proxy-keep-stream-open":
+                raise RuntimeError("flag service unavailable")
+            return True
+
+        with (
+            patch("products.tasks.backend.temporal.client.sync_connect", return_value=client),
+            patch(
+                "products.tasks.backend.temporal.client.posthoganalytics.feature_enabled",
+                side_effect=_feature_enabled,
+            ),
+        ):
+            self._execute_workflow("sync", run, self.user.id)
+
+        run.refresh_from_db()
+        self.assertEqual(run.state["overlap_clone_boot_enabled"], False)
+        self.assertEqual(run.state["agent_proxy_keep_stream_open"], False)
+        self.assertEqual(run.state["use_modal_network_allowlist"], True)
+        self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
+        self.assertEqual(run.state["agent_otel_telemetry_enabled"], True)
 
     def test_captures_sandbox_event_ingest_flag_before_resuming_workflow(self) -> None:
         run = self._create_run()
