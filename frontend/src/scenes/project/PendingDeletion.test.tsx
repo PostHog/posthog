@@ -24,7 +24,7 @@ describe('ProjectPendingDeletion', () => {
         cleanup()
     })
 
-    const renderScene = async (deletionScheduledAt: string): Promise<HTMLElement> => {
+    const renderScene = async (canCancelDeletion: boolean): Promise<HTMLElement> => {
         useMocks({
             get: {
                 '/api/projects/@current': () => [
@@ -32,7 +32,8 @@ describe('ProjectPendingDeletion', () => {
                     {
                         ...MOCK_DEFAULT_PROJECT,
                         is_pending_deletion: true,
-                        deletion_scheduled_at: deletionScheduledAt,
+                        deletion_scheduled_at: dayjs().add(48, 'hours').toISOString(),
+                        can_cancel_deletion: canCancelDeletion,
                     },
                 ],
             },
@@ -49,14 +50,14 @@ describe('ProjectPendingDeletion', () => {
 
     // A project that never ingested an event used to be scheduled for deletion at the current
     // instant, so the only escape the lockout screen offered could only ever return an error.
-    it('offers the cancel button while the deletion is still scheduled', async () => {
-        const container = await renderScene(dayjs().add(48, 'hours').toISOString())
+    it('offers the cancel button while the server says the deletion can be canceled', async () => {
+        const container = await renderScene(true)
 
         expect(within(container).getByText('Cancel project deletion')).toBeInTheDocument()
     })
 
-    it('replaces the cancel button with an explanation once the deletion has started', async () => {
-        const container = await renderScene(dayjs().subtract(1, 'minute').toISOString())
+    it('replaces the cancel button with an explanation once the server says the deletion has started', async () => {
+        const container = await renderScene(false)
 
         expect(within(container).queryByText('Cancel project deletion')).not.toBeInTheDocument()
         expect(

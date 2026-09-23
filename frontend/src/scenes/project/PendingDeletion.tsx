@@ -28,7 +28,8 @@ export function ProjectPendingDeletion(): JSX.Element {
         useActions(newAccountMenuLogic)
     const hasOtherOrgs = otherOrganizations.length > 0
     const deletionScheduledAt = currentProject?.deletion_scheduled_at
-    const canCancelDeletion = !!deletionScheduledAt && dayjs(deletionScheduledAt).isAfter(dayjs())
+    // The server decides eligibility, so a skewed browser clock cannot hide the only way out.
+    const canCancelDeletion = !!currentProject?.can_cancel_deletion
 
     return (
         <div className="max-w-[600px] mx-auto px-2 py-8">

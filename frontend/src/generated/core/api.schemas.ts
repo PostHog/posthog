@@ -2682,6 +2682,8 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     readonly deletion_scheduled_at: string | null
+    /** Whether the scheduled deletion of this project can still be canceled. */
+    readonly can_cancel_deletion: boolean
     /** ID of the project this environment belongs to. */
     readonly project_id: number
     /**
@@ -3549,6 +3551,8 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     readonly deletion_scheduled_at?: string | null
+    /** Whether the scheduled deletion of this project can still be canceled. */
+    readonly can_cancel_deletion?: boolean
     /** ID of the project this environment belongs to. */
     readonly project_id?: number
     /**
@@ -3626,6 +3630,8 @@ export interface ProjectApi {
      * @nullable
      */
     readonly deletion_scheduled_at: string | null
+    /** Whether the scheduled deletion of this project can still be canceled. */
+    readonly can_cancel_deletion: boolean
     /**
      * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
      * @items.maxLength 255

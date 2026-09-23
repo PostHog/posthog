@@ -557,7 +557,21 @@ def team_evaluation_context_suggestions_view(team: Team, request: request.Reques
     return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
 
 
-class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class CancelDeletionEligibilitySerializerMixin(serializers.Serializer):
+    """Answers the cancel window server-side, so a skewed client clock cannot decide it."""
+
+    can_cancel_deletion = serializers.SerializerMethodField(
+        help_text="Whether the scheduled deletion of this project can still be canceled."
+    )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_cancel_deletion(self, project: Project) -> bool:
+        return project.can_cancel_deletion()
+
+
+class ProjectSerializer(
+    CancelDeletionEligibilitySerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer
+):
     """The project as the app context serves it, which is where the frontend reads it on page load.
 
     projectLogic bootstraps `currentProject` from the app context and only calls the API when that
@@ -577,12 +591,21 @@ class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "created_at",
             "is_pending_deletion",
             "deletion_scheduled_at",
+            "can_cancel_deletion",
             "tags",
         ]
-        read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion", "deletion_scheduled_at"]
+        read_only_fields = [
+            "id",
+            "organization_id",
+            "created_at",
+            "is_pending_deletion",
+            "deletion_scheduled_at",
+            "can_cancel_deletion",
+        ]
 
 
 class ProjectBackwardCompatSerializer(
+    CancelDeletionEligibilitySerializerMixin,
     TaggedItemSerializerMixin,
     UserAccessControlSerializerMixin,
     ProjectBackwardCompatBasicSerializer,
@@ -739,6 +762,7 @@ class ProjectBackwardCompatSerializer(
             "available_setup_task_ids",  # Compat with TeamSerializer
             "is_pending_deletion",
             "deletion_scheduled_at",
+            "can_cancel_deletion",
             "project_id",  # Compat with TeamSerializer
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
@@ -765,6 +789,7 @@ class ProjectBackwardCompatSerializer(
             "organization",
             "is_pending_deletion",
             "deletion_scheduled_at",
+            "can_cancel_deletion",
             "effective_membership_level",
             "has_group_types",
             "group_types",
@@ -1698,6 +1723,7 @@ class ProjectViewSet(
             "project deletion canceled",
             {"project_name": project.name, "outcome": outcome},
             team=project.passthrough_team,
+            organization=project.organization,
             request=request,
         )
 

@@ -791,6 +791,12 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         response = self.client.get(f"/api/projects/{self.project.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["is_pending_deletion"])
+        self.assertTrue(response.json()["can_cancel_deletion"])
+
+        Project.objects.filter(id=self.project.id).update(deletion_scheduled_at=timezone.now() - timedelta(hours=1))
+
+        response = self.client.get(f"/api/projects/{self.project.id}")
+        self.assertFalse(response.json()["can_cancel_deletion"])
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_delete_project_already_pending_deletion_returns_400(self, mock_delete_task):
