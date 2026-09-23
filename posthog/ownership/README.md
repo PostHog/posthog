@@ -43,10 +43,11 @@ A file the commit does not hold comes back as absent.
 This reader answers for a private repository.
 
 `GitHubRepoFiles` reads `raw.githubusercontent.com` anonymously, one request per file, and caches for six hours with jitter.
-The raw host serves public repositories only, and it cannot name a commit, so this reader is the fallback for a repository no credential covers.
+The raw host serves public repositories only, so this reader is the fallback for a repository no credential covers.
+It reads at the ref `HEAD` rather than at a commit, because it has no credential to ask the API which commit the default branch points at.
 
 The authenticated reader caches per commit.
-The content at a commit never changes, so a blob is held for days; the head lookup is held for about two minutes, and that is the whole staleness window of an ownership change.
+The content at a commit never changes, so a blob is held for a day; the head lookup is held for about two minutes, and that is the whole staleness window of an ownership change.
 The cache key names the credential's audience, an installation or a digest of a token, because a private repository one installation can read is not readable by the next caller that names the same repository.
 A token never reaches a cache key or a log line.
 Pass `fresh_head=True` when the run derives a decision it never stores and so cannot correct later, such as digest routing, and the reader asks GitHub for the head instead of reading that shared entry.

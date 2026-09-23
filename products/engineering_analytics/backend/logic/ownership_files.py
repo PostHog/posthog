@@ -12,7 +12,7 @@ GitHub integration, and then to the anonymous public reader.
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team import Team
-from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher, fetcher_for_team
+from posthog.ownership.github_files import EGRESS_SOURCE, AuthenticatedRepoFiles, GitHubFilesFetcher, fetcher_for_team
 
 from products.warehouse_sources.backend.facade import api as warehouse_sources
 from products.warehouse_sources.backend.facade.contracts import GitHubSourceCredential
@@ -32,7 +32,8 @@ def _fetcher_for_credential(
     integration = Integration.objects.filter(team_id=team_id, id=credential.integration_id, kind="github").first()
     if integration is None:
         return None
-    return GitHubFilesFetcher.from_integration(GitHubIntegration(integration), priority=priority)
+    github = GitHubIntegration(integration, source=EGRESS_SOURCE, priority=priority)
+    return GitHubFilesFetcher.from_integration(github, priority=priority)
 
 
 def repo_files(team: Team, repository: str, *, source_id: str, priority: Priority) -> ProbeableRepoFiles:

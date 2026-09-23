@@ -14,11 +14,14 @@ from typing import Any, Protocol, TypeVar
 from django.core.cache import cache
 
 import requests
+import structlog
 from owners_yaml import BatchOwnershipSource
 from requests.adapters import HTTPAdapter
 
 from posthog.egress.github.transport import github_request
 from posthog.models.integration.github import _is_safe_github_repo_path
+
+logger = structlog.get_logger(__name__)
 
 _T = TypeVar("_T")
 _K = TypeVar("_K")
@@ -122,6 +125,26 @@ def pooled_session(host: str) -> requests.Session:
     return session
 
 
+def _cache_get_many(keys: list[str]) -> dict[str, Any]:
+    """The cached values of ``keys``. An unreachable cache reads as all misses.
+
+    The cache only saves requests. A Redis outage must not turn every ownership answer into an
+    error page, because the files can still be read from GitHub.
+    """
+    try:
+        return cache.get_many(keys)
+    except Exception:
+        logger.warning("ownership_cache_read_failed", exc_info=True)
+        return {}
+
+
+def _cache_set_many(values: dict[str, Any], ttl: int) -> None:
+    try:
+        cache.set_many(values, ttl)
+    except Exception:
+        logger.warning("ownership_cache_write_failed", exc_info=True)
+
+
 class CachedRepoFiles:
     """The shared skeleton of a repository's file readers: one memo per batch, one Redis round trip
     per kind of read, and one time budget for the whole resolution.
@@ -154,11 +177,11 @@ class CachedRepoFiles:
         if not todo:
             return {}
         by_key = {self._cache_key(kind, path): path for path in todo}
-        known = {by_key[key]: value for key, value in cache.get_many(list(by_key)).items()}
+        known = {by_key[key]: value for key, value in _cache_get_many(list(by_key)).items()}
         missing = [path for path in todo if path not in known]
         if missing:
             fetched = fetch(missing)
-            cache.set_many({self._cache_key(kind, path): value for path, value in fetched.items()}, self._cache_ttl())
+            _cache_set_many({self._cache_key(kind, path): value for path, value in fetched.items()}, self._cache_ttl())
             known.update(fetched)
         return known
 

@@ -5,9 +5,9 @@ This module reads the same files through the GitHub GraphQL API, which authentic
 private repository, and returns about a hundred files per request.
 
 Every read is pinned to the default branch's head commit. The content at a commit never changes, so
-the cache can hold it for days, and a merge is visible as soon as the short-lived head lookup
-expires. The raw host cannot name a commit, so it keeps its own cache and its own six-hour staleness
-window.
+the cache needs no invalidation, and a merge is visible as soon as the short-lived head lookup
+expires. The anonymous raw host reader has no credential to learn the head commit, so it reads at
+the ref `HEAD` and keeps its own cache and its own six-hour staleness window.
 """
 
 import json
@@ -15,8 +15,6 @@ from collections.abc import Callable, Sequence
 from functools import partial
 from http import HTTPStatus
 from typing import Any
-
-from django.core.cache import cache
 
 import requests
 import structlog
@@ -38,6 +36,7 @@ from posthog.ownership.repo_files import (
     capped_text,
     pooled_session,
 )
+from posthog.utils import get_safe_cache, safe_cache_set
 
 logger = structlog.get_logger(__name__)
 
@@ -45,7 +44,7 @@ _API_HOST = "https://api.github.com"
 _GRAPHQL_URL = f"{_API_HOST}/graphql"
 # A separate label from the raw host's, because these calls are authenticated and land on a
 # different meter. Renaming either one would break the dashboards that already query them.
-_EGRESS_SOURCE = "ownership_github_api"
+EGRESS_SOURCE = "ownership_github_api"
 _HEAD_ENDPOINT = "/graphql:ownershipHeadCommit"
 _FILES_ENDPOINT = "/graphql:ownershipFiles"
 _TIMEOUT_SECONDS = 10.0
@@ -56,10 +55,11 @@ _TIMEOUT_SECONDS = 10.0
 _CHUNK_FILES = 100
 
 _CACHE_PREFIX = "ownership:github_api"
-# A commit's content is immutable, so the only reason to expire a blob is to release the memory.
+# A commit's content is immutable, so the TTL only releases memory. Nothing reads a commit's entries
+# after the head moves past it, so a longer TTL only keeps dead keys in the shared cache.
 # No jitter: a whole batch expiring together can only stampede for a commit that nothing has read
-# for a week, and that answer is worth refetching anyway.
-_BLOB_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+# for a day, and that answer is worth refetching anyway.
+_BLOB_CACHE_TTL_SECONDS = 24 * 60 * 60
 # Short, because this is the whole staleness window of an ownership change. Long enough that a burst
 # of page loads asks GitHub for the head once rather than once each.
 _HEAD_CACHE_TTL_SECONDS = 120
@@ -112,8 +112,18 @@ def _chunks(paths: Sequence[str]) -> list[tuple[str, ...]]:
 
 
 def _entry(field: dict[str, Any], index: int) -> dict[str, Any] | None:
-    entry = field.get(f"f{index}")
-    return entry if isinstance(entry, dict) else None
+    # Only an explicit null means absent. Reading a malformed alias as absent moves ownership to an ancestor.
+    alias = f"f{index}"
+    if alias not in field:
+        raise OwnershipUnavailable(f"the answer has no {alias} lookup")
+    entry = field[alias]
+    if entry is not None and not isinstance(entry, dict):
+        raise OwnershipUnavailable(f"the {alias} lookup is not an object")
+    return entry
+
+
+def _is_blob(entry: dict[str, Any] | None) -> bool:
+    return entry is not None and entry.get("__typename") == "Blob"
 
 
 def _refreshed_installation_token(integration: GitHubIntegrationBase) -> str:
@@ -212,16 +222,18 @@ class GitHubFilesFetcher:
         return self._read_chunks(repository, sha, paths, deadline, _TEXT_SELECTION, self._text)
 
     def files_exist(self, repository: str, sha: str, paths: Sequence[str], deadline: float) -> dict[str, bool]:
-        """Whether the commit holds each path. Asks for no body, because most probed paths are
-        candidates a batch only wants to rule out."""
-        return self._read_chunks(repository, sha, paths, deadline, _EXISTS_SELECTION, lambda _path, entry: bool(entry))
+        """Whether the commit holds each path as a file. Asks for no body, because most probed paths
+        are candidates a batch only wants to rule out."""
+        return self._read_chunks(
+            repository, sha, paths, deadline, _EXISTS_SELECTION, lambda _path, entry: _is_blob(entry)
+        )
 
     def _text(self, path: str, entry: dict[str, Any] | None) -> str:
         if entry is None:
             return _ABSENT
         if entry.get("isTruncated"):
             # GitHub cuts a large blob's text short and still answers 200. Parsing the prefix would
-            # read as a complete file and cache a wrong ownership answer for a week.
+            # read as a complete file and cache a wrong ownership answer for the whole TTL.
             raise OwnershipUnavailable(f"{path} came back truncated")
         text = entry.get("text")
         if not isinstance(text, str):
@@ -285,7 +297,7 @@ class GitHubFilesFetcher:
             # GitHub reports a path the commit does not hold as a null alias and no error at all, so
             # an error means the alias failed rather than being absent. A partial answer also carries
             # the repository object, and reading its null aliases as absent files would cache that
-            # absence for days and move ownership to an ancestor.
+            # absence for the whole TTL and move ownership to an ancestor.
             raise OwnershipUnavailable(f"{repository} answered with errors for {endpoint}: {errors}")
         data = body.get("data") if isinstance(body, dict) else None
         field = data.get("repository") if isinstance(data, dict) else None
@@ -317,7 +329,7 @@ class GitHubFilesFetcher:
             response = github_request(
                 "POST",
                 _GRAPHQL_URL,
-                source=_EGRESS_SOURCE,
+                source=EGRESS_SOURCE,
                 headers={"Authorization": f"Bearer {self._token_value()}"},
                 installation_id=self._installation_id,
                 priority=self._priority,
@@ -370,13 +382,13 @@ class AuthenticatedRepoFiles(CachedRepoFiles):
     def _head_commit_sha(self) -> str | None:
         if self._sha is None:
             key = f"{_CACHE_PREFIX}:head:{self._fetcher.audience}:{self.repository}"
-            cached = None if self._fresh_head else cache.get(key)
+            cached = None if self._fresh_head else get_safe_cache(key)
             if isinstance(cached, str) and cached:
                 self._sha = cached
             else:
                 self._sha = self._fetcher.head_commit_sha(self.repository)
                 if self._sha is not None:
-                    cache.set(key, self._sha, _HEAD_CACHE_TTL_SECONDS)
+                    safe_cache_set(key, self._sha, _HEAD_CACHE_TTL_SECONDS)
         return self._sha
 
     def _commit(self) -> str:
@@ -400,7 +412,7 @@ class AuthenticatedRepoFiles(CachedRepoFiles):
     def read_all(self, paths: list[str]) -> None:
         if self._head_commit_sha() is None:
             # A repository with no commits holds no file. There is no commit to key a cache entry
-            # by, so the absence is answered per batch rather than written for a week.
+            # by, so the absence is answered per batch rather than written to the cache.
             self._bodies.update({path: _ABSENT for path in paths if path not in self._bodies})
             return
         super().read_all(paths)
@@ -420,19 +432,17 @@ def _covering_integration(team_id: int, repository: str, *, priority: Priority) 
     does not re-probe either.
     """
     key = f"{_CACHE_PREFIX}:integration:{team_id}:{repository.casefold()}"
-    cached = cache.get(key)
+    cached = get_safe_cache(key)
     if isinstance(cached, int):
         if cached == _NO_COVERING_INTEGRATION:
             return None
         integration = Integration.objects.filter(team_id=team_id, id=cached, kind="github").first()
         # A disconnected integration falls through to a fresh lookup rather than to no reader.
         if integration is not None:
-            return GitHubIntegration(integration, source=_EGRESS_SOURCE, priority=priority)
-    covering = GitHubIntegration.first_for_team_repository(
-        team_id, repository, source=_EGRESS_SOURCE, priority=priority
-    )
+            return GitHubIntegration(integration, source=EGRESS_SOURCE, priority=priority)
+    covering = GitHubIntegration.first_for_team_repository(team_id, repository, source=EGRESS_SOURCE, priority=priority)
     decision = covering.integration.pk if covering is not None else _NO_COVERING_INTEGRATION
-    cache.set(key, decision, _INTEGRATION_CACHE_TTL_SECONDS)
+    safe_cache_set(key, decision, _INTEGRATION_CACHE_TTL_SECONDS)
     return covering
 
 

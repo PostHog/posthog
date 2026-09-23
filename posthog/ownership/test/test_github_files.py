@@ -52,8 +52,9 @@ class _Response:
 class _FakeGitHub:
     """Answers the two queries this module sends, and counts what it was asked."""
 
-    def __init__(self, blobs: dict[str, str], *, sha: str | None = _SHA) -> None:
+    def __init__(self, blobs: dict[str, str], *, sha: str | None = _SHA, trees: frozenset[str] = frozenset()) -> None:
         self.blobs = blobs
+        self.trees = trees
         self.sha = sha
         self.file_calls = 0
         self.head_calls = 0
@@ -75,7 +76,9 @@ class _FakeGitHub:
             sha, path = expression.split(":", 1)
             self.file_shas.append(sha)
             body = self.blobs.get(path)
-            if body is None:
+            if path in self.trees:
+                field[f"f{name[1:]}"] = {} if "text" in query else {"__typename": "Tree"}
+            elif body is None:
                 field[f"f{name[1:]}"] = None
             else:
                 field[f"f{name[1:]}"] = {"text": body} if "text" in query else {"__typename": "Blob"}
@@ -123,10 +126,12 @@ class TestGitHubFilesFetcher(SimpleTestCase):
     def test_existence_is_answered_without_a_body(self) -> None:
         # Most probed paths are candidates a batch only wants to rule out, and one of them can be a
         # whole source file.
-        github = _FakeGitHub({"nodejs/owners.yaml": _ROOT_OWNERS})
+        github = _FakeGitHub({"nodejs/owners.yaml": _ROOT_OWNERS}, trees=frozenset({"nodejs"}))
         with patch("posthog.ownership.github_files.github_request", side_effect=github):
-            exists = _fetcher().files_exist(_REPOSITORY, _SHA, ["nodejs/owners.yaml", "gone.yaml"], monotonic() + 30)
-        assert exists == {"nodejs/owners.yaml": True, "gone.yaml": False}
+            exists = _fetcher().files_exist(
+                _REPOSITORY, _SHA, ["nodejs/owners.yaml", "gone.yaml", "nodejs"], monotonic() + 30
+            )
+        assert exists == {"nodejs/owners.yaml": True, "gone.yaml": False, "nodejs": False}
 
     @parameterized.expand(
         [
@@ -140,8 +145,9 @@ class TestGitHubFilesFetcher(SimpleTestCase):
             ),
             ("unparseable", lambda: _Response(200, None, raw=b"<html>gateway</html>")),
             ("not_an_object", lambda: _Response(200, [{"message": "NOT_FOUND"}])),
+            ("missing_alias", lambda: _Response(200, {"data": {"repository": {}}})),
             # GitHub cuts a large blob's text short and still answers 200, so the prefix would parse
-            # as a complete file and cache a wrong answer for a week.
+            # as a complete file and cache a wrong answer for the whole TTL.
             (
                 "truncated_blob",
                 lambda: _Response(200, {"data": {"repository": {"f0": {"text": "own", "isTruncated": True}}}}),
@@ -237,9 +243,21 @@ class TestAuthenticatedRepoFiles(SimpleTestCase):
             assert self._files().read("owners.yaml") == _ROOT_OWNERS
         assert github.head_calls == 1
 
+    def test_an_unreachable_cache_reads_from_github_instead_of_failing(self) -> None:
+        github = _FakeGitHub({"owners.yaml": _ROOT_OWNERS})
+        down = ConnectionError("redis is down")
+        with (
+            patch.object(cache, "get", side_effect=down),
+            patch.object(cache, "set", side_effect=down),
+            patch.object(cache, "get_many", side_effect=down),
+            patch.object(cache, "set_many", side_effect=down),
+            patch("posthog.ownership.github_files.github_request", side_effect=github),
+        ):
+            assert self._files().read("owners.yaml") == _ROOT_OWNERS
+
     def test_a_partially_failed_answer_caches_no_absence(self) -> None:
         # An errored alias comes back null, exactly like a file the commit does not hold. Caching
-        # that as an absence would hold for days and move every path under it to an ancestor.
+        # that as an absence would hold for the whole TTL and move every path under it to an ancestor.
         working = _FakeGitHub({"owners.yaml": _ROOT_OWNERS})
 
         def partial(method: str, url: str, **kwargs: Any) -> _Response:
@@ -256,7 +274,7 @@ class TestAuthenticatedRepoFiles(SimpleTestCase):
 
     def test_an_empty_repository_reads_as_absent_and_caches_no_absence(self) -> None:
         # Every file of a repository with no commits is absent, and there is no commit to key that
-        # absence by, so caching it would hold for a week and outlive the first push.
+        # absence by, so caching it would hold for the whole TTL and outlive the first push.
         github = _FakeGitHub({}, sha=None)
         with patch("posthog.ownership.github_files.github_request", side_effect=github):
             files = self._files()

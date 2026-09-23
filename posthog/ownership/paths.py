@@ -47,9 +47,7 @@ def _team(owners: list[str] | None) -> str:
 
 
 def own_paths(files: RepoFiles, root: str, paths: list[str]) -> PathOwnership:
-    resolver = OwnersResolver(source=files)
-    files.read_all(resolver.ownership_file_paths(paths))
-    owners = resolver.map(paths)
+    owners = OwnersResolver(source=files).map(paths)
     return PathOwnership(
         team_by_path={path: _team(owners[path].owners) for path in paths},
         registry=teams_registry(root),
