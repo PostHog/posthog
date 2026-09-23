@@ -84,19 +84,24 @@ rules:
       patterns:
           # 1. The workflow can run on a pull request. Anchored on the whole document
           #    mapping (trailing `...`), so a job anywhere in the file counts as inside it.
+          #    The trigger key is a metavariable so that a quoted `"on":` matches too. Some
+          #    authors quote it, because YAML 1.1 reads a bare `on` as the boolean `true`.
           - pattern-either:
                 - pattern-inside: |
-                      on:
+                      $ON:
                           ...
                           $EVENT: ...
                           ...
                       ...
                 - pattern-inside: |
-                      on: [..., $EVENT, ...]
+                      $ON: [..., $EVENT, ...]
                       ...
                 - pattern-inside: |
-                      on: $EVENT
+                      $ON: $EVENT
                       ...
+          - metavariable-regex:
+                metavariable: $ON
+                regex: ^["']?on["']?$
           - metavariable-regex:
                 metavariable: $EVENT
                 regex: ^pull_request(?:_target|_review|_review_comment)?$
@@ -124,17 +129,20 @@ rules:
                 - patterns:
                       - pattern-either:
                             - pattern-inside: |
-                                  on:
+                                  $PR_ON:
                                       ...
                                       $PR_EVENT: ...
                                       ...
                                   ...
                             - pattern-inside: |
-                                  on: [..., $PR_EVENT, ...]
+                                  $PR_ON: [..., $PR_EVENT, ...]
                                   ...
                             - pattern-inside: |
-                                  on: $PR_EVENT
+                                  $PR_ON: $PR_EVENT
                                   ...
+                      - metavariable-regex:
+                            metavariable: $PR_ON
+                            regex: ^["']?on["']?$
                       - metavariable-regex:
                             metavariable: $PR_EVENT
                             regex: ^pull_request(?:_review|_review_comment)?$
@@ -166,17 +174,20 @@ rules:
                 - patterns:
                       - pattern-either:
                             - pattern-inside: |
-                                  on:
+                                  $PRT_ON:
                                       ...
                                       pull_request_target: ...
                                       ...
                                   ...
                             - pattern-inside: |
-                                  on: [..., pull_request_target, ...]
+                                  $PRT_ON: [..., pull_request_target, ...]
                                   ...
                             - pattern-inside: |
-                                  on: pull_request_target
+                                  $PRT_ON: pull_request_target
                                   ...
+                      - metavariable-regex:
+                            metavariable: $PRT_ON
+                            regex: ^["']?on["']?$
                       - pattern-inside: |
                             $JOB:
                                 ...

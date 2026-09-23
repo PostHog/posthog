@@ -497,6 +497,29 @@ jobs:
             # ruleid: github-actions-publish-on-pull-request
             - run: npm publish --access public
 ---
+name: Quoted trigger key
+'on':
+    pull_request:
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        if: github.event.pull_request.draft == false
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+---
+name: Quoted pull_request_target trigger key
+'on': pull_request_target
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        if: github.ref == 'refs/heads/master'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+---
 name: Both pull request triggers
 on:
     pull_request:
