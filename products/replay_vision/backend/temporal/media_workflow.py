@@ -22,7 +22,10 @@ with wf.unsafe.imports_passed_through():
     )
 
 _THUMBNAIL_TIMEOUT = dt.timedelta(minutes=5)
-_STATE_RETRY = common.RetryPolicy(maximum_attempts=3)
+# Nothing retries a lost poster later, so a database blip must not use up these attempts; deterministic failures raise non-retryable.
+_STATE_RETRY = common.RetryPolicy(initial_interval=dt.timedelta(seconds=1), maximum_interval=dt.timedelta(minutes=1))
+# Two state writes plus the thumbnail's retry chain still fit inside MEDIA_WORKFLOW_EXECUTION_TIMEOUT.
+_STATE_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=10)
 # Nothing retries a lost poster later, so this chain has to outlast a rasterizer backlog or outage.
 _THUMBNAIL_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=20),
@@ -43,6 +46,7 @@ class ObservationMediaWorkflow(PostHogWorkflow):
             prepare_observation_thumbnail_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(seconds=30),
+            schedule_to_close_timeout=_STATE_SCHEDULE_TO_CLOSE,
             retry_policy=_STATE_RETRY,
         )
 
@@ -66,5 +70,6 @@ class ObservationMediaWorkflow(PostHogWorkflow):
                 result=ExtractThumbnailActivityOutput.model_validate(raw_result),
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
+            schedule_to_close_timeout=_STATE_SCHEDULE_TO_CLOSE,
             retry_policy=_STATE_RETRY,
         )
