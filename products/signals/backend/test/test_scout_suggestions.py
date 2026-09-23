@@ -550,7 +550,7 @@ class TestSelectTeamsToScan(BaseTest):
         super().setUp()
         self.quiet = self._team("quiet-project")
         self.busy = self._team("busy-project")
-        self.settings = SuggestionSettings(enabled=True)
+        self.suggestion_settings = SuggestionSettings(enabled=True)
 
     def _team(self, name: str) -> Team:
         organization = Organization.objects.create(name=name, is_ai_data_processing_approved=True)
@@ -568,7 +568,7 @@ class TestSelectTeamsToScan(BaseTest):
             "products.signals.backend.scout_harness.suggestions.read_team_activity",
             side_effect=lambda team_id, **_: by_team[team_id],
         ):
-            return select_teams_to_scan(planned, settings or self.settings, limit=limit)
+            return select_teams_to_scan(planned, settings or self.suggestion_settings, limit=limit)
 
     def _skip_event_uuids(self, planned) -> list[str | None]:
         with patch("posthoganalytics.capture") as capture:
@@ -625,7 +625,7 @@ class TestSelectTeamsToScan(BaseTest):
             "products.signals.backend.scout_harness.suggestions.read_team_activity",
             side_effect=Exception("clickhouse is down"),
         ):
-            selection = select_teams_to_scan(self._planned(self.quiet), self.settings, limit=10)
+            selection = select_teams_to_scan(self._planned(self.quiet), self.suggestion_settings, limit=10)
 
         self.assertEqual([run.team_id for run in selection.dispatch], [self.quiet.id])
         self.assertEqual(selection.skipped_team_ids, ())
