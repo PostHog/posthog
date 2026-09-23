@@ -335,6 +335,7 @@ urlpatterns = [
     opt_slash_path(".well-known/http-message-signatures-directory", http_message_signatures_directory),
     # auth
     opt_slash_path("logout", authentication.logout, name="logout"),
+    opt_slash_path("reauth/complete", authentication.sso_reauth_complete, name="sso_reauth_complete"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
