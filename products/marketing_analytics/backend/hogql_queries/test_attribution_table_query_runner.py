@@ -1086,7 +1086,8 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     )
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_attribution_table_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
-        assert self._printed_sql(breakdown) == self.snapshot
+        printed = self._printed_sql(breakdown)
+        assert printed == self.sql_snapshot(printed)
 
     # The precomputed half of each pair must carry neither the channel classifier nor an argMinMerge
     # over raw_sessions: resolving those at read time is what exhausts memory on a large team.
@@ -1099,4 +1100,5 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     )
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_precomputed_sessions_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
-        assert self._printed_sql(breakdown, precomputed=True) == self.snapshot
+        printed = self._printed_sql(breakdown, precomputed=True)
+        assert printed == self.sql_snapshot(printed)
