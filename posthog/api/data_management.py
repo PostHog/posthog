@@ -14,6 +14,7 @@ class DataManagementViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         page_params = parse_activity_page_params(request)
 
         activity_page = load_all_activity(
+            user=request.user,
             scope_list=["EventDefinition", "PropertyDefinition"],
             team_id=self.team.id,
             limit=page_params.limit,

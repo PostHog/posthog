@@ -593,6 +593,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         page_params = parse_activity_page_params(request)
 
         activity_page = load_all_activity(
+            user=request.user,
             scope_list=["Plugin", "PluginConfig"],
             team_id=request.user.team.id,  # type: ignore
             limit=page_params.limit,
@@ -883,6 +884,7 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         activity_page = load_activity(
             "PluginConfig",
+            user=request.user,
             team_id=self.team_id,
             item_ids=[self.get_object().id],
             limit=page_params.limit,

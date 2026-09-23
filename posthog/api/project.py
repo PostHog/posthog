@@ -1916,6 +1916,7 @@ class ProjectViewSet(
         project = self.get_object()
 
         activity_page = load_activity(
+            user=request.user,
             scope="Team",
             team_id=project.pk,
             item_ids=[str(project.pk)],
