@@ -108,21 +108,15 @@ class TestStalledSchedules(BaseTest):
         assert str(schema.id) not in found
 
     def test_a_schema_whose_runs_found_nothing_to_import_is_not_stalled(self) -> None:
-        # A run that extracts nothing advances only `last_full_run_at`, so a quiet schema keeps
-        # an old `last_synced_at` while its schedule fires on time. Reporting it here both raises
-        # a false alert and lets the repair rewrite a schedule that never stopped.
         self._schema(
             synced_ago=timedelta(days=5),
             sync_type_config={"last_full_run_at": (timezone.now() - timedelta(hours=1)).isoformat()},
         )
         stalled = self._schema(synced_ago=timedelta(days=4))
 
-        # The quiet schema sorts first, so it must not use up the only slot the limit allows.
         assert [s.schema_id for s in find_stalled_schemas(limit=1)] == [str(stalled.id)]
 
     def test_a_schema_whose_runs_also_stopped_is_still_stalled(self) -> None:
-        # The run stamp must not become a way to never report anything: once it is as old as the
-        # sync stamp, nothing says the schedule fired, and the silence is measured from it.
         schema = self._schema(
             synced_ago=timedelta(days=5),
             sync_type_config={"last_full_run_at": (timezone.now() - timedelta(days=4)).isoformat()},
@@ -136,9 +130,7 @@ class TestStalledSchedules(BaseTest):
     @parameterized.expand(
         [
             ("unparseable", "whenever"),
-            # A naive stamp cannot be compared against an aware now, and picking a zone for it
-            # would invent freshness. `sync_type_config` is free-form JSON, so both can arrive.
-            ("naive", "2026-01-01T11:00:00"),
+            ("naive", (timezone.now() - timedelta(hours=1)).replace(tzinfo=None).isoformat()),
         ]
     )
     def test_an_unusable_run_stamp_falls_back_to_the_sync_stamp(self, _name: str, stamp: str) -> None:

@@ -505,11 +505,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def last_full_run(self) -> datetime | None:
-        """`last_full_run_at` as a timestamp that can be compared against now.
+        """Parsed `last_full_run_at`, or None when it does not parse or has no zone.
 
-        The stamp is free-form JSON written from more than one place, so an unparseable or naive
-        value is dropped instead of guessed at: picking a zone for it would invent freshness the
-        schema may not have.
+        Picking a zone for a naive stamp would invent freshness the schema may not have.
         """
         raw = self.last_full_run_at
         if raw is None:
@@ -524,11 +522,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def last_run_at(self) -> datetime | None:
         """When a sync last ran, whether or not it moved any rows.
 
-        Neither stamp answers this alone. A run that extracts nothing advances `last_full_run_at`
-        and deliberately leaves `last_synced_at` where it is, because that column doubles as the
-        signals watermark; a fast return on a negative probe does the reverse. Ask this when the
-        question is whether runs are happening, and `last_synced_at` when it is how old the data
-        is.
+        A run that extracts nothing advances only `last_full_run_at`, because `last_synced_at` is
+        also the signals watermark. A fast return does the reverse, so neither stamp is enough alone.
         """
         stamps = [stamp for stamp in (self.last_synced_at, self.last_full_run) if stamp is not None]
         return max(stamps) if stamps else None
