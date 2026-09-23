@@ -303,13 +303,10 @@ class TestCentralizedFilters:
         assert "person_distinct_id_overrides.team_id IN(123, 456, 789)" == filters["person_distinct_id_overrides"]
         assert "e.team_id IN(123, 456, 789)" == filters["events"]
 
-    def test_get_team_filters_without_team_ids_uses_dictionary(self):
-        filters = get_team_filters(None)
-
-        assert "dictHas(" in filters["raw_sessions"]
-        assert "dictHas(" in filters["person_distinct_id_overrides"]
-        assert "dictHas(" in filters["events"]
-        assert "raw_sessions.team_id)" in filters["raw_sessions"]
+    @pytest.mark.parametrize("team_ids", [None, []])
+    def test_get_team_filters_rejects_missing_team_ids(self, team_ids):
+        with pytest.raises(ValueError):
+            get_team_filters(team_ids)
 
     @pytest.mark.parametrize(
         "granularity,expected_session_start,expected_event_start",
@@ -358,11 +355,11 @@ class TestCentralizedFilters:
 
     def test_get_all_filters_settings_clause_formatting(self):
         # Test with settings
-        filters_with_settings = get_all_filters("2024-01-01", "2024-01-02", "UTC", None, "daily", "max_threads=8")
+        filters_with_settings = get_all_filters("2024-01-01", "2024-01-02", "UTC", [123], "daily", "max_threads=8")
         assert filters_with_settings["settings_clause"] == "SETTINGS max_threads=8"
 
         # Test without settings
-        filters_without_settings = get_all_filters("2024-01-01", "2024-01-02", "UTC", None, "daily", "")
+        filters_without_settings = get_all_filters("2024-01-01", "2024-01-02", "UTC", [123], "daily", "")
         assert filters_without_settings["settings_clause"] == ""
 
     def test_get_all_filters_contains_all_required_parameters(self):
@@ -388,7 +385,7 @@ class TestCentralizedFilters:
 
     def test_get_all_filters_hourly_extended_session_range(self):
         """Test that hourly granularity extends session range by 25 hours for UTC boundary fix."""
-        filters = get_all_filters("2024-01-01", "2024-01-02", "UTC", None, "hourly", "")
+        filters = get_all_filters("2024-01-01", "2024-01-02", "UTC", [123], "hourly", "")
 
         # Should extend 25 hours before start for sessions
         assert "toIntervalHour(25)" in filters["session_start_filter"]
