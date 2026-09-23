@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use dashmap::DashSet;
+use siphasher::sip128::SipHasher13;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -352,9 +353,14 @@ pub fn epoch_from_timestamp(timestamp: DateTime<Utc>, window_interval: Duration)
     unix / window_secs
 }
 
-/// Build the Redis key for a given entity key and epoch
+/// Build the Redis key for an entity key and epoch, hashing the entity key so
+/// the result is a fixed 32 characters whatever the entity key's length.
+///
+/// Keep SipHash-1-3 at 128 bits: every pod must derive the same Redis key, and
+/// `DefaultHasher` is not stable across Rust releases.
 pub fn epoch_key(prefix: &str, key: &str, epoch: i64) -> String {
-    format!("{prefix}:{key}:{epoch}")
+    let digest = SipHasher13::new().hash(key.as_bytes()).as_u128();
+    format!("{prefix}:{digest:032x}:{epoch}")
 }
 
 /// The absolute unix second at which an epoch key stops being readable, since
@@ -1580,16 +1586,36 @@ mod tests {
     }
 
     #[test]
-    fn test_epoch_key_format() {
-        assert_eq!(epoch_key("prefix", "mykey", 42), "prefix:mykey:42");
+    fn test_epoch_key_hashes_the_entity_key_to_a_fixed_width() {
+        // Pin the digest: a change of hash algorithm or width splits one
+        // counter across the fleet, and no metric would show it.
+        assert_eq!(
+            epoch_key("prefix", "mykey", 42),
+            "prefix:cba1ce4ea836cd8d2e79a87f83a432b9:42"
+        );
+
+        // The entity key must not survive into the Redis key, whatever its
+        // length, because key bytes are what the write pipeline pays for.
+        let long_entity = format!("phc_{}:{}", "t".repeat(43), "d".repeat(64));
+        let built = epoch_key("prefix", &long_entity, 42);
+        assert_eq!(built, "prefix:0b87cb11358f99a18f99c8088af5c5d0:42");
+        assert!(!built.contains(&long_entity));
+    }
+
+    #[test]
+    fn test_epoch_key_separates_distinct_entities() {
+        assert_ne!(
+            epoch_key("prefix", "token:alice", 42),
+            epoch_key("prefix", "token:bob", 42)
+        );
     }
 
     #[test]
     fn test_epoch_keys_returns_current_and_prev() {
         let ts = DateTime::from_timestamp(120, 0).unwrap(); // epoch 2 with 60s window
         let (curr, prev) = epoch_keys("p", "k", ts, Duration::from_secs(60));
-        assert_eq!(curr, "p:k:2");
-        assert_eq!(prev, "p:k:1");
+        assert_eq!(curr, "p:3ef80b0011e52cee5bbe8f1cab518185:2");
+        assert_eq!(prev, "p:3ef80b0011e52cee5bbe8f1cab518185:1");
     }
 
     #[test]

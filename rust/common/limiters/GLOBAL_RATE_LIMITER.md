@@ -59,7 +59,7 @@ and **pressure-tiered adaptive sync** to minimize read volume for low-utilizatio
                     │       Redis         │
                     │                     │
                     │  Key format:        │
-                    │  {prefix}:{key}:{e} │
+                    │ {prefix}:{hash}:{e} │
                     │                     │
                     │  e = epoch number   │
                     │ dies 1 epoch later  │
@@ -77,8 +77,8 @@ a current epoch counter and a previous epoch counter.
 epoch = floor(unix_timestamp / window_interval)
 
 Redis keys for entity "team_42":
-  {prefix}:team_42:{epoch}        ← current
-  {prefix}:team_42:{epoch - 1}    ← previous
+  {prefix}:{hash(team_42)}:{epoch}        ← current
+  {prefix}:{hash(team_42)}:{epoch - 1}    ← previous
 ```
 
 The estimated count uses weighted interpolation based on how far into the current epoch we are:
@@ -239,7 +239,7 @@ but are written to Redis on the next tick — the under-count is negligible (<0.
 ### Redis Key Model
 
 ```text
-Key:   {prefix}:{entity_key}:{epoch_number}
+Key:   {prefix}:{128-bit SipHash of entity_key, hex}:{epoch_number}
 Value: integer counter (INCRBY)
 Dies:  (epoch + 2) × window_interval, an absolute instant fixed by the epoch
 ```

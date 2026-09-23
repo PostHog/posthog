@@ -41,7 +41,7 @@ use chrono::Utc;
 use common_redis::Client;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use limiters::global_rate_limiter::{
-    EvalResult, GlobalRateLimiter, GlobalRateLimiterConfig, GlobalRateLimiterImpl,
+    epoch_key, EvalResult, GlobalRateLimiter, GlobalRateLimiterConfig, GlobalRateLimiterImpl,
 };
 use tokio::runtime::Runtime;
 
@@ -142,8 +142,8 @@ async fn prime_redis_epochs(
     let items: Vec<(String, i64)> = vec![current_epoch, previous_epoch]
         .into_iter()
         .map(|epoch| {
-            let epoch_key = format!("{}:{}:{}", config.redis_key_prefix, key, epoch);
-            (epoch_key, count_per_epoch)
+            let redis_key = epoch_key(&config.redis_key_prefix, key, epoch);
+            (redis_key, count_per_epoch)
         })
         .collect();
 
