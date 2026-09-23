@@ -122,6 +122,21 @@ export function getCapabilityLadder(
     )
 }
 
+/**
+ * The first rung above every rung the default model occupies — a stronger model than the baseline
+ * for a surface that wants one without naming it, and going stale the day the catalog moves on.
+ *
+ * Null when the ladder does not carry the default model: nothing on it is then known to sit above
+ * the baseline, and the cheapest rung can be weaker.
+ */
+export function getStrongerThanDefaultNotch(runtimeAdapter: RuntimeAdapterEnumApi): CapabilityNotch | null {
+    const ladder = CAPABILITY_LADDER_BY_RUNTIME_ADAPTER[runtimeAdapter]
+    const lastDefaultRung = ladder
+        .map((notch) => notch.model)
+        .lastIndexOf(DEFAULT_MODEL_BY_RUNTIME_ADAPTER[runtimeAdapter])
+    return lastDefaultRung === -1 ? null : (ladder[lastDefaultRung + 1] ?? null)
+}
+
 export function getHarnessLabel(harness: string): string {
     return RUNTIME_OPTIONS.find((option) => (option.runtimeAdapter ?? option.runtime) === harness)?.label ?? harness
 }

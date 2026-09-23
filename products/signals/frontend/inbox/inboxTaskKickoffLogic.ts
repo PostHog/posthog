@@ -20,6 +20,7 @@ import {
     attachedContextItemKey,
     attachedContextLogic,
     runnerPanelLogic,
+    getStrongerThanDefaultNotch,
     runStreamLogic,
     taskRunDefaultsLogic,
     wrapWithPosthogContext,
@@ -36,8 +37,8 @@ import {
 import {
     ClaudeRuntimeAdapterEnumApi,
     ClaudeTaskRunCreateSchemaApi,
-    ReasoningEffortEnumApi,
     RunSourceEnumApi,
+    RuntimeAdapterEnumApi,
     TaskCreateApi,
     TaskExecutionModeEnumApi,
     TaskOriginProductEnumApi,
@@ -81,32 +82,25 @@ export const FREE_TRIAL_PR_DISABLED_REASON =
 // The run endpoint rejects a model without its runtime adapter, so the two are always sent together.
 type ClaudeRuntimeSelection = Pick<ClaudeTaskRunCreateSchemaApi, 'runtime_adapter' | 'model' | 'reasoning_effort'>
 
-/** A pin, or nothing at all so the stored defaults decide. */
+/** A fallback selection, or nothing at all so the stored defaults decide. */
 type ReportRuntimeSelection = ClaudeRuntimeSelection | Record<string, never>
 
-// Discuss is a focused exchange about a report (a question to answer, or a suggested next step to
-// carry out) rather than a scheduled implementation run, so answer quality is what the user came
-// for: with no model chosen in settings it launches on the stronger one rather than the agent
-// server's Sonnet, and the extra cost is bounded by the length of the conversation.
-const DISCUSS_RUNTIME: ClaudeRuntimeSelection = {
-    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
-    model: 'claude-opus-5',
-    reasoning_effort: ReasoningEffortEnumApi.High,
-}
-
-// Pressing "Create PR" is a strong engagement signal — the user is committing to a real
-// implementation run — so it falls back the same way, giving the change the best shot at landing.
-const CREATE_PR_RUNTIME: ClaudeRuntimeSelection = {
-    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
-    model: 'claude-opus-5',
-    reasoning_effort: ReasoningEffortEnumApi.High,
-}
+// Both kickoffs are worth a stronger model than the baseline when nobody chose one: Discuss because
+// answer quality is what the user came for, Create PR because pressing it commits to a real run.
+const REPORT_FALLBACK_NOTCH = getStrongerThanDefaultNotch(RuntimeAdapterEnumApi.Claude)
 
 // A model sent with the run is final server-side (`resolve_ai_run_selection`), so honoring the
 // project and personal defaults means sending none. `defaultModel` is the server's own resolution
-// for this user, null exactly when no stored default would apply — the case the pin exists for.
-function launchSelection(pin: ClaudeRuntimeSelection, defaultModel: string | null): ReportRuntimeSelection {
-    return defaultModel ? {} : pin
+// for this user, null exactly when no stored default would apply — the case the fallback covers.
+function launchSelection(defaultModel: string | null): ReportRuntimeSelection {
+    if (defaultModel || !REPORT_FALLBACK_NOTCH) {
+        return {}
+    }
+    return {
+        runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+        model: REPORT_FALLBACK_NOTCH.model,
+        reasoning_effort: REPORT_FALLBACK_NOTCH.effort,
+    }
 }
 
 // The report's state is part of what a run owes the reader, and only the two ends of the happy
@@ -597,7 +591,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     signal_report: report.id,
                     branch: null,
                     // The warm sandbox boots its agent on this model and activation cannot change it.
-                    ...launchSelection(DISCUSS_RUNTIME, values.defaultModel),
+                    ...launchSelection(values.defaultModel),
                 }
                 const warm = await tasksWarmCreate(projectId, request)
                 const newLease: ReportWarmLease | null =
@@ -727,7 +721,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
                     prompt,
                     'Ask AI about report',
-                    launchSelection(DISCUSS_RUNTIME, values.defaultModel),
+                    launchSelection(values.defaultModel),
                     question,
                     warmLease
                 )
@@ -784,7 +778,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
                     buildCreatePrReportPrompt(report, feedback),
                     'Implement report fix',
-                    launchSelection(CREATE_PR_RUNTIME, values.defaultModel)
+                    launchSelection(values.defaultModel)
                 )
                 if (disposables.isDisposed) {
                     return

@@ -12,10 +12,12 @@ import { SidePanelTab } from '~/types'
 
 import {
     attachedContextLogic,
+    getStrongerThanDefaultNotch,
     runnerPanelLogic,
     runStreamLogic,
     taskRunDefaultsLogic,
 } from 'products/posthog_ai/frontend/api/logics'
+import { RuntimeAdapterEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { makeReport } from './__mocks__/inboxMocks'
 import {
@@ -47,7 +49,10 @@ describe('inboxTaskKickoffLogic', () => {
         let resolvedRunDefaults: Record<string, unknown> | null
         const report = makeReport({ id: 'report-sidebar', status: SignalReportStatus.READY })
 
-        const OPUS_5_5_TEAM_DEFAULT = {
+        // Asserted against rather than a model id, so the catalog can move a rung without this failing.
+        const FALLBACK_NOTCH = getStrongerThanDefaultNotch(RuntimeAdapterEnumApi.Claude)
+
+        const TEAM_DEFAULT = {
             runtime: 'acp',
             runtime_adapter: 'claude',
             model: 'claude-opus-5-5',
@@ -154,7 +159,8 @@ describe('inboxTaskKickoffLogic', () => {
                         description: expect.stringContaining('- insight insight-one ("Conversion rate")'),
                         signal_report_discussion_question: 'Explain the recommendation',
                         branch: null,
-                        model: 'claude-opus-5',
+                        model: FALLBACK_NOTCH?.model,
+                        reasoning_effort: FALLBACK_NOTCH?.effort,
                     })
                     expect(createdTasks[0].pending_user_message).toBe(createdTasks[0].description)
                     expect(startedRuns[0].pending_user_message).toBe(createdTasks[0].description)
@@ -198,7 +204,8 @@ describe('inboxTaskKickoffLogic', () => {
                 signal_report: report.id,
                 branch: null,
                 runtime_adapter: 'claude',
-                model: 'claude-opus-5',
+                model: FALLBACK_NOTCH?.model,
+                reasoning_effort: FALLBACK_NOTCH?.effort,
             })
             expect(warmRequests[0]).not.toHaveProperty('repository')
             expect(logic.values.reportWarmLease).toEqual({
@@ -212,7 +219,7 @@ describe('inboxTaskKickoffLogic', () => {
         it.each(['implementation', 'discussion'] as const)(
             'leaves the %s model to settings when the project set a default',
             async (relationship) => {
-                await applyRunDefaults(OPUS_5_5_TEAM_DEFAULT)
+                await applyRunDefaults(TEAM_DEFAULT)
 
                 await expectLogic(logic, () => {
                     if (relationship === 'implementation') {
@@ -231,7 +238,7 @@ describe('inboxTaskKickoffLogic', () => {
 
         it('warms on the default model when the project set one', async () => {
             warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
-            await applyRunDefaults(OPUS_5_5_TEAM_DEFAULT)
+            await applyRunDefaults(TEAM_DEFAULT)
 
             await expectLogic(logic, () =>
                 logic.actions.openReportDiscussion(report, 'https://example.com/report')

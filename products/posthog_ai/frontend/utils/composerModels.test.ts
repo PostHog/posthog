@@ -6,7 +6,11 @@ import {
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import { MODELS } from 'products/tasks/frontend/modelCatalog.generated'
+import {
+    CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
+    DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
+    MODELS,
+} from 'products/tasks/frontend/modelCatalog.generated'
 
 import {
     buildRunCreateRequest,
@@ -17,6 +21,7 @@ import {
     getModelCost,
     getModelLabel,
     getRuntimeAdapterForModel,
+    getStrongerThanDefaultNotch,
     listRuntimeAdapters,
     modelsForRuntimeAdapter,
 } from './composerModels'
@@ -225,6 +230,20 @@ describe('composerModels', () => {
             model: 'gpt-6-astra',
             effort: ReasoningEffortEnumApi.Max,
         })
+    })
+
+    // A null, or a rung the default still occupies, sends those runs out on the baseline unnoticed.
+    it('picks the rung that sits above every rung the default model occupies', () => {
+        const notch = getStrongerThanDefaultNotch(RuntimeAdapterEnumApi.Claude)
+        const ladder = CAPABILITY_LADDER_BY_RUNTIME_ADAPTER.claude
+        const rungsBelow = ladder.slice(
+            0,
+            ladder.findIndex((rung) => rung.model === notch?.model && rung.effort === notch?.effort)
+        )
+
+        expect(notch).not.toBeNull()
+        expect(rungsBelow).not.toHaveLength(0)
+        expect(rungsBelow.every((rung) => rung.model === DEFAULT_MODEL_BY_RUNTIME_ADAPTER.claude)).toBe(true)
     })
 
     // The picker groups by harness and offers one row per runtime, so both have to come off the catalogue rather
