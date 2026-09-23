@@ -2,6 +2,16 @@
 
 Notebooks can generate interactive widgets from instructions and the notebook's SQL and Python dataframe context.
 
+Generated widgets are in beta. Generation uses PostHog AI credits based on model token costs plus a 20% markup, including security review and retries.
+The insert menu, notebook widget toolbar, generation dialog, and reusable widget page show a **BETA** label.
+Before generating, improving, or regenerating a widget, the form says "Generation uses PostHog AI credits".
+The ungenerated widget preview includes a model selector directly above **Generate widget**, synchronized with the model in the edit panel.
+The notebook edit panel and reusable widget page show the selected version's estimated generation charge as a small USD amount beside the version controls.
+The info tooltip explains that the estimate includes all model requests in that successful generation job.
+Costs come from recorded gateway usage and include the same markup as PostHog AI credit billing; final credits can differ because billing rounds aggregated usage.
+Older versions and generations without available usage records do not show a cost.
+The estimate does not include separate failed or canceled generation jobs, or notebook compute.
+
 - Generation runs as a durable background job. The notebook shows its phase, elapsed time, cancellation, and terminal errors. Queued jobs stop immediately when canceled.
 - Failed jobs expose a stable error code and the failed source-generation, security-review, or publishing phase. AI request logs include upstream status and request IDs when available.
 - Source generation and security review send Claude requests through the native Anthropic Messages format in both local and cloud environments.
@@ -23,6 +33,9 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - Production artifact delivery requires `CANVAS_ARTIFACT_ORIGIN`, a dedicated bare HTTPS origin with no path, query, fragment, or credentials, set before rollout. A production deploy with it unset boots clean, but every widget builds and then reports its preview unavailable, because no artifact URL is minted. Artifact URLs use Django's rotating `SECRET_KEY` values for signing by default. Deployments can set `CANVAS_ARTIFACT_SIGNING_KEYS` for independent rotation.
 
 “Widget” is the umbrella term. Data visualizations are one possible widget type.
+
+Whole-notebook runs stop when their notebook is deleted, including while a cell is running.
+If cell dispatch fails after its retry budget, the run records the failure and stops any child execution already submitted.
 
 ## Reusable widgets
 
@@ -113,6 +126,17 @@ New notebooks place the typing caret in the title, including when opened through
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.
 The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.
 **Ask AI** is disabled until the organization approves AI data processing, including submission from saved prompt blocks.
+
+**BTW** opens a separate PostHog AI conversation for side questions in a sidebar beside the notebook.
+When the notebook area is too narrow for both, the conversation opens in a modal.
+Resizing between these layouts keeps the conversation and any unsent question.
+It is the second option in the notebook's `/` menu, after **Ask AI**, and the last action in the text selection toolbar and a component block's **More actions** menu.
+The conversation receives a snapshot of the notebook and any selected content from when BTW was opened, including unsaved changes at that time.
+Later notebook edits do not update that snapshot; replies are not inserted into the notebook.
+The agent is instructed to answer without edits, but BTW does not enforce a separate read-only tool permission policy.
+Sent messages are saved in PostHog AI history separately from the notebook.
+Closing BTW or refreshing the page closes the panel; reopen the saved conversation from PostHog AI history.
+It requires the same AI data processing consent as **Ask AI**.
 Inline notebook artifacts update the open notebook without saving a second copy, even when the tool requests a save.
 Full-notebook replacements preserve the retained question when **Keep question with answer** is on.
 Standalone AI notebook saves preserve Markdown separators and live MDX cells, including `<SQLV2 />` and `<Widget />`, while resolving visualization references.

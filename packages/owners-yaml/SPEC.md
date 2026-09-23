@@ -16,10 +16,12 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 - **Root file**: the ownership file in the repository root.
 - **Owner**: a team slug, such as `team-billing`, or a person handle, such as `@alice`. A person handle starts with `@`.
 - **Primary owner**: the first entry of a resolved owners list.
-- **Rule**: an entry of `rules:` that overrides fields for the paths its pattern matches.
+- **Rule**: an entry of `rules:` that replaces fields, or appends to `additions`, for the paths its pattern matches.
 - **Resolution**: the result of the algorithm in section 4 for one path.
 - **Unowned**: a path whose resolution has no owners and is not unowned by design.
 - **Unowned by design**: a path whose resolution comes from an explicit `owners: null`.
+- **Addition**: a path that a change adds to the repository, such as a new file or directory. A consumer decides which paths count as additions (section 3.6).
+- **Owners of additions**: the owners that the `additions` field names for a path. They are separate from the owners of the path (section 3.6).
 
 ## 2. File placement
 
@@ -32,13 +34,14 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 An ownership file is a YAML mapping.
 
-| Field     | Required | Type                               | Meaning                                                                       |
-| --------- | -------- | ---------------------------------- | ----------------------------------------------------------------------------- |
-| `version` | yes      | integer                            | The format version. MUST be the integer `1`, not a boolean, float, or string. |
-| `owners`  | yes      | string, list of strings, or `null` | The owners of the directory.                                                  |
-| `status`  | no       | string                             | The lifecycle of the code.                                                    |
-| `inherit` | no       | boolean                            | Whether fields fall through from ancestor files. Default `true`.              |
-| `rules`   | no       | list of rule mappings              | Per-path overrides inside this directory.                                     |
+| Field       | Required | Type                               | Meaning                                                                       |
+| ----------- | -------- | ---------------------------------- | ----------------------------------------------------------------------------- |
+| `version`   | yes      | integer                            | The format version. MUST be the integer `1`, not a boolean, float, or string. |
+| `owners`    | yes      | string, list of strings, or `null` | The owners of the directory.                                                  |
+| `status`    | no       | string                             | The lifecycle of the code.                                                    |
+| `inherit`   | no       | boolean                            | Whether fields fall through from ancestor files. Default `true`.              |
+| `rules`     | no       | list of rule mappings              | Per-path overrides inside this directory.                                     |
+| `additions` | no       | string or list of strings          | The owners of additions below the directory.                                  |
 
 The root file MAY also carry the repository settings in section 5.
 Any other top-level field is an error.
@@ -72,15 +75,16 @@ A rule MAY set `inherit` to change this for the paths it matches.
 
 Each rule is a mapping with these fields:
 
-| Field     | Required | Type                                | Meaning                                               |
-| --------- | -------- | ----------------------------------- | ----------------------------------------------------- |
-| `match`   | yes      | string or non-empty list of strings | Patterns, relative to the directory of the file.      |
-| `owners`  | no       | as in 3.1                           | Replaces the file-level owners for matching paths.    |
-| `status`  | no       | as in 3.2                           | Replaces the file-level status for matching paths.    |
-| `inherit` | no       | boolean                             | Replaces the file-level `inherit` for matching paths. |
+| Field       | Required | Type                                | Meaning                                                   |
+| ----------- | -------- | ----------------------------------- | --------------------------------------------------------- |
+| `match`     | yes      | string or non-empty list of strings | Patterns, relative to the directory of the file.          |
+| `owners`    | no       | as in 3.1                           | Replaces the file-level owners for matching paths.        |
+| `status`    | no       | as in 3.2                           | Replaces the file-level status for matching paths.        |
+| `inherit`   | no       | boolean                             | Replaces the file-level `inherit` for matching paths.     |
+| `additions` | no       | as in 3.6                           | Appends to the file-level `additions` for matching paths. |
 
 1. A rule with a list of valid patterns is equal to one rule per pattern, in list order, with the same fields.
-2. Within one file, the last rule whose pattern matches a path applies. Earlier matching rules have no effect.
+2. Within one file, every rule whose pattern matches a path applies, in file order. Each rule replaces only the fields it sets, so a later rule that sets only `status` keeps the `owners` of an earlier rule. `additions` is the exception: each matching rule appends to it (section 3.6).
 3. A rule MUST NOT change the resolution of a path outside the directory of its file.
 4. A rule with a pattern that the matcher rejects is an error. A tool MUST ignore the whole rule, including its other patterns, and MAY continue with the rest of the file.
 
@@ -91,12 +95,34 @@ Patterns use the GitHub CODEOWNERS syntax, applied to paths relative to the dire
 1. A pattern that starts with `/` is anchored to that directory.
 2. A pattern with no `/`, or with only a trailing `/`, matches at any depth.
 3. A pattern that contains a `/` other than at the end is anchored to that directory.
-4. A trailing `/` matches the directory and everything below it.
+4. A trailing `/` matches everything below the directory. It does not match the path of the directory itself.
 5. A pattern whose last segment has no wildcard also matches everything below a directory of that name.
 6. `*` matches any characters except `/`. `?` matches one character except `/`. `**` matches zero or more directories.
 7. `[abc]` matches one character from the set. `[a-z]` matches one character from the range. A `[!` or a `[^` at the start negates the set. A set MUST NOT match `/`. A `]` in the first position is a member of the set, not the end of it. An unclosed `[` is a literal `[`. GitHub CODEOWNERS has no character classes, so this rule is an extension of that syntax.
 8. `\` escapes the next character.
 9. A pattern MUST NOT be empty and MUST NOT contain `***`.
+
+### 3.6 `additions`
+
+`owners` names the owners of the paths below a directory.
+`additions` names the owners of additions below the directory, such as a new product in a directory of products.
+The format only names these owners.
+It does not define when a path is an addition.
+It does not define what a consumer does with the owners of additions.
+A consumer decides both, for example from the change set of a pull request.
+A consumer also chooses which version of the ownership files it reads.
+For example, it can read the version before a change, so that the change cannot alter the owners that apply to it.
+
+1. A string is a list with one entry. Each entry MUST be a non-empty string, as in 3.1.
+2. An empty list means that the file or the rule names no owners of additions. A file or a rule with no owners of additions MAY leave the key out.
+3. Any other value, including `null`, is an error. The file or the rule then names no owners of additions, as with an empty list, and its other fields still apply.
+4. `additions` does not change `owners`. A path with owners of additions and no owners is still unowned.
+5. For the other fields, the nearest file wins. `additions` is different: the entries of every file in section 4, step 3 and of every matching rule stay in the result. Only `inherit: false` removes the entries of ancestor files (section 3.3), at file level or through a rule.
+6. A consumer that asks about a new directory SHOULD resolve the path of the directory itself, not a path below it.
+   Section 4, step 2 stops at the parent of that path.
+   So the ownership file of the new directory does not apply.
+   A rule `match: '/*'` in the parent matches each direct child.
+7. A rule `match: '/docs/'` matches each path below `docs`, at any depth. It does not match `docs` itself (section 3.5, rule 4). The owners of additions for `docs` come from the other fields and rules on the walk to `docs`, as for any other path.
 
 ## 4. Resolution
 
@@ -104,40 +130,44 @@ A consumer SHOULD get resolutions from an implementation of this algorithm, not 
 
 To resolve a path `P`:
 
-1. Normalize `P`: replace `\` with `/`, then remove any leading `./` and `/`.
+1. Normalize `P`: replace `\` with `/`, then remove any leading `./` and `/`, and any trailing `/`.
 2. List the directories from the repository root down to the parent directory of `P`, root first.
 3. For each directory, find its ownership file. Skip the directory when it has none. A file that is not a YAML mapping, or that lacks `version: 1` or `owners`, counts as absent.
-4. Start with an empty result: owners unset, status unset, source unset.
+4. Start with an empty result: owners unset, status unset, source unset, additions empty.
 5. For each file found in step 3, in order:
-   1. Take the file-level `owners`, `status`, and `inherit`.
-   2. Find the last rule in the file that matches `P` (section 3.4). If one matches, replace each field that the rule sets.
+   1. Take the file-level `owners`, `status`, `inherit`, and `additions`.
+   2. For each rule in the file that matches `P`, in file order, replace each of `owners`, `status`, and `inherit` that the rule sets. Append each entry of the rule's `additions` to the file-level `additions` (section 3.4).
    3. If `inherit` is `false`, reset the result to empty.
    4. If `owners` is `null`, set the result owners to `null` and the source to this file.
    5. If `owners` is a non-empty list, set the result owners to that list and the source to this file.
    6. If `status` is set, set the result status to it.
+   7. Append each entry of `additions` to the result additions, unless the result additions already contain it.
 6. Return the resolution:
    - `owners`: the result owners, or an empty list when unset or `null`.
    - `unowned_by_design`: `true` when the result owners are `null`.
    - `status`: the result status, or `active` when unset.
    - `source`: the path of the file that set the owners, or none.
    - `slack`: the channel from section 5.2, for the requested purpose.
+   - `additions`: the result additions, in the order they were appended.
 
 A path is unowned when `owners` is empty and `unowned_by_design` is `false`.
 
 ### 4.1 Field merge
 
 Step 5 applies each file's values to the result as this table shows.
-The value is the file-level value after the matching rule replaced it.
+The value is the file-level value after step 5.2 applied every matching rule.
 
-| Field     | Value in the file | Effect on the result                                                |
-| --------- | ----------------- | ------------------------------------------------------------------- |
-| `inherit` | `false`           | The result is reset to empty before the other fields apply.         |
-| `inherit` | `true` or absent  | No effect.                                                          |
-| `owners`  | non-empty list    | Owners become this list. Source becomes this file.                  |
-| `owners`  | `[]`              | No effect.                                                          |
-| `owners`  | `null`            | Owners become `null` (unowned by design). Source becomes this file. |
-| `status`  | set               | Status becomes this value.                                          |
-| `status`  | absent            | No effect.                                                          |
+| Field       | Value in the file | Effect on the result                                                           |
+| ----------- | ----------------- | ------------------------------------------------------------------------------ |
+| `inherit`   | `false`           | The result is reset to empty before the other fields apply.                    |
+| `inherit`   | `true` or absent  | No effect.                                                                     |
+| `owners`    | non-empty list    | Owners become this list. Source becomes this file.                             |
+| `owners`    | `[]`              | No effect.                                                                     |
+| `owners`    | `null`            | Owners become `null` (unowned by design). Source becomes this file.            |
+| `status`    | set               | Status becomes this value.                                                     |
+| `status`    | absent            | No effect.                                                                     |
+| `additions` | non-empty list    | The result additions gain each entry that they do not contain yet, at the end. |
+| `additions` | absent or `[]`    | No effect.                                                                     |
 
 ### 4.2 Flow (non-normative)
 
@@ -145,20 +175,21 @@ The numbered steps above are normative. This diagram shows the same walk.
 
 ```mermaid
 flowchart TD
-    start([Path P]) --> walk[Take the next directory, from the root to the parent of P]
+    start([Path P]) --> norm[Normalize P]
+    norm --> walk[Take the next directory, from the root to the parent of P]
     walk --> has{Has an ownership file?}
     has -- no --> more
-    has -- yes --> take[Take the file's owners, status, and inherit]
-    take --> rule{Does a rule match P?<br/>The last match wins}
-    rule -- yes --> apply[Replace the fields that the rule sets]
+    has -- yes --> take[Take the file's owners, status, inherit, and additions]
+    take --> rule{Does a rule match P?}
+    rule -- yes --> apply[For each matching rule in file order,<br/>replace the owners, status, and inherit that it sets,<br/>and append its additions]
     rule -- no --> cut
     apply --> cut{inherit is false?}
     cut -- yes --> reset[Reset the result]
     cut -- no --> merge
-    reset --> merge[Merge owners and status as in 4.1]
+    reset --> merge[Merge owners, status, and additions as in 4.1]
     merge --> more{More directories?}
     more -- yes --> walk
-    more -- no --> done([Return owners, unowned_by_design, status, source, slack])
+    more -- no --> done([Return owners, unowned_by_design, status, source, slack, additions])
 ```
 
 ### 4.3 Conformance
@@ -249,14 +280,15 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
 
 1. On success, the resolver MUST write one JSON object to standard output and exit with status 0.
 2. Each key MUST be a requested path after normalization (section 4, step 1). Two requests that normalize to the same path produce one key.
-3. Each value MUST be an object with these members:
+3. Each value MUST be an object with the members `owners`, `status`, `slack`, and `source`. It SHOULD also have the member `additions`. The members are:
 
-   | Member   | Type             | Value                                                                     |
-   | -------- | ---------------- | ------------------------------------------------------------------------- |
-   | `owners` | array of strings | The resolved owners. Empty when the path is unowned or unowned by design. |
-   | `status` | string           | The resolved status.                                                      |
-   | `slack`  | string or `null` | The channel for the requested purpose.                                    |
-   | `source` | string or `null` | The repository-relative path of the file that set the owners.             |
+   | Member      | Type             | Value                                                                              |
+   | ----------- | ---------------- | ---------------------------------------------------------------------------------- |
+   | `owners`    | array of strings | The resolved owners. Empty when the path is unowned or unowned by design.          |
+   | `status`    | string           | The resolved status.                                                               |
+   | `slack`     | string or `null` | The channel for the requested purpose.                                             |
+   | `source`    | string or `null` | The repository-relative path of the file that set the owners.                      |
+   | `additions` | array of strings | The resolved owners of additions (section 3.6), in the order of section 4, step 6. |
 
 4. A path that is unowned by design has an empty `owners` array and a non-null `source`. An unowned path has an empty `owners` array and a `null` source.
 5. An unowned path is not an error.
@@ -273,15 +305,16 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
 1. A consumer MUST ignore members that it does not know.
 2. An implementation MAY add members to a value.
 3. Removing a member, renaming it, or changing its meaning requires a new version of this specification.
-4. For the Python library, the names exported from the top-level `owners_yaml` package are the public API. Submodules can change between minor releases.
+4. A consumer MUST treat a missing `additions` member as an empty array. A resolver that predates the member leaves it out.
+5. For the Python library, the names exported from the top-level `owners_yaml` package are the public API. Submodules can change between minor releases.
 
 ## 8. The owners-yaml reference implementation
 
 This section describes the reference implementation. It is not part of the format.
 
 - It reads the alias files the root `owners.yaml` declares. PostHog's own repository declares `product.yaml`.
-- It removes the placeholder owner `team-CHANGEME` from every owners list.
-- Its linter reports schema errors, reserved locations, directories with both an `owners.yaml` and an alias file, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
+- It removes the placeholder owner `team-CHANGEME` from every `owners` and `additions` list.
+- Its linter reports schema errors, reserved locations, directories with both an `owners.yaml` and an alias file, rules that name a tracked directory without the trailing `/`, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
 - Its CODEOWNERS export covers test files only: `test_*.py` and `*_test.py` for pytest, and `*.test.*` or `*.spec.*` with a `.js`, `.jsx`, `.ts`, or `.tsx` extension for Jest. The `codeowners` setting accepts these keys:
 
   | Key                  | Meaning                                                                                                                                          |
@@ -413,13 +446,16 @@ rules:
 
 ## 10. Design notes (non-normative)
 
-- **Nearest file wins, per field.** Kubernetes OWNERS files add approvers from every ancestor, which fits "someone must approve". For routing, the union tags too many teams, so the nearest file wins. The merge is per field, so a child file that sets only `owners` keeps the `status` of its ancestors.
+- **Nearest file wins, per field.** Kubernetes OWNERS files add approvers from every ancestor, which fits "someone must approve". For routing, the union tags too many teams, so the nearest file wins. The merge is per field, so a child file that sets only `owners` keeps the `status` of its ancestors. Rules in one file merge the same way, so a rule that marks generated files does not undo a rule that names their owners.
 - **Rules stay in their file.** In a single CODEOWNERS file, a broad pattern added late can take over earlier specific lines. Here a rule changes only its own directory, so a new rule cannot take over paths in another directory.
 - **Unowned is a decision.** `owners: null` records that nobody owns a path on purpose. A missing owner fails the coverage check.
 - **The alias default is for old trees.** `product.yaml` is the default alias file name so that a repository written before `alias_files` existed resolves the same as it did then. A repository with no alias files sets `alias_files: []` and pays no lookups for it.
-- **Routing, not approval.** The format answers "who owns this path" for review requests, alerts, and reports. It does not replace a platform's required-approval rules.
+- **Owners of additions add up.** Owners are nearest-file-wins because the union tags too many teams. `additions` answers a different question: who owns additions below a directory. If a nested file could drop the owners of additions that an ancestor file names, the answer of the ancestor would not be reliable. A separate field keeps the coverage check correct: `owners` on the parent directory would claim every file below it that has no nearer owner.
+- **Routing, not approval.** The format answers "who owns this path" for review requests, alerts, and reports. It does not replace a platform's required-approval rules. `additions` is routing too: it names owners, and it does not approve or block a change.
 
 ## Changelog
 
 - **1** (2026-09): First published version.
 - **1**, amended (2026-09): Section 3.5 adds `[...]` character classes. No pattern that was valid before the amendment changes meaning. Section 6 gives `alias_files` the default `[product.yaml]`, so a root file that does not declare the key now has one alias file instead of none.
+- **1**, amended (unreleased): Section 3.4 applies every matching rule, field by field. Before, the last matching rule replaced the earlier ones entirely, so a file with two matching rules that set different fields now resolves differently.
+- **1**, amended (unreleased): Section 3.6 adds the optional `additions` field, section 7.2 adds the `additions` member, and section 7.4 says that a consumer treats a missing member as an empty array. A file without the field resolves as before. Section 4 step 1 also removes a trailing `/`, so a directory path resolves the same with or without it. Section 3.5 rule 4 now states that a trailing `/` does not match the directory path itself. Because of the step 1 change, a request for `docs/` no longer matches a rule `docs/`, and it no longer reads the ownership file in `docs`.

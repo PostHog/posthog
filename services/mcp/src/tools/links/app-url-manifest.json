@@ -604,8 +604,8 @@
         "params": ["handle"],
         "scope": "project"
     },
-    "engineeringAnalyticsHealth": {
-        "template": "/engineering-analytics/health",
+    "engineeringAnalyticsDeploys": {
+        "template": "/engineering-analytics/deploys",
         "params": [],
         "scope": "project"
     },
@@ -629,8 +629,8 @@
         "params": [],
         "scope": "project"
     },
-    "engineeringAnalyticsTestHealth": {
-        "template": "/engineering-analytics/test-health",
+    "engineeringAnalyticsTests": {
+        "template": "/engineering-analytics/tests",
         "params": [],
         "scope": "project"
     },
@@ -1294,6 +1294,11 @@
         "params": [],
         "scope": "global"
     },
+    "projectFiles": {
+        "template": "/files",
+        "params": [],
+        "scope": "project"
+    },
     "projectHomepage": {
         "template": "/home",
         "params": [],
@@ -1626,6 +1631,11 @@
     },
     "taskTracker": {
         "template": "/tasks",
+        "params": [],
+        "scope": "project"
+    },
+    "terminal": {
+        "template": "/terminal",
         "params": [],
         "scope": "project"
     },

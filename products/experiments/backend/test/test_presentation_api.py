@@ -12,6 +12,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 from django.utils import timezone
 
 from dateutil import parser
@@ -8987,6 +8988,41 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
                 {"target_event": "$pageview", "metric_event": "$pageview"},
                 "metric_event",
             ),
+            (
+                "target_properties_without_target_event",
+                {"target_properties": [{"key": "$pathname", "type": "event", "value": ["/"]}]},
+                "target_properties",
+            ),
+            (
+                "metric_properties_without_metric_event",
+                {"metric_properties": [{"key": "plan", "type": "event", "value": ["paid"]}]},
+                "metric_properties",
+            ),
+            (
+                "a_filter_type_the_query_cannot_apply",
+                {"target_event": "$pageview", "target_properties": [{"key": "id", "type": "cohort", "value": 1}]},
+                "target_properties",
+            ),
+            (
+                "an_operator_the_query_cannot_apply",
+                {
+                    "target_event": "$pageview",
+                    "target_properties": [
+                        {"key": "flag", "type": "event", "operator": "flag_evaluates_to", "value": ["true"]}
+                    ],
+                },
+                "target_properties",
+            ),
+            (
+                "more_filters_than_the_maximum",
+                {
+                    "target_event": "$pageview",
+                    "target_properties": [
+                        {"key": f"p-{index}", "type": "event", "value": ["x"]} for index in range(11)
+                    ],
+                },
+                "target_properties",
+            ),
         ]
     )
     def test_rejects_input_that_cannot_produce_an_answer(
@@ -8996,6 +9032,36 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["attr"] == expected_attr
+
+    @parameterized.expand(
+        [
+            ("flag_on_for_staff_only", "staff", status.HTTP_200_OK),
+            ("flag_on_for_customer_only", "customer", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_flag_is_evaluated_for_the_impersonating_staff_user(
+        self, _name: str, flag_on_for: str, expected_status: int
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        customer = User.objects.create_and_join(self.organization, "setup-context-customer@example.com", None)
+        flag_distinct_id = str(self.user.distinct_id if flag_on_for == "staff" else customer.distinct_id)
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": customer.id}),
+            data={"read_only": "true", "reason": "Setup context support ticket"},
+            format="multipart",
+        )
+        assert self.client.get("/api/users/@me/").json()["email"] == customer.email
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, distinct_id, *args, **_: (
+                key == EXPERIMENT_SETUP_CONTEXT_FLAG and distinct_id == flag_distinct_id
+            ),
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/experiments/setup_context/", {}, format="json")
+
+        assert response.status_code == expected_status, response.content
 
     def test_omits_experiments_the_user_cannot_access(self) -> None:
         other_user = self._create_user("setup-context-other@posthog.com")
@@ -9030,18 +9096,20 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
                 "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
             },
         )
+        # The result belongs to the run that starts here, so both dates come from one value.
+        started_at = timezone.now() - timedelta(days=10)
         experiment = Experiment.objects.create(
             team=self.team,
             name="Populated",
             created_by=self.user,
             feature_flag=flag,
-            start_date=timezone.now() - timedelta(days=10),
+            start_date=started_at,
             metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "populated-metric"}],
         )
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="populated-metric",
-            query_from=timezone.now() - timedelta(days=10),
+            query_from=started_at,
             query_to=timezone.now(),
             status=ExperimentMetricResult.Status.COMPLETED,
             result={
@@ -9066,7 +9134,12 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
                 event=event,
                 distinct_id="buyer",
                 timestamp=timezone.now() - timedelta(days=1),
-                properties={"$lib": "web", "$is_identified": False, "$device_id": "device-1"},
+                properties={
+                    "$lib": "web",
+                    "$is_identified": False,
+                    "$device_id": "device-1",
+                    "$pathname": "/",
+                },
             )
         _create_event(
             team=self.team,
@@ -9077,7 +9150,13 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
         )
         flush_persons_and_events()
 
-        response = self._post({"target_event": "$pageview", "metric_event": "purchase"})
+        response = self._post(
+            {
+                "target_event": "$pageview",
+                "target_properties": [{"key": "$pathname", "type": "event", "operator": "exact", "value": ["/"]}],
+                "metric_event": "purchase",
+            }
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.content
         context = response.json()
@@ -9090,6 +9169,11 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
             "shared_metrics": "ok",
         }
         assert context["sdk_profile"]["data"]["libs"][0]["lib"] == "web"
+        # The echoed filters are parsed and dumped through pydantic, so the operator reaches JSON
+        # as its value rather than as an enum the renderer cannot write.
+        assert context["target_surface"]["data"]["target_properties"] == [
+            {"key": "$pathname", "operator": "exact", "type": "event", "value": ["/"]}
+        ]
         assert context["candidate_metric"]["data"]["funnel_baseline_stats"]["number_of_samples"] == 1
         assert context["candidate_metric"]["data"]["mean_count_baseline_stats"]["number_of_samples"] == 1
         assert context["previous_experiments"]["data"]["experiments"][0]["outcome"]["analyzed_exposures"] == 190

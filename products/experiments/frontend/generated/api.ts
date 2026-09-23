@@ -86,6 +86,9 @@ export const getExperimentHoldoutsListUrl = (projectId: string, params?: Experim
         : `/api/projects/${projectId}/experiment_holdouts/`
 }
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsList = async (
     projectId: string,
     params?: ExperimentHoldoutsListParams,
@@ -101,6 +104,9 @@ export const getExperimentHoldoutsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiment_holdouts/`
 }
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsCreate = async (
     projectId: string,
     experimentHoldoutApi: NonReadonly<ExperimentHoldoutApi>,
@@ -118,6 +124,9 @@ export const getExperimentHoldoutsRetrieveUrl = (projectId: string, id: number) 
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsRetrieve = async (
     projectId: string,
     id: number,
@@ -133,6 +142,9 @@ export const getExperimentHoldoutsUpdateUrl = (projectId: string, id: number) =>
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsUpdate = async (
     projectId: string,
     id: number,
@@ -151,6 +163,9 @@ export const getExperimentHoldoutsPartialUpdateUrl = (projectId: string, id: num
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsPartialUpdate = async (
     projectId: string,
     id: number,
@@ -169,6 +184,9 @@ export const getExperimentHoldoutsDestroyUrl = (projectId: string, id: number) =
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsDestroy = async (
     projectId: string,
     id: number,
@@ -797,6 +815,38 @@ export const experimentsMetricsRecalculationLatestRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getExperimentsMigrateCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/migrate/`
+}
+
+/**
+ * Move a legacy experiment onto the new experiments engine.
+ *
+ * Creates a new experiment with the same configuration and its metrics converted
+ * to the new format, and returns it. The legacy experiment is left untouched and
+ * keeps its results, so the project ends up with two experiments. Both point at
+ * the same feature flag, so no new rollout is needed and users keep the variant
+ * they already have.
+ *
+ * Legacy shared metrics used by the experiment are converted as part of the same
+ * call. Each one gets a new shared metric, and the new experiment links to that.
+ *
+ * Calling this again returns the experiment created the first time instead of
+ * making another copy.
+ *
+ * Returns 400 if the experiment already uses the new engine.
+ */
+export const experimentsMigrateCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsMigrateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
 }
 
 export const getExperimentsPauseCreateUrl = (projectId: string, id: number) => {
