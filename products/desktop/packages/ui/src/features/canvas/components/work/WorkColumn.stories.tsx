@@ -3,6 +3,7 @@ import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTa
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 import { WorkColumn } from "./WorkColumn";
 
 const ME_ID = 1;
@@ -99,19 +100,24 @@ const MARKED_TASKS: Task[] = TASKS.map((entry, index) =>
   index === 1 ? { ...entry, origin_product: "slack" } : entry,
 );
 
-const meta = {
-  title: "Canvas/WorkColumn",
-  component: WorkColumn,
-  parameters: { layout: "fullscreen" },
-  decorators: [
-    (Story) => (
-      <QueryClientProvider client={seededClient()}>
+/** The column at the width the app gives it, against one seeded cache. */
+function column(client: QueryClient) {
+  return function Decorator(Story: () => ReactElement) {
+    return (
+      <QueryClientProvider client={client}>
         <div className="h-screen w-[280px] border-border border-r">
           <Story />
         </div>
       </QueryClientProvider>
-    ),
-  ],
+    );
+  };
+}
+
+const meta = {
+  title: "Canvas/WorkColumn",
+  component: WorkColumn,
+  parameters: { layout: "fullscreen" },
+  decorators: [column(seededClient())],
 } satisfies Meta<typeof WorkColumn>;
 
 export default meta;
@@ -127,17 +133,6 @@ export const Default: Story = {};
  */
 export const WithBadges: Story = {
   decorators: [
-    (Story) => (
-      <QueryClientProvider
-        client={seededClient({
-          pinnedTaskIds: ["task-3"],
-          tasks: MARKED_TASKS,
-        })}
-      >
-        <div className="h-screen w-[280px] border-border border-r">
-          <Story />
-        </div>
-      </QueryClientProvider>
-    ),
+    column(seededClient({ pinnedTaskIds: ["task-3"], tasks: MARKED_TASKS })),
   ],
 };

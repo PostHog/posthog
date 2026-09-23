@@ -84,6 +84,10 @@ const log = logger.scope("work-column");
 
 const RECENT_COLLAPSED_COUNT = 5;
 
+// Recent leads with the newest work, so a pin neither floats a row to the top
+// nor opens a section of its own. The row's badge is what says it is pinned.
+const NO_PINNED_RUN = { pinnedRun: false } as const;
+
 function SectionHeading({
   label,
   expanded,
@@ -242,21 +246,10 @@ export function WorkColumn() {
     [items],
   );
   const dayStart = useLocalDayStart();
-  // Recent has no pinned run, so pinning must not float a row to the top or
-  // open a section of its own. The rows are grouped from copies that drop the
-  // flag, and drawn from `itemByKey`, which still carries it — a pinned row
-  // keeps its badge and its menu still says "Unpin".
-  const itemByKey = useMemo(
-    () => new Map(items.map((entry) => [entry.item.key, entry.item])),
-    [items],
-  );
   const matchingItems = useMemo(() => {
     const all = items.map((entry) => entry.item);
     const filtered = filterChannelItems(all, { query, filters, me });
-    const unpinned = filtered.map((item) =>
-      item.pinned ? { ...item, pinned: false } : item,
-    );
-    return sortChannelItems(unpinned, sort);
+    return sortChannelItems(filtered, sort, NO_PINNED_RUN);
   }, [items, query, filters, me, sort]);
   const spaceNameById = useMemo(
     () => new Map(channels.map((channel) => [channel.id, channel.name])),
@@ -266,13 +259,17 @@ export function WorkColumn() {
     () => new Map(items.map(({ item, channelId }) => [item.key, channelId])),
     [items],
   );
+  const channelIdOf = useCallback(
+    (item: ChannelItemModel) => channelByKey.get(item.key),
+    [channelByKey],
+  );
   const spaceOf = useCallback(
     (item: ChannelItemModel) => {
-      const channelId = channelByKey.get(item.key);
+      const channelId = channelIdOf(item);
       const label = channelId ? spaceNameById.get(channelId) : undefined;
       return channelId && label ? { key: channelId, label } : null;
     },
-    [channelByKey, spaceNameById],
+    [channelIdOf, spaceNameById],
   );
   const sections = useMemo(
     () =>
@@ -282,6 +279,7 @@ export function WorkColumn() {
         new Date(dayStart),
         grouping,
         spaceOf,
+        NO_PINNED_RUN,
       ),
     [matchingItems, sort, dayStart, grouping, spaceOf],
   );
@@ -294,13 +292,9 @@ export function WorkColumn() {
   );
 
   const presenceBySpace = useSpacePresence();
-  const channelIdOf = useCallback(
-    (item: ChannelItemModel) => channelByKey.get(item.key),
-    [channelByKey],
-  );
   const open = useCallback(
     (item: ChannelItemModel) => {
-      const channelId = channelByKey.get(item.key);
+      const channelId = channelIdOf(item);
       if (item.kind === "canvas") {
         if (channelId) navigateToChannelDashboard(channelId, item.id);
         return;
@@ -314,7 +308,7 @@ export function WorkColumn() {
       if (channelId) navigateToChannelTask(channelId, item.id);
       else navigateToTaskDetail(item.id);
     },
-    [channelByKey],
+    [channelIdOf],
   );
   const actions = useChannelItemActions({ channelIdOf, open });
 
@@ -468,8 +462,7 @@ export function WorkColumn() {
                             {section.label}
                           </div>
                         )}
-                        {section.items.map((grouped) => {
-                          const item = itemByKey.get(grouped.key) ?? grouped;
+                        {section.items.map((item) => {
                           const inSelection =
                             item.kind === "task" &&
                             selectedTaskIds.includes(item.id);
@@ -478,7 +471,7 @@ export function WorkColumn() {
                               key={item.key}
                               item={item}
                               optionValue={item.key}
-                              channelId={channelByKey.get(item.key)}
+                              channelId={channelIdOf(item)}
                               spaceName={spaceNameFor(item)}
                               withPrStatus={false}
                               isActive={item.key === activeKey}
