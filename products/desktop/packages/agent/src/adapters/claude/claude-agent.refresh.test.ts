@@ -582,6 +582,7 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
     await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
       mcpServers: freshMcpServers,
     });
+    expect(createdQueries).toHaveLength(1);
 
     // The refresh resumes the same transcript, so the next result carries the
     // 4.0 again. Counting it a second time would report 8.5.
