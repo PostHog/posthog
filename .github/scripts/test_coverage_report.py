@@ -50,7 +50,16 @@ def test_repo_path_for(product: str, filename: str, expected: str) -> None:
     assert coverage_report.repo_path_for(product, filename) == expected
 
 
-# ---------- convert_product_data ----------
+# ---------- convert_product_data / convert_core_data ----------
+
+
+def _write_shards(artifacts: Path, data_file_name: str, shards: list[dict[str, set[int]]]) -> None:
+    for shard, executed in enumerate(shards):
+        shard_dir = artifacts / f"shard-{shard}"
+        shard_dir.mkdir(parents=True)
+        data = coverage.CoverageData(basename=str(shard_dir / data_file_name))
+        data.add_lines(executed)
+        data.write()
 
 
 def test_convert_product_data_combines_shards_under_repo_paths(tmp_path: Path) -> None:
@@ -59,12 +68,7 @@ def test_convert_product_data_combines_shards_under_repo_paths(tmp_path: Path) -
     source.write_text("def a():\n    return 1\n\n\ndef b():\n    return 2\n")
     shard_source = "/home/runner/work/posthog/posthog/products/links/backend/api.py"
     artifacts = tmp_path / "cov-artifacts"
-    for shard, executed in enumerate([{1, 2, 5}, {1, 5}]):
-        shard_dir = artifacts / f"coverage-products-{shard}"
-        shard_dir.mkdir(parents=True)
-        data = coverage.CoverageData(basename=str(shard_dir / "links.coverage"))
-        data.add_lines({shard_source: executed})
-        data.write()
+    _write_shards(artifacts, "links.coverage", [{shard_source: {1, 2, 5}}, {shard_source: {1, 5}}])
 
     coverage_report.convert_product_data(artifacts, tmp_path)
     covered, valid = coverage_report.aggregate(artifacts)
@@ -83,13 +87,7 @@ def test_convert_core_data_combines_both_roots_under_the_core_config(
         (tmp_path / source).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / source).write_text("x = 1\ny = 2\n")
     core_artifacts = tmp_path / "core-artifacts"
-    shards = [{"posthog/api.py": {1}}, {"posthog/api.py": {2}, "ee/billing.py": {1}}]
-    for shard, executed in enumerate(shards):
-        shard_dir = core_artifacts / f"coverage-core-{shard}"
-        shard_dir.mkdir(parents=True)
-        data = coverage.CoverageData(basename=str(shard_dir / ".coverage"))
-        data.add_lines(executed)
-        data.write()
+    _write_shards(core_artifacts, ".coverage", [{"posthog/api.py": {1}}, {"posthog/api.py": {2}, "ee/billing.py": {1}}])
 
     coverage_report.convert_core_data(core_artifacts)
     covered, valid = coverage_report.aggregate_core(core_artifacts)
