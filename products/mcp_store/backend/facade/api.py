@@ -25,6 +25,7 @@ from products.mcp_store.backend.agents import (
     credential_owner_eligible,
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
+    is_mcp_gateway_enabled,
 )
 from products.mcp_store.backend.connector_approvals import (
     ConnectorApprovalBinding,
@@ -715,12 +716,18 @@ SLACK_OAUTH_CREDENTIAL_SOURCES = ("slack_app", "slack_dev_app")
 def slack_connect_offer(team_id: int, user_id: int) -> SlackConnectOffer | None:
     """The Slack MCP server this member can still connect, or ``None``.
 
-    ``None`` covers every reason the offer must not be made: the catalog entry
-    is suspended in this environment, its OAuth client has no credentials, the
-    member cannot reach the project, or the member is already connected. A
-    caller can therefore treat a result as safe to show without repeating the
-    checks.
+    ``None`` covers every reason the offer must not be made: the team is not on
+    the `mcp-gateway` rollout, the catalog entry is suspended in this
+    environment, its OAuth client has no credentials, the member cannot reach
+    the project, or the member is already connected. A caller can therefore
+    treat a result as safe to show without repeating the checks.
+
+    The rollout gate is read first, so a team that is not on it costs one flag
+    check and no queries.
     """
+    if not is_mcp_gateway_enabled(team_id):
+        return None
+
     template = (
         MCPServerTemplate.available_for_team(team_id)
         .filter(oauth_credentials_source__in=SLACK_OAUTH_CREDENTIAL_SOURCES)

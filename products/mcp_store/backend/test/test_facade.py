@@ -1086,12 +1086,15 @@ class TestSlackConnectOffer(BaseTest):
         defaults.update(overrides)
         return MCPServerTemplate.objects.create(**defaults)
 
-    def _offer(self):
-        with patch(
-            "products.mcp_store.backend.facade.api.oauth_credentials_source_is_configured",
-            return_value=True,
+    def _offer(self, user=None):
+        with (
+            patch("products.mcp_store.backend.facade.api.is_mcp_gateway_enabled", return_value=True),
+            patch(
+                "products.mcp_store.backend.facade.api.oauth_credentials_source_is_configured",
+                return_value=True,
+            ),
         ):
-            return slack_connect_offer(self.team.id, self.user.id)
+            return slack_connect_offer(self.team.id, (user or self.user).id)
 
     def test_offers_the_active_slack_template(self) -> None:
         template = self._template()
@@ -1102,6 +1105,18 @@ class TestSlackConnectOffer(BaseTest):
         assert offer.template_id == str(template.id)
         assert offer.server_name == "Slack"
 
+    def test_no_offer_when_the_team_is_off_the_mcp_gateway_rollout(self) -> None:
+        self._template()
+
+        with (
+            patch("products.mcp_store.backend.facade.api.is_mcp_gateway_enabled", return_value=False),
+            patch(
+                "products.mcp_store.backend.facade.api.oauth_credentials_source_is_configured",
+                return_value=True,
+            ),
+        ):
+            assert slack_connect_offer(self.team.id, self.user.id) is None
+
     def test_no_offer_when_the_catalog_entry_is_inactive(self) -> None:
         self._template(is_active=False)
 
@@ -1110,9 +1125,12 @@ class TestSlackConnectOffer(BaseTest):
     def test_no_offer_when_the_shared_oauth_client_has_no_credentials(self) -> None:
         self._template()
 
-        with patch(
-            "products.mcp_store.backend.facade.api.oauth_credentials_source_is_configured",
-            return_value=False,
+        with (
+            patch("products.mcp_store.backend.facade.api.is_mcp_gateway_enabled", return_value=True),
+            patch(
+                "products.mcp_store.backend.facade.api.oauth_credentials_source_is_configured",
+                return_value=False,
+            ),
         ):
             assert slack_connect_offer(self.team.id, self.user.id) is None
 
@@ -1152,11 +1170,7 @@ class TestSlackConnectOffer(BaseTest):
             password=None,
         )
 
-        with patch(
-            "products.mcp_store.backend.facade.api.oauth_credentials_source_is_configured",
-            return_value=True,
-        ):
-            assert slack_connect_offer(self.team.id, outsider.id) is None
+        assert self._offer(user=outsider) is None
 
 
 class TestConnectAuthorizePath(BaseTest):
