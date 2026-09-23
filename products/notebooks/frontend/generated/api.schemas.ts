@@ -1529,6 +1529,10 @@ export type NotebooksListParams = {
      */
     date_to?: string
     /**
+     * The UUID of the user who last modified the Notebook
+     */
+    last_modified_by?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1536,6 +1540,10 @@ export type NotebooksListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Filter for notebooks whose title or text content matches this full-text search term
+     */
+    search?: string
     /**
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
