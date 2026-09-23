@@ -550,13 +550,8 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         PreaggregationJob.objects.filter(team=self.team, id__in=original.job_ids).update(
             expires_at=timezone.now() - timedelta(hours=1)
         )
-        with patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=False):
-            live, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
-            assert not used
-        with (
-            patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=True),
-            patch.object(attribution_sessions_read, "handle_stale_served") as enqueue,
-        ):
+        live, _ = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=False)
+        with patch.object(attribution_sessions_read, "handle_stale_served") as enqueue:
             stale, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
             assert used
             assert stale == live
@@ -575,10 +570,11 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             assert runner._sessions_precompute_used
             assert set(runner._sessions_precompute_jobs or []).isdisjoint(map(str, original.job_ids))
             enqueue.assert_called_once()
-        with patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=False):
+        with patch.object(attribution_sessions_read, "handle_stale_served") as enqueue_after_rebuild:
             fresh, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
         assert used
         assert fresh == live
+        enqueue_after_rebuild.assert_not_called()
 
     @parameterized.expand(
         [

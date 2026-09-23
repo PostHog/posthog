@@ -843,6 +843,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             snapshot_source=prepared.snapshot_source,
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
+            use_hotplug_golden=ctx.use_hogland_hotplug_golden,
             **resource_overrides,
         )
 
