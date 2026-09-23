@@ -1,3 +1,4 @@
+import io
 import struct
 from datetime import UTC, datetime
 
@@ -8,6 +9,7 @@ import pyarrow as pa
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCTransactionTooLargeError
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.decoder import (
     _OID_BOOL,
     _OID_FLOAT8,
@@ -528,38 +530,57 @@ class TestPgTimestamp:
 
 
 class TestTransactionBufferGuard:
+    _COLUMNS = [("id", _OID_INT4, -1), ("name", _OID_TEXT, -1), ("active", _OID_BOOL, -1), ("score", _OID_FLOAT8, -1)]
+
     def _decoder_with_relation(self) -> PgOutputDecoder:
         decoder = PgOutputDecoder()
-        decoder.decode_message(_make_relation(1, "public", "users", [("id", _OID_INT4, -1)]), "0/1")
+        decoder.decode_message(_make_relation(1, "public", "users", self._COLUMNS), "0/1")
         return decoder
 
-    def _decode_transaction(self, decoder: PgOutputDecoder, ids: range) -> list:
+    def _decode_transaction(self, decoder: PgOutputDecoder, ids: range) -> list[ChangeEvent]:
         decoder.decode_message(_make_begin(), "0/1")
         for i in ids:
-            assert list(decoder.decode_message(_make_insert(1, [("t", str(i))]), "0/1")) == []
+            row = [("t", str(i)), None if i % 2 else ("t", f"user {i}"), ("t", "t"), ("t", f"{i}.5")]
+            assert list(decoder.decode_message(_make_insert(1, row), "0/1")) == []
         return list(decoder.decode_message(_make_commit(end_lsn=0x500), "0/2"))
 
-    @parameterized.expand([("fits_in_memory", 10), ("spills_whole_chunks", 7), ("spills_with_a_tail", 2)])
-    def test_every_change_comes_back_in_order_at_the_commit_position(self, _name, chunk):
+    @parameterized.expand([("spills_whole_chunks", 7), ("spills_with_a_tail", 2)])
+    def test_a_spilled_transaction_comes_back_identical_at_the_commit_position(self, _name: str, chunk: int) -> None:
+        with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 10):
+            in_memory = self._decode_transaction(self._decoder_with_relation(), range(7))
         with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", chunk):
             decoder = self._decoder_with_relation()
-            events = self._decode_transaction(decoder, range(7))
+            spilled = self._decode_transaction(decoder, range(7))
             follow_up = self._decode_transaction(decoder, range(100, 103))
 
-        assert [e.columns["id"] for e in events] == list(range(7))
-        assert {e.position_serialized for e in events} == {"0/500"}
+        assert spilled == in_memory
+        assert {e.position_serialized for e in spilled} == {"0/500"}
         assert [e.columns["id"] for e in follow_up] == [100, 101, 102]
 
     @parameterized.expand([("change_count", "MAX_TX_BUFFER_EVENTS", 3), ("spill_bytes", "MAX_TX_SPILL_BYTES", 1)])
-    def test_raises_when_transaction_exceeds_a_cap(self, _name, cap, value):
+    def test_raises_when_transaction_exceeds_a_cap(self, _name: str, cap: str, value: int) -> None:
         with patch(f"{_DECODER_MODULE}.{cap}", value), patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 4):
             decoder = self._decoder_with_relation()
             decoder.decode_message(_make_begin(), "0/1")
             for i in range(3):
-                decoder.decode_message(_make_insert(1, [("t", str(i))]), "0/1")
+                decoder.decode_message(_make_insert(1, [("t", str(i)), None, None, None]), "0/1")
 
             with pytest.raises(CDCTransactionTooLargeError):
-                decoder.decode_message(_make_insert(1, [("t", "99")]), "0/1")
+                decoder.decode_message(_make_insert(1, [("t", "99"), None, None, None]), "0/1")
+
+    def test_close_releases_the_spill_of_a_transaction_that_never_committed(self) -> None:
+        spill = io.BytesIO()
+        with (
+            patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 1),
+            patch(f"{_DECODER_MODULE}.tempfile.TemporaryFile", return_value=spill),
+        ):
+            decoder = self._decoder_with_relation()
+            decoder.decode_message(_make_begin(), "0/1")
+            decoder.decode_message(_make_insert(1, [("t", "1"), None, None, None]), "0/1")
+
+            decoder.close()
+
+        assert spill.closed
 
 
 class TestReplicaIdentityKeyColumns:

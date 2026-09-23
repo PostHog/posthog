@@ -373,6 +373,7 @@ class PgCDCStreamReader:
         return self._last_rows_consumed
 
     def close(self) -> None:
+        self._decoder.close()
         if self._conn is not None:
             self._conn.close()
             self._conn = None

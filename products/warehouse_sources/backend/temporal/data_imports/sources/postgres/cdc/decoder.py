@@ -20,11 +20,11 @@ Message types handled:
 
 from __future__ import annotations
 
-import pickle
+import json
 import struct
 import logging
 import tempfile
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import (
     dataclass,
     field,
@@ -125,6 +125,9 @@ class PgOutputDecoder:
         self._relations: dict[int, Relation] = {}
         self._tx_buffer: list[ChangeEvent] = []
         self._tx_spill: IO[bytes] | None = None
+        self._tx_spill_bytes = 0
+        # Column types are shared per relation, so a spilled line stores an index into this list.
+        self._tx_spill_types: list[Mapping[str, pa.DataType] | None] = []
         self._tx_event_count = 0
         self._tx_timestamp: datetime | None = None
         self._truncated_tables: list[str] = []
@@ -198,19 +201,24 @@ class PgOutputDecoder:
         # end_lsn starts at byte 9: flags(1) + commit_lsn(8)
         end_lsn = PgLSN.from_bytes(payload[9:17]).serialize()
         self._last_commit_end_lsn = end_lsn
-        spill, tail = self._tx_spill, self._tx_buffer
+        spill, tail, types = self._tx_spill, self._tx_buffer, self._tx_spill_types
         self._tx_spill = None
-        self._tx_buffer = []
-        self._tx_event_count = 0
+        self._reset_transaction()
         self._tx_timestamp = None
         if spill is None:
             return [dataclass_replace(e, position_serialized=end_lsn) for e in tail]
-        return _replay_spilled_transaction(spill, tail, end_lsn)
+        return _replay_spilled_transaction(spill, types, tail, end_lsn)
+
+    def close(self) -> None:
+        """Release a spill file left by a read that failed before its transaction committed."""
+        self._reset_transaction()
 
     def _reset_transaction(self) -> None:
         if self._tx_spill is not None:
             self._tx_spill.close()
         self._tx_spill = None
+        self._tx_spill_bytes = 0
+        self._tx_spill_types = []
         self._tx_buffer = []
         self._tx_event_count = 0
 
@@ -429,29 +437,61 @@ class PgOutputDecoder:
             )
         self._tx_buffer.append(event)
         if len(self._tx_buffer) >= TX_SPILL_CHUNK_EVENTS:
-            if self._tx_spill is None:
-                self._tx_spill = tempfile.TemporaryFile()
-            pickle.dump(self._tx_buffer, self._tx_spill, protocol=pickle.HIGHEST_PROTOCOL)
-            self._tx_buffer = []
-            if self._tx_spill.tell() > MAX_TX_SPILL_BYTES:
+            self._spill_buffer()
+
+    def _spill_buffer(self) -> None:
+        """Append the in-memory chunk to the spill file as JSON lines, one change per line.
+
+        Decoded values are only bool, int, float, str or None, so JSON round-trips them exactly.
+        """
+        if self._tx_spill is None:
+            self._tx_spill = tempfile.TemporaryFile()
+        type_index = {id(types): i for i, types in enumerate(self._tx_spill_types)}
+        for event in self._tx_buffer:
+            key = id(event.column_types)
+            if key not in type_index:
+                type_index[key] = len(self._tx_spill_types)
+                self._tx_spill_types.append(event.column_types)
+            line = (
+                json.dumps(
+                    [
+                        event.operation,
+                        event.table_name,
+                        event.timestamp.isoformat(),
+                        event.columns,
+                        sorted(event.omitted_columns),
+                        type_index[key],
+                    ]
+                ).encode()
+                + b"\n"
+            )
+            if self._tx_spill_bytes + len(line) > MAX_TX_SPILL_BYTES:
                 self._reset_transaction()
                 raise CDCTransactionTooLargeError(
                     f"Transaction spilled more than {MAX_TX_SPILL_BYTES} bytes before COMMIT"
                 )
+            self._tx_spill.write(line)
+            self._tx_spill_bytes += len(line)
+        self._tx_buffer = []
 
 
-def _replay_spilled_transaction(spill: IO[bytes], tail: list[ChangeEvent], end_lsn: str) -> Iterator[ChangeEvent]:
-    """Yield a spilled transaction in WAL order: the chunks on disk, then the in-memory tail."""
+def _replay_spilled_transaction(
+    spill: IO[bytes], types: list[Mapping[str, pa.DataType] | None], tail: list[ChangeEvent], end_lsn: str
+) -> Iterator[ChangeEvent]:
+    """Yield a spilled transaction in WAL order, one change at a time: the file, then the in-memory tail."""
     try:
         spill.seek(0)
-        while True:
-            try:
-                # The decoder wrote this file in this process; nothing else can reach it.
-                chunk: list[ChangeEvent] = pickle.load(spill)  # noqa: S301
-            except EOFError:
-                break
-            for event in chunk:
-                yield dataclass_replace(event, position_serialized=end_lsn)
+        for line in spill:
+            operation, table_name, timestamp, columns, omitted, type_index = json.loads(line)
+            yield ChangeEvent(
+                operation=operation,
+                table_name=table_name,
+                position_serialized=end_lsn,
+                timestamp=datetime.fromisoformat(timestamp),
+                columns=columns,
+                column_types=types[type_index],
+                omitted_columns=frozenset(omitted),
+            )
         for event in tail:
             yield dataclass_replace(event, position_serialized=end_lsn)
     finally:

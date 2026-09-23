@@ -146,7 +146,7 @@ CDC_BACKPRESSURE_STUCK_AGE = dt.timedelta(hours=2)
 # peek resumes where this one stopped.
 CDC_MAX_CHANGES_PER_READ = 100_000
 # Ceiling for the adaptive growth below. A peek never splits a transaction, so this window does not
-# bound a large one; the decoder spills it to disk and MAX_TX_BUFFER_EVENTS is the only cap.
+# bound a large one; the decoder spills it to disk, capped by MAX_TX_BUFFER_EVENTS and MAX_TX_SPILL_BYTES.
 CDC_MAX_CHANGES_LIMIT_CAP = 800_000
 # Stop starting new peeks past this wall-clock so the final flush + slot advance fit inside the
 # activity's 2h start-to-close timeout (see CDCExtractionWorkflow). The remainder is picked up on
