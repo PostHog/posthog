@@ -17,10 +17,10 @@ export function CurrentOwnershipScopeSelect() {
       label: `${team.name}${team.is_member ? " (your team)" : " team"}`,
     })) ?? []),
     ...(catalogue.data?.domains
-      .filter((domain) => !domain.archived)
+      .filter((domain) => !domain.archived || scope === `domain:${domain.id}`)
       .map((domain) => ({
         value: `domain:${domain.id}`,
-        label: domain.name,
+        label: `${domain.name}${domain.archived ? " (archived)" : ""}`,
       })) ?? []),
     ...teammateOptions.map((person) => ({
       value: `teammate:${person.uuid}`,

@@ -14,6 +14,10 @@ import {
   useRoutingCatalogue,
 } from "@posthog/ui/features/inbox/hooks/useInboxRouting";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import {
+  navigationSourceHref,
+  reportNavigationState,
+} from "@posthog/ui/router/reportNavigation";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
@@ -29,6 +33,7 @@ export function RoutingBatchDialog({
   const catalogue = useRoutingCatalogue();
   const reports = useRoutingBatchReports(batchId, offset);
   const action = useRoutingAction();
+  const source = navigationSourceHref();
   const batch = batchQuery.data;
   const domain = catalogue.data?.domains.find(
     (domain) => domain.id === batch?.domain_id,
@@ -103,6 +108,9 @@ export function RoutingBatchDialog({
                             <Link
                               to="/reports/$reportId"
                               params={{ reportId: report.report_id }}
+                              search={{ from: source }}
+                              state={reportNavigationState}
+                              onClick={onClose}
                               className="min-w-0 break-words underline"
                             >
                               {report.title || "Untitled report"}

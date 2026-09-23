@@ -16323,13 +16323,15 @@ export namespace Schemas {
      * * `claimed` - Active ownership
      * * `changed` - Changed since preview
      * * `restored` - Restored
+     * * `cancelled` - Cancelled before removal
      */
     export type SignalRoutingBatchChangeStatusEnum =
         | "pending"
         | "removed"
         | "claimed"
         | "changed"
-        | "restored";
+        | "restored"
+        | "cancelled";
     export type SignalRoutingBatchReport = {
         /**
          * Report included in this preview.
@@ -16347,6 +16349,7 @@ export namespace Schemas {
          * * `claimed` - Active ownership
          * * `changed` - Changed since preview
          * * `restored` - Restored
+         * * `cancelled` - Cancelled before removal
          */
         status: SignalRoutingBatchChangeStatusEnum & unknown;
         /**
