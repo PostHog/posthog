@@ -44,7 +44,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
 
     const pipeline = timing?.delivery_pipeline
     const deploysSynced = !!dora?.deploy_data_available
-    // The deploy figures follow the Health tab's environment and team scope, so name that scope
+    // The deploy figures follow the Deploys tab's environment and team scope, so name that scope
     // next to them instead of letting a narrowed number sit beside the repo-wide legs unlabeled.
     const deployScopeLabel = githubTeam ? `${environmentScopeLabel}, ${githubTeam}` : environmentScopeLabel
     const mergeToDeploy =
@@ -116,7 +116,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                                     formatValue={compactAgeLabel}
                                     goodWhenDown
                                     loading={doraLoading}
-                                    tooltip="Median wait from a PR's merge to the first successful deploy containing it, resolved through the deploy head commit. The same measure as the Health tab, in the environment and team scope selected there."
+                                    tooltip="Median wait from a PR's merge to the first successful deploy containing it, resolved through the deploy head commit. The same measure as the Deploys tab, in the environment and team scope selected there."
                                     emptyText={
                                         dora && !dora.deploy_data_available
                                             ? 'Production timing appears once the deployments source is synced.'
