@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Points dockerd at mirror.gcr.io, the Google-run cache of public Docker Hub images.
+# `docker compose up` pulls every image before it creates a container, so one Docker Hub
+# token request that times out leaves the whole stack missing. The mirror needs no token,
+# and dockerd falls back to Docker Hub for an image the mirror does not hold.
+
+config=$(sudo cat /etc/docker/daemon.json 2>/dev/null || echo '{}')
+# Depot CI sandboxes have no systemd; dockerd reloads registry-mirrors on SIGHUP.
+if ! echo "$config" | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json >/dev/null \
+    || ! pid=$(pidof dockerd) || ! sudo kill -HUP "$pid"; then
+    echo "::warning::Could not configure the registry mirror; images come from Docker Hub"
+    exit 0
+fi
+for _ in $(seq 1 10); do
+    if docker info --format '{{json .RegistryConfig.Mirrors}}' | grep -q mirror.gcr.io; then
+        exit 0
+    fi
+    sleep 1
+done
+echo "::warning::Docker did not load the registry mirror; images come from Docker Hub"
+

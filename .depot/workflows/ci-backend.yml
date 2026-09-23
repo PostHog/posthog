@@ -84,7 +84,7 @@
 #   trial a branch with `depot ci dispatch --workflow ci-backend.yml --ref <branch>` instead.
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - Jobs that start compose first point dockerd at mirror.gcr.io
-#   (.depot/actions/docker-hub-mirror). Token requests to auth.docker.io time out
+#   (bin/ci-use-docker-hub-mirror). Token requests to auth.docker.io time out
 #   intermittently from Depot CI sandboxes, and one failed pull leaves the stack empty.
 # - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
 #   project name and checkout directory names are not stable across CI providers
@@ -959,8 +959,9 @@ jobs:
                   # Shared dumps represent the PR base. Run-scoped dumps include
                   # the PR merge commit because their routing inputs may differ.
                   ref: ${{ needs.turbo-discover.outputs.schema_cache_key != '' && needs.turbo-discover.outputs.schema_base_sha || github.sha }}
-            - uses: ./.depot/actions/docker-hub-mirror
+            - name: Pull Docker Hub images through mirror.gcr.io
               if: steps.schema-cache.outputs.cache-matched-key == ''
+              run: bin/ci-use-docker-hub-mirror
             - name: Start database services
               if: steps.schema-cache.outputs.cache-matched-key == ''
               env:
@@ -1084,7 +1085,8 @@ jobs:
               run: |
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-            - uses: ./.depot/actions/docker-hub-mirror
+            - name: Pull Docker Hub images through mirror.gcr.io
+              run: bin/ci-use-docker-hub-mirror
             - name: Log in to Docker Hub
               if: ${{ vars.DOCKERHUB_USER != '' && secrets.DOCKERHUB_TOKEN != '' }}
               continue-on-error: true
@@ -1696,7 +1698,8 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-            - uses: ./.depot/actions/docker-hub-mirror
+            - name: Pull Docker Hub images through mirror.gcr.io
+              run: bin/ci-use-docker-hub-mirror
             - name: Log in to Docker Hub
               if: ${{ vars.DOCKERHUB_USER != '' && secrets.DOCKERHUB_TOKEN != '' }}
               continue-on-error: true
@@ -2158,7 +2161,8 @@ jobs:
               run: |
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-            - uses: ./.depot/actions/docker-hub-mirror
+            - name: Pull Docker Hub images through mirror.gcr.io
+              run: bin/ci-use-docker-hub-mirror
             - name: Log in to Docker Hub
               if: ${{ vars.DOCKERHUB_USER != '' && secrets.DOCKERHUB_TOKEN != '' }}
               continue-on-error: true
@@ -2739,7 +2743,8 @@ jobs:
                   echo "✅ No stray Python files or migrations found at product roots."
             # Pre-tests
             # Copies the fully versioned UDF xml file for use in CI testing
-            - uses: ./.depot/actions/docker-hub-mirror
+            - name: Pull Docker Hub images through mirror.gcr.io
+              run: bin/ci-use-docker-hub-mirror
             - name: Log in to Docker Hub
               if: ${{ vars.DOCKERHUB_USER != '' && secrets.DOCKERHUB_TOKEN != '' }}
               continue-on-error: true
