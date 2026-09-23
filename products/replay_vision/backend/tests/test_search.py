@@ -139,6 +139,51 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(matches[0].distance, 0.0, places=5)
         self.assertEqual(len(matches[1].matched_content), 1500)
 
+    @parameterized.expand(
+        [
+            ("unfiltered_keeps_newest", ObservationSearchFilters(), "newest_no"),
+            ("filtered_rows_do_not_consume_the_cap", ObservationSearchFilters(verdict=["yes"]), "newer_yes"),
+        ]
+    )
+    def test_candidate_cap_keeps_the_most_recent_matching_rows(
+        self, _name: str, filters: ObservationSearchFilters, expected: str
+    ) -> None:
+        scanner_id = str(uuid.uuid4())
+        now = timezone.now()
+        embedding = [1.0, *([0.0] * 3071)]
+
+        def row(document_id: str, age: timedelta, verdict: str) -> tuple:
+            timestamp = now - age
+            metadata = json.dumps({"scanner_id": scanner_id, "verdict": verdict})
+            return (
+                self.team.pk,
+                EMBEDDING_PRODUCT,
+                EMBEDDING_DOCUMENT_TYPE,
+                "reasoning",
+                document_id,
+                timestamp,
+                timestamp,
+                "some content",
+                metadata,
+                embedding,
+                timestamp,
+                0,
+                0,
+            )
+
+        self._insert_embedding_rows(
+            [
+                row("older_yes", timedelta(minutes=2), "yes"),
+                row("newer_yes", timedelta(minutes=1), "yes"),
+                row("newest_no", timedelta(0), "no"),
+            ]
+        )
+
+        with patch("products.replay_vision.backend.search._MAX_CANDIDATE_ROWS", 1):
+            matches = rank_observations(self.team, [scanner_id], embedding, 10, filters)
+
+        self.assertEqual([m.observation_id for m in matches], [expected])
+
     def test_every_filter_clause_compiles_and_applies_inside_the_candidate_subquery(self) -> None:
         scanner_id = str(uuid.uuid4())
         kept = str(uuid.uuid4())

@@ -21,7 +21,7 @@ from asgiref.sync import sync_to_async
 from posthog.api.embedding_worker import generate_embedding
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse_with_delta_mapping
 
@@ -64,8 +64,8 @@ _EMBEDDING_TIMEOUT_S = 10.0
 # ranks over. Set well above realistic per-team volume so it only bites a runaway team, keeping latency
 # predictable without an HNSW index (which our mandatory tenant/scanner metadata filters wouldn't engage anyway).
 _MAX_CANDIDATE_ROWS = 50_000
+_QUERY_TIMEOUT_S = 60
 
-# Read directly: the HogQL `document_embeddings` table pushes only the team filter down to the storage read.
 _EMBEDDINGS_TABLE = f"distributed_posthog_document_embeddings_{OBSERVATION_EMBEDDING_MODEL.value.replace('-', '_')}"
 _SCOPE_PREWHERE = """team_id = %(team_id)s
               AND product = %(product)s
@@ -75,8 +75,7 @@ _CANDIDATE_QUERY_TYPE = "replay_vision_search_candidates"
 _RANK_QUERY_TYPE = "replay_vision_search_rank"
 
 # Slugify each stored metadata tag before `hasAny`, so the case/format-insensitive match works against rows
-# whose fixed-vocab tags were stamped verbatim, with no backfill. The caller passes already-slugified values in
-# `%(tags)s`. Built from hardcoded literals only (no user/LLM input), preserving the `_append_filter` invariant.
+# whose fixed-vocab tags were stamped verbatim, with no backfill. Static literals only, see `_append_filter`.
 _TAGS_FILTER_CLAUSE = (
     f"hasAny(arrayMap(t -> {clickhouse_slugify_sql('t')}, JSONExtract(metadata, 'tags', 'Array(String)')), %(tags)s)"
 )
@@ -191,7 +190,8 @@ def rank_observations(
     filters: ObservationSearchFilters,
 ) -> list[ObservationMatch]:
     """Closest observations by cosine distance, restricted to the given scanners and to the structured
-    outcome filters via the embedding metadata.
+    outcome filters via the embedding metadata. Reads the physical table directly because the HogQL
+    `document_embeddings` table pushes only the team filter down to the storage read.
 
     The cosine scan is exact, so it is bounded to the most recent `_MAX_CANDIDATE_ROWS` matching rows: a
     timestamp-only pass finds the cutoff, then the ranking pass decodes vectors from that cutoff on. The scope
@@ -213,62 +213,64 @@ def rank_observations(
     }
     scope = _SCOPE_PREWHERE + "".join(f"\n              AND {clause}" for clause in filters.where_clauses(params))
 
-    tag_queries(product=Product.REPLAY_VISION, feature=Feature.SEMANTIC_SEARCH, query_type=_CANDIDATE_QUERY_TYPE)
-    # nosemgrep: clickhouse-fstring-param-audit - `scope` is static clauses from `_append_filter`, values are params
-    cutoff_rows = sync_execute(
-        f"""
-        SELECT minOrNull(timestamp)
-        FROM (
-            SELECT timestamp
-            FROM {_EMBEDDINGS_TABLE}
-            PREWHERE {scope}
-            ORDER BY timestamp DESC
-            LIMIT %(candidate_cap)s
+    with tags_context(product=Product.REPLAY_VISION, feature=Feature.SEMANTIC_SEARCH, query_type=_CANDIDATE_QUERY_TYPE):
+        # nosemgrep: clickhouse-fstring-param-audit - static clauses from `_append_filter`, values are params
+        cutoff_rows = sync_execute(
+            f"""
+            SELECT minOrNull(timestamp)
+            FROM (
+                SELECT timestamp
+                FROM {_EMBEDDINGS_TABLE}
+                PREWHERE {scope}
+                ORDER BY timestamp DESC
+                LIMIT %(candidate_cap)s
+            )
+            """,
+            params,
+            team_id=team.id,
+            readonly=True,
+            ch_user=ClickHouseUser.REPLAY_VISION,
+            settings={"max_execution_time": _QUERY_TIMEOUT_S},
         )
-        """,
-        params,
-        team_id=team.id,
-        readonly=True,
-        ch_user=ClickHouseUser.REPLAY_VISION,
-    )
     cutoff = cutoff_rows[0][0] if cutoff_rows else None
     if cutoff is None:
         return []
 
-    tag_queries(query_type=_RANK_QUERY_TYPE)
-    # nosemgrep: clickhouse-fstring-param-audit - `scope` is static clauses from `_append_filter`, values are params
-    rows = sync_execute(
-        f"""
-        SELECT
-            document_id,
-            min(row_distance) AS distance,
-            argMin(snippet, row_distance) AS matched_content
-        FROM (
+    with tags_context(product=Product.REPLAY_VISION, feature=Feature.SEMANTIC_SEARCH, query_type=_RANK_QUERY_TYPE):
+        # nosemgrep: clickhouse-fstring-param-audit - static clauses from `_append_filter`, values are params
+        rows = sync_execute(
+            f"""
             SELECT
                 document_id,
-                cosineDistance(embedding, %(embedding)s) AS row_distance,
-                substring(content, 1, %(snippet_chars)s) AS snippet
-            FROM {_EMBEDDINGS_TABLE}
-            PREWHERE {scope}
-              AND timestamp >= %(cutoff)s
-            WHERE row_distance <= %(max_distance)s
+                min(row_distance) AS distance,
+                argMin(snippet, row_distance) AS matched_content
+            FROM (
+                SELECT
+                    document_id,
+                    cosineDistance(embedding, %(embedding)s) AS row_distance,
+                    substring(content, 1, %(snippet_chars)s) AS snippet
+                FROM {_EMBEDDINGS_TABLE}
+                PREWHERE {scope}
+                  AND timestamp >= %(cutoff)s
+                WHERE row_distance <= %(max_distance)s
+            )
+            GROUP BY document_id
+            ORDER BY distance ASC
+            LIMIT %(limit)s
+            """,
+            {
+                **params,
+                "cutoff": cutoff,
+                "embedding": query_vector,
+                "snippet_chars": _MATCHED_CONTENT_MAX_CHARS,
+                "max_distance": MAX_MATCH_DISTANCE,
+                "limit": limit,
+            },
+            team_id=team.id,
+            readonly=True,
+            ch_user=ClickHouseUser.REPLAY_VISION,
+            settings={"max_execution_time": _QUERY_TIMEOUT_S},
         )
-        GROUP BY document_id
-        ORDER BY distance ASC
-        LIMIT %(limit)s
-        """,
-        {
-            **params,
-            "cutoff": cutoff,
-            "embedding": query_vector,
-            "snippet_chars": _MATCHED_CONTENT_MAX_CHARS,
-            "max_distance": MAX_MATCH_DISTANCE,
-            "limit": limit,
-        },
-        team_id=team.id,
-        readonly=True,
-        ch_user=ClickHouseUser.REPLAY_VISION,
-    )
     return [ObservationMatch(observation_id=row[0], distance=row[1], matched_content=row[2]) for row in rows]
 
 

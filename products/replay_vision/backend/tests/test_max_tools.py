@@ -181,8 +181,6 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
             if "verdict" in params and output.get("verdict") not in params["verdict"]:
                 return False
             if "tags" in params:
-                # Mirror the real query: it slugifies the stored metadata tags before `hasAny`, and the tool
-                # passes already-slugified values in the parameter.
                 obs_tags = {slugify_tag(t) for t in (*(output.get("tags") or []), *(output.get("tags_freeform") or []))}
                 if not any(tag in obs_tags for tag in params["tags"]):
                     return False
