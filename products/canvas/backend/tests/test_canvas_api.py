@@ -892,7 +892,15 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
             {
-                "operations": [{"path": "src/added.ts", "content": "export {}"}],
+                "operations": [
+                    {"path": "src/added.ts", "content": "export {}"},
+                    {
+                        "op": "str_replace",
+                        "path": "src/canvas.tsx",
+                        "old_string": "return null",
+                        "new_string": "return 1",
+                    },
+                ],
                 "expected_current_version_id": version_id,
             },
             format="json",
@@ -901,8 +909,7 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
 
         source = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/").json()
         assert source["project"]["files"]["src/added.ts"] == "export {}"
-        # The original component survives the per-file edit.
-        assert "src/canvas.tsx" in source["project"]["files"]
+        assert source["project"]["files"]["src/canvas.tsx"] == "export default function C() { return 1 }"
 
     def test_edit_delete_of_missing_file_400s(self):
         canvas_id = self._create_canvas()
@@ -916,6 +923,18 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["diagnostics"][0]["code"] == "edit_target_missing"
+
+    def test_edit_str_replace_without_new_string_400s(self):
+        canvas_id = self._create_canvas()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
+            {
+                "operations": [{"op": "str_replace", "path": "src/canvas.tsx", "old_string": "return null"}],
+                "expected_current_version_id": None,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_publish_clears_legacy_code(self):
         canvas_id = self._create_canvas()

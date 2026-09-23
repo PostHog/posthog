@@ -18768,23 +18768,54 @@ export namespace Schemas {
     }
 
     /**
-     * One per-file edit: set a file's content, or delete it.
+     * * `write` - Write
+     * * `delete` - Delete
+     * * `rename` - Rename
+     * * `str_replace` - Str Replace
+     */
+    export type CanvasSourceEditOpEnum = typeof CanvasSourceEditOpEnum[keyof typeof CanvasSourceEditOpEnum];
+
+
+    export const CanvasSourceEditOpEnum = {
+      Write: 'write',
+      Delete: 'delete',
+      Rename: 'rename',
+      StrReplace: 'str_replace',
+    } as const;
+
+    /**
+     * One file edit: replace text in a file, write a whole file, delete it, or rename it.
      */
     export interface CanvasSourceEditOperation {
-      /** Project-relative path of the file to write or delete (e.g. "src/canvas.tsx"). */
+      /** What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, a non-null content means 'write' and a null or missing content means 'delete'.
+       *
+       * * `write` - Write
+       * * `delete` - Delete
+       * * `rename` - Rename
+       * * `str_replace` - Str Replace */
+      op?: CanvasSourceEditOpEnum;
+      /** Project-relative path of the file to edit (e.g. "src/canvas.tsx"). */
       path: string;
       /**
-         * The file's complete new content. Null (or omitted) deletes the file.
+         * For 'write': the file's complete new content.
          * @nullable
          */
       content?: string | null;
+      /** For 'str_replace': the exact text to replace, copied from the file with a few surrounding lines so it matches one place only. If whitespace differs slightly, a unique line-by-line match is still accepted. */
+      old_string?: string;
+      /** For 'str_replace': the text that replaces old_string. An empty string deletes old_string. */
+      new_string?: string;
+      /** For 'str_replace': replace every exact match of old_string instead of requiring exactly one. */
+      replace_all?: boolean;
+      /** For 'rename': the file's new project-relative path. */
+      new_path?: string;
     }
 
     /**
      * Payload for publishing per-file edits against the canvas's current source.
      */
     export interface CanvasSourceEdit {
-      /** Edits applied in order to the canvas's current source project. */
+      /** Edits applied in order to the canvas's current source project, all or nothing. */
       operations: CanvasSourceEditOperation[];
       /** Short description of the change, stored on the appended version history entry. */
       prompt?: string;

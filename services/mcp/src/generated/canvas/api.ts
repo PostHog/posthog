@@ -420,11 +420,11 @@ export const CanvasesDraftsRetrieveQueryParams = () => zod.object({
 })
 
 /**
- * Publish per-file edits against the canvas's current source project.
+ * Publish file edits against the canvas's current source project.
  *
- * Diff-aware alternative to sending the complete project: each operation
- * sets a file's content or (content null) deletes it, applied to the head
- * the caller read. `expected_current_version_id` is mandatory here —
+ * Diff-aware alternative to sending the complete project: operations
+ * replace text inside a file, write, delete, or rename files, applied in
+ * order to the head the caller read. `expected_current_version_id` is mandatory here —
  * relative edits against an unverified base could silently merge into
  * someone else's newer work.
  */
@@ -437,6 +437,7 @@ export const CanvasesEditCreateParams = () => zod.object({
         ),
 })
 
+export const canvasesEditCreateBodyOperationsItemReplaceAllDefault = false
 export const canvasesEditCreateBodyNameMax = 400
 
 export const CanvasesEditCreateBody = () => zod
@@ -445,19 +446,45 @@ export const CanvasesEditCreateBody = () => zod
             .array(
                 zod
                     .object({
+                        op: zod
+                            .enum(['write', 'delete', 'rename', 'str_replace'])
+                            .describe(
+                                '\* `write` - Write\n\* `delete` - Delete\n\* `rename` - Rename\n\* `str_replace` - Str Replace'
+                            )
+                            .optional()
+                            .describe(
+                                "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, a non-null content means 'write' and a null or missing content means 'delete'.\n\n\* `write` - Write\n\* `delete` - Delete\n\* `rename` - Rename\n\* `str_replace` - Str Replace"
+                            ),
                         path: zod
                             .string()
-                            .describe(
-                                'Project-relative path of the file to write or delete (e.g. \"src\/canvas.tsx\").'
-                            ),
-                        content: zod
+                            .describe('Project-relative path of the file to edit (e.g. \"src\/canvas.tsx\").'),
+                        content: zod.string().nullish().describe("For 'write': the file's complete new content."),
+                        old_string: zod
                             .string()
-                            .nullish()
-                            .describe("The file's complete new content. Null (or omitted) deletes the file."),
+                            .optional()
+                            .describe(
+                                "For 'str_replace': the exact text to replace, copied from the file with a few surrounding lines so it matches one place only. If whitespace differs slightly, a unique line-by-line match is still accepted."
+                            ),
+                        new_string: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                "For 'str_replace': the text that replaces old_string. An empty string deletes old_string."
+                            ),
+                        replace_all: zod
+                            .boolean()
+                            .default(canvasesEditCreateBodyOperationsItemReplaceAllDefault)
+                            .describe(
+                                "For 'str_replace': replace every exact match of old_string instead of requiring exactly one."
+                            ),
+                        new_path: zod
+                            .string()
+                            .optional()
+                            .describe("For 'rename': the file's new project-relative path."),
                     })
-                    .describe("One per-file edit: set a file's content, or delete it.")
+                    .describe('One file edit: replace text in a file, write a whole file, delete it, or rename it.')
             )
-            .describe("Edits applied in order to the canvas's current source project."),
+            .describe("Edits applied in order to the canvas's current source project, all or nothing."),
         prompt: zod
             .string()
             .optional()

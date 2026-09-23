@@ -707,19 +707,70 @@ class CanvasSourcePublishSerializer(serializers.Serializer):
     )
 
 
-class CanvasSourceEditOperationSerializer(serializers.Serializer):
-    """One per-file edit: set a file's content, or delete it."""
+class CanvasSourceEditOp(models.TextChoices):
+    WRITE = "write"
+    DELETE = "delete"
+    RENAME = "rename"
+    STR_REPLACE = "str_replace"
 
-    path = serializers.CharField(
-        help_text='Project-relative path of the file to write or delete (e.g. "src/canvas.tsx").'
+
+class CanvasSourceEditOperationSerializer(serializers.Serializer):
+    """One file edit: replace text in a file, write a whole file, delete it, or rename it."""
+
+    op = serializers.ChoiceField(
+        choices=CanvasSourceEditOp.choices,
+        required=False,
+        help_text=(
+            "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for "
+            "changing an existing file. 'write' sets the file's complete content (new files, full rewrites). "
+            "'delete' removes the file. 'rename' moves it to new_path. When omitted, a non-null content means "
+            "'write' and a null or missing content means 'delete'."
+        ),
     )
+    path = serializers.CharField(help_text='Project-relative path of the file to edit (e.g. "src/canvas.tsx").')
     content = serializers.CharField(
         required=False,
         allow_null=True,
         allow_blank=True,
         trim_whitespace=False,
-        help_text="The file's complete new content. Null (or omitted) deletes the file.",
+        help_text="For 'write': the file's complete new content.",
     )
+    old_string = serializers.CharField(
+        required=False,
+        trim_whitespace=False,
+        help_text=(
+            "For 'str_replace': the exact text to replace, copied from the file with a few surrounding lines so it "
+            "matches one place only. If whitespace differs slightly, a unique line-by-line match is still accepted."
+        ),
+    )
+    new_string = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="For 'str_replace': the text that replaces old_string. An empty string deletes old_string.",
+    )
+    replace_all = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="For 'str_replace': replace every exact match of old_string instead of requiring exactly one.",
+    )
+    new_path = serializers.CharField(required=False, help_text="For 'rename': the file's new project-relative path.")
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        op = attrs.get("op")
+        if op is None:
+            attrs["op"] = CanvasSourceEditOp.WRITE if attrs.get("content") is not None else CanvasSourceEditOp.DELETE
+        elif op == CanvasSourceEditOp.WRITE and attrs.get("content") is None:
+            raise serializers.ValidationError({"content": "A 'write' operation needs the file's complete content."})
+        elif op == CanvasSourceEditOp.RENAME and not attrs.get("new_path"):
+            raise serializers.ValidationError({"new_path": "A 'rename' operation needs new_path."})
+        elif op == CanvasSourceEditOp.STR_REPLACE:
+            missing = [field for field in ("old_string", "new_string") if field not in attrs]
+            if missing:
+                raise serializers.ValidationError(
+                    dict.fromkeys(missing, "A 'str_replace' operation needs old_string and new_string.")
+                )
+        return attrs
 
 
 class CanvasSourceEditSerializer(serializers.Serializer):
@@ -728,7 +779,7 @@ class CanvasSourceEditSerializer(serializers.Serializer):
     operations = CanvasSourceEditOperationSerializer(
         many=True,
         allow_empty=False,
-        help_text="Edits applied in order to the canvas's current source project.",
+        help_text="Edits applied in order to the canvas's current source project, all or nothing.",
     )
     prompt = serializers.CharField(
         required=False,

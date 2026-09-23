@@ -933,7 +933,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             403: OpenApiResponse(description="Only the canvas creator can supply a name when editing."),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
-                description="An edit targeted a missing file, or the edited project failed validation.",
+                description="An operation did not apply (a missing file, or old_string matched no place or several), or the edited project failed validation.",
             ),
             409: OpenApiResponse(
                 response=CanvasPublishConflictSerializer,
@@ -944,11 +944,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
     )
     @action(methods=["POST"], detail=True)
     def edit(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Publish per-file edits against the canvas's current source project.
+        """Publish file edits against the canvas's current source project.
 
-        Diff-aware alternative to sending the complete project: each operation
-        sets a file's content or (content null) deletes it, applied to the head
-        the caller read. `expected_current_version_id` is mandatory here —
+        Diff-aware alternative to sending the complete project: operations
+        replace text inside a file, write, delete, or rename files, applied in
+        order to the head the caller read. `expected_current_version_id` is mandatory here —
         relative edits against an unverified base could silently merge into
         someone else's newer work.
         """

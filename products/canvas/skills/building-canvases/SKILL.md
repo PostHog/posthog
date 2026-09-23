@@ -122,9 +122,9 @@ matching shape above. The pattern is a hint; the user's actual request remains a
 4. Save the project by publishing it — publishing is the default and goes live at once:
    - **First version** (`current_version_id` is null): publish the complete project with
      `canvas-publish-create`, passing `expected_current_version_id: null`.
-   - **Already live** (`current_version_id` is set): publish per-file changes with
-     `canvas-edit-create`, or the complete project with `canvas-publish-create`, passing the
-     live `current_version_id` as `expected_current_version_id`.
+   - **Already live** (`current_version_id` is set): send only the edits with `canvas-edit-create`, using `str_replace` operations for changes inside a file.
+     Pass the live `current_version_id` as `expected_current_version_id`.
+     Publish the complete project with `canvas-publish-create` only to replace the whole project.
    - Stage a draft with `canvas-draft-create` only when the user asked for a draft, a preview, or
      a review step before going live.
      Follow the `validating-and-publishing-canvases` skill for diagnostics and conflict recovery.
