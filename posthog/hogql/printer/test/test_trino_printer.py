@@ -2004,6 +2004,8 @@ def test_prints_additional_semantics_safe_trino_expressions(expression: str, exp
         ("countDistinctArray([1, 1, 2])", "cardinality(array_distinct(__hogql_values))"),
         ("arrayLast(value -> value > 1, [1, 2])", 'element_at(filter(ARRAY[1, 2], "value" -> ("value" > 1)), -1)'),
         ("arrayResize([1], 3)", "repeat(0,"),
+        ("arrayResize([toInt64('1')], 2)", "repeat(element_at(ARRAY[TRY_CAST("),
+        ("arrayResize([toFloat64('1')], 2)", "repeat(element_at(ARRAY[CAST("),
         ("arrayResize([[1]], 3)", "repeat(ARRAY[],"),
         ("arrayResize([1, NULL], 3)", "element_at(ARRAY[1, NULL], cardinality(ARRAY[1, NULL]) + 1)"),
         ("tuplePlus((1, 2), (3, 4))", "(__hogql_tuple_args[1][2] + __hogql_tuple_args[2][2])"),

@@ -1306,13 +1306,13 @@ def _infer_generic_function_type(
         )
 
     if (
-        normalized_name in {"toint", "tointorzero"}
+        normalized_name in {"toint", "toint64", "tointornull", "toint64ornull", "tointorzero"}
         or normalized_name.startswith("_toint")
         or normalized_name.startswith("_touint")
     ):
         return ast.IntegerType(nullable=_conversion_nullable(normalized_name, arg_types))
 
-    if normalized_name in {"tofloat", "tofloatorzero", "tofloatordefault"}:
+    if normalized_name in {"tofloat", "tofloat64", "tofloatorzero", "tofloatordefault"}:
         return ast.FloatType(nullable=_conversion_nullable(normalized_name, arg_types))
 
     if normalized_name == "todecimal":
@@ -1547,7 +1547,11 @@ def _conversion_nullable(
         return printed_name is None or printed_name.lower().endswith("ornull")
     return normalized_name in {
         "toint",
+        "toint64",
+        "tointornull",
+        "toint64ornull",
         "tofloat",
+        "tofloat64",
         "tobool",
         "touuid",
         "todecimal",
