@@ -1,3 +1,5 @@
+from datetime import UTC, date, datetime, timedelta
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -32,12 +34,12 @@ def _alert(rows_config: dict | None = None, detector_config: dict | None = ZSCOR
     return alert
 
 
-def _extract(values, *, columns=None, rows_config=None, detector_config=ZSCORE):
+def _extract(values, *, columns=None, rows_config=None, detector_config=ZSCORE, query=None):
     rows = [[v] for v in values] if columns is None else values
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=rows, columns=columns, has_more=False)
         return HogQLDetectorExtractor().extract(
-            _alert(rows_config, detector_config), MagicMock(), MagicMock(), EXEC_MODE
+            _alert(rows_config, detector_config), MagicMock(query=query), MagicMock(), EXEC_MODE
         )
 
 
@@ -56,16 +58,50 @@ def test_scores_the_latest_value(latest, expect_anomaly):
         assert evaluation.breaches and "Anomaly detected" in evaluation.breaches[0]
 
 
-def test_large_result_is_bounded_to_the_detector_window():
+@pytest.mark.parametrize("evaluation", ["first_row", "last_row"])
+@pytest.mark.parametrize("label_type", ["date", "datetime", "native_date", "native_datetime", "invalid", "missing"])
+def test_large_result_is_bounded_to_the_detector_window(evaluation, label_type):
     # A big SQL result must not train the detector on every point — only the most recent window
     # it needs (the latest point is preserved as "current"), so workers can't be made to score
     # tens of thousands of points each check.
     expected = _compute_min_samples_for_detector(ZSCORE)
     row_count = 501
     assert expected < row_count  # guard: the fixture must exceed the window or this test is moot
-    result = _extract([float(i % 5) for i in range(row_count - 1)] + [999.0])
+    labels: list[str | date | None] = []
+    for i in range(row_count):
+        timestamp = datetime(2025, 1, 1, tzinfo=UTC) + timedelta(days=i)
+        label_options: dict[str, str | date | None] = {
+            "date": timestamp.date().isoformat(),
+            "datetime": timestamp.isoformat(),
+            "native_date": timestamp.date(),
+            "native_datetime": timestamp,
+            "invalid": "not a date" if i == row_count - 2 else timestamp.date().isoformat(),
+            "missing": None,
+        }
+        labels.append(label_options[label_type])
+    values = [float(i % 5) for i in range(row_count - 1)] + [999.0]
+    rows = [[label, value] for label, value in zip(labels, values)]
+    if evaluation == "first_row":
+        rows.reverse()
+    result = _extract(rows, columns=["day", "value"], rows_config={"evaluation": evaluation})
     assert len(result.series[0].points) == expected  # bounded to the window, not the full result
     assert result.series[0].points[-1].value == 999.0  # latest row preserved as current
+    if label_type in ("invalid", "missing"):
+        assert all(point.date is None for point in result.series[0].points)
+    else:
+        expected_dates = [label.isoformat() if isinstance(label, date) else label for label in labels[-expected:]]
+        assert [point.date for point in result.series[0].points] == expected_dates
+
+
+@pytest.mark.parametrize("sql", ["SELECT value FROM events", "SELECT value FROM events LIMIT 6"])
+def test_a_short_sql_series_still_reaches_the_ai_judge(sql):
+    llm = {"type": "llm", "threshold": 0.7, "window": 90}
+    result = _extract([1.0, 2.0, 1.0, 2.0, 1.0, 9.0], detector_config=llm, query={"kind": "HogQLQuery", "query": sql})
+    assert len(result.series[0].points) == 6
+    with pytest.raises(AlertDataUnavailableError, match="at least 5 rows"):
+        _extract([1.0, 2.0, 1.0, 9.0], detector_config=llm)
+    with pytest.raises(AlertDataUnavailableError, match="at least 31 rows"):
+        _extract([1.0, 2.0, 1.0, 2.0, 1.0, 9.0], detector_config=ZSCORE)
 
 
 def test_last_row_truncation_guard_rejects_a_capped_result():

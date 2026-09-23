@@ -1,4 +1,5 @@
 import math
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -14,7 +15,7 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.paginators import get_query_limit
-from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
+from posthog.tasks.alerts.detector import _compute_min_samples_for_detector, min_points_to_evaluate
 
 from products.alerts.backend.evaluation.contract import (
     AlertDataUnavailableError,
@@ -42,6 +43,19 @@ ANY_ROW_MAX_ROWS = 50
 # for queries that would otherwise return too many rows.
 LAST_ROW_MAX_ROWS = MAX_SELECT_RETURNED_ROWS
 _DEFAULT_HOGQL_CONFIG = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
+
+
+def _point_date(label: str | None) -> str | None:
+    if label is None:
+        return None
+    try:
+        if len(label) == 10:
+            return date.fromisoformat(label).isoformat()
+        if len(label) > 10 and label[10] in ("T", " "):
+            return datetime.fromisoformat(label).isoformat()
+    except ValueError:
+        pass
+    return None
 
 
 def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
@@ -104,7 +118,8 @@ def _calculate_rows_and_columns(
             # the query before checks can safely resume.
             raise AlertExtractionError(
                 "The query returns more rows than its row limit, so the result is incomplete. "
-                "Add an explicit SQL LIMIT that covers everything the alert evaluates, or aggregate the query."
+                "Missing rows could cause this alert to evaluate the wrong data. "
+                "Increase the SQL LIMIT to include all rows the alert needs, or adjust the query to return fewer rows."
             )
         if calculation_result.has_more is not False:
             raise AlertDataUnavailableError(
@@ -270,11 +285,12 @@ def extract_hogql_detector_series(
         )
 
     min_samples = _compute_min_samples_for_detector(detector_config)
+    required_samples = min_points_to_evaluate(detector_config)
     explicit_limit = _explicit_limit(insight)
-    if explicit_limit is not None and explicit_limit < min_samples:
+    if explicit_limit is not None and explicit_limit < required_samples:
         raise AlertExtractionError(
             f"The query's LIMIT of {explicit_limit} rows cannot supply the detector's required history "
-            f"of at least {min_samples} rows. " + _TRUNCATION_FIX
+            f"of at least {required_samples} rows. " + _TRUNCATION_FIX
         )
 
     fetched = _calculate_rows_and_columns(
@@ -308,17 +324,17 @@ def extract_hogql_detector_series(
 
     # SQL rows are the series verbatim, so the detector's minimum is the exact cutoff.
     # A short series cannot establish that the alert is not firing.
-    if len(values) < min_samples:
+    if len(values) < required_samples:
         if fetched.truncated:
             # The history is short because the row limit provably cut it, not because the data
             # is young, so waiting never heals it — same configuration-error routing as the
             # last-row guard.
             raise AlertExtractionError(
-                f"The detector needs at least {min_samples} rows, but the row limit cut the result to {len(values)}. "
+                f"The detector needs at least {required_samples} rows, but the row limit cut the result to {len(values)}. "
                 + _TRUNCATION_FIX
             )
         raise AlertDataUnavailableError(
-            f"The SQL anomaly alert needs at least {min_samples} rows, but the query returned {len(values)}. "
+            f"The SQL anomaly alert needs at least {required_samples} rows, but the query returned {len(values)}. "
             "Expand the query history or reduce the detector window."
         )
 
@@ -336,7 +352,10 @@ def extract_hogql_detector_series(
     label_cell = _label_cell(anchor_row, label_index)
     series_label = label_cell if label_cell is not None else _value_column_label(column_names, value_index)
 
-    points = [SeriesPoint(date=None, value=v) for v in values]
+    dates = [_point_date(_label_cell(row, label_index)) for row in ordered[-min_samples:]]
+    # Partial dates would shift chart positions when the simulation removes missing labels.
+    has_dates = all(point_date is not None for point_date in dates)
+    points = [SeriesPoint(date=point_date if has_dates else None, value=v) for point_date, v in zip(dates, values)]
     single = ComparableSeries(label=series_label, points=points, current_index=len(points) - 1)
     return ExtractionResult(series=[single], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 

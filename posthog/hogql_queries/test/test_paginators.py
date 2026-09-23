@@ -576,4 +576,7 @@ class TestAlertPaginator(SimpleTestCase):
         paginated = cast(SelectQuery, paginator.paginate(query))
         assert paginated.limit == Constant(value=4)
         assert paginated.offset == Constant(value=1)
+        assert paginated.select_from is not None
+        assert isinstance(paginated.select_from.table, SelectQuery)
+        assert isinstance(paginated.select_from.table.limit, Constant)
         assert paginated.select_from.table.limit.value == 2
