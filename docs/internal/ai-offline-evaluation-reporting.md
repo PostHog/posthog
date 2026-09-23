@@ -44,3 +44,16 @@ Task content retrieval tools retain call metrics but omit content spans and free
 
 The [live comparison plan and script](../../products/signals/eval/experiments/2026-09-long-running-agent-evals/PLAN.md#live-trial-operator-script) describe launch inputs, stored results, and supported scout capabilities.
 Keep downloaded prompts, memory, reports, and transcripts outside version control.
+
+### Internal comparison UI
+
+Staff members in project 2 can open **Scouts > Compare scouts** to choose a scout, add prompt/model/effort variants, and set the number of runs per variant.
+The page submits at most 20 runs per comparison and shows deployment or scout compatibility blockers before launch.
+The first accepted launch saves the shared starting history; remaining launches reuse it with their own private writable state.
+Keep the page open until all submissions are confirmed. Accepted runs continue on the server after the page closes.
+
+The page shows the operator's recent private runs, supports stopping active runs, and exports their captured reports, memory changes, and available usage as JSON.
+Browser storage keeps only scout and launch IDs, scoped to the project and operator.
+Unsubmitted prompt edits are lost on reload; start a new comparison instead of reconstructing an uncertain request.
+The setup and history endpoints enforce the staff/project restriction on the server, in addition to existing scout permissions.
+Shared instructions guide investigations but do not enforce date or file access limits.

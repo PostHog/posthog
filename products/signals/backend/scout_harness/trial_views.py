@@ -23,6 +23,7 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_spend_gates
 from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
+from products.signals.backend.scout_harness.trial_inspection import ScoutTrialInspection
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
     create_trial_launch,
@@ -30,9 +31,13 @@ from products.signals.backend.scout_harness.trial_launch import (
 )
 from products.signals.backend.scout_harness.trial_result import export_trial_result, get_trial_workflow_status
 from products.signals.backend.scout_harness.trial_serializers import (
+    ScoutTrialHistoryQuerySerializer,
+    ScoutTrialHistorySerializer,
     ScoutTrialLaunchSerializer,
     ScoutTrialResultQuerySerializer,
     ScoutTrialResultSerializer,
+    ScoutTrialSetupQuerySerializer,
+    ScoutTrialSetupSerializer,
     ScoutTrialStartedSerializer,
 )
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
@@ -40,6 +45,11 @@ from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
 
 class ScoutTrialConfigMixin:
     team: Team
+
+    def _internal_trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:
+        if self.team.id != 2 or not request.user.is_staff:
+            raise exceptions.NotFound()
+        return self._trial_config(request, identifier)
 
     def _trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:
         if (
@@ -65,6 +75,49 @@ class ScoutTrialConfigMixin:
         if config is None or config.skill_name in withheld_skills_for_team(team.id):
             raise exceptions.NotFound()
         return config
+
+    @private_capture_context()
+    @validated_request(
+        query_serializer=ScoutTrialSetupQuerySerializer,
+        responses={200: OpenApiResponse(response=ScoutTrialSetupSerializer)},
+        operation_id="signals_scout_config_trial_setup",
+        summary="Inspect a private scout comparison",
+        description="Read comparison readiness and source settings for the internal comparison editor.",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="trial-setup",
+        required_scopes=["signal_scout:write", "llm_skill:write"],
+    )
+    def trial_setup(self, request: ValidatedRequest, **kwargs: str) -> Response:
+        config = self._internal_trial_config(request, kwargs.get("id", ""))
+        try:
+            setup = ScoutTrialInspection(config, cast(User, request.user)).setup(
+                request.validated_query_data.get("context_id")
+            )
+        except (ScoutTrialLaunchError, SkillNotFoundError) as error:
+            raise exceptions.NotFound(str(error)) from error
+        return Response(ScoutTrialSetupSerializer(setup).data)
+
+    @private_capture_context()
+    @validated_request(
+        query_serializer=ScoutTrialHistoryQuerySerializer,
+        responses={200: OpenApiResponse(response=ScoutTrialHistorySerializer)},
+        operation_id="signals_scout_config_trial_history",
+        summary="List your private scout comparison runs",
+        description="Read recent private runs for the requesting operator in the internal comparison editor.",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="trial-history",
+        required_scopes=["signal_scout:write", "llm_skill:write"],
+    )
+    def trial_history(self, request: ValidatedRequest, **kwargs: str) -> Response:
+        config = self._internal_trial_config(request, kwargs.get("id", ""))
+        history = ScoutTrialInspection(config, cast(User, request.user)).history(request.validated_query_data["limit"])
+        return Response(ScoutTrialHistorySerializer(history).data)
 
     @private_capture_context()
     @validated_request(

@@ -17,9 +17,13 @@ from posthog.storage import object_storage
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutNote, SignalScoutRun, SignalScratchpad
-from products.signals.backend.scout_harness.model_selection import resolve_scout_model
+from products.signals.backend.scout_harness.model_selection import ScoutModel, resolve_scout_model
 from products.signals.backend.scout_harness.serializers import validate_scout_repositories
-from products.signals.backend.scout_harness.skill_loader import load_skill_for_run, skill_uses_report_channel
+from products.signals.backend.scout_harness.skill_loader import (
+    LoadedSkill,
+    load_skill_for_run,
+    skill_uses_report_channel,
+)
 from products.signals.backend.scout_harness.tools.notes import _to_note
 from products.signals.backend.scout_harness.tools.runs import search_recent_runs
 from products.signals.backend.scout_harness.tools.scratchpad import _to_entry
@@ -190,21 +194,35 @@ def load_trial_launch(team_id: int, launch_id: UUID | str) -> TrialLaunch:
     return launch
 
 
-def _snapshot_context(config: SignalScoutConfig, user: User, identifier: UUID, note: str) -> TrialContext:
-    team = config.team
-    skill = load_skill_for_run(team, config.skill_name)
+def assert_trial_capabilities_supported(config: SignalScoutConfig, skill: LoadedSkill) -> None:
     if not skill_uses_report_channel(skill.allowed_tools):
         raise ScoutTrialLaunchError("Live trials support scouts that create or edit reports.")
     if config.structured_output_schema or config.write_scopes or config.mcp_gateway_server_ids:
         raise ScoutTrialLaunchError("This scout requires writes or external tools that live trials do not support yet.")
-    model_choice = resolve_scout_model(team, skill.name, str(identifier), configured_model=config.model)
-    pipeline_choice = resolve_agent_runtime(team.id, STEP_SCOUT)
+
+
+def resolve_trial_source_model(config: SignalScoutConfig, identifier: UUID) -> ScoutModel:
+    model_choice = resolve_scout_model(config.team, config.skill_name, str(identifier), configured_model=config.model)
+    pipeline_choice = resolve_agent_runtime(config.team_id, STEP_SCOUT)
     adapter = model_choice.runtime_adapter if model_choice.model else pipeline_choice.runtime_adapter
     adapter = adapter or "claude"
     model = model_choice.model or pipeline_choice.model or get_default_model_for_runtime_adapter(adapter)
     if model is None or adapter not in {"claude", "codex"}:
         raise ScoutTrialLaunchError("The scout's model could not be resolved.")
     effort = model_choice.reasoning_effort if model_choice.model else pipeline_choice.reasoning_effort
+    return ScoutModel(
+        model=model,
+        runtime_adapter=adapter,
+        reasoning_effort=effort,
+        service_tier=model_choice.service_tier if model_choice.model else pipeline_choice.service_tier,
+    )
+
+
+def _snapshot_context(config: SignalScoutConfig, user: User, identifier: UUID, note: str) -> TrialContext:
+    team = config.team
+    skill = load_skill_for_run(team, config.skill_name)
+    assert_trial_capabilities_supported(config, skill)
+    runtime = resolve_trial_source_model(config, identifier)
     memories = (
         SignalScratchpad.objects.for_team(team.id)
         .select_related("created_by_run", "created_by_run__task_run")
@@ -223,10 +241,10 @@ def _snapshot_context(config: SignalScoutConfig, user: User, identifier: UUID, n
         skill_origin=skill.origin,
         allowed_tools=skill.allowed_tools,
         capabilities=trial_capabilities(config),
-        runtime_adapter=cast(Literal["claude", "codex"], adapter),
-        model=model,
-        reasoning_effort=effort,
-        service_tier=model_choice.service_tier if model_choice.model else pipeline_choice.service_tier,
+        runtime_adapter=cast(Literal["claude", "codex"], runtime.runtime_adapter),
+        model=cast(str, runtime.model),
+        reasoning_effort=runtime.reasoning_effort,
+        service_tier=runtime.service_tier,
         note=note,
         memory=[cast(dict[str, JsonValue], _to_entry(row).as_dict()) for row in memories],
         notes=[cast(dict[str, JsonValue], _to_note(row).as_dict()) for row in notes],

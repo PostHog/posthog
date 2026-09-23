@@ -34,6 +34,58 @@ class ScoutTrialLaunchSerializer(serializers.Serializer):
     )
 
 
+class ScoutTrialSetupQuerySerializer(serializers.Serializer):
+    context_id = serializers.UUIDField(
+        required=False, help_text="Saved comparison context to inspect instead of the current source skill."
+    )
+
+
+class ScoutTrialModelChoiceSerializer(serializers.Serializer):
+    model = serializers.CharField(help_text="Model identifier supported by the scout harness and this account.")
+    reasoning_efforts = serializers.ListField(
+        child=serializers.CharField(), help_text="Reasoning efforts supported by this model."
+    )
+
+
+class ScoutTrialSetupSerializer(serializers.Serializer):
+    config_id = serializers.UUIDField(help_text="Source scout configuration.")
+    skill_name = serializers.CharField(help_text="Source scout skill name.")
+    skill_version = serializers.IntegerField(help_text="Source skill version shown in the comparison editor.")
+    skill_body = serializers.CharField(help_text="Source skill body before applying variant changes.")
+    ready = serializers.BooleanField(help_text="Whether deployment and source scout checks permit a comparison.")
+    blocked_reason = serializers.CharField(allow_null=True, help_text="Why a comparison cannot start yet.")
+    model = serializers.CharField(allow_null=True, help_text="Resolved source model before variant overrides.")
+    reasoning_effort = serializers.CharField(
+        allow_null=True, help_text="Resolved source effort; null requires an explicit selection before launching."
+    )
+    models = ScoutTrialModelChoiceSerializer(many=True, help_text="Available models and their supported efforts.")
+
+
+class ScoutTrialHistoryQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        min_value=1, max_value=100, default=30, help_text="Maximum number of recent private runs to return."
+    )
+
+
+class ScoutTrialHistoryItemSerializer(serializers.Serializer):
+    launch_id = serializers.UUIDField(help_text="Launch identity for result retrieval.")
+    context_id = serializers.UUIDField(help_text="Saved starting context shared by comparison runs.")
+    variant = serializers.CharField(allow_blank=True, help_text="Operator label for this variant.")
+    model = serializers.CharField(help_text="Requested model identifier.")
+    reasoning_effort = serializers.CharField(help_text="Requested reasoning effort.")
+    status = serializers.CharField(help_text="Current underlying task execution status.")
+    started_at = serializers.DateTimeField(help_text="Task execution creation time.")
+    completed_at = serializers.DateTimeField(allow_null=True, help_text="Task execution completion time.")
+    run_id = serializers.UUIDField(help_text="Scout run identity.")
+    task_id = serializers.UUIDField(help_text="Task identity for existing log and cancellation tools.")
+    task_run_id = serializers.UUIDField(help_text="Task execution identity for logs.")
+
+
+class ScoutTrialHistorySerializer(serializers.Serializer):
+    results = ScoutTrialHistoryItemSerializer(many=True, help_text="Recent private runs started by this operator.")
+    has_more = serializers.BooleanField(help_text="Whether additional recent runs exceed the requested limit.")
+
+
 class ScoutTrialStartedSerializer(serializers.Serializer):
     launch_id = serializers.UUIDField(help_text="Retry-stable launch identity.")
     context_id = serializers.UUIDField(help_text="Starting context to reuse across variants and repetitions.")

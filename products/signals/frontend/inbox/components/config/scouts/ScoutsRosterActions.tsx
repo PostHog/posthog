@@ -5,6 +5,9 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import type { ScoutChatType } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
@@ -17,9 +20,21 @@ import { ScoutSuggestButton } from './ScoutSuggestButton'
 export function ScoutsRosterActions(): JSX.Element {
     const { loadScoutConfigs } = useActions(scoutFleetLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
     const suggestionsEnabled = !!featureFlags[FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]
     return (
         <>
+            {currentTeamId === 2 && user?.is_staff && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    to={urls.inboxScoutTrials()}
+                    data-attr="scout-open-comparisons"
+                >
+                    Compare scouts
+                </LemonButton>
+            )}
             <AskAboutScoutsMenu />
             {/* Without the suggestions strip this button is the only way to ask for a pick, so it
                 keeps its place in the header until the strip reaches everyone. */}

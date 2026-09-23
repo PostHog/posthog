@@ -177,7 +177,8 @@ Weak-signal and structured-output scouts are outside this first scope; reject un
 Scouts that need product mutations, new task launches, or writable third-party connections also need additional support.
 Read-only external connections can be admitted once their credentials and tools have a verified read boundary.
 Do not claim that every scout can run with unchanged behavior under a restricted token.
-No UI, automatic judging or prompt optimizer, comparison-management API suite, general retention service, or new execution platform is required.
+The internal UI described below wraps the existing trial endpoints.
+Automatic judging, a prompt optimizer, a general retention service, and a new execution platform remain outside v0.
 
 Telemetry isolation is a required part of the feedback use case.
 The source review found independent capture paths in the backend, MCP server, and Python model gateway; it did not establish the active production gateway route or every warehouse replica exposing task data.
@@ -330,3 +331,31 @@ Validation used synthetic fixtures and stubbed providers, with no model calls:
 The running development backend still passes its health check.
 No service was restarted or deployed for this change, and trial enablement remains off.
 Deploy the gateway support before setting the backend/worker capture attestation and enabling trials.
+
+### Internal comparison UI, September 23
+
+Staff members in project 2 can open **Scouts > Compare scouts** at `/inbox/scouts/comparisons`.
+Choose a supported scout, edit variant names, models, reasoning efforts, and optional replacement skill bodies, then select repeats and optional common instructions.
+The UI caps a comparison at 20 runs and uses the same launch, result, and task-cancel endpoints as the script.
+It adds no batch table or execution platform.
+
+`GET /signals/scout/configs/{id}/trial-setup/` reads source readiness and available model/effort choices without creating a snapshot.
+`GET /signals/scout/configs/{id}/trial-history/` lists the requesting operator's recent private runs.
+Both enforce staff access in project 2 as well as existing scout permissions.
+
+The first launch saves starting context, and all remaining submissions share that context with independent private changes.
+Retries reuse each launch ID and its exact request body.
+Keep the page open until submissions are confirmed; accepted runs continue on the server.
+Browser storage saves only source config and launch IDs, scoped to the operator and project.
+Prompt edits, reports, and memory stay out of browser storage, autocapture, and session replay.
+After a reload, accepted runs can be reopened; unsubmitted prompt edits must be entered into a new comparison.
+
+Results include captured reports, private memory changes, run settings, and available token counts, with JSON download and per-run stop controls.
+Dollar costs remain unknown when private capture removes the shared cost-event source.
+The page does not automatically judge results or enforce instructions as query filters.
+
+UI validation used invented checkout fixtures and mocked run endpoints, without model calls or production experiments.
+Chromium exercised four submissions with one shared starting context, a replacement prompt on two runs, result inspection, JSON download, reload recovery, and cancellation.
+The page was inspected at 1,100px and 520px with no browser errors.
+Focused API and frontend tests cover access restrictions, private history, retry identity, double submission, persistence, and polling recovery.
+Repository-wide Python and frontend TypeScript checks passed before the master refresh.

@@ -1372,10 +1372,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 { skillName }: { skillName?: string },
                 searchParams: Record<string, string | undefined>
             ) => {
-                // `/inbox/scouts/scratchpad`, `/inbox/scouts/findings`, and `/inbox/scouts/runs` also match
-                // this pattern; their own handlers own those paths (no real scout skill_name collides —
-                // they're `signals-scout-*`).
-                if (skillName === 'scratchpad' || skillName === 'findings' || skillName === 'runs') {
+                // Static scout pages also match this pattern and must not select a scout.
+                if (
+                    skillName === 'scratchpad' ||
+                    skillName === 'findings' ||
+                    skillName === 'runs' ||
+                    skillName === 'comparisons'
+                ) {
                     return
                 }
                 const name = skillName ?? null
