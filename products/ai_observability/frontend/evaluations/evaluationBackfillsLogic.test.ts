@@ -407,6 +407,23 @@ describe('evaluationBackfillsLogic', () => {
         expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(false)
     })
 
+    it('keeps polling a finished run until its coverage lands', async () => {
+        listMock.mockResolvedValueOnce({ count: 1, results: [backfill({ status: 'running' })] })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
+
+        const justFinished = { status: 'completed' as const, finished_at: dayjs().toISOString() }
+        listMock.mockResolvedValue({ count: 1, results: [backfill({ ...justFinished, remaining_count: null })] })
+        logic.actions.loadBackfills(true)
+        await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
+        expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(true)
+
+        listMock.mockResolvedValue({ count: 1, results: [backfill({ ...justFinished, remaining_count: 0 })] })
+        logic.actions.loadBackfills(true)
+        await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
+        expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(false)
+    })
+
     it('keeps polling after a failed background load and returns to the base interval on success', async () => {
         jest.useFakeTimers()
         try {

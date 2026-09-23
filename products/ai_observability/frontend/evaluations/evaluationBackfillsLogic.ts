@@ -92,6 +92,9 @@ function backfillErrorMessage(error: unknown, fallback: string): string {
 
 /** Each consecutive list failure doubles the wait, so an API that is already struggling is not
  * polled at full rate. The wait returns to the base interval as soon as one load succeeds. */
+// How long a finished run keeps refreshing while its coverage count is still on its way.
+const COVERAGE_GRACE_SECONDS = 120
+
 function pollDelayMs(consecutiveFailures: number): number {
     return Math.min(ACTIVE_POLL_INTERVAL_MS * 2 ** Math.max(consecutiveFailures - 1, 0), MAX_POLL_INTERVAL_MS)
 }
@@ -120,6 +123,7 @@ export interface evaluationBackfillsLogicValues {
     requestedWindow: BackfillWindow | null
     rerunExisting: boolean
     settleWait: string | null
+    shouldPoll: boolean
     startDisabledReason: string | undefined
     transitioningIds: string[]
     unit: EvaluationTargetEnumApi
@@ -199,6 +203,7 @@ export interface evaluationBackfillsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasActiveBackfill: (backfills: EvaluationBackfillApi[]) => boolean
+        shouldPoll: (backfills: EvaluationBackfillApi[], hasActiveBackfill: boolean) => boolean
         unit: (
             estimate: EvaluationBackfillEstimateApi | null,
             evaluation: EvaluationConfig | null
@@ -352,6 +357,22 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             (s) => [s.backfills],
             (backfills: EvaluationBackfillApi[]): boolean => backfills.some((b) => b.status === 'running'),
         ],
+        // A row completes just before its coverage is counted, so polling has to outlive the run
+        // itself or the table keeps the number it had in that gap. The age bound is what stops a
+        // row that will never be counted, from before coverage was recorded or after a failed
+        // count, from polling forever.
+        shouldPoll: [
+            (s) => [s.backfills, s.hasActiveBackfill],
+            (backfills: EvaluationBackfillApi[], hasActiveBackfill: boolean): boolean =>
+                hasActiveBackfill ||
+                backfills.some(
+                    (b) =>
+                        b.status === 'completed' &&
+                        b.remaining_count === null &&
+                        !!b.finished_at &&
+                        dayjs().diff(dayjs(b.finished_at), 'second') < COVERAGE_GRACE_SECONDS
+                ),
+        ],
         unit: [
             (s) => [s.estimate, s.evaluation],
             (
@@ -450,7 +471,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         /** Arms the next poll off the list the logic last saw, so a failed request keeps the poll
          * alive instead of ending it. */
         const schedulePoll = (): void => {
-            if (!values.hasActiveBackfill) {
+            if (!values.shouldPoll) {
                 cache.disposables.dispose(POLL_KEY)
                 return
             }
@@ -485,7 +506,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                         limit: BACKFILL_PAGE_SIZE,
                     })
                     actions.loadBackfillsSuccess(response.results ?? [])
-                    if (values.hasActiveBackfill) {
+                    if (values.shouldPoll) {
                         cache.recountWhenIdle = true
                     } else if (cache.recountWhenIdle) {
                         // A finished run changed which units already have a result, so the count is
