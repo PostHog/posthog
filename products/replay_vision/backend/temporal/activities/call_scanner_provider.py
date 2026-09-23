@@ -650,7 +650,7 @@ async def _run_mission(
         finalized=finalized,
         signals=signals,
         verification=verification,
-        thumbnail_video_s=getattr(step_outputs[STEP_CORE], "thumbnail_t", None),
+        thumbnail_video_s=getattr(step_outputs.get(STEP_CORE), "thumbnail_t", None),
     )
 
 
