@@ -821,9 +821,16 @@ def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
     if not terms:
         return set()
 
-    term_conditions = "\n          AND ".join(
+    term_matches = [
         f"(description ILIKE {{term_{index}}} OR source_id ILIKE {{term_{index}}})" for index in range(len(terms))
-    )
+    ]
+    # Each row here is one signal, so the term test belongs after the grouping: a report promotes
+    # only once several signals merge into it, and the word a caller remembers routinely sits in a
+    # different signal from the identifier it pairs with. The WHERE keeps the rows matching at
+    # least one term, which leaves every countIf unchanged and keeps the grouping off the signals
+    # no term touches.
+    any_term = " OR ".join(term_matches)
+    every_term = "\n           AND ".join(f"countIf({match}) > 0" for match in term_matches)
     ch_query = f"""
         SELECT report_id
         FROM (
@@ -837,8 +844,9 @@ def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
         )
         WHERE NOT is_deleted
           AND report_id != ''
-          AND {term_conditions}
+          AND ({any_term})
         GROUP BY report_id
+        HAVING {every_term}
         ORDER BY max(timestamp) DESC
         LIMIT {_REPORT_ID_FILTER_CAP}
     """
