@@ -510,6 +510,7 @@ describe("OtelRunTelemetry", () => {
     let telemetry: OtelRunTelemetry;
 
     beforeEach(() => {
+      vi.stubEnv("OTEL_TRACES_SAMPLER", "always_on");
       telemetry = new OtelRunTelemetry(
         {
           url: "https://us.i.posthog.com/i/v1/logs",
@@ -519,6 +520,11 @@ describe("OtelRunTelemetry", () => {
         },
         RESOURCE,
       );
+    });
+
+    afterEach(async () => {
+      await telemetry.shutdown();
+      vi.unstubAllEnvs();
     });
 
     function driveSuccessfulRun(): void {
@@ -621,10 +627,9 @@ describe("OtelRunTelemetry", () => {
         { ...RESOURCE, runId: otherRunId },
       );
       try {
-        const contexts = [telemetry, other].map((run) =>
-          run.getRunSpanContext(),
-        );
-        expect(contexts[0]?.traceId).not.toBe(contexts[1]?.traceId);
+        const runContext = telemetry.getRunSpanContext();
+        const otherContext = other.getRunSpanContext();
+        expect(runContext?.traceId).not.toBe(otherContext?.traceId);
         telemetry.append(RUN_ID, makeEntry("session/prompt", {}));
         other.append(otherRunId, makeEntry("session/prompt", {}));
         telemetry.append(
@@ -632,22 +637,25 @@ describe("OtelRunTelemetry", () => {
           makeEntry("_posthog/turn_complete", { stopReason: "end_turn" }),
         );
         telemetry.append(RUN_ID, makeEntry("session/prompt", {}));
-        expect(
-          [telemetry, other].map((run) => run.getRunSpanContext()),
-        ).toEqual(contexts);
+        expect(telemetry.getRunSpanContext()).toEqual(runContext);
+        expect(other.getRunSpanContext()).toEqual(otherContext);
 
         await Promise.all([telemetry.shutdown(), other.shutdown()]);
 
-        for (const [index, runId] of [RUN_ID, otherRunId].entries()) {
+        for (const [runId, context] of [
+          [RUN_ID, runContext],
+          [otherRunId, otherContext],
+        ] as const) {
+          expect(context).toBeDefined();
           const runSpans = exportedSpans().filter(
             (span) => span.resource.attributes.run_id === runId,
           );
           expect(
             runSpans.find((span) => span.name === "task_run")?.spanContext(),
-          ).toEqual(contexts[index]);
+          ).toEqual(context);
           expect(
             runSpans.every(
-              (span) => span.spanContext().traceId === contexts[index]?.traceId,
+              (span) => span.spanContext().traceId === context?.traceId,
             ),
           ).toBe(true);
         }

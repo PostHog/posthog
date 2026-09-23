@@ -592,12 +592,9 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(Object.keys(env.openaiCustomHeaders ?? {})).toEqual([
       "X-PostHog-Properties",
     ]);
-    expect(parseBlob(env.anthropicCustomHeaders ?? "")).not.toHaveProperty(
-      "task_run_trace_id",
-    );
-    expect(parseBlob(env.anthropicCustomHeaders ?? "")).not.toHaveProperty(
-      "task_run_span_id",
-    );
+    const properties = parseBlob(env.anthropicCustomHeaders ?? "");
+    expect(properties).not.toHaveProperty("task_run_trace_id");
+    expect(properties).not.toHaveProperty("task_run_span_id");
   });
 
   // The gateway writes the tier into the OpenAI body from this header, so a

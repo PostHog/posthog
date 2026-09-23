@@ -454,6 +454,18 @@ it("links gateway requests to the run span exported after session shutdown", asy
   });
   mswServer.listen({ onUnhandledRequest: "error" });
   try {
+    vi.stubEnv("OTEL_TRACES_SAMPLER", "always_on");
+    for (const key of [
+      "LLM_GATEWAY_URL",
+      "AI_GATEWAY_URL",
+      "POSTHOG_API_KEY",
+      "POSTHOG_API_URL",
+      "POSTHOG_API_HOST",
+      "POSTHOG_AUTH_HEADER",
+      "POSTHOG_PROJECT_ID",
+    ]) {
+      vi.stubEnv(key, undefined);
+    }
     mockedClaudeSdk.query.mockClear();
     await server.start();
 
@@ -476,13 +488,87 @@ it("links gateway requests to the run span exported after session shutdown", asy
       expect.objectContaining({ traceId, spanId }),
     ]);
   } finally {
-    await server.stop();
-    mswServer.close();
-    logExport.mockRestore();
-    spanExport.mockRestore();
-    await rm(directory, { recursive: true, force: true });
+    try {
+      await server.stop();
+    } finally {
+      mswServer.close();
+      logExport.mockRestore();
+      spanExport.mockRestore();
+      vi.unstubAllEnvs();
+      await rm(directory, { recursive: true, force: true });
+    }
   }
 }, 30000);
+
+it.each([false, true])(
+  "shuts down initialization telemetry (aborted: %s)",
+  async (aborted) => {
+    const append = vi.fn();
+    const shutdown = vi.fn(async () => {});
+    const testServer = new AgentServer({
+      port: 0,
+      jwtPublicKey: TEST_PUBLIC_KEY,
+      apiUrl: "http://localhost:8000",
+      apiKey: "test-api-key",
+      projectId: 1,
+      mode: "interactive",
+      taskId: "test-task-id",
+      runId: "test-run-id",
+      runtimeAdapter: "codex",
+      model: "gpt-5.2-codex",
+    }) as unknown as {
+      shutdownController: AbortController;
+      initializingTelemetry: {
+        append: typeof append;
+        shutdown: typeof shutdown;
+      };
+      _doInitializeSession(
+        payload: JwtPayload,
+        controller: null,
+      ): Promise<void>;
+      initializeSession(payload: JwtPayload, controller: null): Promise<void>;
+    };
+    testServer._doInitializeSession = vi.fn(async () => {
+      testServer.initializingTelemetry = { append, shutdown };
+      if (aborted) testServer.shutdownController.abort();
+      throw new Error("SECRET provider response");
+    });
+    const payload = {
+      task_id: "test-task-id",
+      run_id: "test-run-id",
+      team_id: 1,
+      user_id: 1,
+      distinct_id: "test-distinct-id",
+      mode: "interactive" as const,
+    };
+
+    await expect(testServer.initializeSession(payload, null)).rejects.toThrow(
+      "SECRET provider response",
+    );
+
+    if (aborted) {
+      expect(append).not.toHaveBeenCalled();
+    } else {
+      expect(append).toHaveBeenCalledWith(
+        "test-run-id",
+        expect.objectContaining({
+          notification: expect.objectContaining({
+            method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
+            params: expect.objectContaining({
+              runtimeAdapter: "codex",
+              initializationPhase: "session_setup",
+              requestedModel: "gpt-5.2-codex",
+              errorType: "error",
+            }),
+          }),
+        }),
+      );
+    }
+    expect(JSON.stringify(append.mock.calls)).not.toContain("SECRET");
+    expect(shutdown).toHaveBeenCalledOnce();
+    expect(testServer.initializingTelemetry).toBeUndefined();
+  },
+);
 
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
@@ -558,95 +644,6 @@ describe("AgentServer HTTP Mode", () => {
       TEST_PRIVATE_KEY,
     );
   };
-
-  it("exports safe telemetry when session initialization fails", async () => {
-    const append = vi.fn();
-    const shutdown = vi.fn(async () => {});
-    const testServer = createServer({
-      runtimeAdapter: "codex",
-      model: "gpt-5.2-codex",
-    }) as unknown as {
-      initializingTelemetry: {
-        append: typeof append;
-        shutdown: typeof shutdown;
-      };
-      _doInitializeSession(
-        payload: JwtPayload,
-        controller: null,
-      ): Promise<void>;
-      initializeSession(payload: JwtPayload, controller: null): Promise<void>;
-    };
-    testServer._doInitializeSession = vi.fn(async () => {
-      testServer.initializingTelemetry = { append, shutdown };
-      throw new Error("SECRET provider response");
-    });
-    const payload = {
-      task_id: "test-task-id",
-      run_id: "test-run-id",
-      team_id: 1,
-      user_id: 1,
-      distinct_id: "test-distinct-id",
-      mode: "interactive" as const,
-    };
-
-    await expect(testServer.initializeSession(payload, null)).rejects.toThrow(
-      "SECRET provider response",
-    );
-
-    expect(append).toHaveBeenCalledWith(
-      "test-run-id",
-      expect.objectContaining({
-        notification: expect.objectContaining({
-          method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
-          params: expect.objectContaining({
-            runtimeAdapter: "codex",
-            initializationPhase: "session_setup",
-            requestedModel: "gpt-5.2-codex",
-            errorType: "error",
-          }),
-        }),
-      }),
-    );
-    expect(JSON.stringify(append.mock.calls)).not.toContain("SECRET");
-    expect(shutdown).toHaveBeenCalledOnce();
-  });
-
-  it("flushes telemetry when initialization is aborted by shutdown", async () => {
-    const append = vi.fn();
-    const shutdown = vi.fn(async () => {});
-    const testServer = createServer() as unknown as {
-      shutdownController: AbortController;
-      initializingTelemetry:
-        | { append: typeof append; shutdown: typeof shutdown }
-        | undefined;
-      _doInitializeSession(
-        payload: JwtPayload,
-        controller: null,
-      ): Promise<void>;
-      initializeSession(payload: JwtPayload, controller: null): Promise<void>;
-    };
-    testServer._doInitializeSession = vi.fn(async () => {
-      testServer.initializingTelemetry = { append, shutdown };
-      testServer.shutdownController.abort(new Error("cancelled"));
-      testServer.shutdownController.signal.throwIfAborted();
-    });
-    const payload = {
-      task_id: "test-task-id",
-      run_id: "test-run-id",
-      team_id: 1,
-      user_id: 1,
-      distinct_id: "test-distinct-id",
-      mode: "interactive" as const,
-    };
-
-    await expect(testServer.initializeSession(payload, null)).rejects.toThrow(
-      "cancelled",
-    );
-
-    expect(shutdown).toHaveBeenCalledOnce();
-    expect(append).not.toHaveBeenCalled();
-    expect(testServer.initializingTelemetry).toBeUndefined();
-  });
 
   it("replays ACP notifications emitted before cloud session assignment", () => {
     const testServer = createServer() as unknown as {

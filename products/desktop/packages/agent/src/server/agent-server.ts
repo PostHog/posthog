@@ -1840,12 +1840,7 @@ export class AgentServer {
     try {
       await this.initializationPromise;
     } catch (error) {
-      if (this.shutdownController.signal.aborted) {
-        // No session owns the telemetry yet, so cleanupSession never reaches it.
-        // End and flush the run's root span before the finally drops the handle.
-        await this.initializingTelemetry?.shutdown();
-        throw error;
-      }
+      if (this.shutdownController.signal.aborted) throw error;
       this.bootTracker.markFailed();
       if (error instanceof CredentialRelayError) {
         this.initializationFailureCode = "claude_credential_unavailable";
@@ -1872,9 +1867,9 @@ export class AgentServer {
           },
         },
       });
-      await telemetry?.shutdown();
       throw error;
     } finally {
+      await this.initializingTelemetry?.shutdown();
       await this.cleanupInitializingConnection();
       this.initializingConnection = null;
       this.initializingTelemetry = undefined;
