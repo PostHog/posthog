@@ -457,13 +457,16 @@ export class KafkaConsumer {
     }
 
     private completeRevocation(assignments: Assignment[]): void {
-        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
-            this.rdKafkaConsumer.incrementalUnassign(assignments)
-        } else {
-            this.rdKafkaConsumer.unassign()
+        try {
+            if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                this.rdKafkaConsumer.incrementalUnassign(assignments)
+            } else {
+                this.rdKafkaConsumer.unassign()
+            }
+            this.updateMetricsAfterRevocation(assignments)
+        } finally {
+            this.resetRebalanceCoordination()
         }
-        this.updateMetricsAfterRevocation(assignments)
-        this.resetRebalanceCoordination()
     }
 
     private updateMetricsAfterRevocation(assignments: Assignment[]): void {

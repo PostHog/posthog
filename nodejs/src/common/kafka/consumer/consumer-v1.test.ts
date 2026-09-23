@@ -394,6 +394,20 @@ describe('consumer', () => {
             expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
         })
 
+        it('should resume consuming when unassigning revoked partitions throws', () => {
+            consumer['backgroundTask'] = []
+            mockRdKafkaConsumer.incrementalUnassign.mockImplementation(() => {
+                throw new Error('KafkaConsumer is not connected')
+            })
+
+            expect(() =>
+                consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                    { topic: 'test-topic', partition: 1 },
+                ])
+            ).toThrow('KafkaConsumer is not connected')
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
+        })
+
         it('should wait for background tasks before calling incrementalUnassign', async () => {
             mockRdKafkaConsumer.assignments.mockReturnValue([{ topic: 'test-topic', partition: 2 }])
             // Create controllable promises to test actual waiting behavior
