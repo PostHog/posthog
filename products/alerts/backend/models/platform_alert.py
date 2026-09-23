@@ -148,6 +148,11 @@ class PlatformAlertEvent(TeamScopedRootMixin, UUIDTModel):
     query_duration_ms = models.PositiveIntegerField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
 
+    # What the check counted, which is not what the configuration counts now. The configuration
+    # keeps a running total that later checks move, so the two agree only until the next check.
+    # A message says what its own check saw, whenever it is rendered.
+    consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
+
     # The occasion the check was for, not when the row was written, so a retry repeats it.
     occurred_at = models.DateTimeField()
 

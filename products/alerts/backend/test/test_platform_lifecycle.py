@@ -113,6 +113,19 @@ class TestPlatformAlertLifecycle(APIBaseTest):
         assert event.condition_snapshot["threshold_count"] == 10
         assert event.condition_snapshot["threshold_operator"] == "above"
 
+    def test_a_recorded_check_keeps_the_failure_count_it_saw(self) -> None:
+        self._record(kind=AlertEventKind.ERRORED, new_state="errored", notified=False, consecutive_failures=3)
+        later = self.cutoff + timedelta(minutes=10)
+        self._record(
+            now=later, kind=AlertEventKind.ERRORED, new_state="errored", notified=False, consecutive_failures=4
+        )
+
+        self.configuration.refresh_from_db()
+        assert self.configuration.consecutive_failures == 4
+        # The row is the check, not the configuration. Reading the running total at delivery time
+        # would have the first message claim a count no check ever reached.
+        assert [event.consecutive_failures for event in sorted(self._events(), key=lambda e: e.occurred_at)] == [3, 4]
+
 
 class TestAlertEventKindVocabulary(SimpleTestCase):
     """Two enums, no database."""

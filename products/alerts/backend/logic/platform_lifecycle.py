@@ -183,6 +183,7 @@ def _event(
         source_config_snapshot=configuration.source_config,
         query_duration_ms=outcome.query_duration_ms,
         error_message=outcome.error_message,
+        consecutive_failures=outcome.consecutive_failures,
         occurred_at=now,
     )
 

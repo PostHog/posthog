@@ -56,6 +56,10 @@ class Migration(migrations.Migration):
                     models.PositiveIntegerField(blank=True, null=True),
                 ),
                 ("error_message", models.TextField(blank=True, null=True)),
+                (
+                    "consecutive_failures",
+                    models.PositiveIntegerField(db_default=0, default=0),
+                ),
                 ("occurred_at", models.DateTimeField()),
                 (
                     "alert",
