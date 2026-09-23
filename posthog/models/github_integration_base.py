@@ -5,6 +5,7 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 :class:`UserGitHubIntegration` (user-scoped).
 """
 
+import re
 import json
 import time
 import uuid
@@ -141,6 +142,16 @@ class PullRequestRef:
     @property
     def repository(self) -> str:
         return f"{self.owner}/{self.repo}"
+
+
+# `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
+# paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
+# authenticated request to a different endpoint.
+_GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+
+
+def _is_safe_github_repo_path(repo_path: str) -> bool:
+    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
 
 
 class GitHubIntegrationError(Exception):
@@ -1665,6 +1676,8 @@ class GitHubIntegrationBase:
         Raises GitHubIntegrationError on an incomplete read, because a missed Trunk comment reads as
         "not in the queue" and lets a caller push into it.
         """
+        if not _is_safe_github_repo_path(repository):
+            raise GitHubIntegrationError(f"Unsafe repository path: {repository!r}")
         responses, complete = self._get_issue_comment_pages(repository, pr_number)
         comments: list[Mapping[str, Any]] = []
         for response in responses:
@@ -1800,9 +1813,10 @@ class GitHubIntegrationBase:
         Raises GitHubIntegrationError on a failed read, because a missed stacked pull request lets a
         caller commit under it.
         """
-        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repository):
+            raise GitHubIntegrationError(f"Unsafe repository path: {repository!r}")
         response = self._installation_authenticated_get(
-            f"https://api.github.com/repos/{repo_path}/pulls",
+            f"https://api.github.com/repos/{repository}/pulls",
             endpoint="/repos/{owner}/{repo}/pulls",
             params={"base": branch, "state": "open", "per_page": 100},
         )
@@ -1817,7 +1831,7 @@ class GitHubIntegrationBase:
             )
         return any(
             isinstance(pull, dict)
-            and str(((pull.get("head") or {}).get("repo") or {}).get("full_name", "")).lower() == repo_path.lower()
+            and str(((pull.get("head") or {}).get("repo") or {}).get("full_name", "")).lower() == repository.lower()
             for pull in pulls
         )
 

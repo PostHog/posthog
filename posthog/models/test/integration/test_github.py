@@ -158,6 +158,23 @@ class TestPullRequestCommentMarker(SimpleTestCase):
             else:
                 assert github.has_open_pull_request_with_base("example/repo", "feature") is expected
 
+    @parameterized.expand(
+        [
+            ("merge_queue_state", lambda github: github.get_pull_request_merge_queue_state("../victim/repo", 1)),
+            ("stacked_read", lambda github: github.has_open_pull_request_with_base("..%2Fvictim/repo", "feature")),
+        ]
+    )
+    def test_unsafe_repository_never_reaches_github(self, _name, read) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        with (
+            patch.object(github, "_installation_authenticated_get") as single,
+            patch.object(github, "_installation_authenticated_get_pages") as pages,
+        ):
+            with pytest.raises(GitHubIntegrationError):
+                read(github)
+        single.assert_not_called()
+        pages.assert_not_called()
+
     def test_merge_queue_state_reads_the_trunk_comment(self) -> None:
         github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
         response = MagicMock(status_code=200)
