@@ -11,13 +11,14 @@ function addPlaceholder(addableCount: number | null): string {
         return 'Search repositories to add'
     }
     if (addableCount === 0) {
-        return 'Every repository is already added'
+        return 'No repositories left to add'
     }
     return addableCount === 1 ? 'Search 1 repository to add' : `Search ${addableCount} repositories to add`
 }
 
 function ConnectGitHubPrompt(): JSX.Element {
-    const { installUrl, connectDisabledReason } = useValues(stamphogSceneLogic)
+    const { openingInstallPage, connectDisabledReason } = useValues(stamphogSceneLogic)
+    const { openInstallPage } = useActions(stamphogSceneLogic)
     return (
         <div className="flex flex-wrap items-center justify-between gap-4 border rounded bg-surface-primary p-4">
             <div className="flex flex-col gap-1 min-w-0 max-w-160">
@@ -29,8 +30,8 @@ function ConnectGitHubPrompt(): JSX.Element {
             <LemonButton
                 type="primary"
                 icon={<IconGithub />}
-                to={connectDisabledReason ? undefined : installUrl}
-                disableClientSideRouting
+                onClick={openInstallPage}
+                loading={openingInstallPage}
                 disabledReason={connectDisabledReason}
                 data-attr="stamphog-connect-repository"
             >
@@ -41,8 +42,8 @@ function ConnectGitHubPrompt(): JSX.Element {
 }
 
 function MissingRepositoryHelp(): JSX.Element {
-    const { installUrl, refreshingFromGitHub, connectDisabledReason } = useValues(stamphogSceneLogic)
-    const { refreshFromGitHub } = useActions(stamphogSceneLogic)
+    const { openingInstallPage, refreshingFromGitHub, connectDisabledReason } = useValues(stamphogSceneLogic)
+    const { openInstallPage, refreshFromGitHub } = useActions(stamphogSceneLogic)
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className="text-secondary text-xs">
@@ -53,8 +54,8 @@ function MissingRepositoryHelp(): JSX.Element {
                     size="xsmall"
                     type="tertiary"
                     icon={<IconGithub />}
-                    to={connectDisabledReason ? undefined : installUrl}
-                    disableClientSideRouting
+                    onClick={openInstallPage}
+                    loading={openingInstallPage}
                     disabledReason={connectDisabledReason}
                     data-attr="stamphog-grant-repository-access"
                 >
@@ -117,6 +118,15 @@ export function AddRepositoryBar(): JSX.Element {
     return (
         <div className="flex flex-col gap-2 border rounded bg-surface-primary p-3">
             <h4 className="m-0">Add a repository</h4>
+            {availableRepositoriesFailed && (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: () => loadAvailableRepositories({ search: '' }) }}
+                    data-attr="stamphog-available-repositories-search-error"
+                >
+                    Could not load the repositories you can add. Try again.
+                </LemonBanner>
+            )}
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInputSelect
                     mode="single"
@@ -136,9 +146,7 @@ export function AddRepositoryBar(): JSX.Element {
                     }
                     emptyStateComponent={
                         <p className="text-secondary italic p-1 m-0">
-                            {addableCount === 0
-                                ? 'Every repository you can reach is already added.'
-                                : 'No repository matches this search.'}
+                            {addableCount === 0 ? 'No repositories left to add.' : 'No repository matches this search.'}
                         </p>
                     }
                     disabledReason={accessReason ?? (addingRepository ? 'Adding the repository' : undefined)}

@@ -45,12 +45,13 @@ function sortByRepository(repos: StamphogRepoConfigApi[]): StamphogRepoConfigApi
 }
 
 // The install_info state token expires, and the page can stay open for longer than that. So every
-// redirect fetches a fresh authorize URL instead of reading the one the page loaded on mount.
-async function redirectThroughAuthorize(projectId: string): Promise<boolean> {
+// redirect fetches a fresh URL instead of reading the one the page loaded on mount.
+async function redirectToGitHub(projectId: string, target: 'authorize_url' | 'install_url'): Promise<boolean> {
     try {
         const info = await stamphogRepoConfigsInstallInfoRetrieve(projectId)
-        if (info.authorize_url) {
-            window.location.href = info.authorize_url
+        const url = info[target]
+        if (url) {
+            window.location.href = url
             return true
         }
         lemonToast.error('The Stamphog GitHub App is not configured, so it cannot connect.')
@@ -78,6 +79,7 @@ export interface stamphogSceneLogicValues {
     installInfo: StamphogInstallInfoApi | null
     installInfoLoading: boolean
     installUrl: string
+    openingInstallPage: boolean
     refreshingFromGitHub: boolean
     repoConfigs: StamphogRepoConfigApi[]
     repoConfigsLoading: boolean
@@ -154,6 +156,12 @@ export interface stamphogSceneLogicActions {
     ) => {
         repoConfigs: StamphogRepoConfigApi[]
         payload?: any
+    }
+    openInstallPage: () => {
+        value: true
+    }
+    openInstallPageFailed: () => {
+        value: true
     }
     refreshFromGitHub: () => {
         value: true
@@ -240,7 +248,8 @@ export interface stamphogSceneLogicMeta {
         skippedRepos: (syncResult: StamphogSyncInstallationResponseApi | null) => readonly string[]
         hasInstallation: (availableRepositories: StamphogAvailableRepositoriesApi | null) => boolean | null
         availableRepositoryOptions: (
-            availableRepositories: StamphogAvailableRepositoriesApi | null
+            availableRepositories: StamphogAvailableRepositoriesApi | null,
+            availableRepositoriesFailed: boolean
         ) => LemonInputSelectOption[]
         stamphogAccessLevel: (repoConfigs: StamphogRepoConfigApi[]) => AccessControlLevel | undefined
         connectDisabledReason: (
@@ -273,6 +282,8 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         setRepoSearch: (search: string) => ({ search }),
         setRepoExpanded: (id: string, expanded: boolean) => ({ id, expanded }),
         connectInstallation: (installationId: string) => ({ installationId }),
+        openInstallPage: true,
+        openInstallPageFailed: true,
         refreshFromGitHub: true,
         refreshFromGitHubFailed: true,
         setAvailableSearch: (search: string) => ({ search }),
@@ -286,7 +297,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
         repoConfigs: [
             [] as StamphogRepoConfigApi[],
             {
-                loadRepoConfigs: async () => {
+                loadRepoConfigs: async (_, breakpoint) => {
                     // Fetch every page, because the table searches this list client-side and a truncated
                     // first page would hide repositories that nobody could then find.
                     const all: StamphogRepoConfigApi[] = []
@@ -300,6 +311,8 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                             break
                         }
                     }
+                    // Drop a response that started before an add, so it cannot hide the added repository.
+                    breakpoint()
                     return sortByRepository(all)
                 },
             },
@@ -398,6 +411,8 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             null as string | null,
             {
                 setRepositoryToAdd: (_, { repository }) => repository,
+                // A new search replaces the options, so a pick from the old results must not stay armed.
+                setAvailableSearch: (state, { search }) => (search.trim() ? null : state),
                 addRepositorySuccess: () => null,
             },
         ],
@@ -409,7 +424,14 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 addRepositoryFailure: () => false,
             },
         ],
-        // The browser leaves for GitHub on success, so only a failure needs to reset this.
+        // The browser leaves for GitHub on success, so only a failure needs to reset these.
+        openingInstallPage: [
+            false,
+            {
+                openInstallPage: () => true,
+                openInstallPageFailed: () => false,
+            },
+        ],
         refreshingFromGitHub: [
             false,
             {
@@ -444,13 +466,19 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             (availableRepositories: StamphogAvailableRepositoriesApi | null): boolean | null =>
                 availableRepositories?.has_installation ?? null,
         ],
+        // A failed search keeps the loader's previous answer, which belongs to another search.
         availableRepositoryOptions: [
-            (s) => [s.availableRepositories],
-            (availableRepositories: StamphogAvailableRepositoriesApi | null): LemonInputSelectOption[] =>
-                (availableRepositories?.repositories ?? []).map((repository) => ({
-                    key: repository,
-                    label: repository,
-                })),
+            (s) => [s.availableRepositories, s.availableRepositoriesFailed],
+            (
+                availableRepositories: StamphogAvailableRepositoriesApi | null,
+                availableRepositoriesFailed: boolean
+            ): LemonInputSelectOption[] =>
+                availableRepositoriesFailed
+                    ? []
+                    : (availableRepositories?.repositories ?? []).map((repository) => ({
+                          key: repository,
+                          label: repository,
+                      })),
         ],
         // Every row reports the same team-wide level, so the first one answers for the whole scene.
         // Undefined until a repository loads, which sends the access checks back to the app context.
@@ -526,6 +554,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             }
         },
         addRepositorySuccess: () => {
+            actions.loadRepoConfigs()
             actions.loadAvailableRepositories({ search: '' })
         },
         connectInstallation: async ({ installationId }) => {
@@ -533,12 +562,22 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             // The setup_action=update redirect carries no code (nothing to sync), so bounce the browser
             // through the authorize URL for one silent hop. GitHub redirects straight back with a code, and
             // the stashed installation id goes with it.
-            await redirectThroughAuthorize(String(values.currentProjectId))
+            if (!(await redirectToGitHub(String(values.currentProjectId), 'authorize_url'))) {
+                sessionStorage.removeItem(PENDING_INSTALLATION_STORAGE_KEY)
+            }
+        },
+        openInstallPage: async () => {
+            if (!(await redirectToGitHub(String(values.currentProjectId), 'install_url'))) {
+                actions.openInstallPageFailed()
+            }
         },
         refreshFromGitHub: async () => {
+            // A refresh picks no installation. A pick left over from a failed connect would otherwise ride
+            // this callback and bind that installation instead.
+            sessionStorage.removeItem(PENDING_INSTALLATION_STORAGE_KEY)
             // An App that is already authorized sends the browser straight back with a code, and the sync
             // re-lists the repositories this member can reach with their own GitHub token.
-            if (!(await redirectThroughAuthorize(String(values.currentProjectId)))) {
+            if (!(await redirectToGitHub(String(values.currentProjectId), 'authorize_url'))) {
                 actions.refreshFromGitHubFailed()
             }
         },
