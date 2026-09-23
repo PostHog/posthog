@@ -1204,7 +1204,8 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Pick at least one event, or the trigger will never fire." in response.json()["detail"]
 
         # An entry that names nothing is not a target either.
-        for filters in ({"events": [{}]}, {"actions": [{"name": "x"}]}, {"properties": [{}]}):
+        empty_targets: list[dict[str, Any]] = [{"events": [{}]}, {"actions": [{"name": "x"}]}, {"properties": [{}]}]
+        for filters in empty_targets:
             hog_flow["actions"][0]["config"]["filters"] = filters
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
             assert response.status_code == 400, (filters, response.json())
