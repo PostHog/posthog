@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
+    AUTO_WIDEN_RESYNC_SCHEDULED_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     MAX_ATTEMPTS,
     POLL_INTERVAL_SECONDS,
@@ -131,6 +134,13 @@ DISABLE_SCHEMA_ERROR_PATTERNS: tuple[str, ...] = (
     "Source column type changed",
 )
 
+# A failure the pipeline has already scheduled its own recovery for. It matches
+# ``DISABLE_SCHEMA_ERROR_PATTERNS`` above (the amended message keeps the "Source column type changed"
+# prefix so the batch still counts as non-retryable), but that recovery is a reset stamped for the
+# *next* scheduled sync, which pausing the schedule would prevent.
+SELF_RECOVERING_ERROR_PATTERNS: tuple[str, ...] = (AUTO_WIDEN_RESYNC_SCHEDULED_MESSAGE,)
+
+
 # The schema or job row was deleted mid-sync — no retry can bring it back, and no more of that
 # run's queued batches should load into a destination whose schema record is gone.
 DELETION_ERROR_PATTERNS: tuple[str, ...] = (
@@ -169,6 +179,13 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
 # with dead entries alone.
 JOB_STATUS_CACHE_TTL_SECONDS = 30
 JOB_STATUS_CACHE_MAX_ENTRIES = 1000
+
+
+def _should_disable_schema(error: str) -> bool:
+    """Whether a failure message means the schema must stop syncing until the customer acts."""
+    return any(pattern in error for pattern in DISABLE_SCHEMA_ERROR_PATTERNS) and not any(
+        pattern in error for pattern in SELF_RECOVERING_ERROR_PATTERNS
+    )
 
 
 def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConnection[Any]) -> bool:
@@ -336,7 +353,7 @@ class DeltaBatchConsumerAdapter:
                 logger.exception("fail_run_job_status_update_failed", job_id=batch.job_id, run_uuid=batch.run_uuid)
                 capture_exception(e)
 
-        if any(pattern in reason for pattern in DISABLE_SCHEMA_ERROR_PATTERNS):
+        if _should_disable_schema(reason):
             try:
                 await sync_to_async(_disable_schema_after_permanent_failure)(
                     schema_id=batch.schema_id,
@@ -811,10 +828,12 @@ class DeltaBatchConsumerAdapter:
           limit exists to prevent.
         - A deliberate stop (syncing turned off, the table deleted) is a decision to make
           this run stop, so finishing the load would override it.
-        - A permanent, unfixable failure (``DISABLE_SCHEMA_ERROR_PATTERNS``) already disabled
-          the schema because the data itself cannot land, and a deletion failure
-          (``DELETION_ERROR_PATTERNS``) means the schema or job row is gone; loading more in
-          either case writes into a destination the run has already given up on.
+        - A permanent failure (``DISABLE_SCHEMA_ERROR_PATTERNS``) means the data itself cannot
+          land, and a deletion failure (``DELETION_ERROR_PATTERNS``) means the schema or job row
+          is gone; loading more in either case writes into a destination the run has already
+          given up on. Matched raw here rather than through ``_should_disable_schema``: a
+          self-recovering widening keeps its schedule, but its next run still resets the table,
+          so draining into the table this run gave up on is wasted either way.
 
         ``incremental`` is left because its next run continues from a staged cursor that
         only promotes on a Completed job (``load/processor.py``). The job stays Failed here,

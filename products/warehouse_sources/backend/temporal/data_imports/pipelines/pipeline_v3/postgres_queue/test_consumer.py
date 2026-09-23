@@ -16,6 +16,9 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SYNC_DISABLED_JOB_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
+    AUTO_WIDEN_RESYNC_SCHEDULED_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
     batch_consumer as batch_consumer_module,
 )
@@ -1482,6 +1485,12 @@ class TestFailRun:
                 "Source column type changed: 'total_cost' has values that no longer fit its stored type int64",
                 True,
                 id="column_type_changed",
+            ),
+            pytest.param(
+                "Source column type changed: 'total_cost' has values that no longer fit its stored type int64 "
+                f"(incoming data is now double). {AUTO_WIDEN_RESYNC_SCHEDULED_MESSAGE}",
+                False,
+                id="column_type_changed_with_auto_widen_resync_scheduled",
             ),
             pytest.param("Decimal value is too large to store in a Decimal128", True, id="decimal_overflow"),
             pytest.param("Primary key required for incremental syncs", True, id="missing_primary_key"),

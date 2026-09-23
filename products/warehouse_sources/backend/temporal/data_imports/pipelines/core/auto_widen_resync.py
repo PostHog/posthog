@@ -45,6 +45,15 @@ WAREHOUSE_AUTO_WIDEN_RESYNC_FLAG = "data-warehouse-auto-widen-resync"
 # every scheduled sync.
 AUTO_WIDEN_RESYNC_COOLDOWN = dt.timedelta(days=7)
 
+# Tail of the amended failure message, and the marker the load consumer matches to leave the
+# schema enabled. The message keeps the "Source column type changed" prefix so the consumer still
+# treats the batch as non-retryable and as an expected user error, but that prefix also means the
+# permanent-failure path would otherwise pause the schedule — and the reset promised below only
+# runs on the next scheduled sync.
+AUTO_WIDEN_RESYNC_SCHEDULED_MESSAGE = (
+    "This table will be reset and fully re-synced automatically at the next scheduled sync. No action is needed."
+)
+
 COLUMN_TYPE_WIDENED_KEY = "column_type_widened"
 # Kept separately from the marker (and never popped by the reset) so the cooldown survives the
 # reset that consumes the marker.
@@ -188,8 +197,7 @@ def _schedule_auto_widen_resync(
     # expected-user-error classification substring-matches it.
     return (
         f"Source column type changed: '{column}' has values that no longer fit its stored type "
-        f"{stored_type} (incoming data is now {incoming_type}). This table will be reset and fully "
-        f"re-synced automatically at the next scheduled sync. No action is needed."
+        f"{stored_type} (incoming data is now {incoming_type}). {AUTO_WIDEN_RESYNC_SCHEDULED_MESSAGE}"
     )
 
 
