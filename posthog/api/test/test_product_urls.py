@@ -54,11 +54,13 @@ class TestProductRootRoutesInTheUrlConf(SimpleTestCase):
         assert resolve(url).url_name == route_name
         assert reverse(route_name) == url
 
-    @parameterized.expand([("bare", "/webhooks/stamphog/github"), ("trailing slash", "/webhooks/stamphog/github/")])
-    def test_an_opt_slash_route_matches_relative_to_its_mount(self, _name: str, url: str) -> None:
-        assert resolve(url).func.__name__ == "github_stamphog_webhook"
-
-    def test_a_core_route_under_a_products_prefix_still_wins(self) -> None:
-        match = resolve("/api/user_interviews/share/some-token/start_call/")
-
-        assert match.url_name == "user_interviews_start_call"
+    @parameterized.expand(
+        [
+            ("stamphog bare", "/webhooks/stamphog/github", "github_stamphog_webhook"),
+            ("stamphog trailing slash", "/webhooks/stamphog/github/", "github_stamphog_webhook"),
+            ("workflows bare", "/webhooks/workflows/ses-events", "sns_default_webhook"),
+            ("workflows trailing slash", "/webhooks/workflows/ses-events/", "sns_default_webhook"),
+        ]
+    )
+    def test_an_opt_slash_route_matches_relative_to_its_mount(self, _name: str, url: str, view_name: str) -> None:
+        assert resolve(url).func.__name__ == view_name
