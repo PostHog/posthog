@@ -254,6 +254,22 @@ _PR_CI_STATUS_TERMINAL_REPORT_STATUSES = frozenset(
 )
 
 
+def _pull_request_ref_for_commit(artefact: SignalReportArtefact, repository: str) -> PullRequestRef | None:
+    """Find the one PR produced by the same task for the commit's repository."""
+    if artefact.task_id is None:
+        return None
+    task_id = str(artefact.task_id)
+    matches: list[PullRequestRef] = []
+    prs = fetch_implementation_prs_for_reports([str(artefact.report_id)], team_id=artefact.team_id).get(
+        str(artefact.report_id), []
+    )
+    for pr in prs:
+        parsed = GitHubIntegration.parse_pull_request_url(pr.url)
+        if pr.task_id == task_id and parsed is not None and parsed.repository.lower() == repository.lower():
+            matches.append(parsed)
+    return matches[0] if len(matches) == 1 else None
+
+
 def parse_pr_ci_status_report_ids(raw: str | None) -> list[uuid.UUID]:
     """Parse the batch CI-status endpoint's comma-separated `report_ids`.
 
@@ -5020,7 +5036,7 @@ class SignalReportArtefactViewSet(
         responses={
             200: OpenApiResponse(
                 response=CommitDiffResponseSerializer,
-                description="The branch's unified diff against the repository default branch.",
+                description="The pull request diff, or the branch diff when no pull request is linked.",
             ),
             400: OpenApiResponse(description="Artefact is not a commit, or is missing repository/branch."),
             404: OpenApiResponse(description="Artefact not found, or no GitHub integration can access the repository."),
@@ -5028,9 +5044,9 @@ class SignalReportArtefactViewSet(
         },
         summary="Fetch the diff for a commit artefact",
         description=(
-            "Fetch the unified diff of a `commit` artefact's branch against the repository default "
-            "branch via the team's GitHub integration — using the branch's current tip so the diff "
-            "reflects the latest state of the work, not just the single recorded commit."
+            "Fetch the unified diff for a `commit` artefact via the team's GitHub integration. "
+            "A commit linked to one pull request from the same task uses GitHub's durable pull request "
+            "diff. A commit without that link compares the branch's current tip with the default branch."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_diff",
@@ -5072,6 +5088,26 @@ class SignalReportArtefactViewSet(
                 {"error": f"No GitHub integration can access '{repository}'."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        pull_request = _pull_request_ref_for_commit(artefact, str(repository))
+        if pull_request is not None:
+            try:
+                pr_result = github.get_pull_request_diff(str(repository), pull_request.number)
+            except GitHubRateLimitError as e:
+                return github_rate_limited_response(e)
+            except Exception:  # noqa: BLE001 — the branch comparison below is the safe fallback
+                logger.warning(
+                    "signals pull request diff fetch errored; falling back to branch",
+                    repository=repository,
+                    pr_number=pull_request.number,
+                )
+            else:
+                if pr_result.get("success"):
+                    return Response(
+                        {
+                            "diff": pr_result["diff"],
+                            "truncated": pr_result.get("truncated", False),
+                        }
+                    )
         try:
             # Diff the commit's branch against the repo default branch, using each branch's current
             # tip (no SHA pinning) so the diff stays useful as the branch keeps moving after the
