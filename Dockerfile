@@ -291,6 +291,7 @@ ENV LANG=C.UTF-8
 # libxmlsec1-openssl provides the OpenSSL crypto backend that libxmlsec1-dev used to pull in.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
+    # The deploy chart's asset-upload hook runs in this image and downloads s5cmd with curl.
     "curl" \
     "git" \
     "libpq5" \
@@ -305,6 +306,9 @@ RUN apt-get update && \
     "libgomp1" \
     # Python's mimetypes uses /etc/mime.types for artifact content types.
     "media-types" \
+    # psutil is not installed, so joblib's loky kills worker process trees with pgrep.
+    # Operators also need ps to find a PID for py-spy.
+    "procps" \
     && \
     rm -rf /var/lib/apt/lists/*
 
