@@ -274,6 +274,7 @@ class TargetSurface:
     unique_persons: int
     exposures_per_day_estimate: float
     libs: list[LibReach]
+    libs_truncated: bool
     anonymous_share: float | None
     device_id_share: float | None
 
@@ -520,7 +521,7 @@ def _cache_key(team: Team, section: str, inputs: dict[str, Any]) -> str:
     # Bump the version whenever a cached dataclass changes shape: entries are pickled, so a deploy
     # would otherwise restore instances that miss the new fields.
     digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
-    return f"experiment_setup_context_v2_{team.pk}_{section}_{digest}"
+    return f"experiment_setup_context_v3_{team.pk}_{section}_{digest}"
 
 
 def _cached(key: str, ttl: int, compute: Callable[[], T]) -> T:
@@ -875,7 +876,7 @@ def _compute_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSur
         """,
         {
             "where": _and(conditions),
-            "limit": ast.Constant(value=TARGET_SURFACE_MAX_LIBS),
+            "limit": ast.Constant(value=TARGET_SURFACE_MAX_LIBS + 1),
         },
     )
     unique_persons, events, device_id_events, anonymous_ids, identity_known_ids, top_libs = (
@@ -906,8 +907,9 @@ def _compute_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSur
                 lib_identity_known_ids,
                 lib_device_id_events,
                 lib_events,
-            ) in top_libs or []
+            ) in (top_libs or [])[:TARGET_SURFACE_MAX_LIBS]
         ],
+        libs_truncated=len(top_libs or []) > TARGET_SURFACE_MAX_LIBS,
         anonymous_share=_share(anonymous_ids, identity_known_ids),
         device_id_share=_share(device_id_events, events),
     )
