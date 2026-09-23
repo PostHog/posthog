@@ -30,7 +30,7 @@ _INDENT = "    "
 _INLINE_WIDTH = 80
 
 # Keys PostHog stamps on a function input at validation. The SDK's `diff.ts` ignores the same set.
-_DERIVED_INPUT_KEYS = frozenset({"bytecode", "bytecode_error", "transpiled", "order", "secret", "templating"})
+_DERIVED_INPUT_KEYS = frozenset({"bytecode", "bytecode_error", "transpiled", "order", "secret"})
 # Keys PostHog compiles onto a branch condition's filters.
 _DERIVED_FILTER_KEYS = frozenset({"bytecode", "bytecode_error", "source"})
 _CONDITION_CONSTRUCTORS = {"person": "person", "event": "eventProperty", "group": "group"}
@@ -487,6 +487,11 @@ class _Renderer:
     def render_inputs(self, action: dict[str, Any], inputs: dict[str, Any]) -> dict[str, Any]:
         values: dict[str, Any] = {}
         for key, raw in inputs.items():
+            if isinstance(raw, dict) and raw.get("templating") not in (None, "hog"):
+                self.warn(
+                    action["id"],
+                    f'The input "{key}" of "{self._name(action)}" uses {raw.get("templating")} templating. {PACKAGE} uses Hog templating, so rewrite the input before you push.',
+                )
             if isinstance(raw, dict) and raw.get("secret") is True:
                 base = self.secret_base(action)
                 env = _env_name(base, key)
@@ -502,7 +507,10 @@ class _Renderer:
                         f'The input "{key}" of "{self._name(action)}" is a secret. PostHog does not return its value, so set {env} before you push.',
                     )
                 values[key] = _Call(self.use("secret"), (env,))
-            elif isinstance(raw, dict) and set(raw) <= _DERIVED_INPUT_KEYS | {"value"}:
+            elif isinstance(raw, dict) and (
+                set(raw) <= _DERIVED_INPUT_KEYS | {"value"}
+                or (raw.get("templating") == "hog" and set(raw) <= _DERIVED_INPUT_KEYS | {"value", "templating"})
+            ):
                 values[key] = raw.get("value")
             else:
                 values[key] = raw
@@ -527,6 +535,12 @@ class _Renderer:
         body = values.get("body", {})
         headers = values.get("headers", {})
         signing_secret = values.get("signing_secret")
+        if not isinstance(method, str):
+            self.warn(
+                action["id"],
+                f'The webhook method of "{self._name(action)}" is not text. {PACKAGE} cannot declare it as webhook(...), so the function template is kept instead.',
+            )
+            return None
         if method not in _WEBHOOK_METHODS or not isinstance(body, dict) or not isinstance(headers, dict):
             return None
         if any(not isinstance(value, str) for value in headers.values()):
@@ -812,7 +826,13 @@ class _Renderer:
         stored_name = definition.get("name")
         name = stored_name if isinstance(stored_name, str) else ""
         stored_key = definition.get("key")
-        key = stored_key if isinstance(stored_key, str) and stored_key else _kebab(name)
+        has_stored_key = isinstance(stored_key, str) and bool(stored_key)
+        key = stored_key if has_stored_key else _kebab(name)
+        if not has_stored_key:
+            self.warn(
+                None,
+                "This workflow has no key, so the copied file invents one from its name. The first push creates a new draft workflow. Turn the original workflow off or delete it after that push.",
+            )
 
         start = self.continue_to.get(self.trigger_id)
         if start is None:
@@ -833,22 +853,24 @@ class _Renderer:
         options: dict[str, Any] = {"key": key, "name": name}
         if definition.get("description"):
             options["description"] = definition["description"]
-        options["status"] = definition.get("status") or "draft"
+        conversion = _dict(definition.get("conversion"))
+        has_conversion_goal = _is_set(conversion.get("filters")) or _is_set(conversion.get("events"))
         exit_condition = definition.get("exit_condition") or _DEFAULT_EXIT_CONDITION
-        if exit_condition not in _SDK_EXIT_CONDITIONS:
+        if exit_condition not in _SDK_EXIT_CONDITIONS and has_conversion_goal:
             self.warn(
                 self.exit_id,
                 f'The exit condition "{exit_condition}" needs a conversion goal, which {PACKAGE} cannot declare. The workflow exits only at the end.',
             )
-        elif exit_condition != _DEFAULT_EXIT_CONDITION:
+        elif exit_condition in _SDK_EXIT_CONDITIONS and exit_condition != _DEFAULT_EXIT_CONDITION:
             options["exitCondition"] = exit_condition
         variables = self.render_variables()
         if variables:
             options["variables"] = variables
-        # The editor stores `{window_minutes: null, filters: []}` on a new workflow, which is no goal.
-        conversion = _dict(definition.get("conversion"))
-        if _is_set(conversion.get("filters")) or _is_set(conversion.get("events")):
+        if has_conversion_goal:
             self.warn(None, f"The conversion goal is dropped. {PACKAGE} cannot declare one.")
+        for setting_key in ("email_sending_rate_limit", "schedules", "abort_action"):
+            if _is_set(definition.get(setting_key)):
+                self.warn(None, f'The workflow setting "{setting_key}" is dropped. {PACKAGE} cannot declare it.')
         if definition.get("trigger_masking"):
             self.warn(self.trigger_id, f"The trigger masking is dropped. {PACKAGE} cannot declare it.")
         options["on"] = on

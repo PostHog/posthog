@@ -56,11 +56,24 @@ describe('workflowLogic copy code', () => {
     let codeCalls: number
     let codeResponse: () => [number, HogFlowCodeApi | { detail: string }]
     const copyToClipboardMock = copyToClipboard as jest.MockedFunction<typeof copyToClipboard>
+    const originalClipboard = navigator.clipboard
+    const originalClipboardItem = globalThis.ClipboardItem
+
+    const useClipboardWrite = (write: jest.Mock): void => {
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { write } })
+        Object.defineProperty(globalThis, 'ClipboardItem', {
+            configurable: true,
+            value: jest.fn((items) => ({ items })),
+        })
+    }
 
     beforeEach(async () => {
         codeCalls = 0
         codeResponse = () => [200, { language: 'typescript', code: CODE, warnings: [] }]
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: originalClipboard })
+        Object.defineProperty(globalThis, 'ClipboardItem', { configurable: true, value: originalClipboardItem })
         copyToClipboardMock.mockReset().mockResolvedValue(true)
+        jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
         jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast-id')
         jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
         useMocks({
@@ -82,6 +95,8 @@ describe('workflowLogic copy code', () => {
 
     afterEach(() => {
         logic?.unmount()
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: originalClipboard })
+        Object.defineProperty(globalThis, 'ClipboardItem', { configurable: true, value: originalClipboardItem })
         jest.restoreAllMocks()
     })
 
@@ -118,6 +133,32 @@ describe('workflowLogic copy code', () => {
         expect(lemonToast.warning).toHaveBeenCalledWith(message)
     })
 
+    it('starts a ClipboardItem write before the code request resolves', async () => {
+        const write = jest.fn().mockResolvedValue(undefined)
+        useClipboardWrite(write)
+
+        await logic.asyncActions.copyWorkflowCode()
+
+        expect(write).toHaveBeenCalledTimes(1)
+        expect(globalThis.ClipboardItem).toHaveBeenCalledWith({ 'text/plain': expect.any(Promise) })
+        expect(copyToClipboardMock).not.toHaveBeenCalled()
+        expect(lemonToast.info).toHaveBeenCalledWith('Copied workflow code to clipboard')
+        expect(lemonToast.warning).not.toHaveBeenCalled()
+        expect(logic.values.copyCodePending).toBe(false)
+    })
+
+    it('shows the retry message when the ClipboardItem write fails', async () => {
+        const write = jest.fn().mockRejectedValue(new Error('blocked'))
+        useClipboardWrite(write)
+
+        await logic.asyncActions.copyWorkflowCode()
+
+        expect(write).toHaveBeenCalledTimes(1)
+        expect(copyToClipboardMock).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledWith('Could not copy the workflow code. Please try again.')
+        expect(logic.values.copyCodePending).toBe(false)
+    })
+
     it('copies nothing and points to a retry when the endpoint fails', async () => {
         codeResponse = () => [500, { detail: 'boom' }]
 
@@ -144,6 +185,18 @@ describe('workflowLogic copy code', () => {
         logic.actions.setAutoSaveEnabled(false)
         logic.actions.setWorkflowValue('name', 'Still typing')
         expect(logic.values.copyCodeDisabledReason).toBe('Save your changes first')
+
+        await logic.asyncActions.copyWorkflowCode()
+
+        expect(codeCalls).toBe(0)
+        expect(copyToClipboardMock).not.toHaveBeenCalled()
+    })
+
+    it('refuses to copy a new workflow before it is saved', async () => {
+        logic.unmount()
+        logic = workflowLogic({ id: 'new' })
+        logic.mount()
+        expect(logic.values.copyCodeDisabledReason).toBe('Save the workflow first')
 
         await logic.asyncActions.copyWorkflowCode()
 

@@ -14,7 +14,6 @@ const tellTheCrm = webhook({
 export const crmFollowUp = workflow({
     key: 'crm-follow-up',
     name: 'CRM follow up',
-    status: 'draft',
     on: onEvent({
         event: 'checkout completed',
         properties: [eventProperty('total', 'gt', [100])],

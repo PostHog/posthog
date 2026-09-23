@@ -1,7 +1,8 @@
 {
-    "key": "trial-nudge-v2",
-    "name": "Trial nudge (v2)",
-    "description": "",
+    "key": "welcome-series",
+    "name": "Welcome series",
+    "description": "Greets a new signup a day later.",
+    "status": "draft",
     "exit_condition": "exit_only_at_end",
     "variables": [],
     "actions": [
@@ -14,8 +15,8 @@
                 "filters": {
                     "events": [
                         {
-                            "id": "$pageview",
-                            "name": "$pageview",
+                            "id": "user signed up",
+                            "name": "user signed up",
                             "type": "events",
                             "order": 0,
                             "properties": []
@@ -27,16 +28,16 @@
             }
         },
         {
-            "id": "action_1",
-            "name": "Wait 2 hours",
+            "id": "wait_a_day",
+            "name": "Wait a day",
             "type": "delay",
             "config": {
-                "delay_duration": "2h"
+                "delay_duration": "1d"
             }
         },
         {
-            "id": "action_2",
-            "name": "Send a nudge",
+            "id": "send_the_welcome_email",
+            "name": "Send the welcome email",
             "type": "function_email",
             "config": {
                 "template_id": "template-email",
@@ -44,19 +45,18 @@
                     "email": {
                         "value": {
                             "from": {
-                                "integrationId": 3,
+                                "integrationId": 12,
                                 "integrationIds": [
-                                    3
+                                    12
                                 ],
-                                "email": "hello@example.com",
-                                "name": "Example"
+                                "name": "The Example team"
                             },
                             "to": {
                                 "email": "{person.properties.email}"
                             },
-                            "subject": "Still there?",
-                            "text": "Your trial has a week left.",
-                            "html": "<p>Your trial has a week left.</p>",
+                            "subject": "Welcome aboard",
+                            "text": "Thanks for signing up.",
+                            "html": "<p>Thanks for signing up.</p>",
                             "design": {
                                 "counters": {
                                     "u_row": 1,
@@ -82,7 +82,7 @@
                                                             "id": "html-wrap-content",
                                                             "type": "html",
                                                             "values": {
-                                                                "html": "<p>Your trial has a week left.</p>",
+                                                                "html": "<p>Thanks for signing up.</p>",
                                                                 "_meta": {
                                                                     "htmlID": "u_content_html_1",
                                                                     "htmlClassNames": "u_content_html"
@@ -119,26 +119,25 @@
             "name": "Exit",
             "type": "exit",
             "config": {
-                "reason": "Reached the end"
+                "reason": "Done"
             }
         }
     ],
     "edges": [
         {
             "from": "trigger_node",
-            "to": "action_1",
+            "to": "wait_a_day",
             "type": "continue"
         },
         {
-            "from": "action_1",
-            "to": "action_2",
+            "from": "wait_a_day",
+            "to": "send_the_welcome_email",
             "type": "continue"
         },
         {
-            "from": "action_2",
+            "from": "send_the_welcome_email",
             "to": "exit_node",
             "type": "continue"
         }
-    ],
-    "status": "draft"
+    ]
 }
