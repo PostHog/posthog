@@ -4,11 +4,11 @@ import time
 import hashlib
 import logging
 from collections import Counter
-from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
@@ -691,6 +691,39 @@ def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -
         created_by_id=task.created_by_id,
         latest_run_status=latest_run.get_status_display() if latest_run else None,
     )
+
+
+_StateEntryResult = TypeVar("_StateEntryResult")
+
+
+def read_task_state_entry(task_id: str | UUID, team_id: int, key: str) -> Any:
+    """One key of the task's shared state bag, or ``None`` when the task or the key is missing."""
+    state = Task.objects.filter(id=task_id, team_id=team_id).values_list("state", flat=True).first()
+    return (state or {}).get(key)
+
+
+def update_task_state_entry(
+    task_id: str | UUID,
+    team_id: int,
+    key: str,
+    update: Callable[[Any], tuple[Any, _StateEntryResult]],
+) -> _StateEntryResult | None:
+    """Row-locked read-modify-write of one key in the task's shared state bag.
+
+    ``update`` gets the current value (``None`` when unset) and returns the value to store and a
+    result for the caller. The lock keeps concurrent writers of other keys from clobbering each
+    other. Returns ``None`` without calling ``update`` when the task does not exist.
+    """
+    with transaction.atomic():
+        task = Task.objects.select_for_update().only("id", "state").filter(id=task_id, team_id=team_id).first()
+        if task is None:
+            return None
+        state = dict(task.state or {})
+        value, result = update(state.get(key))
+        state[key] = value
+        task.state = state
+        task.save(update_fields=["state", "updated_at"])
+    return result
 
 
 def attach_slack_thread_reference(

@@ -2,9 +2,15 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
+import { turnSuggestionsResolveCreate } from '../generated/api'
 import type { StoredLogEntry } from '../types/wireTypes'
 import { runStreamLogic } from './runStreamLogic'
 import { turnSuggestionLogic } from './turnSuggestionLogic'
+
+jest.mock('../generated/api', () => ({
+    ...jest.requireActual('../generated/api'),
+    turnSuggestionsResolveCreate: jest.fn(() => Promise.resolve({ recorded: true })),
+}))
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunsCommandCreate: jest.fn(),
@@ -36,7 +42,7 @@ describe('turnSuggestionLogic', () => {
         jest.useRealTimers()
     })
 
-    it('reveals after the delay, hides on dismiss, and mutes the rest of the conversation', async () => {
+    it('reveals after the delay, hides on dismiss, mutes the rest of the conversation and records the dismissal', async () => {
         const stream = runStreamLogic({ streamKey: STREAM_KEY })
         stream.mount()
         await expectLogic(stream, () => {
@@ -63,5 +69,10 @@ describe('turnSuggestionLogic', () => {
         logic.actions.dismiss()
         expect(logic.values.visible).toBe(false)
         expect(stream.values.turnSuggestionsMuted).toBe(true)
+        expect(turnSuggestionsResolveCreate).toHaveBeenCalledWith(expect.any(String), {
+            task_id: 'task',
+            turn_index: 0,
+            resolution: 'dismissed',
+        })
     })
 })

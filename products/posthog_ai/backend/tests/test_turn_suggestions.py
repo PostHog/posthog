@@ -3,7 +3,7 @@ from dataclasses import replace
 from datetime import date
 from typing import Any
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -29,6 +29,7 @@ from products.posthog_ai.backend.turn_suggestions.judgment import (
     build_judge_state,
     judge_turn,
 )
+from products.posthog_ai.backend.turn_suggestions.offer_ledger import STATE_KEY, OfferRecord, OfferStatus, read_ledger
 from products.posthog_ai.backend.turn_suggestions.service import (
     TURN_SUGGESTION_METHOD,
     TurnSuggestionOutcome,
@@ -56,9 +57,16 @@ from products.posthog_ai.backend.turn_suggestions.verdict import (
     TurnIntent,
     TurnVerdict,
 )
+from products.tasks.backend.facade.api import TaskClientProvenance
 from products.tasks.backend.models import Task
 
 SERVICE = "products.posthog_ai.backend.turn_suggestions.service"
+
+
+def _offer(turn_index: int, *, run_id: str = "run-1") -> dict:
+    return {"turn_index": turn_index, "run_id": run_id, "kind": "scout", "status": "offered"}
+
+
 ALL_OFFERS = frozenset(OfferKind) - {OfferKind.NONE}
 
 
@@ -663,10 +671,6 @@ class TestGenerateTurnSuggestion(BaseTest):
         self.flag = patch(f"{SERVICE}.feature_enabled_or_false", return_value=True)
         self.judge = patch(f"{SERVICE}.judge_configured", return_value=True)
         self.capture = patch(f"{SERVICE}.ph_scoped_capture")
-        self.redis = patch(
-            f"{SERVICE}.get_client",
-            return_value=MagicMock(set=MagicMock(return_value=True), get=MagicMock(return_value=None)),
-        )
         self.mocks = {
             name: patcher.start()
             for name, patcher in {
@@ -677,7 +681,6 @@ class TestGenerateTurnSuggestion(BaseTest):
                 "flag": self.flag,
                 "judge": self.judge,
                 "capture": self.capture,
-                "redis": self.redis,
             }.items()
         }
         for patcher in (
@@ -688,7 +691,6 @@ class TestGenerateTurnSuggestion(BaseTest):
             self.flag,
             self.judge,
             self.capture,
-            self.redis,
         ):
             self.addCleanup(patcher.stop)
 
@@ -839,15 +841,39 @@ class TestGenerateTurnSuggestion(BaseTest):
         transcript = self.mocks["classify"].call_args.args[0]
         assert transcript.last_human_message == "Break that down by country"
         assert [turn.question for turn in transcript.earlier_turns] == ["How many signups did we get this week?"]
-        pipeline = self.mocks["redis"].return_value.pipeline.return_value.__enter__.return_value
-        pipeline.incr.assert_called_once()
+        assert read_ledger(self.task_run.task_id, self.team.id).offers == (
+            OfferRecord(turn_index=1, run_id=str(self.task_run.id), kind="scout", status=OfferStatus.OFFERED),
+        )
 
-    def test_a_conversation_stops_getting_offers_once_its_budget_is_spent(self):
-        self.mocks["redis"].return_value.get.return_value = b"2"
+    @parameterized.expand(
+        [
+            ("muted", {"offers": [], "muted": True}, "dismissed"),
+            ("budget_spent", {"offers": [_offer(0), _offer(1)]}, "offer_budget_spent"),
+            ("card_on_the_previous_turn", {"offers": [_offer(0)]}, "follows_an_offer"),
+            ("turn_already_claimed", {"offers": [], "last_classified_turn": 1}, "already_classified"),
+        ]
+    )
+    def test_the_offer_ledger_holds_back_a_card(self, _name: str, ledger: dict, reason: str):
+        Task.objects.filter(id=self.task_run.task_id).update(state={STATE_KEY: ledger})
+        self.mocks["stream"].return_value = [*_metric_turn(), _user_message("And by country?"), _agent_text("US.")]
 
         outcome = self._generate()
 
-        assert outcome.reason == "offer_budget_spent"
+        assert outcome == TurnSuggestionOutcome(status="skipped", reason=reason)
+        self.mocks["classify"].assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("slack", {"origin_product": Task.OriginProduct.SLACK}, "not_posthog_ai_conversation"),
+            ("desktop", {"client_provenance": TaskClientProvenance.POSTHOG_DESKTOP}, "not_started_in_web"),
+        ]
+    )
+    def test_only_conversations_started_in_the_web_app_get_a_card(self, _name: str, fields: dict, reason: str):
+        Task.objects.filter(id=self.task_run.task_id).update(**fields)
+
+        outcome = self._generate()
+
+        assert outcome == TurnSuggestionOutcome(status="skipped", reason=reason)
         self.mocks["classify"].assert_not_called()
 
     @parameterized.expand([("flag", "flag_off"), ("judge", "judge_not_configured")])
@@ -885,9 +911,73 @@ class TestGenerateTurnSuggestion(BaseTest):
         self.mocks["classify"].assert_not_called()
 
     def test_second_report_of_the_same_turn_is_deduplicated(self):
-        self.mocks["redis"].return_value.set.return_value = False
+        first = self._generate()
+        second = self._generate()
 
-        outcome = self._generate()
+        assert first.status == "emitted"
+        assert second == TurnSuggestionOutcome(status="skipped", reason="already_classified")
+        self.mocks["classify"].assert_called_once()
 
-        assert outcome.reason == "already_classified"
-        self.mocks["classify"].assert_not_called()
+
+class TestResolveTurnSuggestion(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        self.task_run = self.task.create_run(mode="interactive")
+        Task.objects.filter(id=self.task.id).update(
+            state={STATE_KEY: {"offers": [_offer(0, run_id=str(self.task_run.id))]}}
+        )
+
+    def _resolve(self, task_id: str, turn_index: int, resolution: str):
+        with patch(f"{SERVICE}.publish_task_run_stream_notification", return_value=True) as publish:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/turn_suggestions/resolve/",
+                {"task_id": task_id, "turn_index": turn_index, "resolution": resolution},
+                format="json",
+            )
+        return response, publish
+
+    def test_a_dismissal_mutes_the_conversation_and_replays_into_the_run_log(self):
+        response, publish = self._resolve(str(self.task.id), 0, "dismissed")
+
+        assert response.status_code == 200
+        assert response.json() == {"recorded": True}
+        ledger = read_ledger(self.task.id, self.team.id)
+        assert ledger.muted is True
+        assert ledger.offers[0].status == OfferStatus.DISMISSED
+        assert publish.call_args.args == (
+            str(self.task_run.id),
+            str(self.task.id),
+            self.team.id,
+            "_posthog/turn_suggestion_resolved",
+            {"turnIndex": 0, "outcome": "dismissed"},
+        )
+
+    @parameterized.expand([("turn_without_a_card", False, 3, 200), ("task_of_another_team", True, 0, 404)])
+    def test_nothing_is_recorded_for_a_card_that_does_not_exist(
+        self, _name: str, other_team: bool, turn_index: int, status_code: int
+    ):
+        task_id = str(self.task.id)
+        if other_team:
+            other = self.create_team_with_organization(organization=self.organization)
+            task_id = str(
+                Task.objects.create(
+                    team=other,
+                    title="t",
+                    description="d",
+                    origin_product=Task.OriginProduct.POSTHOG_AI,
+                    created_by=self.user,
+                ).id
+            )
+
+        response, publish = self._resolve(task_id, turn_index, "accepted")
+
+        assert response.status_code == status_code
+        publish.assert_not_called()
+        assert read_ledger(self.task.id, self.team.id).offers[0].status == OfferStatus.OFFERED

@@ -27,6 +27,7 @@ import type {
 } from '../types/streamTypes'
 import { AcceptedSuggestion, acceptSuggestion } from '../utils/acceptSuggestion'
 import { ConversationBlocks, collectConversationBlocks } from '../utils/conversationNotebook'
+import { recordTurnSuggestionResolution } from '../utils/recordTurnSuggestionResolution'
 import { captureTurnSuggestionAcceptFailed, captureTurnSuggestionAccepted } from '../utils/turnSuggestionEvents'
 import { runStreamLogic } from './runStreamLogic'
 import { slackDestinationLogic } from './slackDestinationLogic'
@@ -262,6 +263,7 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
     listeners(({ actions, values, props }) => ({
         acceptSuccess: () => {
             actions.markCompleted()
+            recordTurnSuggestionResolution(values.currentProjectId, props, 'accepted')
         },
         acceptFailure: ({ error }) => {
             if (values.suggestion) {

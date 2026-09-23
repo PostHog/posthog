@@ -146,6 +146,7 @@ const NOTIFICATION_PARAMS_BY_METHOD: { [M in keyof PosthogNotificationParamsByMe
             },
         },
     ],
+    '_posthog/turn_suggestion_resolved': [{ turnIndex: 0, outcome: 'dismissed' }],
 }
 
 const KNOWN_POSTHOG_METHODS = Object.keys(NOTIFICATION_PARAMS_BY_METHOD) as (keyof PosthogNotificationParamsByMethod)[]

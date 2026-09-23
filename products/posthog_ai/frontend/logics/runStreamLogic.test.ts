@@ -4479,6 +4479,28 @@ describe('runStreamLogic', () => {
             expect(logic.values.turnSuggestion).toMatchObject({ turnIndex: 1 })
         })
 
+        it.each([
+            { source: 'replay', outcome: 'accepted', kept: false, muted: false },
+            { source: 'replay', outcome: 'dismissed', kept: false, muted: true },
+            { source: 'live', outcome: 'accepted', kept: true, muted: false },
+            { source: 'live', outcome: 'dismissed', kept: false, muted: true },
+        ] as const)(
+            'a $source $outcome resolution frame keeps the card: $kept, mutes: $muted',
+            async ({ source, outcome, kept, muted }) => {
+                const ingest = (frame: StoredLogEntry): void => {
+                    logic.actions.ingestAcpFrame(frame, source)
+                }
+                await expectLogic(logic, () => {
+                    ingest(notification('_posthog/user_message', { content: 'How many signups?' }))
+                    ingest(notification('_posthog/turn_suggestion', suggestionParams))
+                    ingest(notification('_posthog/turn_suggestion_resolved', { turnIndex: 0, outcome }))
+                }).toFinishAllListeners()
+
+                expect(logic.values.turnSuggestion !== null).toBe(kept)
+                expect(logic.values.turnSuggestionsMuted).toBe(muted)
+            }
+        )
+
         it('stops accepting suggestions after one is dismissed', async () => {
             logic.actions.muteTurnSuggestions()
 

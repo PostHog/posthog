@@ -441,6 +441,12 @@ export interface PosthogTurnSuggestionParams {
     errorAlert?: { issueId?: string; issueName?: string }
 }
 
+/** What the user did with a turn's suggestion card (`_posthog/turn_suggestion_resolved`), replayed after the card frame. */
+export interface PosthogTurnSuggestionResolvedParams {
+    turnIndex?: number
+    outcome?: string
+}
+
 export interface PosthogNotificationParamsByMethod {
     '_posthog/console': PosthogConsoleParams
     '_posthog/progress': PosthogProgressParams
@@ -459,6 +465,7 @@ export interface PosthogNotificationParamsByMethod {
     '_posthog/run_started': PosthogRunStartedParams
     '_posthog/turn_complete': PosthogTurnCompleteParams
     '_posthog/turn_suggestion': PosthogTurnSuggestionParams
+    '_posthog/turn_suggestion_resolved': PosthogTurnSuggestionResolvedParams
 }
 
 /**

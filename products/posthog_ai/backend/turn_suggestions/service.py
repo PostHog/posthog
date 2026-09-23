@@ -5,20 +5,24 @@ stream, asks the classifier, and publishes a ``_posthog/turn_suggestion`` frame 
 stream the thread renders from, so the card appears under the answer without the frontend polling.
 """
 
-from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Literal, TypeVar
+from typing import Literal
 
 import structlog
-from redis import Redis
 
 from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false, ph_scoped_capture
-from posthog.redis import get_client
 
 from products.posthog_ai.backend.turn_suggestions.classifier import classify_turn
 from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL
 from products.posthog_ai.backend.turn_suggestions.judgment import JUDGE_MODEL, judge_configured
+from products.posthog_ai.backend.turn_suggestions.offer_ledger import (
+    TurnSuggestionResolution,
+    claim_turn,
+    read_ledger,
+    record_offer,
+    resolve_offer,
+)
 from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript, build_turn_transcript
 from products.posthog_ai.backend.turn_suggestions.verdict import OfferKind, TurnVerdict
 from products.signals.backend.facade.api import scout_creation_available
@@ -34,21 +38,12 @@ logger = structlog.get_logger(__name__)
 
 TURN_SUGGESTIONS_FLAG = "posthog-ai-turn-suggestions"
 TURN_SUGGESTION_METHOD = "_posthog/turn_suggestion"
-
-# The proxy callback and the event-ingest path can both report the same turn end; one suggestion
-# per (run, turn) is enough.
-_DEDUPE_TTL_SECONDS = 24 * 60 * 60
-
-# A conversation gets a couple of offers at most, so a long investigation is not nudged on every
-# turn. A second offer exists for the case where the first was superseded by the next message.
-MAX_OFFERS_PER_CONVERSATION = 2
-_OFFER_BUDGET_TTL_SECONDS = 7 * 24 * 60 * 60
+TURN_SUGGESTION_RESOLVED_METHOD = "_posthog/turn_suggestion_resolved"
 
 # The offers whose text a language model writes after the judgment picks them.
 _DRAFTED_OFFERS = frozenset({OfferKind.SCOUT, OfferKind.NOTEBOOK})
 
 OutcomeStatus = Literal["emitted", "skipped", "failed"]
-T = TypeVar("T")
 
 
 @frozen
@@ -73,48 +68,6 @@ def _turn_suggestions_enabled(task_run: TaskRun) -> bool:
         group_properties={"organization": {"id": organization_id}},
         send_feature_flag_events=False,
     )
-
-
-def _with_redis(task_run: TaskRun, operation: Callable[[Redis], T], fallback: T, event: str) -> T:
-    """Redis keeps the nudge honest, not correct: when it is unreachable the call degrades to the fallback."""
-    try:
-        return operation(get_client())
-    except Exception:
-        logger.warning(event, run_id=str(task_run.id))
-        return fallback
-
-
-def _claim_turn(task_run: TaskRun, turn_index: int) -> bool:
-    key = f"posthog_ai:turn_suggestion:{task_run.id}:{turn_index}"
-    return _with_redis(
-        task_run,
-        lambda client: bool(client.set(key, "1", nx=True, ex=_DEDUPE_TTL_SECONDS)),
-        True,
-        "posthog_ai_turn_suggestion_dedupe_unavailable",
-    )
-
-
-def _offer_budget_key(task_run: TaskRun) -> str:
-    return f"posthog_ai:turn_suggestion:offers:{task_run.task_id}"
-
-
-def _offers_made(task_run: TaskRun) -> int:
-    key = _offer_budget_key(task_run)
-    return _with_redis(
-        task_run, lambda client: int(client.get(key) or 0), 0, "posthog_ai_turn_suggestion_budget_unavailable"
-    )
-
-
-def _record_offer(task_run: TaskRun) -> None:
-    key = _offer_budget_key(task_run)
-
-    def increment(client: Redis) -> None:
-        with client.pipeline() as pipeline:
-            pipeline.incr(key)
-            pipeline.expire(key, _OFFER_BUDGET_TTL_SECONDS)
-            pipeline.execute()
-
-    _with_redis(task_run, increment, None, "posthog_ai_turn_suggestion_budget_unavailable")
 
 
 def _load_transcript(task_run: TaskRun) -> TurnTranscript:
@@ -209,14 +162,19 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     task = task_run.task
     if task.origin_product != Task.OriginProduct.POSTHOG_AI or task_run.mode != "interactive":
         return _skipped("not_posthog_ai_conversation")
+    # Cards render only in the PostHog AI web app. Slack conversations carry the Slack origin and
+    # fail the check above; PostHog Desktop ones carry a client provenance.
+    if task.client_provenance:
+        return _skipped("not_started_in_web")
     if task.created_by is None:
         return _skipped("no_user")
     if not _turn_suggestions_enabled(task_run):
         return _skipped("flag_off")
     if not judge_configured():
         return _skipped("judge_not_configured")
-    if _offers_made(task_run) >= MAX_OFFERS_PER_CONVERSATION:
-        return _skipped("offer_budget_spent")
+    early_refusal = read_ledger(task.id, task_run.team_id).refusal()
+    if early_refusal is not None:
+        return _skipped(early_refusal.value)
 
     transcript = _load_transcript(task_run)
     if not transcript.human_messages:
@@ -227,8 +185,9 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     available = _available_offers(task_run, transcript)
     if not available:
         return _skipped("no_offers_available")
-    if not _claim_turn(task_run, turn_index):
-        return _skipped("already_classified")
+    refusal = claim_turn(task.id, task_run.team_id, turn_index)
+    if refusal is not None:
+        return _skipped(refusal.value)
 
     verdict = classify_turn(transcript, team_id=task_run.team_id, today=datetime.now(UTC).date(), available=available)
     if verdict is None:
@@ -237,7 +196,7 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
 
     params = _suggestion_params(verdict, turn_index)
     offer = verdict.offer.value if params is not None else None
-    # Publishing also appends to the run's S3 log, a rewrite of the whole log; the offer budget is
+    # Publishing also appends to the run's S3 log, a rewrite of the whole log; the offer ledger is
     # what keeps that to a couple of times per conversation.
     emitted = params is not None and publish_task_run_stream_notification(
         task_run.id, task_run.task_id, task_run.team_id, TURN_SUGGESTION_METHOD, params
@@ -249,5 +208,26 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
         return _skipped(f"no_offer:{verdict.intent.value}")
     if not emitted:
         return TurnSuggestionOutcome(status="failed", reason="publish_failed")
-    _record_offer(task_run)
+    record_offer(task.id, task_run.team_id, run_id=task_run.id, turn_index=turn_index, kind=verdict.offer.value)
     return TurnSuggestionOutcome(status="emitted", reason=verdict.offer.value)
+
+
+def resolve_turn_suggestion(
+    task_id: str, team_id: int, *, turn_index: int, resolution: TurnSuggestionResolution
+) -> bool:
+    """Record a dismissed or accepted card and write the outcome into its run's stream.
+
+    The stream frame is also appended to the run's log, so a reloaded thread replays it after the
+    card frame and keeps the card hidden. Returns ``False`` when that turn got no card.
+    """
+    offer = resolve_offer(task_id, team_id, turn_index=turn_index, resolution=resolution)
+    if offer is None:
+        return False
+    publish_task_run_stream_notification(
+        offer.run_id,
+        task_id,
+        team_id,
+        TURN_SUGGESTION_RESOLVED_METHOD,
+        {"turnIndex": turn_index, "outcome": resolution.value},
+    )
+    return True
