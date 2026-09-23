@@ -17,6 +17,7 @@ import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { objectsEqual } from 'lib/utils/objects'
+import type { ClipboardWriteOutcome } from 'lib/utils/writeToClipboard'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
@@ -69,6 +70,23 @@ export const TRIGGER_NODE_ID = 'trigger_node'
 export const EXIT_NODE_ID = 'exit_node'
 
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
+
+function canWriteWorkflowCodeWithGesture(): boolean {
+    return typeof navigator !== 'undefined' && !!navigator.clipboard?.write && typeof ClipboardItem !== 'undefined'
+}
+
+async function writeWorkflowCodeWithGesture(codePromise: Promise<string>): Promise<ClipboardWriteOutcome> {
+    try {
+        await navigator.clipboard.write([
+            new ClipboardItem({
+                'text/plain': codePromise.then((code) => new Blob([code], { type: 'text/plain' })),
+            }),
+        ])
+        return 'copied'
+    } catch {
+        return 'failed'
+    }
+}
 
 export const NEW_WORKFLOW: HogFlow = {
     id: 'new',
@@ -4170,17 +4188,28 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
             actions.setCopyCodePending(true)
+            const codeResponse = hogFlowsCodeRetrieve(String(values.currentProjectId), props.id)
+            const gestureWrite = canWriteWorkflowCodeWithGesture()
+                ? writeWorkflowCodeWithGesture(codeResponse.then(({ code }) => code))
+                : null
             try {
-                const { code, warnings } = await hogFlowsCodeRetrieve(String(values.currentProjectId), props.id)
-                // One toast per click: the warning replaces the default "copied" toast when the
-                // source drops part of the workflow, so the loss is not hidden behind a success.
-                const copied = await copyToClipboard(code, 'workflow code', { silent: warnings.length > 0 })
-                if (copied && warnings.length > 0) {
+                const [{ code, warnings }, gestureWriteOutcome] = await Promise.all([codeResponse, gestureWrite])
+                const copied =
+                    gestureWriteOutcome === null
+                        ? await copyToClipboard(code, 'workflow code', { silent: warnings.length > 0 })
+                        : gestureWriteOutcome === 'copied'
+                if (!copied) {
+                    lemonToast.error('Could not copy the workflow code. Please try again.')
+                    return
+                }
+                if (warnings.length > 0) {
                     lemonToast.warning(
                         warnings.length === 1
                             ? 'Copied the workflow code. 1 part of this workflow cannot be expressed in code. It is listed at the top of the file.'
                             : `Copied the workflow code. ${warnings.length} parts of this workflow cannot be expressed in code. They are listed at the top of the file.`
                     )
+                } else if (gestureWriteOutcome !== null) {
+                    lemonToast.info('Copied workflow code to clipboard')
                 }
             } catch {
                 lemonToast.error('Could not copy the workflow code. Please try again.')

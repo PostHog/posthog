@@ -9,7 +9,6 @@ import { email, onEvent, path, workflow } from '@posthog/workflows'
 export const reEngagement = workflow({
     key: 're-engagement',
     name: 'Re-engagement',
-    status: 'active',
     on: onEvent({ event: 'trial started' }),
     steps: path(
         // The wait_until_condition step "Wait for a click" is kept as JSON. Replace it or remove it before you push.
