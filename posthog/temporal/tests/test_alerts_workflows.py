@@ -48,6 +48,9 @@ from posthog.temporal.alerts.types import (
     AdmittedEvaluations,
     AlertInfo,
     CheckAlertWorkflowInputs,
+    EvaluateAlertResult,
+    PrepareAction,
+    PrepareAlertResult,
     ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
@@ -55,7 +58,11 @@ from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAle
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.tests.test_alerts_activities import _email_delivery
 
-from products.alerts.backend.facade.api import LLMDetectorUnavailableError
+from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    LLMDetectorUnavailableError,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.facade.models import Insight
 
@@ -146,6 +153,42 @@ def _admission_scheduler(
 
 def _started_alert_ids(run: _SchedulerRun) -> list[str]:
     return [call.args[1].alert_id for call in run.start_child.await_args_list]
+
+
+@pytest.mark.parametrize(
+    "uses_llm_detector,expected_task_queue",
+    [(False, None), (True, settings.MAX_AI_TASK_QUEUE)],
+)
+@pytest.mark.asyncio
+async def test_check_alert_workflow_evaluates_ai_detectors_on_the_ai_task_queue(
+    uses_llm_detector: bool, expected_task_queue: str | None
+) -> None:
+    # Only the AI worker holds the model provider credentials, so an AI detector's evaluation
+    # has to leave the analytics-platform queue. Every other alert stays on it (task_queue=None).
+    execute_activity = AsyncMock(
+        side_effect=[
+            PrepareAlertResult(action=PrepareAction.EVALUATE, uses_llm_detector=uses_llm_detector),
+            EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState.NOT_FIRING),
+        ]
+    )
+
+    with (
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity", new=execute_activity),
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.patched", return_value=True),
+    ):
+        await CheckAlertWorkflow().run(
+            CheckAlertWorkflowInputs(
+                alert_id=str(uuid.uuid4()),
+                team_id=1,
+                distinct_id="alerts-queue-test",
+                calculation_interval=AlertCalculationInterval.DAILY.value,
+                insight_id=1,
+            )
+        )
+
+    evaluate_call = execute_activity.await_args_list[1]
+    assert evaluate_call.args[0] is evaluate_alert
+    assert evaluate_call.kwargs["task_queue"] == expected_task_queue
 
 
 @pytest.mark.asyncio
@@ -544,7 +587,7 @@ class _PermanentEvaluationError(Exception):
 
 
 @pytest.mark.parametrize(
-    "error,expected_attempts,expect_workflow_failure,expected_outcome,edit_on_final_attempt",
+    "error,expected_attempts,expect_workflow_failure,expected_outcome,edit_on_final_attempt,expected_error_code",
     [
         pytest.param(
             ClickHouseClusterMemoryLimitExceeded(),
@@ -552,6 +595,7 @@ class _PermanentEvaluationError(Exception):
             True,
             SloOutcome.FAILURE,
             False,
+            None,
             id="transient_retried_to_exhaustion",
         ),
         pytest.param(
@@ -560,7 +604,17 @@ class _PermanentEvaluationError(Exception):
             False,
             SloOutcome.SUCCESS,
             False,
+            None,
             id="non_transient_not_retried",
+        ),
+        pytest.param(
+            LLMDetectorUnavailableError("Could not resolve authentication method"),
+            ALERT_EVALUATE_RETRY_POLICY.maximum_attempts,
+            True,
+            SloOutcome.FAILURE,
+            False,
+            LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+            id="model_provider_out_of_reach",
         ),
         pytest.param(
             LLMDetectorUnavailableError("Model timed out"),
@@ -568,6 +622,7 @@ class _PermanentEvaluationError(Exception):
             True,
             SloOutcome.FAILURE,
             True,
+            None,
             id="edited_during_final_model_attempt",
         ),
     ],
@@ -583,6 +638,7 @@ async def test_check_alert_workflow_records_errored_check_when_evaluation_keeps_
     expect_workflow_failure: bool,
     expected_outcome: SloOutcome,
     edit_on_final_attempt: bool,
+    expected_error_code: str | None,
 ) -> None:
     # However evaluation fails, the workflow must leave an errored check, notify the owner, and push
     # next_check_at into the future so the one-minute sweep doesn't restart the chain forever.
@@ -635,6 +691,15 @@ async def test_check_alert_workflow_records_errored_check_when_evaluation_keeps_
     else:
         assert check is not None
         assert check.state == AlertState.ERRORED
+        if expected_error_code is None:
+            assert check.error is not None and "code" not in check.error
+        else:
+            # A provider the judge cannot reach is not the owner's configuration, so the check
+            # carries its own code and never the raw transport error.
+            assert check.error == {
+                "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+                "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+            }
         mock_send_errors.assert_called_once()
         assert refreshed.next_check_at is not None
         assert refreshed.next_check_at > datetime.now(UTC)

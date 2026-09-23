@@ -74,7 +74,12 @@ from posthog.temporal.alerts.types import (
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
-from products.alerts.backend.facade.api import LLMDetectorMisconfiguredError, LLMDetectorUnavailableError
+from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    LLMDetectorMisconfiguredError,
+    LLMDetectorUnavailableError,
+)
 from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.facade.models import Insight
@@ -1187,6 +1192,38 @@ class TestNotifyAlert:
         assert "Insight has a breakdown." in notification.body
         assert "try again" not in notification.body
 
+    async def test_unreachable_provider_notification_does_not_ask_for_a_settings_review(self, alert_with_user) -> None:
+        next_check_at = datetime(2026, 8, 12, 14, 30, tzinfo=UTC)
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert_with_user.pk).update)(
+            next_check_at=next_check_at
+        )
+        alert_with_user.next_check_at = next_check_at
+        check = await _create_alert_check(
+            alert_with_user,
+            state=AlertState.ERRORED,
+            error={"message": LLM_DETECTOR_UNAVAILABLE_MESSAGE, "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE},
+        )
+
+        with (
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_errors",
+                return_value=[_email_delivery("alice@posthog.com")],
+            ),
+            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(alert_id=str(alert_with_user.id), alert_check_id=str(check.id)),
+            )
+
+        notification = mock_create_notification.call_args.args[0]
+        assert "could not reach its model provider" in notification.body
+        assert "there is nothing to change" in notification.body
+        assert "Review the alert settings" not in notification.body
+        assert "settings need attention" not in notification.body
+        assert "PostHog will try again on August 12, 2026 at 2:30 PM UTC" in notification.body
+
     @pytest.mark.parametrize("message", [None, "", "   "])
     async def test_error_notification_uses_fallback_for_missing_reason(self, alert_with_user, message) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.ERRORED, error={"message": message})
@@ -1223,6 +1260,23 @@ class TestNotifyAlert:
         subscriber_email = await sync_to_async(lambda: alert_with_user.subscribed_users.get().email)()
         assert [(delivery.channel, delivery.target) for delivery in deliveries] == [("email", subscriber_email)]
         assert mock_send_alert_email.call_args.kwargs["template_context"]["next_check_at"] == next_check_at
+
+    @pytest.mark.parametrize(
+        "error,provider_unavailable",
+        [
+            ({"message": "boom"}, False),
+            ({"message": "boom", "code": "invalid_configuration"}, False),
+            ({"message": LLM_DETECTOR_UNAVAILABLE_MESSAGE, "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE}, True),
+        ],
+    )
+    async def test_error_email_marks_an_unreachable_provider(
+        self, alert_with_user, error, provider_unavailable
+    ) -> None:
+        with patch("posthog.tasks.alerts.utils.send_alert_email") as mock_send_alert_email:
+            await sync_to_async(send_notifications_for_errors)(alert_with_user, error, "notification-key")
+
+        template_context = mock_send_alert_email.call_args.kwargs["template_context"]
+        assert template_context["provider_unavailable"] is provider_unavailable
 
     async def test_error_notification_does_not_include_an_unsubscribed_creator(self, alert, auser) -> None:
         await sync_to_async(AlertConfiguration.objects.filter(pk=alert.id).update)(created_by_id=auser.id)

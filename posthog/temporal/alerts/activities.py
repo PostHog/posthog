@@ -56,7 +56,7 @@ from posthog.temporal.alerts.admission import (
     release_evaluation_slots,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
-from posthog.temporal.alerts.metrics import record_due_insight_alert_metrics
+from posthog.temporal.alerts.metrics import record_ai_detector_check_outcome, record_due_insight_alert_metrics
 from posthog.temporal.alerts.retry_policy import ALERT_PREPARE_RETRY_POLICY, SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
     AdmitEvaluationsInputs,
@@ -81,6 +81,8 @@ from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
 from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     MAX_CONCURRENT_MODEL_CALLS,
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
@@ -482,6 +484,17 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     )
 
 
+def _failed_evaluation_error(inputs: RecordFailedEvaluationActivityInputs) -> dict:
+    """The error payload for an evaluation that ran out of retries without writing a check.
+
+    A provider the judge cannot reach is not the owner's configuration, and the raw transport
+    error is not written for them, so that case gets its own code and its own wording.
+    """
+    if inputs.error_type == LLMDetectorUnavailableError.__name__:
+        return {"code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE, "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE}
+    return {"message": inputs.error_message}
+
+
 def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[AlertCheck, bool]:
     """Write an errored AlertCheck for an already-locked alert and return it with the notify decision.
 
@@ -522,6 +535,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         try:
             alert_evaluation_result = check_alert_for_insight(alert, evaluation_id=evaluation_id)
             breaches = alert_evaluation_result.breaches
+            if is_llm_detector_config(alert.detector_config):
+                record_ai_detector_check_outcome("evaluated")
         except CH_TRANSIENT_ERRORS:
             raise
         except CHQueryErrorQueryWasCancelled:
@@ -533,8 +548,14 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # re-raise so the retry policy gets another attempt. Once the attempts run out the
             # retry-exhausted path records an errored check, the same outcome as any other
             # evaluation that never produced a value.
+            record_ai_detector_check_outcome("unavailable")
             raise
-        except (AlertExtractionError, LLMDetectorMisconfiguredError) as err:
+        except LLMDetectorMisconfiguredError as err:
+            # Same fail-loud outcome as a bad query shape below, counted apart because a
+            # withdrawn consent or rollout is the owner's to fix and never a provider failure.
+            record_ai_detector_check_outcome("misconfigured")
+            invalid_configuration = str(err)
+        except AlertExtractionError as err:
             # The alert can't be evaluated as configured (wrong query shape / bad config) — a
             # deliberate fail-loud outcome, not a bug. Auto-disable and email the owner via the
             # existing path instead of capturing it as an exception, which would pollute error
@@ -784,7 +805,7 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
                 # machine keeps that from sending a duplicate notification.
                 if alert.next_check_at is not None and alert.next_check_at > datetime.now(UTC):
                     return RecordFailedEvaluationResult()
-                alert_check, should_notify = _write_errored_alert_check(alert, {"message": inputs.error_message})
+                alert_check, should_notify = _write_errored_alert_check(alert, _failed_evaluation_error(inputs))
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert gone before its failure could be recorded", alert_id=inputs.alert_id)
             return RecordFailedEvaluationResult()
@@ -844,7 +865,8 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
     error_message = str(error.get("message") or "Unknown error").strip().rstrip(".")[:1000] or "Unknown error"
     alert_name = alert.name or "Alert"
     source_url = f"/project/{alert.team_id}/insights/{alert.insight.short_id}?alert_id={alert.id}"
-    if error.get("code") == "invalid_configuration":
+    error_code = error.get("code")
+    if error_code == "invalid_configuration":
         # The check turned the alert off, so a promise to try again would be false.
         title = f"{alert_name[:75]} was turned off"
         body = (
@@ -859,12 +881,21 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
             else "PostHog will try again at the next scheduled check."
         )
         title = f"{alert_name[:75]} could not be evaluated"
-        body = (
-            f"PostHog could not evaluate this alert: {error_message}. "
-            "This can happen when the insight or alert settings need attention, or when PostHog has a "
-            f"temporary problem. Review the alert settings. {next_check_message} If it fails again, "
-            "contact support."
-        )
+        if error_code == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
+            # A provider PostHog could not reach is not something the alert's owner can fix,
+            # so this case drops the advice to review the alert settings.
+            body = (
+                f"PostHog could not evaluate this alert: {error_message}. "
+                "The alert and insight settings are correct, so there is nothing to change. "
+                f"{next_check_message} If it fails again, contact support."
+            )
+        else:
+            body = (
+                f"PostHog could not evaluate this alert: {error_message}. "
+                "This can happen when the insight or alert settings need attention, or when PostHog has a "
+                f"temporary problem. Review the alert settings. {next_check_message} If it fails again, "
+                "contact support."
+            )
 
     for user_id, _ in get_alert_error_notification_recipients(alert):
         try:

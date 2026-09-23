@@ -90,7 +90,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # retries behind a cap that binds mid-run. Suggestion runs stay on the default.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
     "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES",
-    '{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30", "slack_app": "75", "workflows": "75"}',
+    '{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30", "slack_app": "75", "workflows": "75", "posthog_ai": "75"}',
 )
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
