@@ -342,7 +342,7 @@ export interface ProjectMenuActionProperties {
 export type TaskListSurface = "sidebar" | "space" | "saved_search";
 
 export interface TaskListGroupingChangedProperties {
-  group_by: "repository" | "date";
+  group_by: "repository" | "date" | "space";
   sort_by: "updated" | "created" | "alpha";
   surface: TaskListSurface;
 }
@@ -358,7 +358,13 @@ export interface BrowserTabTileCountProperties {
 }
 
 export interface TaskListAppearanceChangedProperties {
-  secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
+  secondary_fields: (
+    | "space"
+    | "repository"
+    | "branch"
+    | "creator"
+    | "activity"
+  )[];
   secondary_field_count: number;
   surface: TaskListSurface;
 }
@@ -908,6 +914,17 @@ export interface UsageViewedProperties {
   sustained_used_percent: number | null;
   /** Daily bucket percent (0-100), null when usage is unavailable. */
   burst_used_percent: number | null;
+  /** Which meter the page rendered: org dollars, the valve bucket, or nothing. */
+  meter_kind: "dollars" | "bucket" | "hidden";
+  /** The dollar figure the meter rendered, null when it rendered no dollars. */
+  org_used_usd: number | null;
+  /** The org limit the figure is measured against, null when no dollars render. */
+  org_limit_usd: number | null;
+  /**
+   * The viewer's own 30-day spend, null when it has not loaded. Read against
+   * `org_used_usd` to see the two figures disagree.
+   */
+  personal_spend_30d_usd: number | null;
 }
 
 export interface SpendAnalysisTaskOpenedProperties {
@@ -1177,7 +1194,8 @@ export type ChannelsSurface =
   | "thread_panel"
   | "activity_panel"
   | "activity"
-  | "canvases_pane";
+  | "canvases_pane"
+  | "spaces_index";
 
 type ChannelActionType =
   | "enter_space"
@@ -1337,13 +1355,19 @@ export interface CanvasRuntimeErrorProperties {
   csp_directive?: string;
 }
 
-export type ContextActionType = "save_version" | "generate_started" | "discard";
+export type ContextActionType =
+  | "save_version"
+  | "generate_started"
+  | "setup_started"
+  | "discard";
 
 export interface ContextActionProperties {
   action_type: ContextActionType;
   channel_id: string;
   /** generate_started only. */
   execution_type?: "local" | "cloud";
+  /** setup_started only: what the space was set up for. */
+  setup_kind?: "goal" | "feature";
   /** save_version: whether this created the first version vs. an update. */
   is_first_version?: boolean;
   success?: boolean;
@@ -1466,6 +1490,8 @@ export interface LoopListViewedProperties {
   loop_count: number;
   personal_loop_count: number;
   team_loop_count: number;
+  global_loop_count: number;
+  space_count: number;
   is_at_limit: boolean;
   /** Backend-enforced per-project cap; omitted while the limit is still loading. */
   loop_limit?: number;

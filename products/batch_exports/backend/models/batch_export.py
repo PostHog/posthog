@@ -228,7 +228,7 @@ class BatchExportRun(UUIDTModel):
     )
     latest_error = models.TextField(null=True, help_text="The latest error that occurred during this run.")
     data_interval_start = models.DateTimeField(help_text="The start of the data interval.", null=True)
-    data_interval_end = models.DateTimeField(help_text="The end of the data interval.")
+    data_interval_end = models.DateTimeField(help_text="The end of the data interval.", null=True)
     cursor = models.TextField(null=True, help_text="An opaque cursor that may be used to resume.")
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -264,9 +264,13 @@ class BatchExportRun(UUIDTModel):
         parent = self.parent
 
         if isinstance(parent, BatchExport):
+            if self.data_interval_end is None:
+                raise ValueError("Scheduled batch export runs require data_interval_end to compute a workflow ID")
             return f"{parent.id}-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
 
         if isinstance(parent, BatchExportOnDemand):
+            if self.data_interval_start is None or self.data_interval_end is None:
+                return f"{parent.id}-{self.id}"
             return (
                 f"{parent.id}-{self.data_interval_start:%Y-%m-%dT%H:%M:%S}Z-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
             )
@@ -499,6 +503,11 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
             offset_in_hours = self.interval_offset // 3600
             return offset_in_hours % 24
         return None
+
+    @property
+    def hogql_query(self) -> str | None:
+        """Return the HogQL query of this batch export's source, if it has one."""
+        return self.source.hogql_query if self.source is not None else None
 
 
 def get_batch_exports_using_integration(team_id: int, integration_id: int) -> list[BatchExport]:

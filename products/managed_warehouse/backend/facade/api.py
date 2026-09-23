@@ -42,6 +42,8 @@ __all__ = [
     "duckgres_data_imports_schema",
     "duckgres_data_imports_table_name",
     "duckgres_data_modeling_schema",
+    "ducklake_data_modeling_schema",
+    "get_data_modeling_table_name",
     "get_catalog_connection_config",
     "get_control_plane_bucket",
     "get_duckgres_query_server_config",
@@ -240,6 +242,18 @@ def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
 
 def duckgres_data_modeling_schema(team_id: int) -> str:
     return common.duckgres_data_modeling_schema(team_id)
+
+
+def ducklake_data_modeling_schema(team_id: int) -> str:
+    return common.ducklake_data_modeling_schema(team_id)
+
+
+def get_data_modeling_table_name(team_id: int, saved_query_id: UUID) -> str:
+    from products.managed_warehouse.backend.table_binding import (
+        get_data_modeling_table_names,  # noqa: PLC0415 -- defer compiler dependencies until model resolution
+    )
+
+    return get_data_modeling_table_names(team_id, [saved_query_id])[saved_query_id]
 
 
 def validate_schema_name(name: str | None) -> str | None:

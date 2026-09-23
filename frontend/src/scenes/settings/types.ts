@@ -394,14 +394,6 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     hideFromNavigation?: boolean
 
     /**
-     * When true, navigating to this section prompts for re-authentication if the sensitive
-     * session has expired — matching how user- and organization-level settings behave. Use for
-     * environment/project sections that manage credentials, which otherwise only surface the
-     * re-auth modal reactively when a write is attempted.
-     */
-    requiresReauthentication?: boolean
-
-    /**
      * Gate every setting in the section behind one billing feature. The section renders a single
      * upsell when the feature is unavailable. Use this instead of a `PayGateMini` inside each
      * setting's component, which stacks one identical upsell card per setting on the page.

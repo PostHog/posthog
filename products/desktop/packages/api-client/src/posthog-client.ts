@@ -61,6 +61,8 @@ import type {
   SignalUserAutonomyConfig,
   SlackChannelsQueryParams,
   SlackChannelsResponse,
+  SpaceSetupInput,
+  SpaceSetupStarted,
   SuggestedReviewersArtefact,
   SuggestedReviewerWriteEntry,
   Task,
@@ -77,6 +79,10 @@ import type {
   UserBasic,
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
+import {
+  spaceSetupInputSchema,
+  spaceSetupStartedSchema,
+} from "@posthog/shared/schemas";
 import {
   activitySection,
   compactCount,
@@ -3235,6 +3241,25 @@ export class PostHogAPIClient {
     return normalizeTaskResponse(data, { teamId });
   }
 
+  async createSignalReportTask(options: {
+    reportId: string;
+    relationship: "implementation" | "discussion";
+    description: string;
+    title?: string;
+    question?: string;
+  }): Promise<Task> {
+    return this.createTask({
+      description: options.description,
+      title: options.title,
+      origin_product: "signal_report",
+      signal_report: options.reportId,
+      signal_report_task_relationship: options.relationship,
+      ...(options.relationship === "discussion"
+        ? { signal_report_discussion_question: options.question?.trim() ?? "" }
+        : {}),
+    });
+  }
+
   async updateTask(
     taskId: string,
     updates: Schemas.PatchedTaskWrite,
@@ -3833,6 +3858,34 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch channel feed: ${response.statusText}`);
     }
     return (await response.json()) as ChannelFeedMessage[];
+  }
+
+  // Start the task that sets a space up for a goal or a feature. The server builds
+  // the prompt and files the task into the channel.
+  async setupTaskChannel(
+    channelId: string,
+    input: SpaceSetupInput,
+  ): Promise<SpaceSetupStarted> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/setup/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify(spaceSetupInputSchema.parse(input)),
+        },
+      });
+      return spaceSetupStartedSchema.parse(await response.json());
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(
+          error,
+          "Could not start space setup. Try again.",
+        ),
+      );
+    }
   }
 
   // Post a system announcement into a channel's feed. The row is authored by the

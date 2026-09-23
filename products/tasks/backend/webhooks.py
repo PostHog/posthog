@@ -11,7 +11,10 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.facade.github import update_pull_request_assignments
+from products.signals.backend.facade.github import (
+    refresh_pull_request_review_decisions,
+    update_pull_request_assignments,
+)
 from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
@@ -206,6 +209,16 @@ def handle_pull_request_event(payload: dict) -> None:
         logger.warning("github_pr_webhook_no_pr_url", action=action)
         return
 
+    refresh_review_decision = action in {
+        "opened",
+        "reopened",
+        "ready_for_review",
+        "converted_to_draft",
+        "synchronize",
+        "review_requested",
+        "review_request_removed",
+    }
+
     pr_state = pr_state_for_action(action, pull_request)
     analytics_event: GitHubWebhookAnalyticsEvent | None = None
     if action == "opened":
@@ -224,6 +237,8 @@ def handle_pull_request_event(payload: dict) -> None:
         # not worth an analytics event.
         event_action = action or ""
     else:
+        if refresh_review_decision:
+            refresh_pull_request_review_decisions(payload)
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
         return
 
@@ -274,6 +289,8 @@ def handle_pull_request_event(payload: dict) -> None:
         _record_run_pr_state(task_run, pr_state)
 
     update_pull_request_assignments(payload, pr_state)
+    if refresh_review_decision:
+        refresh_pull_request_review_decisions(payload)
 
     if analytics_event is not None:
         _capture_task_pr_event(payload, task_run, analytics_event)
@@ -299,7 +316,8 @@ def handle_pull_request_review_event(payload: dict) -> None:
     changes_requested, commented), attributed to the reviewer when their GitHub
     login resolves to an org member.
     """
-    if payload.get("action") != "submitted":
+    action = payload.get("action")
+    if action not in {"submitted", "dismissed"}:
         return
 
     review = payload.get("review") or {}
@@ -308,6 +326,11 @@ def handle_pull_request_review_event(payload: dict) -> None:
     pr_url = pull_request.get("html_url")
     if not pr_url:
         logger.warning("github_pr_review_webhook_no_pr_url")
+        return
+
+    refresh_pull_request_review_decisions(payload)
+
+    if action != "submitted":
         return
 
     # StampHog, ReviewHog, and CI apps review every self-driving PR, so without this

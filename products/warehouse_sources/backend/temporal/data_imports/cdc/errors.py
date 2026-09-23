@@ -33,6 +33,7 @@ class CDCErrorCategory(enum.StrEnum):
     SLOT_NOT_CONFIGURED = "slot_not_configured"
     PUBLICATION_MISSING = "publication_missing"
     SLOT_IN_USE = "slot_in_use"
+    PERMISSION_DENIED = "permission_denied"
     WAL_DECODE_ERROR = "wal_decode_error"
     TRANSACTION_TOO_LARGE = "transaction_too_large"
     SCHEMA_MERGE_INCOMPATIBLE = "schema_merge_incompatible"
@@ -151,6 +152,14 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
     CDCErrorCategory.SLOT_IN_USE: (
         "The replication slot is currently in use by another connection. PostHog will retry shortly.",
         True,
+    ),
+    CDCErrorCategory.PERMISSION_DENIED: (
+        "The database role connected for change data capture lacks a privilege it needs on the "
+        "source database. This is often table ownership: managing the publication (for example "
+        "adding a table to it) requires owning every table in it, not just SELECT. Grant the "
+        "missing privilege or ownership, or switch the affected tables to Incremental sync instead "
+        "of CDC, then re-enable change data capture.",
+        False,
     ),
     CDCErrorCategory.WAL_DECODE_ERROR: (
         "PostHog could not decode the change stream from the source database. This usually points to "

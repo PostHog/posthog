@@ -245,6 +245,7 @@ class TestUpdateTaskRunStatusActivity:
             "rtk_effective": True,
             "benjamin_effective": True,
             "benjamin_version": "2026.08.1",
+            "agent_version": "2.4.213",
             "model": "gpt-5.6-sol",
             "runtime_adapter": "codex",
             "budget_guard": {
@@ -273,6 +274,7 @@ class TestUpdateTaskRunStatusActivity:
         assert props["rtk_enabled"] is True
         assert props["benjamin_enabled"] is True
         assert props["benjamin_version"] == "2026.08.1"
+        assert props["agent_version"] == "2.4.213"
         assert props["run_environment"] == test_task_run.environment
         assert props["termination_reason"] is None
         assert props["budget_cap_usd"] == 20

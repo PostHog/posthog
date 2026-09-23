@@ -43,7 +43,11 @@ describe("createHarnessRuntime", () => {
       try {
         expect(runtime).toBeInstanceOf(pi.AgentSessionRuntime);
         expect(runtime.session.model?.provider).toBe("posthog");
-        expect(runtime.session.getAvailableThinkingLevels()).toContain("off");
+        const thinkingLevels = runtime.session.getAvailableThinkingLevels();
+        expect(thinkingLevels).toEqual(
+          expect.arrayContaining(["xhigh", "max"]),
+        );
+        expect(thinkingLevels).not.toContain("off");
         expect(runtime.services.settingsManager.isProjectTrusted()).toBe(false);
         const extensionPaths = runtime.services.resourceLoader
           .getExtensions()
