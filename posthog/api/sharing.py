@@ -1142,7 +1142,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data["type"] = "image"
 
         add_safe_og_tags = resource.insight or resource.dashboard
-        add_og_tags = add_safe_og_tags and not resource.password_required
+        add_og_tags = add_safe_og_tags and not (
+            isinstance(resource, SharingConfiguration) and resource.password_required
+        )
         asset_description = ""
 
         # Check both query params (legacy) and settings for configuration options
