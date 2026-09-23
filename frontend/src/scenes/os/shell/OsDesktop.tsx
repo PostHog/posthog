@@ -19,8 +19,9 @@ import { osShellLogic } from './osShellLogic'
 import { OsWallpaper } from './OsWallpaper'
 import { OS_WALLPAPERS } from './osWallpapers'
 
-// The menu bar is 42px tall inside the shell's 8px padding. Icons start 16px below it.
-const ICON_COLUMN_CLASS = 'list-none m-0 p-0 flex flex-col content-start h-[calc(100dvh-82px)]'
+// The menu bar is 42px tall inside the shell's 8px padding. Icons start 16px below it, and stop
+// above the dock, which takes 76px at the bottom.
+const ICON_COLUMN_CLASS = 'list-none m-0 p-0 flex flex-col content-start h-[calc(100dvh-158px)]'
 
 /** The wallpaper, the icon columns and the right-click menu. Windows render above it. */
 export function OsDesktop(): JSX.Element {

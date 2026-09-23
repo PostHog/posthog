@@ -56,6 +56,11 @@ export function OsMenuBar(): JSX.Element {
         {
             items: [
                 {
+                    label: 'App Store',
+                    onClick: () => openApp(urls.osAppStore(), 'App Store'),
+                    'data-attr': 'os-menu-apps-store',
+                },
+                {
                     label: 'Choose desktop apps',
                     onClick: () => openApp(urls.settings('user-navigation'), 'Settings'),
                     'data-attr': 'os-menu-apps-customize',

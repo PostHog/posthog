@@ -1,4 +1,4 @@
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconStore } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -52,6 +52,12 @@ export function osDesktopColumns(productGroups: FlatNavProductGroup[]): OsDeskto
     return {
         left: [home, ...tools],
         right: [
+            {
+                key: 'app-store',
+                label: 'App Store',
+                href: urls.osAppStore(),
+                icon: { kind: 'element', element: <IconStore /> },
+            },
             {
                 key: 'settings',
                 label: 'Settings',

@@ -2,6 +2,7 @@ import './OsShell.scss'
 
 import { useValues } from 'kea'
 
+import { OsDock } from '../dock/OsDock'
 import { OsSpotlight } from '../spotlight/OsSpotlight'
 import { OsWindowLayer } from '../windows/OsWindowLayer'
 import { OsDesktop } from './OsDesktop'
@@ -10,8 +11,8 @@ import { osShellLogic } from './osShellLogic'
 
 /**
  * The OS desktop that replaces the regular layout. Layers from the back: the desktop (wallpaper and
- * icons), the window layer, and the menu bar on top. The menu bar comes first in the DOM, so it is
- * the first thing the keyboard reaches.
+ * icons), the window layer, and the menu bar and the dock on top. The menu bar and then the dock come
+ * first in the DOM, so the keyboard reaches them before the windows, and the dock sorts itself to the bottom.
  */
 export function OsShell(): JSX.Element {
     const { wallpaper } = useValues(osShellLogic)
@@ -22,6 +23,7 @@ export function OsShell(): JSX.Element {
                 <div className="pointer-events-auto">
                     <OsMenuBar />
                 </div>
+                <OsDock />
                 <div className="OsShell__window-layer flex flex-1 min-h-0 pt-2">
                     <OsWindowLayer />
                 </div>

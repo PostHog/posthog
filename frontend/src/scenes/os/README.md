@@ -27,8 +27,8 @@ There is no shared `osLogic`: each folder owns its own logic, and `shell/OsShell
 | ------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | `shell/`     | Desktop, menu bar, desktop icons, wallpapers, theme, and `OsShell` itself   | `OsShell` renders `windows/OsWindowLayer`.                          |
 | `windows/`   | Window manager: open, focus, z-order, drag, resize, snap, minimize, tidy up | See "Windows" below.                                                |
-| `dock/`      | The dock                                                                    |                                                                     |
-| `store/`     | App Store and the installed-apps list                                       |                                                                     |
+| `dock/`      | The dock                                                                    | See "Dock and App Store" below.                                     |
+| `store/`     | App Store and the installed-apps list                                       | See "Dock and App Store" below.                                     |
 | `bridge/`    | Messages between a framed app and the OS, and framed-mode detection         | Always build a frame `src` with `osFrameSrc`, never from raw input. |
 | `spotlight/` | The OS spotlight: the app's command menu with results that open in windows  | See "Spotlight" below.                                              |
 
@@ -126,3 +126,36 @@ Same-origin frames do not use this, because an app that focuses an input on load
 Cmd+K on the desktop, or inside a window, opens it.
 The menu bar search icon opens it with `osSpotlightLogic.actions.openSpotlight()`.
 A result opens in a window, or focuses the window that shows it. Cmd/Ctrl+Enter opens another window, and a result on another site opens a browser tab.
+
+## Dock and App Store
+
+**Installed apps** are the user's `UserProductList` rows, the same list that backs the desktop icons and the sidebar's "My tools".
+`store/osInstalledAppsLogic` reads it through `customProductsLogic`.
+`installApp(key)` and `removeApp(key)` write it through its API, so the desktop and the sidebar follow.
+While a write is in flight, the value it asks for wins over the loaded list, so a reload that answers with an older list cannot undo a click.
+After the last write settles, the logic reloads the list once if a load ran during the write, and only the newest load applies.
+A write that fails is undone at once, and the list reloads.
+The App Store window reloads the list each time it gets focus, because Settings or another store window can change it.
+
+**The catalog** (`store/osAppCatalog.ts`) comes from the product tree in `products.tsx`.
+An app behind a feature flag that is off, or an app the user has no access to, stays out of the store, the same as in "My tools".
+The front page groups released apps by the job they help with, then lists Beta and Labs (alpha and unreleased apps).
+Activity, PostHog AI and Settings are not in the store, because they are always there. The dock knows them only for their icons (`OS_SYSTEM_APPS`).
+
+**The App Store is a scene** (`Scene.OsAppStore`) at `/app-store`, with one listing per app at `/app-store/<slug>`.
+It opens in a window like any other app, and with the flag off it shows the not-found page.
+The store frame keeps its own copy of the installed apps, so it tells the OS page about changes with `postMessage` (`store/osStoreMessages.ts`).
+It sends `installed-changed` after each write, and `open-app` with a catalog key for Open.
+It never sends a URL, so a frame can only ask the OS for apps the OS already knows.
+The OS page accepts these messages only from its own window frames on the same origin.
+
+**The dock** (`dock/osDockLogic`) shows the App Store, a divider, then one item per open window in the order the windows opened.
+Each item shows the icon of the app the window belongs to (`osAppForPath`), the window title as its tooltip, and a dot.
+A window that no app claims, or that several apps could claim, gets a plain window icon.
+The focused window is highlighted, and a minimized window is dimmed.
+A click restores a minimized window, focuses a window in the background, and minimizes the focused window (`activateWindow`).
+The top App Store window belongs to the App Store item, so the store is not listed twice, and the App Store item follows the same click rules.
+With no window open, the dock shows only the App Store.
+The dock sits below the window layer, so maximized and snapped windows stop above it.
+Tiles shrink so every window keeps a tile on screen.
+In the DOM the dock comes right after the menu bar, so the keyboard reaches it before the windows.
