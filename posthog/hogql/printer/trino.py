@@ -775,7 +775,19 @@ class TrinoPrinter(PostgresPrinter):
                 lowered = clone_expr(node, clear_types=False)
                 lowered.args[0] = ast.TypeCast(expr=lowered.args[0], type_name="bigint")
                 return super().visit_call(lowered)
-        if name in {"toint", "tointorzero", "tointordefault", "_touint64"} and node.args:
+        if (
+            name
+            in {
+                "toint",
+                "toint64",
+                "tointorzero",
+                "toint64orzero",
+                "tointordefault",
+                "toint64ordefault",
+                "_touint64",
+            }
+            and node.args
+        ):
             arg = node.args[0]
             arg_type = arg.type.resolve_constant_type(self.context) if arg.type is not None else None
             if isinstance(arg_type, ast.DateType):
@@ -784,9 +796,13 @@ class TrinoPrinter(PostgresPrinter):
                 return f"CAST(to_unixtime({self.visit(arg)}) AS BIGINT)"
             if isinstance(arg_type, ast.BooleanType):
                 return f"CASE WHEN {self.visit(arg)} THEN 1 ELSE 0 END"
-            if name == "toint" and isinstance(arg_type, ast.StringType):
+            if name in {"toint", "toint64"} and isinstance(arg_type, ast.StringType):
                 return f"TRY_CAST({self.visit(arg)} AS BIGINT)"
-        if name in {"tofloat", "tofloatorzero", "tofloatordefault"} and node.args:
+        if (
+            name
+            in {"tofloat", "tofloat64", "tofloatorzero", "tofloat64orzero", "tofloatordefault", "tofloat64ordefault"}
+            and node.args
+        ):
             arg = node.args[0]
             arg_type = self._resolve_type(arg)
             if isinstance(arg_type, ast.DateType):

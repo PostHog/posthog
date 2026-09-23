@@ -732,6 +732,31 @@ def test_chained_arithmetic_keeps_only_used_parameters(operator: str) -> None:
     assert sql == f'SELECT {expected} FROM "ducklake"."analytics"."users" AS "users"'
 
 
+@pytest.mark.parametrize(
+    "alias,base,extra_args",
+    [
+        ("toInt64", "toInt", ""),
+        ("toInt64OrZero", "toIntOrZero", ""),
+        ("toInt64OrDefault", "toIntOrDefault", ", 5"),
+        ("toFloat64", "toFloat", ""),
+        ("toFloat64OrZero", "toFloatOrZero", ""),
+        ("toFloat64OrDefault", "toFloatOrDefault", ", 5"),
+    ],
+)
+@pytest.mark.parametrize("argument", ["created_at", "toDate('2022-01-01')", "user_id", "id > 0"])
+def test_width_suffixed_conversion_aliases_print_like_their_base(
+    alias: str, base: str, extra_args: str, argument: str
+) -> None:
+    alias_sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {alias}({argument}{extra_args}) FROM users"), _context_with_trino_table(), "trino"
+    )
+    base_sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {base}({argument}{extra_args}) FROM users"), _context_with_trino_table(), "trino"
+    )
+
+    assert alias_sql == base_sql
+
+
 @pytest.mark.parametrize("function", ["toInt", "toIntOrDefault", "toIntOrZero", "_toUInt64"])
 def test_nested_integer_conversions_keep_only_used_parameters(function: str) -> None:
     context = _context_with_trino_table()
