@@ -243,8 +243,8 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold">
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold whitespace-nowrap">
                     {sendsLoading && recipientCount === 0
                         ? 'Loading recipients'
                         : `${humanFriendlyNumber(recipientCount)}${hasMoreRecipients ? '+' : ''} ${
@@ -261,20 +261,22 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
                     placeholder="Search by email or subject"
                     value={recipientSearch}
                     onChange={setRecipientSearch}
-                    className="w-64"
+                    className="w-full min-w-40 max-w-64 flex-1"
                     data-attr="broadcast-sent-search"
                 />
-                <span className="text-sm text-muted">Filter by</span>
-                <LemonSelect
-                    size="small"
-                    value={statusFilter}
-                    onChange={(value) => setStatusFilter(value)}
-                    data-attr="broadcast-sent-status-filter"
-                    options={[
-                        { value: null, label: 'All statuses' },
-                        ...statuses.map((status) => ({ value: status, label: capitalizeFirstLetter(status) })),
-                    ]}
-                />
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted whitespace-nowrap">Filter by</span>
+                    <LemonSelect
+                        size="small"
+                        value={statusFilter}
+                        onChange={(value) => setStatusFilter(value)}
+                        data-attr="broadcast-sent-status-filter"
+                        options={[
+                            { value: null, label: 'All statuses' },
+                            ...statuses.map((status) => ({ value: status, label: capitalizeFirstLetter(status) })),
+                        ]}
+                    />
+                </div>
             </div>
             <LemonTable
                 dataSource={filteredSends}
@@ -330,6 +332,9 @@ function SentTab({
             expandable={{
                 expandedRowRender: (job) => <RunRecipients workflowId={workflowId} runId={job.id} />,
                 rowExpandable: (job) => !!job.id,
+                // A table inside a table runs out of room first. Dropping the indent cell gives the
+                // recipients back the width the toggle column would otherwise take.
+                noIndent: true,
                 isRowExpanded: (job) => (autoExpandedRunId && job.id === autoExpandedRunId ? 1 : -1),
                 onRowExpand: () => setAutoExpandedRunId(null),
                 onRowCollapse: () => setAutoExpandedRunId(null),
