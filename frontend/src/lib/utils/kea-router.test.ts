@@ -79,6 +79,14 @@ describe('router-utils', () => {
             ['/project/<project-id>/logs', '/project/123/logs'],
             ['/project/%3Cproject_id%3E', '/project/123'],
             ['/project/%3Cproject-id%3E/replay?filter=all', '/project/123/replay?filter=all'],
+            // kea-router decodes the pathname while matching, so these do name a project
+            ['/project/%32/replay', '/project/%32/replay'],
+            [
+                '/project/%70hc_gE7SWBNBgFbA4eQ154KPXebyB8Ky/replay',
+                '/project/%70hc_gE7SWBNBgFbA4eQ154KPXebyB8Ky/replay',
+            ],
+            // A malformed escape cannot be decoded, and must not throw
+            ['/project/%E0%A4%A/replay', '/project/123/replay'],
         ])('resolves %s to %s against the current team', (path, expected) => {
             expect(addProjectIdIfMissing(path, 123)).toEqual(expected)
         })

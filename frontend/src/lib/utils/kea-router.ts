@@ -54,10 +54,21 @@ function stripUnresolvableProjectIdentifier(path: string): string {
     return stripped.startsWith('/') ? stripped : `/${stripped}`
 }
 
+// kea-router decodes the pathname while matching routes, so an encoded identifier such as
+// `/project/%32/replay` still reaches project 2. Read the decoded form, or the strip above treats
+// that link as unusable and sends it to the current team instead.
+function decodePathSafely(path: string): string {
+    try {
+        return decodeURIComponent(path)
+    } catch {
+        return path
+    }
+}
+
 // A refused project keeps in the address whatever identifier the link carried, which can be a
 // legacy project token that the pattern above does not know.
 function hasProjectIdentifier(path: string): boolean {
-    if (path.match(projectIdentifierInUrlRegex)) {
+    if (decodePathSafely(path).match(projectIdentifierInUrlRegex)) {
         return true
     }
     const refusedProject = getAppContext()?.project_access_denied
