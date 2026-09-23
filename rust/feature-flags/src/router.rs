@@ -106,6 +106,7 @@ pub struct State {
     /// Pre-initialized HyperCacheReader for feature flags with cohorts (flags_with_cohorts.json)
     /// Used by the /flags/definitions endpoint
     pub flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    pub flags_with_cohorts_provenance_reader: Arc<HyperCacheReader>,
     /// Pre-initialized HyperCacheReader for team metadata (full_metadata.json)
     /// Uses token-based lookup instead of team_id
     pub team_hypercache_reader: Arc<HyperCacheReader>,
@@ -389,6 +390,9 @@ where
         Err(e) => panic!("Invalid FLAGS_SECRET_KEYS configuration: {e}"),
     };
 
+    let flags_with_cohorts_provenance_reader = Arc::new(
+        flags_with_cohorts_hypercache_reader.companion(flag_definitions::PROVENANCE_OBJECT),
+    );
     let state = State {
         redis_client,
         dedicated_redis_client,
@@ -406,6 +410,7 @@ where
         flags_hypercache_reader,
         flag_definitions_cache,
         flags_with_cohorts_hypercache_reader,
+        flags_with_cohorts_provenance_reader,
         team_hypercache_reader,
         config_hypercache_reader,
         rayon_dispatcher,

@@ -487,6 +487,10 @@ pub struct Config {
     #[envconfig(from = "FLAG_DEFINITIONS_SELF_HEAL_ENABLED", default = "true")]
     pub flag_definitions_self_heal_enabled: FlexBool,
 
+    // Keep legacy cache reads available until guarded producers finish warming the caches.
+    #[envconfig(from = "FLAG_DEFINITIONS_REQUIRE_PROVENANCE", default = "false")]
+    pub flag_definitions_require_provenance: FlexBool,
+
     // Cluster switch for the /flags/definitions reader. When enabled, the flags-with-cohorts
     // payload and its ETag both come from the dedicated flags Redis instead of the shared one.
     //
@@ -1075,6 +1079,7 @@ impl Config {
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
             flag_definitions_self_heal_enabled: FlexBool(false),
+            flag_definitions_require_provenance: FlexBool(false),
             flag_definitions_dedicated_redis_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
@@ -1332,6 +1337,7 @@ mod tests {
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
         assert_eq!(config.skip_writes, FlexBool(false));
+        assert_eq!(config.flag_definitions_require_provenance, FlexBool(false));
         // Bot filter ships in LogOnly mode by default — pin the safe
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.

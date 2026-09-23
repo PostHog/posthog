@@ -167,10 +167,10 @@ This matches the Rust fallback path's petgraph-based cycle handling, where all c
 Feature flag local evaluation uses a HyperCache instance in `products/feature_flags/backend/local_evaluation.py`:
 
 ```python
-flag_definitions_hypercache = HyperCache(
+flag_definitions_hypercache = LegacyDefinitionsHyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
-    load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key)),
+    load_fn=_load_flag_definitions_with_cohorts,
     enable_etag=True,
     # Set only when FLAGS_REDIS_URL is configured. See "Dedicated flags Redis" below.
     cache_alias=FLAGS_DEDICATED_CACHE_ALIAS,
@@ -180,8 +180,75 @@ flag_definitions_hypercache = HyperCache(
 
 It includes full cohort definitions and group type mappings, since all current SDKs support cohort evaluation locally. A legacy `flag_definitions_without_cohorts_hypercache` variant — pre-flattened cohort filters for SDKs too old to evaluate cohorts locally — was removed once nothing served it to real clients anymore.
 
-The builder reads cohort references and flag dependencies through the same `facade/references.py` accessors as the service cache.
-A flag in an unsupported config format is dropped from the payload by the per-flag error handling (logged and counted in `posthog_flag_definitions_processing_error`), the team's other flags are published as before, and the cohort prepass skips that flag so one document cannot fail the whole batch.
+The builder classifies stored filters before reading cohort references, transforming dependencies, or serializing flags.
+Only absent or numeric version 1 configurations enter the legacy feed.
+Classification includes inactive and deleted targets before existing lifecycle filtering omits them.
+Unsupported formats are expected exclusions; malformed flags increment `posthog_flag_definitions_processing_error`.
+A malformed flag or reachable cohort removes the affected flag and its transitive dependents while independent flags remain available.
+Dependencies on excluded targets are omitted even when the condition expects false.
+An inconclusive dependency does not always force an SDK to use server evaluation: a later condition can return a different variant.
+For example, if the first condition selects `blue` when the target is true and the next always selects `green`, omitting only the target can make the SDK return `green` instead of `blue`.
+Removing the dependent prevents that local answer, at the cost of sending the whole flag to server evaluation or the caller's local-only default.
+Supported v1 missing targets, inactive targets, cycles, cohort scoping, mappings, and metadata retain their existing behavior.
+The internal `flags.json` producer keeps its separate rejection and inactive-filter behavior.
+
+### Legacy cache provenance
+
+`LegacyDefinitionsHyperCache` validates supplied payloads as well as ordinary rebuilds.
+Each Redis tier and object storage receive a companion `flags_with_cohorts.provenance.json` object containing the hash of the guarded body.
+The legacy body, ETag algorithm, keys, TTLs, and public JSON shape remain unchanged.
+The companion is written after its body; with enforcement enabled, a partial write or mismatched pair causes a retry instead of serving an unverified value.
+Keeping the body key lets existing readers consume guarded publications while producers and readers deploy independently.
+A versioned body key is another option, but would require dual publication and a coordinated reader migration.
+It would still need an upstream attestation before an EU mirror could publish a body fetched from an older US reader under the new name.
+The companion binds that attestation to the body while retaining the existing key.
+
+`FLAG_DEFINITIONS_REQUIRE_PROVENANCE` defaults to `false` in both Rust and Django.
+While it is false, Rust retains the legacy `get_with_source` and ETag paths, Python can read existing cache entries without provenance, and responses do not advertise `x-posthog-legacy-definitions: 1`.
+Guarded database producers still publish provenance, and the batch verifier still treats entries without it as misses.
+An unchanged body without provenance is rewritten during warmup, even when the caller requests `skip_if_unchanged`.
+
+When enforcement is enabled, readers require matching provenance because an older builder can omit an unsupported target while leaving a dependent with an empty chain.
+The cached dependent alone cannot distinguish that case from an ordinary missing v1 target.
+The Python provider rebuilds unverified entries through the existing database loader.
+Python and Rust full reads apply the same checks: the body must match the provenance hash and contain a flags list, a cohorts object, and a group-type-mapping object.
+Readers trust the producer's filtering decision instead of filtering the body again.
+Tightening the producer's filtering rules requires rebuilding existing cache entries; a matching hash does not record which filtering rules ran.
+The Python loader also rejects a rebuild whose empty group mapping conflicts with known group types.
+On a cold cache, the SDK provider returns no definitions and retries on its next read, including for person flags that do not use groups.
+This avoids caching an incomplete bundle; warm verified entries remain available.
+The Rust definitions endpoint and its `local_evaluation` aliases retain their cache-only contract: an unverified entry follows the miss/self-heal path and returns a retryable error.
+Infrastructure failures keep their existing failure classification.
+An attested matching ETag can still return 304 before loading the body, with no duplicate billing.
+A full response verifies the exact cached bytes against provenance before attaching an ETag.
+Each tier is verified as a pair: a body is checked against the provenance stored beside it, and Redis failing to produce a verified pair falls back to the object storage pair rather than failing the request.
+A response only advertises an ETag when the stored ETag describes the body it served, because a conditional request revalidates against that stored ETag.
+
+With enforcement enabled, successful 200 and 304 responses include `x-posthog-legacy-definitions: 1` so a cross-region mirror can require a guarded upstream reader.
+The Django setting also controls the EU sync's requirement for this header.
+While it is false, the sync accepts older upstream responses but writes them without provenance and clears any previous provenance.
+Python repairs from unverified object storage also remain unverified.
+The sync sends an ETag only for a verified mirror, so an old entry must receive a full guarded response before it becomes trusted.
+Until the upstream reader advertises provenance, each 30-second tick downloads a full response and rewrites both cache tiers, even when definitions are unchanged.
+Those full responses also record definitions usage for the upstream team.
+This warmup cost lets the mirror become verified before Django enforcement starts; using an unverified ETag could keep returning 304 throughout warmup.
+With enforcement enabled, a mirror ignores an upstream response without the header and waits for a later sync.
+The mirror's cold-cache behavior remains retryable; it does not create a database miss sentinel.
+
+Deploy producers and readers with enforcement off and keep unsupported stored configurations disabled.
+Warm or verify the body/provenance pairs in both Redis tiers and object storage after all database producers have upgraded.
+Then enable enforcement on the upstream Rust reader, let EU sync fetch a guarded full response, and verify the EU mirror before enabling enforcement in Django and the remaining readers.
+Coordinate the Rust and Django settings across regions; enabling Django's requirement while upstream Rust still omits the header prevents mirror refreshes.
+These environment settings are read at process startup and require process replacement to change.
+Enable unsupported stored configurations only after enforcement is on everywhere.
+Enforcing readers reject changed bodies from old producers unless their content hash already has matching provenance.
+Unchanged safe v1 bodies retain their ETag through the transition.
+Old readers still consume the unchanged body keys, but old producers and readers together cannot establish format exclusion.
+
+Before unsupported data exists, producer, publication, and reader changes can each be reversed.
+Afterwards, producer rollback must retain classification and dependent exclusion; publication rollback must retain guarded bodies and matching provenance; reader rollback must retain the safety checks required by cached data, including `FLAG_DEFINITIONS_REQUIRE_PROVENANCE=true`.
+Coordinate these changes across regions and both Redis tiers.
+Disabling a writer does not repair existing unsafe cache contents, and rollback never converts stored configurations.
 
 ### Cache invalidation
 
