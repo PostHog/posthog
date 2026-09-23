@@ -146,6 +146,15 @@ function ExpandedWidget({
         persistNotebook: logicProps.persistNotebook,
     }
     const { open: openDashboardModal } = useActions(notebookWidgetDashboardLogic(dashboardProps))
+    const selectedArtifactUrl =
+        selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
+    const canAddToDashboard =
+        isEditable &&
+        selectedVersionId &&
+        selectedArtifactUrl &&
+        currentTeamId &&
+        !artifactUnavailable &&
+        featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
     const selectedBuildHash =
         selectedVersionId === status?.current_version_id
             ? (status?.build_hash ?? null)
@@ -157,9 +166,7 @@ function ExpandedWidget({
 
     useEffect(() => {
         setMenuItems([
-            isEditable && selectedVersionId && featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
-                ? { label: 'Add to dashboard', onClick: openDashboardModal }
-                : null,
+            canAddToDashboard ? { label: 'Add to dashboard', onClick: openDashboardModal } : null,
             status?.is_reusable && status.widget_id
                 ? { label: 'Open reusable widget', to: urls.reusableWidget(status.widget_id) }
                 : null,
@@ -188,7 +195,7 @@ function ExpandedWidget({
         ])
     }, [
         isEditable,
-        featureFlags,
+        canAddToDashboard,
         openDashboardModal,
         openSourceModal,
         selectedBuildHash,
@@ -221,8 +228,6 @@ function ExpandedWidget({
     }
 
     const initialPrompt = prompt.trim()
-    const selectedArtifactUrl =
-        selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
     const widgetTrust = getNotebookWidgetTrust({
         trustByUser,
         sessionBuildHashes,
