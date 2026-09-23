@@ -40,6 +40,9 @@ Every `reminder-create` call **must** include both of these fields. A call witho
 
 - `organization` — the organization ID (a UUID string). Call `organization-get` with no arguments
   to get the active organization, and use its `id`. Do not guess this value.
+  If `organization-get` fails because no organization is selected, call `organizations-list`.
+  If the user belongs to one organization, use its `id`. Otherwise, ask the user which one to use,
+  then call `switch-organization` with it.
 - `title` — the short text shown as the notification title. Write it from the user's request
   (for "remind me to review the launch dashboard", use `"Review the launch dashboard"`).
 
