@@ -225,7 +225,7 @@ No skill/config copies or new tables are created.
 
 Configure a dedicated existing gateway whose capture token is empty, then set `SCOUT_LIVE_TRIALS_GATEWAY_URL`, `SCOUT_LIVE_TRIALS_ENABLED=true`, and `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=true` on the backend and workers.
 The last setting is an explicit deployment check: verify model capture, task/query telemetry, and warehouse replicas before enabling it.
-Trials retain ordinary spend/rate gates; cost is null when private accounting is unavailable, while runtime token counts are retained.
+Trials retain ordinary spend/rate gates; cost is null when private accounting is unavailable, while runtime token counts are retained when reported before completion.
 Do not infer zero cost from absent generation events.
 
 Write a private variants JSON file, for example:
@@ -269,4 +269,9 @@ Task content reads retain call metrics but omit payload spans and free-text inte
 - September 23: checked ordinary scout behavior alongside private launch/config/history paths, and passed the repository-wide Python type check.
 - September 23: exercised CLI connection retries, saved launch/context reuse, log pagination, unavailable startup logs, and private file permissions with synthetic responses.
 - The local CodeRabbit review was skipped because the CLI was signed out during unattended work.
-- Concurrent real sandbox validation remains pending. No new production comparison has been launched during implementation.
+- September 23: real sandbox validation exposed missing private-gateway network rules and missing permissions for a scout to upload logs, update its summary, and record status/usage. Fixed those paths with exact run binding; general task writes remain blocked.
+- September 23: completed two concurrent Docker scout runs through the normal Temporal harness against an invented invoice-export case. Luna and Terra both queried the data, read and wrote private memory, saved summaries, and authored captured reports at medium effort. Their transcript configuration matched the requested models and effort throughout.
+- September 23: checked each sandbox's actual OAuth credentials against its own and its sibling's memory, reports, tasks, runs, and logs. Private results remained separate, the normal inbox could not retrieve them, and the source skill, config, and shared memory stayed unchanged.
+- September 23: routing checks, private log/summary/lifecycle authorization tests, repository-wide Python type checks, API generation, and product dependency checks passed. Security scanning found no findings on the changed lines.
+- The successful smoke checks execution and isolation. Model quality comparisons still need repeated runs and judging. An earlier local attempt was canceled for routing failures; another exposed an incomplete synthetic schema registry, which was corrected before the successful pair. Private transcripts and attempt history remain outside Git.
+- No new production comparison has been launched during implementation. Deployment still requires the private gateway and capture checks described above.
