@@ -1,3 +1,4 @@
+import sys
 import json
 import time
 import uuid
@@ -21,7 +22,7 @@ import aiohttp
 import psycopg.errors
 from asgiref.sync import sync_to_async
 from google.genai import types
-from google.genai.errors import APIError
+from google.genai.errors import APIError, UnknownApiResponseError
 from parameterized import parameterized
 from posthoganalytics.exception_utils import exceptions_from_error_tuple
 from prometheus_client import REGISTRY
@@ -105,7 +106,12 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error, classify_gemini_file_error
+from products.replay_vision.backend.temporal.gemini import (
+    classify_gemini_error,
+    classify_gemini_file_error,
+    describe_gemini_error,
+    raise_json_int_digit_limit,
+)
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
     REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
@@ -3360,6 +3366,16 @@ def _wrap_in_child_workflow_error(cause: BaseException) -> ChildWorkflowError:
     return child_err
 
 
+def _oversized_number_error() -> ValueError:
+    """The real error CPython raises when a JSON number is longer than the interpreter's digit limit."""
+    digits = "9" * (sys.get_int_max_str_digits() + 1)
+    try:
+        json.loads(f'{{"n": {digits}}}')
+    except ValueError as error:
+        return error
+    raise AssertionError("expected the digit limit to refuse this number")
+
+
 class TestClassifyGeminiError:
     """An unclassified provider error lands as `internal_error`, which sends the user to support over an outage they
     could just retry. These cases pin the mapping that keeps it out of that bucket."""
@@ -3396,6 +3412,31 @@ class TestClassifyGeminiError:
         # Claiming a kind here would be worse than the status quo: a PostHog bug would be blamed on the provider,
         # and for the transient kinds it would burn the retry budget before failing anyway.
         assert classify_gemini_error(ValueError("bad arg")) is None
+
+    @parameterized.expand(
+        [
+            ("unparseable_body", UnknownApiResponseError("Failed to parse response as JSON")),
+            ("number_over_digit_limit", _oversized_number_error()),
+        ]
+    )
+    def test_maps_unreadable_responses_to_provider_transient(self, _label: str, error: Exception) -> None:
+        # The SDK parses every response with `json.loads`, so a body it cannot read escapes as a ValueError rather
+        # than an APIError. Unclassified, it reaches the user as internal_error and re-spends the video tokens on
+        # an inline re-run of the same pass.
+        assert classify_gemini_error(error) is FailureKind.PROVIDER_TRANSIENT
+        assert "could not read" in describe_gemini_error(error)
+
+
+class TestJsonIntDigitLimit:
+    def test_raised_limit_parses_a_number_the_default_limit_refuses(self) -> None:
+        # A scan died on a 7,997-digit number in the model's answer, so the worker must accept one that long.
+        original = sys.get_int_max_str_digits()
+        try:
+            sys.set_int_max_str_digits(4300)
+            raise_json_int_digit_limit()
+            assert json.loads('{"n": %s}' % ("9" * 7997))["n"] > 0
+        finally:
+            sys.set_int_max_str_digits(original)
 
 
 class TestUploadFinalizeFailures:
