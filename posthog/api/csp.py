@@ -201,11 +201,9 @@ def parse_crash_report(data: dict) -> dict:
     }
 
 
-# The browser posts a report directly to this endpoint, and the Django app then re-posts it
-# through capture_internal. So the address the capture service resolves is the Django hop, never
-# the browser: the reporting client's IP is not collected on this path. An explicit null stops
-# ingestion from stamping that meaningless address on the event, and $geoip_disable stops GeoIP
-# from turning it into a location every report appears to share.
+# Django re-posts these reports through capture_internal, so the address capture resolves is the
+# Django hop, not the browser. Null stops ingestion stamping it, and $geoip_disable stops GeoIP
+# turning it into a location every report appears to share.
 NO_CLIENT_IP_PROPERTIES: dict[str, object] = {
     "$ip": None,
     "$geoip_disable": True,

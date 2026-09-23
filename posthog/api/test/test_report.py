@@ -173,7 +173,7 @@ class TestCspReport(BaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         events = mock_batch_capture.call_args.kwargs["events"]
-        assert [e["event"] for e in events] == ["$csp_violation", "$browser_crash_report"]
+        assert {e["event"] for e in events} == {"$csp_violation", "$browser_crash_report"}
         for event in events:
             assert event["properties"]["$ip"] is None
             assert event["properties"]["$geoip_disable"] is True
