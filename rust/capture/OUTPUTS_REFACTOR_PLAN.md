@@ -26,7 +26,7 @@ Every step is a small commit, proven by the Step-1 goldens, and reverted by plai
 ## Target architecture
 
 ```text
-edge              → Pipeline {Analytics, Ai, Heatmaps, Warnings, ErrorTracking, Replay}
+request handler   → Pipeline {Analytics, Ai, Heatmaps, Warnings, ErrorTracking, Replay}
 pipeline steps    → stamp intent (restrictions, overflow, historical)
 lane resolution   → Address {(Pipeline, Lane {Main, Overflow, Historical}) | Dlq | Custom(topic)}
                      + ordering guarantee + headers
@@ -40,7 +40,7 @@ producers         → named connections (brokers, TLS, tuning), instantiated onc
                      shared by every output that names them
 ```
 
-- **Pipeline** is decided at the edge, from endpoint and event name.
+- **Pipeline** is decided by the HTTP handler that receives the request, from the endpoint and the event name, and stamped on the event as its `DataType`.
 - **Lane** is decided once, by `pipeline::resolve`, from the intent stamped during processing. Precedence: dlq > custom > historical > overflow > main.
 - **Output** is the destination for a `(Pipeline, Lane)`. It owns 1..n targets and the policy that picks between them per batch. All multi-target behavior lives here.
 - **Serialization** is a contract with a destination's consumers, not with a transport. Content headers let old and new encodings share a topic during a migration, as replay's lz4 `content-encoding` does today.
