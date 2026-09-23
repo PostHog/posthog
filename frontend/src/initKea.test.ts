@@ -23,13 +23,17 @@ const probeLogic = kea([
 ])
 
 describe('initKea loader failures', () => {
+    let captureException: jest.SpyInstance
+
     beforeEach(() => {
         initKeaTests()
         silenceKeaLoadersErrors()
+        captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
     })
 
     afterEach(() => {
         resumeKeaLoadersErrors()
+        captureException.mockRestore()
     })
 
     // A denial can reach the browser with no DRF body to read, which is what a whole scene of
@@ -40,13 +44,11 @@ describe('initKea loader failures', () => {
         ['a denied read carrying the DRF code', { status: 403, code: 'permission_denied' }, false],
         ['a server error', { status: 500 }, true],
     ])('%s is reported to error tracking: %j -> %s', async (_name, failure, reported) => {
-        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
         nextFailure = failure
         const logic = probeLogic()
         logic.mount()
         await expectLogic(logic, () => logic.actions.loadThing()).toDispatchActions(['loadThingFailure'])
         expect(captureException).toHaveBeenCalledTimes(reported ? 1 : 0)
         logic.unmount()
-        captureException.mockRestore()
     })
 })

@@ -169,6 +169,11 @@ export function initKea({
                 }
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
+                // A read the server refuses is an authorization outcome, not an app fault, so it
+                // neither toasts nor reports. `shouldReportApiFailure` only recognizes the
+                // DRF-coded form, and a denial with no parseable body used to open one error
+                // tracking issue per loader.
+                const isDeniedRead = isLoadAction && isForbiddenError(error)
                 // Access-denied 403s (code `permission_denied`) are suppressed only where the
                 // owning UI surfaces them itself: load actions (AccessDenied scene gates) and the
                 // self-handled write actions above. Other writes keep the generic toast, since
@@ -180,7 +185,7 @@ export function initKea({
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
-                    !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
+                    !isDeniedRead &&
                     !isAccessDenied
                 ) {
                     let errorMessage = error.detail || error.statusText
@@ -238,12 +243,6 @@ export function initKea({
                 }
                 const isSelfHandledNotFound =
                     NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
-                // A read the server refuses is an authorization outcome, not an app fault, so it
-                // is filed the same way the toast above already treats it. `shouldReportApiFailure`
-                // alone only recognizes the DRF-coded form, and a denial that arrives with no
-                // parseable body then opens one error tracking issue per loader: a user without
-                // project access files a whole scene's worth of issues in a few seconds.
-                const isDeniedRead = isLoadAction && isForbiddenError(error)
                 if (shouldReportApiFailure(error) && !isSelfHandledNotFound && !isDeniedRead) {
                     posthog.captureException(error)
                 }
