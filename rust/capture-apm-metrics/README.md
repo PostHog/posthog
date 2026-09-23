@@ -30,6 +30,16 @@ Pull metrics, all with a `kind` label of `seed` or `periodic`: `capture_metrics_
 
 The cache is bounded. When the global or the per-token cap is full, a new series keeps its labels on every row and is not cached or pushed to Redis, until pruning frees a slot. `capture_metrics_series_cache_full` counts those rows.
 
+## Classic histograms on the remote-write route
+
+A Prometheus histogram arrives as one series per bucket (`_bucket` with an `le` label) plus `_count` and `_sum`. When one request carries the `_sum` series and the `+Inf` bucket of a histogram for one label set and timestamp, the service folds the component samples into one histogram row with `histogram_bounds` and `histogram_counts`, the row the OTLP route writes. The row gets the series fingerprint of the base metric name without `le`, so it is the same series an OTLP export of that histogram produces.
+
+Folding requires cumulative bucket values that are non-negative integers and do not decrease, and a `_count` that equals the `+Inf` bucket when it is present. A request that declares the family as a summary, counter or gauge in its metadata is never folded. Any other component sample stays a plain row, so a histogram that a sender splits across requests loses nothing. The read side unions both forms by label set.
+
+`le` and `quantile` label values are normalized to Go's shortest float format (`1.0` becomes `1`, `1000000` becomes `1e+06`) on every row, and the series fingerprint follows the normalized value.
+
+Metrics: `capture_metrics_remote_write_histograms_assembled` (rows written), `capture_metrics_remote_write_histogram_samples_folded` (component samples folded into them), and `capture_metrics_remote_write_histogram_components_passed_through` (component samples that stayed plain rows).
+
 ## Running the service
 
 ```bash
