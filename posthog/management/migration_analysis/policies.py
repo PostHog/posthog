@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from django.conf import settings
-from django.db import models
+from django.db import migrations, models
 from django.db.migrations.loader import MigrationLoader
 
 from posthog.dataclasses import frozen
@@ -50,6 +50,29 @@ class _ConstrainedForeignKey:
     field: str
     column: str
     target_table: str
+
+
+def _descend(ops) -> Iterator[Any]:
+    """Yield operations that emit SQL, descending into SeparateDatabaseAndState.database_operations.
+
+    SeparateDatabaseAndState can nest, so the descent is recursive. state_operations never
+    touch the database, so they are not descended.
+    """
+    for op in ops or []:
+        if op.__class__.__name__ == "SeparateDatabaseAndState":
+            yield from _descend(getattr(op, "database_operations", []) or [])
+        else:
+            yield op
+
+
+def _runs_sql(op) -> bool:
+    """False for a RunSQL or RunPython that only carries state and runs nothing."""
+    name = op.__class__.__name__
+    if name == "RunSQL":
+        return bool(getattr(op, "sql", None))
+    if name == "RunPython":
+        return getattr(op, "code", None) is not migrations.RunPython.noop
+    return True
 
 
 # Apps owned by PostHog where policies are enforced
@@ -405,14 +428,7 @@ class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
         the inner ops and reopen the incident class. state_operations never
         touch the database, so they are not descended.
         """
-        yield from self._descend(migration.operations)
-
-    def _descend(self, ops):
-        for op in ops or []:
-            if op.__class__.__name__ == "SeparateDatabaseAndState":
-                yield from self._descend(getattr(op, "database_operations", []) or [])
-            else:
-                yield op
+        yield from _descend(migration.operations)
 
     def _check_single_operation(self, op) -> list[str]:
         op_type = op.__class__.__name__
@@ -562,7 +578,7 @@ class HotTableAlterPolicy(MigrationPolicy):
             return []
 
         violations = []
-        for op in self._descend(migration.operations):
+        for op in _descend(migration.operations):
             # Unmanaged models (managed=False) map external tables - Django emits no DDL and
             # no FK constraint, so they can't take the hot-table lock this policy gates.
             if is_unmanaged_model(op, migration):
@@ -581,17 +597,6 @@ class HotTableAlterPolicy(MigrationPolicy):
             return set()
         lines = self.ACKNOWLEDGMENTS_FILE.read_text().splitlines()
         return {line.strip() for line in lines if line.strip() and not line.strip().startswith("#")}
-
-    def _descend(self, ops):
-        """Yield operations that emit SQL, descending into SeparateDatabaseAndState.database_operations.
-
-        state_operations never touch the database, so they are not descended.
-        """
-        for op in ops or []:
-            if op.__class__.__name__ == "SeparateDatabaseAndState":
-                yield from self._descend(getattr(op, "database_operations", []) or [])
-            else:
-                yield op
 
     def _hot_table_target(self, op, app_label: str) -> str | None:
         """Return the hot table an operation alters directly, or None.
@@ -747,17 +752,6 @@ _HOT_TABLES = {"posthog_team", "posthog_user", "posthog_organization", "posthog_
 _loader: Optional[MigrationLoader] = None
 
 
-def _database_operations(migration) -> list[Any]:
-    """Every operation that runs SQL, with SeparateDatabaseAndState opened up."""
-    ops: list[Any] = []
-    for op in migration.operations or []:
-        if op.__class__.__name__ == "SeparateDatabaseAndState":
-            ops.extend(getattr(op, "database_operations", []) or [])
-        else:
-            ops.append(op)
-    return ops
-
-
 def _disk_loader() -> Optional[MigrationLoader]:
     global _loader
     if _loader is None:
@@ -825,7 +819,7 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
     def _dropped_columns(self, migration) -> set[_TableColumn]:
         """Columns a DropForeignKey in this migration removes a constraint from."""
         dropped = set()
-        for db_op in _database_operations(migration):
+        for db_op in _descend(migration.operations):
             if db_op.__class__.__name__ != "DropForeignKey":
                 continue
             for column in getattr(db_op, "columns", None) or []:
@@ -840,7 +834,7 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
         or a table-wide drop reaches is guesswork, and a false block on a correct migration
         costs more than a missed second constraint.
         """
-        for db_op in _database_operations(migration):
+        for db_op in _descend(migration.operations):
             if db_op.__class__.__name__ == "DropForeignKey" and not getattr(db_op, "columns", None):
                 return True
             sql = _without_sql_comments(str(getattr(db_op, "sql", "") or ""))
@@ -977,7 +971,7 @@ class LockPhaseTransactionPolicy(MigrationPolicy):
         if not getattr(migration, "atomic", True):
             return []
 
-        names = [op.__class__.__name__ for op in _database_operations(migration)]
+        names = [op.__class__.__name__ for op in _descend(migration.operations) if _runs_sql(op)]
         lock_phases = [name for name in names if name in _LOCK_PHASE_OPERATIONS]
         if not lock_phases:
             return []
