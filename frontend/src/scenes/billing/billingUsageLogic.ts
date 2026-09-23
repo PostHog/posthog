@@ -18,11 +18,6 @@ import { urls } from 'scenes/urls'
 
 import { DateMappingOption, OrganizationType } from '~/types'
 
-import {
-    billingProjectList,
-    getBillingUsageExportDownloadUrl,
-    getBillingUsageTimeseriesRetrieveUrl,
-} from 'products/billing/frontend/generated/api'
 import type {
     BillingProjectApi,
     BillingUsageExportDownloadParams,
@@ -39,6 +34,7 @@ import {
 } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { BillingPeriodMarker } from './BillingPeriodMarkers'
+import { BillingReads, billingReadsLogic } from './billingReads'
 import { DEFAULT_TOP_PROJECTS } from './constants'
 import type { BillingChartType, BillingFilters } from './types'
 import type { BillingUsageInteractionProps } from './types'
@@ -164,6 +160,7 @@ export interface billingUsageLogicValues {
     billingPeriodUTC: BillingPeriod // billingLogic
     canViewUsageAndSpend: boolean // billingLogic
     currentOrganization: OrganizationType | null // billingLogic
+    billingReads: BillingReads // billingReadsLogic
     isHobby: boolean // preflightLogic
     billingPeriodMarkers: BillingPeriodMarker[]
     billingUsageError: BillingUsageError | null
@@ -310,7 +307,8 @@ export interface billingUsageLogicMeta {
             },
             dateFrom: string,
             dateTo: string | null,
-            effectiveTeamIds: number[] | undefined
+            effectiveTeamIds: number[] | undefined,
+            billingReads: any
         ) => string
         usageChartExportUrl: (
             filters: {
@@ -322,7 +320,8 @@ export interface billingUsageLogicMeta {
             },
             dateFrom: string,
             dateTo: string | null,
-            effectiveTeamIds: number[] | undefined
+            effectiveTeamIds: number[] | undefined,
+            billingReads: any
         ) => string
         dateOptions: (billingPeriodUTC: BillingPeriod) => DateMappingOption[]
         billingPeriodMarkers: (
@@ -427,7 +426,8 @@ function usageExportUrlFor(
     dateFrom: string,
     dateTo: string | null,
     effectiveTeamIds: number[] | undefined,
-    withChartCap: boolean
+    withChartCap: boolean,
+    billingReads: BillingReads
 ): string {
     const params: BillingUsageExportDownloadParams = {
         ...(filters.usage_types?.length ? { usage_types: JSON.stringify(filters.usage_types) } : {}),
@@ -440,7 +440,7 @@ function usageExportUrlFor(
             ? { top_projects: filters.top_projects }
             : {}),
     }
-    return getBillingUsageExportDownloadUrl('@current', params)
+    return billingReads.usageExportUrl(params)
 }
 
 export const billingUsageLogic = kea<billingUsageLogicType>([
@@ -453,6 +453,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             ['billing', 'billingPeriodUTC', 'canViewUsageAndSpend', 'currentOrganization'],
             preflightLogic,
             ['isHobby'],
+            billingReadsLogic,
+            ['billingReads'],
         ],
         actions: [eventUsageLogic, ['reportBillingUsageInteraction']],
     })),
@@ -487,7 +489,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 // The read lists every project with usage, including projects deleted since.
                 loadReportedProjects: async (): Promise<BillingProjectApi[]> => {
                     try {
-                        return (await billingProjectList('@current')).results
+                        return await values.billingReads.reportedProjects()
                     } catch {
                         return []
                     }
@@ -532,9 +534,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         // itself when there is a cap, and reads every project on every key in one
                         // pass when there is not, so nothing is asked per usage type or per page.
                         // Past what it can hold it refuses with guidance, which the catch below shows.
-                        return await api.get<BillingUsageResponse>(
-                            getBillingUsageTimeseriesRetrieveUrl('@current', params)
-                        )
+                        return await api.get<BillingUsageResponse>(values.billingReads.usageSeriesUrl(params))
                     } catch (error) {
                         const billingUsageError = getBillingUsageError(error)
                         const isActionable =
@@ -617,27 +617,29 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     })),
     selectors({
         usageExportUrl: [
-            (s) => [s.filters, s.dateFrom, s.dateTo, s.effectiveTeamIds],
+            (s) => [s.filters, s.dateFrom, s.dateTo, s.effectiveTeamIds, s.billingReads],
             (
                 filters: BillingFilters,
                 dateFrom: string,
                 dateTo: string | null,
-                effectiveTeamIds: number[] | undefined
+                effectiveTeamIds: number[] | undefined,
+                billingReads: BillingReads
             ): string =>
                 // Every project in the period: the page's filters without the chart's project cap,
                 // which is how the chart is drawn and not part of the data.
-                usageExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, false),
+                usageExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, false, billingReads),
         ],
         usageChartExportUrl: [
-            (s) => [s.filters, s.dateFrom, s.dateTo, s.effectiveTeamIds],
+            (s) => [s.filters, s.dateFrom, s.dateTo, s.effectiveTeamIds, s.billingReads],
             (
                 filters: BillingFilters,
                 dateFrom: string,
                 dateTo: string | null,
-                effectiveTeamIds: number[] | undefined
+                effectiveTeamIds: number[] | undefined,
+                billingReads: BillingReads
             ): string =>
                 // The chart's series as billing built them, cap and folded row included.
-                usageExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, true),
+                usageExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, true, billingReads),
         ],
         dateOptions: [
             (s) => [s.billingPeriodUTC],
@@ -979,6 +981,13 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         },
         isHobby: (isHobby: boolean, previousIsHobby: boolean | undefined) => {
             if (!isHobby && previousIsHobby === true && values.canViewUsageAndSpend) {
+                actions.loadBillingUsage()
+            }
+        },
+        // Flags can arrive after the page mounts. When they switch the routes, read again from the new ones.
+        billingReads: (reads: BillingReads, previousReads: BillingReads | undefined) => {
+            if (previousReads !== undefined && reads !== previousReads) {
+                actions.loadReportedProjects()
                 actions.loadBillingUsage()
             }
         },

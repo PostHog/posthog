@@ -1,8 +1,10 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { urls } from 'scenes/urls'
 
@@ -19,6 +21,14 @@ import {
     billingUsageLogic,
 } from './billingUsageLogic'
 import type { BillingFilters } from './types'
+
+// These cases cover the organization billing API reads. The legacy reads are covered in billingReads.test.ts.
+function readFromTheOrganizationBillingApi(): void {
+    featureFlagLogic.mount()
+    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.ORGANIZATION_BILLING_API], {
+        [FEATURE_FLAGS.ORGANIZATION_BILLING_API]: true,
+    })
+}
 
 const series = (label: string, usageType: string, data: number[]): BillingUsageResponse['results'][number] => ({
     id: 1,
@@ -139,6 +149,42 @@ describe('billingUsageLogic loader', () => {
         ])
     })
 
+    it('reads again from the organization routes when the flag turns on after mount', async () => {
+        const requested: string[] = []
+        const series = { count: 0, next: null, previous: null, results: [] }
+        useMocks({
+            get: {
+                '/api/billing': () => [200, billingJson],
+                '/api/billing/usage/': () => {
+                    requested.push('legacy series')
+                    return [200, series]
+                },
+                '/api/billing/usage/team_options/': () => [200, { team_id_options: [] }],
+                '/api/organizations/@current/billing/usage/timeseries/': () => {
+                    requested.push('organization series')
+                    return [200, series]
+                },
+                '/api/organizations/@current/billing/projects/': () => [
+                    200,
+                    { count: 0, next: null, previous: null, results: [] },
+                ],
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ORGANIZATION_BILLING_API]: false })
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        logic = billingUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.ORGANIZATION_BILLING_API], {
+            [FEATURE_FLAGS.ORGANIZATION_BILLING_API]: true,
+        })
+        await expectLogic(logic).toDispatchActions(['loadBillingUsageSuccess']).toFinishAllListeners()
+
+        expect(requested).toEqual(['legacy series', 'organization series'])
+    })
+
     it('keeps an open-ended preset open, and asks for a range that ends yesterday', async () => {
         const endDates: string[] = []
         useMocks({
@@ -165,6 +211,7 @@ describe('billingUsageLogic loader', () => {
 
     beforeEach(() => {
         initKeaTests()
+        readFromTheOrganizationBillingApi()
         toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
     })
 
@@ -236,6 +283,7 @@ describe('billingUsageLogic series toggling', () => {
 
     beforeEach(() => {
         initKeaTests()
+        readFromTheOrganizationBillingApi()
     })
 
     afterEach(() => {
@@ -308,6 +356,7 @@ describe('billingUsageLogic chart type', () => {
 
     beforeEach(() => {
         initKeaTests()
+        readFromTheOrganizationBillingApi()
     })
 
     afterEach(() => {
@@ -402,6 +451,7 @@ describe('billingUsageLogic project breakdown requests', () => {
 
     beforeEach(() => {
         initKeaTests()
+        readFromTheOrganizationBillingApi()
         requests = []
     })
 
@@ -466,6 +516,7 @@ describe('billing section URL scoping', () => {
 
     beforeEach(() => {
         initKeaTests()
+        readFromTheOrganizationBillingApi()
         usageRequests = 0
         useMocks({
             get: {
@@ -541,6 +592,7 @@ describe('billingUsageLogic export', () => {
 
     beforeEach(() => {
         initKeaTests()
+        readFromTheOrganizationBillingApi()
     })
 
     afterEach(() => {

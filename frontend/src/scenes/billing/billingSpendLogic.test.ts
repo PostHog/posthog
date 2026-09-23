@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { urls } from 'scenes/urls'
@@ -13,6 +15,14 @@ import { initKeaTests } from '~/test/init'
 import { BillingSpendResponse, BillingSpendResponseBreakdownType, billingSpendLogic } from './billingSpendLogic'
 import { fitsOneRequest, isDayOrCoarser, SUB_DAY_DATE_FILTER_INTERVALS } from './billingUsageLogic'
 import type { BillingFilters } from './types'
+
+// These cases cover the organization billing API reads. The legacy reads are covered in billingReads.test.ts.
+function readFromTheOrganizationBillingApi(): void {
+    featureFlagLogic.mount()
+    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.ORGANIZATION_BILLING_API], {
+        [FEATURE_FLAGS.ORGANIZATION_BILLING_API]: true,
+    })
+}
 
 describe('billingSpendLogic chart type', () => {
     let logic: ReturnType<typeof billingSpendLogic.build>
@@ -39,6 +49,7 @@ describe('billingSpendLogic chart type', () => {
 
     beforeEach(() => {
         initKeaTests()
+        readFromTheOrganizationBillingApi()
     })
 
     afterEach(() => {
@@ -157,6 +168,7 @@ describe('billingSpendLogic project breakdown requests', () => {
 
     beforeEach(() => {
         initKeaTests()
+        readFromTheOrganizationBillingApi()
         requests = []
     })
 
@@ -257,6 +269,7 @@ describe('billing spend load triggers', () => {
 
     beforeEach(() => {
         initKeaTests()
+        readFromTheOrganizationBillingApi()
         requests = 0
         startDates = []
         endDates = []
@@ -359,6 +372,7 @@ describe('billingSpendLogic export', () => {
 
     beforeEach(() => {
         initKeaTests()
+        readFromTheOrganizationBillingApi()
     })
 
     afterEach(() => {
