@@ -30,6 +30,14 @@ const aiDelivery = (id: string): Record<string, unknown> => ({
     content_snapshot: { insight: 'frozen state' },
     recipient_results: [{ email: 'user@example.com', status: 'sent' }],
     error: null,
+    failure_reason: null,
+})
+
+const failedDelivery = (id: string): Record<string, unknown> => ({
+    ...aiDelivery(id),
+    status: 'failed',
+    error: { type: 'HTTPError', message: '500 Server Error: token=abcd1234 for url: https://hooks.example.com/x' },
+    failure_reason: { type: 'HTTPError', detail: null },
 })
 
 describe('subscriptions deliveries response shape', () => {
@@ -58,6 +66,28 @@ describe('subscriptions deliveries response shape', () => {
             expect(row).not.toHaveProperty('error')
         }
     })
+
+    it.each(['subscriptions-deliveries-list', 'subscriptions-deliveries-retrieve'])(
+        'keeps the redacted failure_reason on a failed delivery so it can be diagnosed without error',
+        async (toolName) => {
+            const isList = toolName === 'subscriptions-deliveries-list'
+            const request = vi
+                .fn()
+                .mockResolvedValue(
+                    isList ? { results: [failedDelivery('d1')], next: null, previous: null } : failedDelivery('d1')
+                )
+
+            const result = await GENERATED_TOOLS[toolName as keyof typeof GENERATED_TOOLS]!().handler(
+                createMockContext(request),
+                { subscription_id: 107463, id: 'd1' }
+            )
+
+            const row = isList ? (result as any).results[0] : (result as any)
+            expect(row.failure_reason).toEqual({ type: 'HTTPError', detail: null })
+            expect(row).not.toHaveProperty('error')
+            expect(JSON.stringify(row)).not.toContain('abcd1234')
+        }
+    )
 
     it('retrieve keeps the AI report and its prompt for a single delivery', async () => {
         const request = vi.fn().mockResolvedValue(aiDelivery('d1'))

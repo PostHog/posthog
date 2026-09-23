@@ -2707,6 +2707,97 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert data["error"]["message"] == "something failed"
         assert data["content_snapshot"]["insights"][0]["name"] == "Test"
 
+    @parameterized.expand(
+        [
+            # A raw exception message can carry an upstream response body, so only the class name is
+            # disclosed — but the row is still diagnosable, which a bare status is not.
+            (
+                "internal_error_discloses_type_only",
+                SubscriptionDelivery.Status.FAILED,
+                {
+                    "message": "500 Server Error: token=abcd1234 for url: https://hooks.example.com/x",
+                    "type": "HTTPError",
+                },
+                [{"recipient": "test@posthog.com", "status": "failed"}],
+                {"type": "HTTPError", "detail": None},
+            ),
+            (
+                "vetted_recipient_message_becomes_the_detail",
+                SubscriptionDelivery.Status.FAILED,
+                {"message": "Slack integration disconnected", "type": "slack_disconnected"},
+                [
+                    {
+                        "recipient": "test@posthog.com",
+                        "status": "failed",
+                        "error": {"message": "raw", "type": "slack_disconnected"},
+                        "human_readable_error": "The Slack integration was disconnected.",
+                    }
+                ],
+                {"type": "slack_disconnected", "detail": "The Slack integration was disconnected."},
+            ),
+            (
+                "failed_run_without_an_error_payload_is_still_classified",
+                SubscriptionDelivery.Status.FAILED,
+                None,
+                [],
+                {"type": "unknown", "detail": None},
+            ),
+            (
+                "a_type_that_is_not_a_classification_token_is_dropped",
+                SubscriptionDelivery.Status.FAILED,
+                {"message": "nope", "type": "recipient jane@example.com was rejected"},
+                [],
+                {"type": "unknown", "detail": None},
+            ),
+            ("successful_run_has_no_failure_reason", SubscriptionDelivery.Status.COMPLETED, None, [], None),
+        ]
+    )
+    def test_failed_delivery_exposes_a_redacted_failure_reason(
+        self, name, delivery_status, error, recipient_results, expected
+    ):
+        delivery = self._create_delivery(
+            idempotency_key=f"failure-reason-{name}",
+            status=delivery_status,
+            error=error,
+            recipient_results=recipient_results,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery.id}/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["failure_reason"] == expected
+        assert "abcd1234" not in json.dumps(data["failure_reason"])
+
+    def test_ai_query_failure_reason_is_scrubbed_without_query_access(self):
+        subscription = self._create_ai_subscription()
+        templated_message = (
+            "The query the AI generated failed to run (ResolutionError), so the report could not be computed."
+        )
+        delivery = SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="wf-ai-failure",
+            idempotency_key="ai-failure-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="ai@posthog.com",
+            status=SubscriptionDelivery.Status.FAILED,
+            error={"type": AI_REPORT_QUERY_FAILURE_TYPE, "message": templated_message},
+        )
+        url = f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/{delivery.id}/"
+
+        with_access = self.client.get(url).json()["failure_reason"]
+        assert with_access == {"type": AI_REPORT_QUERY_FAILURE_TYPE, "detail": templated_message}
+
+        self._restrict_query_access()
+        restricted = self.client.get(url).json()["failure_reason"]
+        assert restricted == {
+            "type": AI_REPORT_QUERY_FAILURE_TYPE,
+            "detail": "The report could not be computed.",
+        }
+
     def test_deliveries_are_read_only(self):
         delivery = self._create_delivery(idempotency_key="readonly-key")
 

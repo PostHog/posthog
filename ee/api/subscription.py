@@ -1,3 +1,4 @@
+import re
 import uuid
 import asyncio
 from collections.abc import Callable, Iterable, Sequence
@@ -1980,7 +1981,27 @@ class AIReportQueryDiagnosticSerializer(serializers.Serializer):
     )
 
 
+class SubscriptionDeliveryFailureReasonSerializer(serializers.Serializer):
+    type = serializers.CharField(
+        help_text="Server-generated classification of the failure: an exception class name or a stable "
+        "pipeline key such as no_assets or AIReportQueryFailure. `unknown` when the run recorded no usable "
+        "classification."
+    )
+    detail = serializers.CharField(
+        allow_null=True,
+        help_text="Short failure reason vetted as safe for the subscription owner; null when the run only "
+        "produced an internal error, which exposes `type` alone.",
+    )
+
+
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
+    # A classification token comes from the pipeline itself (an exception class name or a fixed key),
+    # never from a remote response, so it is safe to surface. A token that does not look like one is
+    # dropped rather than trusted.
+    FAILURE_TYPE_PATTERN: ClassVar[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+    UNKNOWN_FAILURE_TYPE = "unknown"
+    MAX_FAILURE_DETAILS = 3
+
     AI_REPORT_SCRUBBED_ERROR = {
         "type": AI_REPORT_QUERY_FAILURE_TYPE,
         "message": "The report could not be computed.",
@@ -2022,6 +2043,12 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "Null for older deliveries and non-AI deliveries."
         )
     )
+    failure_reason = serializers.SerializerMethodField(
+        help_text="Redacted diagnosis of a failed run: a failure classification and, when the pipeline "
+        "produced an owner-safe message, a short reason. Null unless the run failed. Unlike `error` it "
+        "carries no recipient identifiers and no upstream response bodies, so it is readable wherever "
+        "delivery history is."
+    )
 
     class Meta:
         model = SubscriptionDelivery
@@ -2048,6 +2075,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "ai_report_charts",
             "ai_report_prompt",
             "ai_query_plan_status",
+            "failure_reason",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -2121,6 +2149,46 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         status = snapshot.get(AI_REPORT_QUERY_PLAN_STATUS_KEY)
         return status if isinstance(status, str) and status in AIQueryPlanStatus.values else None
 
+    @extend_schema_field(SubscriptionDeliveryFailureReasonSerializer(allow_null=True))
+    def get_failure_reason(self, delivery: SubscriptionDelivery) -> Optional[dict[str, Optional[str]]]:
+        error = delivery.error if isinstance(delivery.error, dict) else None
+        if error is None and delivery.status != SubscriptionDelivery.Status.FAILED:
+            return None
+        return {
+            "type": self._failure_type(error),
+            "detail": self._failure_detail(delivery, error),
+        }
+
+    def _failure_type(self, error: Optional[dict]) -> str:
+        raw = error.get("type") if error else None
+        if isinstance(raw, str) and self.FAILURE_TYPE_PATTERN.match(raw):
+            return raw
+        return self.UNKNOWN_FAILURE_TYPE
+
+    def _failure_detail(self, delivery: SubscriptionDelivery, error: Optional[dict]) -> Optional[str]:
+        # Only messages the delivery pipeline already vetted for the subscription owner are surfaced.
+        # error["message"] is not one of them: the catch-all failure path fills it with str(exception),
+        # which can carry an upstream response body. recipient_results[].human_readable_error is, and
+        # so is the AI query-failure message, which the pipeline builds from a fixed template plus the
+        # error types it classes as disclosable.
+        details: list[str] = []
+        recipient_results = delivery.recipient_results if isinstance(delivery.recipient_results, list) else []
+        for result in recipient_results:
+            if not isinstance(result, dict) or result.get("status") == "success":
+                continue
+            message = result.get("human_readable_error")
+            if isinstance(message, str) and message and message not in details:
+                details.append(message)
+            if len(details) == self.MAX_FAILURE_DETAILS:
+                break
+        if details:
+            return " ".join(details)
+        if error and error.get("type") == AI_REPORT_QUERY_FAILURE_TYPE:
+            message = error.get("message")
+            if isinstance(message, str) and message:
+                return message
+        return None
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # The viewset sets this flag when an AI prompt delivery is read by a caller without query
@@ -2131,6 +2199,11 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             data.update(self.AI_REPORT_SCRUBBED)
             if isinstance(data.get("error"), dict) and data["error"].get("type") == AI_REPORT_QUERY_FAILURE_TYPE:
                 data["error"] = self.AI_REPORT_SCRUBBED_ERROR
+                # The query-failure detail names the query error types, so it is scrubbed with the report.
+                data["failure_reason"] = {
+                    "type": AI_REPORT_QUERY_FAILURE_TYPE,
+                    "detail": self.AI_REPORT_SCRUBBED_ERROR["message"],
+                }
             return data
         # The AI report now ships via the typed ai_report / ai_report_diagnostics / ai_report_prompt
         # fields, so drop the same keys from content_snapshot to avoid shipping the report twice.
