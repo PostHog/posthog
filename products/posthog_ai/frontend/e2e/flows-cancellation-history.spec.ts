@@ -12,9 +12,9 @@ test.describe('Cancellation, focus and history', () => {
             await page.getByTestId('task-composer-input').fill('Start the synthetic task.')
             await page.getByTestId('task-composer-send').click()
             const request = await creation.request
-            await expect(page.getByTestId('run-startup-stop')).toBeVisible()
-            await page.getByTestId('run-startup-stop').click()
-            await expect(page.getByTestId('run-startup-stop')).toBeDisabled()
+            await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+            await page.getByRole('button', { name: 'Stop', exact: true }).click()
+            await expect(page.getByRole('button', { name: 'Stopping…', exact: true })).toBeDisabled()
             expect(surface.commands).toHaveLength(0)
             const finish = {
                 stay: async () => {
@@ -42,7 +42,7 @@ test.describe('Cancellation, focus and history', () => {
                     await expect(page).toHaveURL(/\/activity\/explore/)
                     await request.respond(surface.task())
                     await expect(page).toHaveURL(/\/activity\/explore/)
-                    await expect(page.getByTestId('run-startup-stop')).toBeHidden()
+                    await expect(page.getByTestId('sandbox-composer-send')).toBeHidden()
                     surface.history = [
                         ready(),
                         message('Start the synthetic task.', 'user'),
