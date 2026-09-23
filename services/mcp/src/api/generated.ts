@@ -87416,6 +87416,48 @@ export namespace Schemas {
     }
 
     /**
+     * Single entry in a PUT body for a `suggested_reviewers` artefact.
+     *
+     * Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A
+     * `user_uuid` only has to name an org member on this team — a member with no linked GitHub
+     * account is stored by uuid and routes like any other reviewer.
+     */
+    export interface SuggestedReviewerEntryWrite {
+      /**
+         * GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.
+         * @maxLength 200
+         */
+      github_login?: string;
+      /** PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins. */
+      user_uuid?: string;
+      /**
+         * Optional human-readable display name. Not backfilled from GitHub by the server.
+         * @maxLength 200
+         */
+      github_name?: string;
+      /**
+         * Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.
+         * @maxLength 500
+         * @nullable
+         */
+      reason?: string | null;
+    }
+
+    /**
+     * PUT body for replacing a `suggested_reviewers` artefact's content.
+     *
+     * Only `suggested_reviewers` artefacts may be modified via this endpoint;
+     * the viewset enforces the type check before validation runs.
+     */
+    export interface SignalReportArtefactWrite {
+      /**
+         * Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.
+         * @maxItems 10
+         */
+      content: SuggestedReviewerEntryWrite[];
+    }
+
+    /**
      * Response shape for the log-artefact create/update endpoints — echoes the stored row.
      */
     export interface SignalReportArtefactWriteResponse {
@@ -87548,6 +87590,31 @@ export namespace Schemas {
       pr_url?: string;
       /** Release ownership while preserving any attached pull request. */
       release?: boolean;
+    }
+
+    /**
+     * * `deletion_started` - deletion_started
+     * * `already_running` - already_running
+     */
+    export type SignalReportDeletionStatusStatusEnum = typeof SignalReportDeletionStatusStatusEnum[keyof typeof SignalReportDeletionStatusStatusEnum];
+
+
+    export const SignalReportDeletionStatusStatusEnum = {
+      DeletionStarted: 'deletion_started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Envelope the report delete returns once it has kicked off the deletion workflow.
+     */
+    export interface SignalReportDeletionStatus {
+      /** Whether this request started the deletion or found one already running.
+       *
+       * * `deletion_started` - deletion_started
+       * * `already_running` - already_running */
+      status: SignalReportDeletionStatusStatusEnum;
+      /** Report being deleted. */
+      report_id: string;
     }
 
     export interface SignalReportFeedbackRequest {
@@ -87683,6 +87750,31 @@ export namespace Schemas {
       quota_limited: boolean;
     }
 
+    /**
+     * * `reingestion_started` - reingestion_started
+     * * `already_running` - already_running
+     */
+    export type SignalReportReingestionStatusStatusEnum = typeof SignalReportReingestionStatusStatusEnum[keyof typeof SignalReportReingestionStatusStatusEnum];
+
+
+    export const SignalReportReingestionStatusStatusEnum = {
+      ReingestionStarted: 'reingestion_started',
+      AlreadyRunning: 'already_running',
+    } as const;
+
+    /**
+     * Envelope the reingest action returns once it has kicked off the re-ingestion workflow.
+     */
+    export interface SignalReportReingestionStatus {
+      /** Whether this request started the re-ingestion or found one already running.
+       *
+       * * `reingestion_started` - reingestion_started
+       * * `already_running` - already_running */
+      status: SignalReportReingestionStatusStatusEnum;
+      /** Report being re-ingested. */
+      report_id: string;
+    }
+
     export interface SignalReportStateRequest {
       /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
        *
@@ -87719,6 +87811,118 @@ export namespace Schemas {
          * @maximum 100000
          */
       snooze_for?: number;
+    }
+
+    /**
+     * * `suggested_reviewers` - suggested_reviewers
+     */
+    export type SignalReportSuggestedReviewersArtefactTypeEnum = typeof SignalReportSuggestedReviewersArtefactTypeEnum[keyof typeof SignalReportSuggestedReviewersArtefactTypeEnum];
+
+
+    export const SignalReportSuggestedReviewersArtefactTypeEnum = {
+      SuggestedReviewers: 'suggested_reviewers',
+    } as const;
+
+    /**
+     * Commit evidence behind a suggested reviewer.
+     */
+    export interface SuggestedReviewerCommit {
+      /** Commit SHA. */
+      sha: string;
+      /** Link to the commit. */
+      url: string;
+      /** Why the commit makes this reviewer relevant. */
+      reason: string;
+    }
+
+    /**
+     * One reviewer as the read path returns it: the stored entry plus read-time enrichment.
+     *
+     * `source_label`, `explanation` and `user` are computed on read, not stored, so a caller cannot
+     * write them.
+     */
+    export interface SuggestedReviewerEntryRead {
+      /**
+         * GitHub login, lowercased. Null when the reviewer has no linked account.
+         * @nullable
+         */
+      github_login: string | null;
+      /**
+         * PostHog user this entry routes to. Null on entries written before reviewers had one.
+         * @nullable
+         */
+      user_uuid: string | null;
+      /**
+         * Display name, when the writer supplied one.
+         * @nullable
+         */
+      github_name: string | null;
+      /** Commits attributed to this reviewer. Empty when the pick came from elsewhere. */
+      relevant_commits: SuggestedReviewerCommit[];
+      /**
+         * Why this reviewer was chosen.
+         * @nullable
+         */
+      reason: string | null;
+      /** True when the scout owner guardrail added the entry rather than commit authorship. */
+      is_skill_owner: boolean;
+      /**
+         * Scout skill whose run wrote the entry. Null when no scout did.
+         * @nullable
+         */
+      source_skill: string | null;
+      /** Where the suggestion came from, for display. */
+      source_label: string;
+      /**
+         * One line of evidence for display. Null when there is none to show.
+         * @nullable
+         */
+      explanation: string | null;
+      /** Resolved org member. Null when the entry resolves to nobody. */
+      user: _User | null;
+    }
+
+    /**
+     * The artefact, for a path that only ever returns a `suggested_reviewers` one.
+     *
+     * `content` is polymorphic on the base serializer, so a generated client types it as unknown.
+     * Here the type is fixed, so the entry shape can be declared. Runtime output is unchanged —
+     * `get_content` delegates to the base.
+     */
+    export interface SignalReportSuggestedReviewersArtefact {
+      /**
+         * Work claim that produced this artefact.
+         * @nullable
+         */
+      readonly claim_id: string | null;
+      /**
+         * Shared PR record linked by this artefact.
+         * @nullable
+         */
+      readonly pull_request_id: string | null;
+      readonly id: string;
+      /** Always `suggested_reviewers` on this path.
+       *
+       * * `suggested_reviewers` - suggested_reviewers */
+      readonly type: SignalReportSuggestedReviewersArtefactTypeEnum;
+      readonly content: readonly SuggestedReviewerEntryRead[];
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** Actor kind. Legacy rows without attribution are returned as system. */
+      readonly actor_kind: SignalActorKindEnum;
+      /**
+         * MCP client name when an external agent produced the artefact.
+         * @nullable
+         */
+      readonly actor_agent: string | null;
+      /** Authenticated user principal for user or external agent writes. Null for internal task and system writes. */
+      readonly created_by: _User | null;
+      /**
+         * Internal task the artefact is attributed to. Null for user, external agent, and system writes.
+         * @nullable
+         */
+      readonly task_id: string | null;
     }
 
     /**
@@ -88106,6 +88310,61 @@ export namespace Schemas {
       edited_report_ids: string[];
       /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunSummaryMetadata;
+    }
+
+    /**
+     * Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch.
+     */
+    export type SignalTeamConfigAutostartBaseBranches = {[key: string]: string};
+
+    /**
+     * Where in the tracker the issues land. Required keys depend on the integration kind: github -> {repository}; linear -> {team_id}; jira -> {project_key}; gitlab needs none, because its integration is already bound to one project. An optional 'label' is applied to created GitHub issues.
+     */
+    export type SignalTeamConfigIssueTrackingConfig = {[key: string]: string};
+
+    export interface SignalTeamConfig {
+      readonly id: string;
+      /**
+         * Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set false to opt out, so actionable reports still generate and notify but the team never auto-starts an implementation task or opens a PR — reviewers open PRs manually.
+         * @nullable
+         */
+      autostart_enabled?: boolean | null;
+      default_autostart_priority?: AutonomyPriorityEnum;
+      /**
+         * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
+         * @maxLength 255
+         * @nullable
+         */
+      default_slack_notification_channel?: string | null;
+      /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
+      autostart_base_branches?: SignalTeamConfigAutostartBaseBranches;
+      /**
+         * Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.
+         * @nullable
+         */
+      issue_tracking_integration?: number | null;
+      /** Where in the tracker the issues land. Required keys depend on the integration kind: github -> {repository}; linear -> {team_id}; jira -> {project_key}; gitlab needs none, because its integration is already bound to one project. An optional 'label' is applied to created GitHub issues. */
+      issue_tracking_config?: SignalTeamConfigIssueTrackingConfig;
+      /**
+         * Daily cap on new reports surfacing to the inbox, counted per calendar day in the project's timezone. Once reached, signal ingestion, scout runs, and report research pause until local midnight. Null means unlimited.
+         * @minimum 1
+         * @maximum 2147483647
+         * @nullable
+         */
+      max_reports_per_day?: number | null;
+      /** Whether self-driving pull requests open ready for review instead of draft, so the full CI matrix starts when the pull request is created. False by default. A reviewer's own github_open_pull_request_ready overrides this for reports that suggest them as reviewer. */
+      default_open_pull_request_ready?: boolean;
+      /** Whether self-driving comments back on a GitHub issue that raised a report, linking to the report so everybody watching the issue knows it is being researched. The comment is public on the issue thread and carries a link only, never report content. False by default. Needs a GitHub integration that can reach the issue's repository. */
+      github_issue_writeback_enabled?: boolean;
+      /**
+         * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
+         * @minimum 0
+         */
+      readonly reports_generated_today: number;
+      /** Whether the team hit its daily report limit, pausing new report generation until local midnight. Always false when max_reports_per_day is null. */
+      readonly daily_report_limit_reached: boolean;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface SignalUserAutonomyConfig {
@@ -112227,6 +112486,20 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type SignalsReportsAvailableReviewersRetrieveParams = {
+    /**
+     * Case-insensitive filter on name or email.
+     */
+    query?: string;
+    };
+
+    export type SignalsReportsAvailableReviewersRetrieve200 = {[key: string]: {
+      /** Member's full name. */
+      name: string;
+      /** Member's email address. */
+      email: string;
+    }};
 
     export type SignalsReportsPrCiStatusesParams = {
     /**

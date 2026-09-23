@@ -8,7 +8,7 @@ from django.db.models import TextChoices
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework.request import Request
 
@@ -298,6 +298,32 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 MAX_AUTOSTART_BASE_BRANCH_ENTRIES = 500
 
 
+_AUTOSTART_BASE_BRANCHES_HELP = (
+    "Per-repository base branch overrides for auto-started inbox PRs, keyed by "
+    "'organization/repository'. The branch is what the auto-PR targets; omit a repo "
+    "(or send {}) to keep targeting the repo default branch."
+)
+
+# The validator below bounds the key count, the key shape and the key length. A DictField publishes
+# only the value constraint, so the key rules are declared here to keep the schema and the validator
+# saying the same thing.
+_AUTOSTART_BASE_BRANCHES_SCHEMA = {
+    "type": "object",
+    "description": _AUTOSTART_BASE_BRANCHES_HELP,
+    "maxProperties": MAX_AUTOSTART_BASE_BRANCH_ENTRIES,
+    "propertyNames": {"pattern": "^[^/]+/[^/]+$", "maxLength": 255},
+    "additionalProperties": {"type": "string", "maxLength": 255},
+}
+
+
+@extend_schema_field(_AUTOSTART_BASE_BRANCHES_SCHEMA)
+class _AutostartBaseBranchesField(serializers.DictField):
+    pass
+
+
+# many=False: the read action is named `list` for routing, but the config is a per-project
+# singleton. Without this drf-spectacular types the response as a paginated list.
+@extend_schema_serializer(many=False)
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
     issue_tracking_integration = TeamScopedPrimaryKeyRelatedField(
         queryset=Integration.objects.all(),
@@ -319,14 +345,10 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "to created GitHub issues."
         ),
     )
-    autostart_base_branches = serializers.DictField(
+    autostart_base_branches = _AutostartBaseBranchesField(
         child=serializers.CharField(max_length=255, allow_blank=True),
         required=False,
-        help_text=(
-            "Per-repository base branch overrides for auto-started inbox PRs, keyed by "
-            "'organization/repository'. The branch is what the auto-PR targets; omit a repo "
-            "(or send {}) to keep targeting the repo default branch."
-        ),
+        help_text=_AUTOSTART_BASE_BRANCHES_HELP,
     )
     max_reports_per_day = serializers.IntegerField(
         required=False,
@@ -1982,13 +2004,14 @@ class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
         required=False,
         allow_blank=False,
         max_length=200,
-        help_text="GitHub login (case-insensitive). Stored lowercased.",
+        help_text="GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.",
     )
     user_uuid = serializers.UUIDField(
         required=False,
         help_text=(
             "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not "
-            "required. If supplied together with `github_login`, the user's own identity wins."
+            "required. Required unless `github_login` is given. If supplied together with "
+            "`github_login`, the user's own identity wins."
         ),
     )
     github_name = serializers.CharField(
@@ -2014,6 +2037,67 @@ class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
         return attrs
 
 
+class SuggestedReviewerCommitSerializer(serializers.Serializer):
+    """Commit evidence behind a suggested reviewer."""
+
+    sha = serializers.CharField(help_text="Commit SHA.")
+    url = serializers.CharField(help_text="Link to the commit.")
+    reason = serializers.CharField(allow_blank=True, help_text="Why the commit makes this reviewer relevant.")
+
+
+class SuggestedReviewerEntryReadSerializer(serializers.Serializer):
+    """One reviewer as the read path returns it: the stored entry plus read-time enrichment.
+
+    `source_label`, `explanation` and `user` are computed on read, not stored, so a caller cannot
+    write them.
+    """
+
+    github_login = serializers.CharField(
+        allow_null=True, help_text="GitHub login, lowercased. Null when the reviewer has no linked account."
+    )
+    user_uuid = serializers.CharField(
+        allow_null=True,
+        help_text="PostHog user this entry routes to. Null on entries written before reviewers had one.",
+    )
+    github_name = serializers.CharField(allow_null=True, help_text="Display name, when the writer supplied one.")
+    relevant_commits = SuggestedReviewerCommitSerializer(
+        many=True, help_text="Commits attributed to this reviewer. Empty when the pick came from elsewhere."
+    )
+    reason = serializers.CharField(allow_null=True, help_text="Why this reviewer was chosen.")
+    is_skill_owner = serializers.BooleanField(
+        help_text="True when the scout owner guardrail added the entry rather than commit authorship."
+    )
+    source_skill = serializers.CharField(
+        allow_null=True, help_text="Scout skill whose run wrote the entry. Null when no scout did."
+    )
+    source_label = serializers.CharField(help_text="Where the suggestion came from, for display.")
+    explanation = serializers.CharField(
+        allow_null=True, help_text="One line of evidence for display. Null when there is none to show."
+    )
+    user = _UserSerializer(allow_null=True, help_text="Resolved org member. Null when the entry resolves to nobody.")
+
+
+class SignalReportSuggestedReviewersArtefactSerializer(SignalReportArtefactSerializer):
+    """The artefact, for a path that only ever returns a `suggested_reviewers` one.
+
+    `content` is polymorphic on the base serializer, so a generated client types it as unknown.
+    Here the type is fixed, so the entry shape can be declared. Runtime output is unchanged —
+    `get_content` delegates to the base.
+    """
+
+    # The path only returns this one type, so narrowing the discriminator lets a client match on it
+    # instead of the whole artefact enum.
+    type = serializers.ChoiceField(
+        choices=[SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS],
+        read_only=True,
+        help_text="Always `suggested_reviewers` on this path.",
+    )
+
+    @extend_schema_field(SuggestedReviewerEntryReadSerializer(many=True))
+    def get_content(self, obj: SignalReportArtefact) -> dict | list:
+        return super().get_content(obj)
+
+
 class SignalReportArtefactWriteSerializer(serializers.Serializer):
     """PUT body for replacing a `suggested_reviewers` artefact's content.
 
@@ -2023,18 +2107,16 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
 
     MAX_ENTRIES = 10
 
-    content = SuggestedReviewerEntryWriteSerializer(
-        many=True,
+    # ListField rather than the serializer with many=True: drf-spectacular returns early for a
+    # nested many=True serializer, so a cap declared there never reaches the schema as maxItems.
+    content = serializers.ListField(
+        child=SuggestedReviewerEntryWriteSerializer(),
         allow_empty=True,
+        max_length=MAX_ENTRIES,
         help_text=(
             f"Full replacement list of reviewers. Empty list clears the artefact. At most {MAX_ENTRIES} entries."
         ),
     )
-
-    def validate_content(self, value: list[dict]) -> list[dict]:
-        if len(value) > self.MAX_ENTRIES:
-            raise serializers.ValidationError(f"At most {self.MAX_ENTRIES} reviewers may be supplied.")
-        return value
 
 
 # Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected
