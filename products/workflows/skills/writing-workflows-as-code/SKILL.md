@@ -1,6 +1,6 @@
 ---
 name: writing-workflows-as-code
-description: 'Writes a PostHog workflow from scratch as TypeScript with the @posthog/workflows SDK and the posthog-workflows CLI: scaffold the file with init, pick the key and the trigger, compose the steps, resolve secrets from the environment, read what check prints, push it, and wire the CI pair. Use when asked to write, define or author a workflow in TypeScript or as code, add a workflow to a repository, run posthog-workflows check or push, or work with @posthog/workflows. For a workflow built over MCP, use building-workflows instead.'
+description: 'Writes a PostHog workflow from scratch as TypeScript with the @posthog/workflows SDK and the posthog-workflows CLI: scaffold the file with init, pick the key and the trigger, compose typed or pass-through steps, resolve secrets from the environment, read what check prints, push it, and wire the CI pair. Use when asked to write, define or author a workflow in TypeScript or as code, add a workflow to a repository, run posthog-workflows check or push, or work with @posthog/workflows. For a workflow built over MCP, use building-workflows instead.'
 ---
 
 # Writing workflows as code
@@ -19,51 +19,58 @@ Done when: the file exists and exports one `workflow({ ... })`.
 
 ## 2. Choose the key and the trigger
 
-- `key` is the workflow's identity in the project: letters, digits, hyphens and underscores, unique in the project. Every push resolves it, so treat it as fixed once pushed. A renamed key orphans the old workflow and creates a new one. The same file reaches a staging project and a production project without a change.
-- `on: onEvent({ event: 'user signed up' })` starts one run per occurrence, and each run has a person. Narrow it with `properties: [eventProperty('$current_url', 'icontains', ['/pricing'])]`.
+- `key` is the workflow's identity in the project. It must use only letters, digits, hyphens and underscores, and it must be 400 characters or fewer. Every push resolves it, so treat it as fixed once pushed. A renamed key orphans the old workflow and creates a new one. The same file reaches a staging project and a production project without a change.
+- `on: onEvent({ event: 'user signed up' })` starts one run per occurrence, and each run has a person. Narrow it with `properties: [eventProperty('$current_url', 'icontains', '/pricing')]`. Pass `name` or `description` when the trigger action needs editor copy.
 - `on: onSchedule()` starts a run per occurrence of a cadence. A run has no person, so write a straight path and read no person property. The cadence is attached in PostHog after the first push; until then the workflow does not run.
+- `on: trigger(config, { name, description })` passes an unsupported trigger type through unchanged. Use it only when there is no typed helper. You must know the stored config shape, so start from an existing workflow. Copy one with the Copy code button or use the `workflows-get-code` MCP tool when it is available.
 
 Done when: the key is final and the trigger matches how the workflow starts.
 
 ## 3. Compose the steps
 
-Every step is a value with a `name`. `path(...)` places values in order and takes at least one. The action id is the slug of the name, so keep names distinct, and pass `id` to pin an id through a rename.
+Every step is a value with a `name`. `path(...)` places values in order and takes at least one. The action id is the slug of the name, so keep names distinct, and pass `id` to pin an id through a rename. Prefer typed helpers. Use `step(...)` only for an action shape the SDK does not cover yet.
 
 - `delay('1d', { name: 'Wait a day' })`. Write the largest unit that fits: `1.5h`, not `90m`. Caps are 60s, 60m, 24h and 30d.
-- `branch({ name, branches: [{ name, when: [person('plan', 'exact', ['pro'])], then: path(...) }] })`. Arms are tried in order and the first match wins. No match falls through to the step after the branch, and every arm rejoins there. `when` takes `person`, `group` and `eventProperty` conditions; an `eventProperty` condition reads the event that started the run.
+- `branch({ name, branches: [{ name, when: [person('plan', 'exact', 'pro')], then: path(...) }] })`. Arms are tried in order and the first match wins. No match falls through to the step after the branch, and every arm rejoins there. Branch conditions read person or group properties. Use `group(0, 'tier', 'exact', 'enterprise')`, where the first argument is the group type index.
+- Conditions take one value or a list. They support every PostHog property operator. `is_set` and `is_not_set` take no value.
 - `email({ name, from: { integrationIds: [12] }, to: '{person.properties.email}', subject, text, html })`. The ids are the project's verified senders, listed in PostHog under Workflows, Channels. Content is inline; there is no reference to a library template.
 - `webhook({ name, url, body: { distinct_id: '{event.distinct_id}' }, signingSecret: secret('CRM_WEBHOOK_SECRET') })`. Method defaults to `POST`.
 - `fn({ name, templateId: 'template-slack', inputs: { text: '...' } })` runs any other destination template. Find the id and its inputs with `cdp-function-templates-list` and `cdp-function-templates-retrieve`; PostHog validates the inputs at push.
-- `secret('ENV_NAME')` stands in for a value the repository must not hold. Pass it as the value of a whole input. `push` reads the variable and sends the value every time. `check` substitutes a placeholder, so a pull request without the secret still validates.
+- `step({ type, name, config, branches })` passes an unsupported action through. The `config` is emitted unchanged, except whole `config.inputs` entries can resolve `secret(...)`. Set `branches` for action types with branch edges, such as `random_cohort_branch` or `wait_until_condition`.
+- `secret('ENV_NAME')` stands in for a value the repository must not hold. Pass it as the value of a whole input. `push` reads the variable and sends the value every time. `check` compares a secret input only when that variable is set.
 
-Done when: every step has a distinct name, every branch arm has at least one step, and every secret is a whole input.
+Done when: every step has a distinct name, every branch arm has at least one step, every pass-through shape came from a stored workflow or API schema, and every secret is a whole input.
 
 ## 4. Set variables, status and exit
 
-- `variables: [{ key: 'docs_url', type: 'string', default: 'https://example.com/docs' }]`. Every default is a string, keys are unique, and the list is capped at 5120 bytes.
-- `status` defaults to `draft`, which accepts no one and sends nothing. Set `'active'` in the file when the workflow is ready, so turning it on is a reviewed change.
-- `exit: { reason: 'Onboarding finished' }` is required. `exitCondition` defaults to `exit_only_at_end`. `export` the workflow, because the CLI pushes what the file exports and skips the rest.
+- `variables: [{ key: 'docs_url', type: 'string', default: 'https://example.com/docs', label: 'Docs URL' }]`. Every default is a string, keys are unique, and the list is capped at 5120 bytes.
+- Leave `status` out. PostHog owns it. A new workflow starts as a draft, and a push never changes the status of a workflow whose file omits the field. Set `status` in the file only when code must control whether the workflow is `draft`, `active` or `archived`.
+- `exit: { reason: 'Onboarding finished', name: 'Finish' }` is required. Add `description` when the exit action needs editor copy. `exitCondition` defaults to `exit_only_at_end`.
+- `export` the workflow, because the CLI pushes what the file exports and skips the rest.
 
-Done when: `status` is a deliberate choice and the workflow is exported.
+Done when: variables are small, `status` is omitted unless code must own it, and the workflow is exported.
 
 ## 5. Run check and read its output
 
 Run `posthog-workflows check flows/onboarding.ts`.
 
 - Without credentials it validates the file offline and prints `diff skipped`, so a fork's pull request passes without a secret.
-- With credentials it compares against the project and prints one result per workflow: `would create`, `would update` or `unchanged`, then one line per change marked `+`, `-` or `~`. Each workflow also prints its `key`, `status`, the list of step types, one `secret` line per variable it reads, and the `source` commit the push would record.
+- With credentials it compares against the project and prints one result per workflow: `would create`, `would update` or `unchanged`, then one line per change marked `+`, `-` or `~`.
+- Each workflow prints its `key`, the list of step types, one `secret` line per variable it reads, and the source repository, path and ref the push would send. It prints `status` only when the file sets one.
+- A check compares a secret input only when its environment variable is set. If the variable is unset, the file still validates and the secret input is left out of the comparison.
 - A refusal prints four lines, `status`, `message`, `why` and `fix`, and exits 1. Do what `fix` says and run `check` again.
 
 Done when: `check` exits 0 and the result is the one you expect.
 
 ## 6. Push
 
-Run `posthog-workflows push flows/onboarding.ts`. It prints `created`, `updated` or `unchanged` per workflow, with the stored version, the recorded commit and the workflow's URL, and exits non-zero when any workflow failed.
+Run `posthog-workflows push flows/onboarding.ts`. It prints `created`, `updated` or `unchanged` per workflow, with the stored version, the workflow's URL and the source ref that was sent, and exits non-zero when any workflow failed.
 
 - Every push that writes marks the workflow as `managed_by: code`, which makes it read-only in the PostHog UI with a link to the file. A workflow released in the UI is claimed again by the next push that writes.
 - A push writes nothing when nothing changed. `--force` pushes anyway. That is how a rotated secret lands, because the comparison never looks at a secret input, and how a released workflow is claimed again without another change.
 - A push from a path the workflow was not pushed from is refused, so a copied file cannot replace a live workflow. `--allow-move` records the new path for a file that moved. A copy needs a key of its own.
-- To roll back, revert the commit and push. Every push that changes the definition writes a revision in PostHog that names the commit.
+- The CLI sends source repository, path and ref fields when it can resolve them. It does not send a `source` object, and it does not send the commit author or subject.
+- To roll back, revert the commit and push. Every push that changes the definition writes a version in PostHog.
 
 Done when: `push` exits 0 and the URL it prints opens the workflow.
 
@@ -122,7 +129,6 @@ const notifyBilling = webhook({
 
 const reminderEmail = email({
   name: 'Send the trial reminder',
-  // The id of a verified sender, listed in PostHog under Workflows, Channels.
   from: { integrationIds: [4], name: 'The Example team' },
   to: '{person.properties.email}',
   subject: 'Your trial ends in three days',
@@ -134,8 +140,7 @@ export const trialEndingReminder = workflow({
   key: 'trial-ending-reminder',
   name: 'Trial ending reminder',
   description: 'Eleven days into a trial, reminds people who have an email address and tells billing.',
-  status: 'draft',
-  on: onEvent({ event: 'trial started', properties: [eventProperty('plan', 'is_not', ['enterprise'])] }),
+  on: onEvent({ event: 'trial started', properties: [eventProperty('plan', 'is_not', 'enterprise')] }),
   steps: path(
     delay('11d', { name: 'Wait eleven days' }),
     branch({
