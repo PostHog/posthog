@@ -122,18 +122,16 @@ Check how the call scoped the target surface before you trust these numbers. `ta
 If the echo came back wider than the surface under test, the numbers here are too optimistic.
 Correct the scope and call the tool once more: an exact `$host` and an exact `$pathname` in `target_properties` for one page, or an exact `$host` with only the path fragment in `target_url_contains` for a wider surface.
 Read the numbers from the second response.
-A `persons_reached` of 0 straight after an exact filter usually means the value is not the one the project records, such as `/pricing` against `/pricing/`.
+A `candidate_metric.persons_reached` of 0 straight after an exact filter usually means the value is not the one the project records, such as `/pricing` against `/pricing/`.
 Read the shape back with `read-data-schema` (`event_property_values`, a sample of the values) and correct the filter, rather than widening it.
 
 `previous_experiments.summary` says how the project's earlier experiments fared for size. When `previous_experiments.summary.launched_with_zero_analyzed_exposures` or `launched_with_under_100_analyzed_exposures` is a large share of `launched`, the project has been launching experiments that could not measure anything. Say so, and treat the running time as the number to get right rather than a formality.
 
-`target_url_contains` is a substring match on the URL: a bare domain matches every page on it and overstates the page's traffic. Pass the most specific fragment you can.
-
 ### Read the counts in this order
 
-1. `candidate_metric.event_volume` is 0: the metric event never occurred in the window under `metric_properties`. Check the event name with `read-data-schema`, then check the filters. A `candidate_metric.conversion_rate` of 0 says nothing until this is above 0.
-2. `candidate_metric.event_volume` is above 0 but `candidate_metric.persons_converted` is 0: the event happens, but never after the target event. Either the metric measures something people do elsewhere in the product, or the target is wrong. `candidate_metric.unique_persons` says how many people send the event at all, which separates a rare event from a misplaced one.
-3. `candidate_metric.persons_reached` is 0: no one sent the target event in the window under `target_properties` and `target_url_contains`. Say the target may be wrong.
+1. `candidate_metric.persons_reached` is 0: no one sent the target event in the window under `target_properties` and `target_url_contains`. Fix the target before reading the two counts below. Only people who reached the target can convert, so `candidate_metric.persons_converted` is 0 whatever the metric does, and `candidate_metric.event_volume` counts the metric event without the target and says nothing about the pair.
+2. `candidate_metric.event_volume` is 0: the metric event never occurred in the window under `metric_properties`. Check the event name with `read-data-schema`, then check the filters. A `candidate_metric.conversion_rate` of 0 says nothing until this is above 0.
+3. `candidate_metric.event_volume` is above 0 but `candidate_metric.persons_converted` is 0: the event happens, but never after the target event. Either the metric measures something people do elsewhere in the product, or the target is wrong. `candidate_metric.unique_persons` says how many people send the event at all, which separates a rare event from a misplaced one.
 
 Tier: confident on the arithmetic, best guess on the inputs (the baseline is an estimate over `candidate_metric.window_days`).
 
