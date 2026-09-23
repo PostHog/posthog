@@ -419,7 +419,10 @@ def _staggered_refresh_ttl(config: HyperCacheManagementConfig) -> int | None:
     if fraction is None:
         return None
     cache_ttl = config.hypercache.cache_ttl
-    return random.randint(int(cache_ttl * fraction), cache_ttl)
+    # The floor is truncated to an int, so a short enough cache_ttl gives a floor of zero.
+    # Redis treats a timeout of zero as expired, so the entry would come due on arrival.
+    floor = max(1, int(cache_ttl * fraction))
+    return random.randint(floor, cache_ttl)
 
 
 def _refresh_one_team(config: HyperCacheManagementConfig, team: Team) -> RefreshOutcome:
