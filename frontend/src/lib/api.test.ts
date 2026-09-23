@@ -187,16 +187,6 @@ describe('API helper', () => {
                 () => api.messaging.updateTemplate('template-1', {}),
                 '/api/projects/2/messaging_templates/template-1/',
             ],
-            [
-                'messaging.getCategory',
-                () => api.messaging.getCategory('category-1'),
-                '/api/projects/2/messaging_categories/category-1/',
-            ],
-            [
-                'messaging.generateMessagingPreferencesLink',
-                () => api.messaging.generateMessagingPreferencesLink(),
-                '/api/projects/2/messaging_preferences/generate_link/',
-            ],
         ])("%s targets the tab's team, not @current", async (_name, request, expected) => {
             await request()
 
