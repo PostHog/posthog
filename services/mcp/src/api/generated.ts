@@ -46138,6 +46138,19 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    export interface FileSystemHomeFolder {
+      /**
+         * The user's home folder ID, or null if deleted.
+         * @nullable
+         */
+      readonly id: string | null;
+      /**
+         * The current path of the user's home folder.
+         * @nullable
+         */
+      readonly path: string | null;
+    }
+
     export interface FileSystemShortcut {
       readonly id: string;
       /** Display path of the shortcut in the sidebar. */
@@ -53701,6 +53714,18 @@ export namespace Schemas {
      */
     export type LLMPromptListConfig = { [key: string]: unknown } | null;
 
+    export interface LLMPromptResolvedReference {
+      /** Name of the referenced prompt that was spliced in. */
+      name: string;
+      /** Exact version whose content was spliced in. */
+      version: number;
+      /**
+         * Label the reference used, or null when it pinned a version directly.
+         * @nullable
+         */
+      label: string | null;
+    }
+
     export interface LLMPromptList {
       readonly id: string;
       /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
@@ -53734,6 +53759,8 @@ export namespace Schemas {
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
       readonly all_labels: readonly LLMPromptLabelSummary[];
+      /** @nullable */
+      readonly resolved_references: readonly LLMPromptResolvedReference[] | null;
     }
 
     /**
@@ -53741,18 +53768,6 @@ export namespace Schemas {
      * @nullable
      */
     export type LLMPromptPublicConfig = { [key: string]: unknown } | null;
-
-    export interface LLMPromptResolvedReference {
-      /** Name of the referenced prompt that was spliced in. */
-      name: string;
-      /** Exact version whose content was spliced in. */
-      version: number;
-      /**
-         * Label the reference used, or null when it pinned a version directly.
-         * @nullable
-         */
-      label: string | null;
-    }
 
     export interface LLMPromptPublic {
       id: string;
@@ -59452,6 +59467,95 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       _create_in_folder?: string;
+    }
+
+    export interface NotebookRunCell {
+      /** Durable cell identity, the same id the cell run endpoints take. */
+      node_id: string;
+      /** Cell kind: 'sql' or 'python'. */
+      cell_type: string;
+      /** Name other cells reference this cell's result by; blank means display-only. */
+      dataframe_name: string;
+      /**
+         * This cell's run in the whole-notebook run; null until the run reaches the cell.
+         * @nullable
+         */
+      run_id?: string | null;
+      /**
+         * The cell's own state: 'running', 'done', 'failed', or 'interrupted'; null before it starts.
+         * @nullable
+         */
+      status?: string | null;
+      /**
+         * Why this cell failed, when it did.
+         * @nullable
+         */
+      error?: string | null;
+    }
+
+    export interface NotebookRunInterruptResponse {
+      /** True when this call stopped the run. False when it had already finished, which is not an error. */
+      interrupted: boolean;
+      /** The run's state after the call: 'done', 'failed', or 'interrupted'. */
+      status: string;
+    }
+
+    export interface NotebookRunStartRequest {
+      /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
+      variables?: NotebookVariable[];
+    }
+
+    export interface NotebookRunStartResponse {
+      /** Identifier of the whole-notebook run. Poll the run status endpoint with it until the status is terminal. */
+      run_id: string;
+      /** How many cells the run will execute, frozen when it started. */
+      cell_count: number;
+      /** True when this run has to provision a sandbox because it holds a Python cell and none is live for the caller. Tell the user what that costs. */
+      starts_sandbox: boolean;
+      /**
+         * What the sandbox this run provisions costs per hour in USD. Null when the run needs no new sandbox, or when the backend is not charged.
+         * @nullable
+         */
+      sandbox_hourly_price?: number | null;
+    }
+
+    export interface NotebookRunStatusResponse {
+      /** Identifier of the whole-notebook run. */
+      run_id: string;
+      /** Run state: 'running' (keep polling), or terminal — 'done', 'failed', or 'interrupted'. */
+      status: string;
+      /** Which surface started the run: 'ui' or 'mcp'. */
+      trigger: string;
+      /** The variable values this run bound, snapshotted when it started. */
+      variables: NotebookVariable[];
+      /** How many cells the run executes. */
+      cell_count: number;
+      /** Position in the plan the run has reached, counting from 0. */
+      current_index: number;
+      /**
+         * The cell the run is on; null once the plan is finished.
+         * @nullable
+         */
+      current_node_id?: string | null;
+      /**
+         * The cell that stopped the run, when one did.
+         * @nullable
+         */
+      failed_node_id?: string | null;
+      /**
+         * Why the run stopped, in one sentence a person can read.
+         * @nullable
+         */
+      error?: string | null;
+      /** Every planned cell in run order, with the state of its run in this notebook run. */
+      cells: NotebookRunCell[];
+      /** When the run started. */
+      created_at: string;
+      /**
+         * When the run reached a terminal state; null while running.
+         * @nullable
+         */
+      finished_at?: string | null;
     }
 
     /**
@@ -86350,6 +86454,38 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `announced` - announced
+     * * `retired` - retired
+     */
+    export type ScoutDeprecationPhaseEnum = typeof ScoutDeprecationPhaseEnum[keyof typeof ScoutDeprecationPhaseEnum];
+
+
+    export const ScoutDeprecationPhaseEnum = {
+      Announced: 'announced',
+      Retired: 'retired',
+    } as const;
+
+    /**
+     * What PostHog has said about retiring this scout, for the chip and the banner to render.
+     */
+    export interface ScoutDeprecation {
+      /** How far the retirement has got: `announced` while the scout still runs, `retired` once its sunset has passed. A retired scout is paused and does not run again.
+       *
+       * * `announced` - announced
+       * * `retired` - retired */
+      phase: ScoutDeprecationPhaseEnum;
+      /** Why PostHog is retiring the scout, written to be shown to a person as-is. */
+      reason: string;
+      /** Skill name of the scout that takes over, or blank when nothing replaces it. */
+      superseded_by: string;
+      /**
+         * When the scout stops running. Null means the next fleet reconcile retires it.
+         * @nullable
+         */
+      sunset_at: string | null;
+    }
+
+    /**
      * * `active` - Active
      * * `pending_pause` - Pending pause
      * * `paused_by_system` - Paused by system
@@ -86369,6 +86505,7 @@ export namespace Schemas {
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
+     * * `retired` - Retired
      */
     export type SignalScoutConfigPauseReasonEnum = typeof SignalScoutConfigPauseReasonEnum[keyof typeof SignalScoutConfigPauseReasonEnum];
 
@@ -86377,6 +86514,7 @@ export namespace Schemas {
       NoOutput: 'no_output',
       Ignored: 'ignored',
       RepeatedFailures: 'repeated_failures',
+      Retired: 'retired',
     } as const;
 
     /**
@@ -86406,6 +86544,8 @@ export namespace Schemas {
       readonly scout_origin: ScoutOriginEnum;
       /** What this scout is to the harness: `specialist` for one that watches a product surface, or `operational` for one PostHog ships to watch the self-driving system itself. An operational scout is exempt from the inactivity sweep and from the enabled-scout cap, and is not a scout a project should delete. Always `specialist` for a custom scout. */
       readonly scout_role: ScoutRoleEnum;
+      /** Set when PostHog is retiring this scout, and null otherwise. Carries the phase, the reason to show, what replaces the scout, and when it stops running. Only a canonical scout the project has not edited is ever marked: a project's own copy keeps running and reads as null. */
+      readonly deprecation: ScoutDeprecation | null;
       /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
       readonly owners: readonly UserBasic[];
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
@@ -86421,7 +86561,8 @@ export namespace Schemas {
        *
        * * `no_output` - No output
        * * `ignored` - Ignored
-       * * `repeated_failures` - Repeated failures */
+       * * `repeated_failures` - Repeated failures
+       * * `retired` - Retired */
       readonly pause_reason: SignalScoutConfigPauseReasonEnum | null;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
       readonly emit: boolean;
@@ -110291,6 +110432,10 @@ export namespace Schemas {
      * @minLength 1
      */
     order_by?: string;
+    /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled results with full content. Set to false to get the raw text with the reference tags.
+     */
+    resolve?: boolean;
     /**
      * Optional substring filter applied to prompt names and prompt content.
      */

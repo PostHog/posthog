@@ -50,6 +50,11 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 The app-level Files scene lives in `src/scenes/project-files` and reuses the project tree from `src/layout/panel-layout/ProjectTree`.
 Open `/project/<project_id>/files` to browse the project, or add `?folder=Research` to start in a folder.
 Starred folders in the sidebar use the same "New..." menu and "Empty folder" state as project folders.
+With `simple-sidepanel` enabled, each user gets a public `Users/<name>` home folder in each project, starred on creation.
+Names receive a numeric suffix when another folder already uses the path.
+The home-folder record survives deletion, and later visits do not recreate or restar it.
+The user's own folder keeps its home icon after a rename or move and shows "Empty home folder" when expanded and empty.
+An info tooltip explains that everyone in the project can see its contents and shows the folder's current path.
 Creating an item from a starred folder uses the original folder's full path, including its parent folders.
 With `simple-sidepanel` enabled, the Apps and Files tabs use "Filter apps" and "Filter files" to filter their contents.
 The file filter and options buttons stay beside the filter field; alphabetical and recently added sorting are in the options menu.
