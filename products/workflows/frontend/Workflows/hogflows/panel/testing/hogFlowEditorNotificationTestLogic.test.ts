@@ -177,7 +177,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             const createTestInvocation = jest
                 .spyOn(api.hogFlows, 'createTestInvocation')
                 .mockResolvedValue({ status: 'success', logs: [], nextActionId: null } as any)
-            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => () => {})
+            const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('test-toast-id')
 
             const globalsWithEmail: CyclotronJobInvocationGlobals = {
                 event: {
