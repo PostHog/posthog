@@ -2,11 +2,21 @@ import json
 import tempfile
 from pathlib import Path
 
+from posthog.test.base import APIBaseTest
+
+from django.contrib.sessions.middleware import SessionMiddleware
+from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.stable_chunks import STABLE_CHUNKS_COOKIE, read_stable_chunks_manifest, stable_chunks_opted_in
+from posthog.stable_chunks import (
+    STABLE_CHUNKS_COOKIE,
+    persist_stable_chunks_choice,
+    read_stable_chunks_manifest,
+    stable_chunks_opted_in,
+)
+from posthog.utils import render_template
 
 VALID_MANIFEST = {
     "imports": {"@c/eAAAA": "static/index-S0000000000.js"},
@@ -60,3 +70,34 @@ class TestStableChunks(SimpleTestCase):
             request.COOKIES[STABLE_CHUNKS_COOKIE] = cookie
 
         assert stable_chunks_opted_in(request) == expected
+
+    @parameterized.expand(
+        [
+            ("param on stores the choice for 30 days", "?stable_chunks=1", "1", 60 * 60 * 24 * 30),
+            ("param off expires the cookie", "?stable_chunks=0", "", 0),
+            ("no param leaves the cookie alone", "", None, None),
+        ]
+    )
+    def test_the_choice_is_persisted_on_the_response(self, _name, query, expected_value, expected_max_age):
+        request = RequestFactory().get(f"/{query}")
+        response = HttpResponse()
+
+        persist_stable_chunks_choice(request, response)
+
+        cookie = response.cookies.get(STABLE_CHUNKS_COOKIE)
+        assert (cookie.value if cookie else None) == expected_value
+        assert (cookie["max-age"] if cookie else None) == expected_max_age
+
+
+class TestStableChunksChoiceSurvivesTheRequest(APIBaseTest):
+    @parameterized.expand([("opting in", "1"), ("opting out", "0")])
+    def test_rendering_a_page_persists_the_choice(self, _name, param):
+        # Any template exercises this: render_template persists the choice for every page it
+        # returns, and the app shell template only exists after a frontend build.
+        request = RequestFactory().get(f"/?stable_chunks={param}")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        request.user = self.user
+
+        response = render_template("sso_reauth_complete.html", request)
+
+        assert response.cookies[STABLE_CHUNKS_COOKIE].value == ("1" if param == "1" else "")
