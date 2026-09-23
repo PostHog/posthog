@@ -37,6 +37,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
     [Scene.Settings]: sceneImport,
+    [Scene.ProjectFiles]: sceneImport,
 }
 
 describe('sceneLogic', () => {
@@ -74,13 +75,17 @@ describe('sceneLogic', () => {
         expect(teamLogic.isMounted()).toBe(true)
     })
 
-    it('changing URL runs openScene, loadScene and setScene', async () => {
+    it.each([
+        [urls.settings('user'), Scene.Settings],
+        [urls.projectFiles(), Scene.ProjectFiles],
+        [urls.projectFiles('Research'), Scene.ProjectFiles],
+    ])('changing URL to %s loads its own scene', async (url, sceneId) => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.DataManagement,
         })
-        router.actions.push(urls.settings('user'))
+        router.actions.push(url)
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            sceneId: Scene.Settings,
+            sceneId,
         })
     })
 
@@ -164,6 +169,28 @@ describe('sceneLogic', () => {
         // redirect must carry it across so those links keep opening the right report. The hash
         // carries global side-panel state, so it has to survive the redirect too.
         expect(router.values.searchParams.review).toEqual('r-9')
+        expect(router.values.hashParams.panel).toEqual('max:inspect')
+    })
+
+    it.each([
+        ['the product root', () => '/engineering-analytics', () => urls.engineeringAnalytics()],
+        [
+            'the project-prefixed test health path',
+            (projectId: number) => `/project/${projectId}/engineering-analytics/test-health`,
+            () => urls.engineeringAnalyticsTests(),
+        ],
+        ['the health path', () => '/engineering-analytics/health', () => urls.engineeringAnalyticsDeploys()],
+    ])('redirects %s without dropping scope or hash', async (_label, oldPath, newPath) => {
+        const projectId = teamLogic.values.currentTeamId
+        router.actions.push(
+            oldPath(projectId),
+            { source: 'source-1', repo: 'PostHog/posthog' },
+            { panel: 'max:inspect' }
+        )
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(newPath())
+        expect(router.values.location.pathname).toEqual(`/project/${projectId}${newPath()}`)
+        expect(router.values.searchParams).toMatchObject({ source: 'source-1', repo: 'PostHog/posthog' })
         expect(router.values.hashParams.panel).toEqual('max:inspect')
     })
 

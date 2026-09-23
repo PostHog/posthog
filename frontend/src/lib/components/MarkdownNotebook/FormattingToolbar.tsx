@@ -52,6 +52,7 @@ export function FormattingToolbar({
     setBlockStyle,
     copySelection,
     askAIAboutSelection,
+    btwAboutSelection,
     askAIDisabledReason,
     startInlineCommentAtSelection,
     lockPosition,
@@ -71,6 +72,7 @@ export function FormattingToolbar({
     setBlockStyle: (style: TextBlockStyle) => void
     copySelection: () => void
     askAIAboutSelection?: () => void
+    btwAboutSelection?: () => void
     askAIDisabledReason?: string
     startInlineCommentAtSelection?: () => void
     lockPosition: () => void
@@ -352,6 +354,19 @@ export function FormattingToolbar({
                     disabledReason={askAIDisabledReason}
                     onClick={askAIAboutSelection}
                 />
+            ) : null}
+            {btwAboutSelection ? (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconSparkles />}
+                    tooltip="Ask a side question"
+                    aria-label="BTW"
+                    data-attr="notebook-btw-selection"
+                    disabledReason={askAIDisabledReason}
+                    onClick={btwAboutSelection}
+                >
+                    BTW
+                </LemonButton>
             ) : null}
             {showInlineActions && isLinkEditorOpen ? (
                 <div className="MarkdownNotebook__format-link-editor">

@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kev-vllm"
+version = "0.1.0"
+description = "Kev decision models served on vLLM: model plugin, /v1/systemone IO processor, checkpoint export and verification"
+requires-python = "==3.12.*"
+dependencies = [
+    "pydantic>=2.9",
+    "torch>=2.6",
+    "transformers>=5.10",
+]
+
+[project.optional-dependencies]
+# The serving image. vLLM ships Linux CUDA wheels only.
+serve = ["vllm==0.29.0; sys_platform == 'linux'"]
+# Export runs Kev itself, whose torch pin conflicts with vLLM's, hence the separate extra.
+export = ["kev", "peft>=0.21", "accelerate>=1.15", "safetensors>=0.5", "huggingface_hub>=0.30"]
+
+[project.scripts]
+kev-vllm-export = "kev_vllm.export:main"
+kev-vllm-parity = "kev_vllm.parity:main"
+
+[project.entry-points."vllm.general_plugins"]
+kev = "kev_vllm.plugin:register"
+
+[project.entry-points."vllm.io_processor_plugins"]
+kev = "kev_vllm.plugin:io_processor"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.14"]
+
+[tool.uv]
+exclude-newer = "7 days"
+# peft 0.21 shipped on 2026-09-18 and the export path needs it; drop this exemption after 2026-09-25 and re-lock.
+exclude-newer-package = { peft = false }
+conflicts = [[{ extra = "serve" }, { extra = "export" }]]
+environments = ["sys_platform == 'linux'", "sys_platform == 'darwin'"]
+
+[tool.uv.sources]
+kev = { git = "https://github.com/jaredpalmer/kev", rev = "35566d73bea14cc417df016f6044d5cd311f697b" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["kev_vllm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+extend-exclude = ["kev_vllm/kev_compat.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "RUF", "DTZ"]
+
