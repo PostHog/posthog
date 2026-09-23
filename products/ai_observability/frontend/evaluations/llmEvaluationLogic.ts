@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DateRange, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { ActivityScope, Breadcrumb, ChartDisplayType, HogQLMathType } from '~/types'
 
@@ -319,6 +319,7 @@ export interface llmEvaluationLogicValues {
     runsBackfill: EvaluationBackfillApi | null
     runsBackfillId: string | null
     runsBackfillLoading: boolean
+    runsDateRange: DateRange
     runsStats: EvaluationRunsStats | null
     runsStatsLoading: boolean
     runsSummary: {
@@ -352,7 +353,7 @@ export interface llmEvaluationLogicActions {
     loadEvaluation: () => {
         value: true
     }
-    loadEvaluationRuns: () => any
+    loadEvaluationRuns: (_?: void) => void
     loadEvaluationRunsFailure: (
         error: string,
         errorObject?: any
@@ -362,10 +363,10 @@ export interface llmEvaluationLogicActions {
     }
     loadEvaluationRunsSuccess: (
         evaluationRuns: EvaluationRun[],
-        payload?: any
+        payload?: void
     ) => {
         evaluationRuns: EvaluationRun[]
-        payload?: any
+        payload?: void
     }
     loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => {
         evaluation: EvaluationConfig | null
@@ -476,6 +477,13 @@ export interface llmEvaluationLogicActions {
     }
     setRunsBackfillId: (backfillId: string | null) => {
         backfillId: string | null
+    }
+    setRunsDates: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
     }
     setSettleStrategy: (strategy: EvaluationSettleStrategy) => {
         strategy: EvaluationSettleStrategy
@@ -615,6 +623,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // Tab navigation
         setActiveTab: (tab: string) => ({ tab }),
         setRunsBackfillId: (backfillId: string | null) => ({ backfillId }),
+        setRunsDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
 
         // Evaluation management actions
         saveEvaluation: true,
@@ -707,16 +716,19 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         evaluationRuns: [
             [] as EvaluationRun[],
             {
-                loadEvaluationRuns: async () => {
+                loadEvaluationRuns: async (_?: void, breakpoint?: () => void) => {
                     if (!props.evaluationId || props.evaluationId === 'new') {
                         return []
                     }
 
-                    return await queryEvaluationRuns({
+                    const runs = await queryEvaluationRuns({
                         evaluationId: props.evaluationId,
                         backfillId: values.runsBackfillId ?? undefined,
+                        dateRange: values.runsBackfillId ? undefined : values.runsDateRange,
                         forceRefresh: values.isForceRefresh,
                     })
+                    breakpoint?.()
+                    return runs
                 },
             },
         ],
@@ -743,6 +755,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         evaluation: values.originalEvaluation ?? values.evaluation,
                         evaluationId: props.evaluationId,
                         backfillId: values.runsBackfillId ?? undefined,
+                        dateRange: values.runsBackfillId ? undefined : values.runsDateRange,
                         forceRefresh: values.isForceRefresh,
                     })
                     breakpoint?.()
@@ -988,6 +1001,19 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setRunsBackfillId: (_, { backfillId }) => backfillId,
             },
         ],
+        runsDateRange: [
+            { date_from: '-7d', date_to: null } as DateRange,
+            {
+                setRunsDates: (_, { dateFrom, dateTo }) => ({ date_from: dateFrom ?? '-7d', date_to: dateTo }),
+            },
+        ],
+        runsStats: [
+            null as EvaluationRunsStats | null,
+            {
+                setRunsDates: () => null,
+                setRunsBackfillId: () => null,
+            },
+        ],
         activeTab: [
             'configuration' as string,
             {
@@ -1110,6 +1136,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         loadEvaluationRuns: () => {
             actions.loadRunsStats()
+        },
+        setRunsDates: () => {
+            actions.loadEvaluationRuns()
         },
 
         setEvaluationRunsFilter: ({ filter, previousFilter }) => {
@@ -1571,13 +1600,20 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
 
             const requestedBackfillId = searchParams.backfill_id ?? null
+            const dateFrom = searchParams.date_from ?? '-7d'
+            const dateTo = searchParams.date_to ?? null
+            const datesChanged = dateFrom !== values.runsDateRange.date_from || dateTo !== values.runsDateRange.date_to
             if (requestedBackfillId !== values.runsBackfillId) {
                 actions.setRunsBackfillId(requestedBackfillId)
-                actions.loadEvaluationRuns()
-                actions.loadRunsStats()
+                if (!datesChanged) {
+                    actions.loadEvaluationRuns()
+                }
                 if (requestedBackfillId) {
                     actions.loadRunsBackfill()
                 }
+            }
+            if (datesChanged) {
+                actions.setRunsDates(dateFrom, dateTo)
             }
 
             // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
@@ -1592,6 +1628,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     })),
 
     actionToUrl(({ props }) => ({
+        setRunsDates: ({ dateFrom, dateTo }) => [
+            router.values.location.pathname,
+            { ...router.values.searchParams, date_from: dateFrom ?? '-7d', date_to: dateTo ?? undefined },
+            router.values.hashParams,
+            { replace: true },
+        ],
         setActiveTab: ({ tab }) => {
             const defaultTab = props.evaluationId === 'new' ? 'configuration' : 'runs'
             const evaluationTab = tab === defaultTab ? undefined : tab

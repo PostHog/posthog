@@ -51,6 +51,7 @@ import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
 import { EVALUATION_RUNS_QUERY_LIMIT, formatNumericEvaluationScore, numericOutputConfigError } from './constants'
 import {
     evaluationOffersSessionTarget,
+    evaluationSupportsReportHistory,
     evaluationSupportsReports,
     evaluationSupportsRunOutcomes,
     evaluationTypeHasEditableCriteria,
@@ -89,6 +90,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         runsSummary,
         runsBackfillId,
         runsBackfill,
+        runsDateRange,
         evaluationProviderKeyIssue,
         activeTab,
         canEnable,
@@ -378,7 +380,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     </div>
                                     {runsSummary && (
                                         <div className="flex flex-col items-end gap-1">
-                                            <div className="flex gap-4 text-sm">
+                                            <div className="flex flex-wrap gap-4 text-sm">
                                                 <div className="text-center">
                                                     <div className="font-semibold text-lg">{runsSummary.total}</div>
                                                     <div className="text-muted">Total runs</div>
@@ -419,7 +421,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </div>
                                             </div>
                                             <div className="text-muted text-xs">
-                                                {runsBackfillId ? 'From this backfill' : 'Across all runs, all time'}
+                                                {runsBackfillId
+                                                    ? 'From this backfill'
+                                                    : runsDateRange.date_from === 'all'
+                                                      ? 'Across all runs, all time'
+                                                      : 'In the selected date range'}
                                             </div>
                                         </div>
                                     )}
@@ -468,13 +474,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         ),
                     },
                     !isNewEvaluation &&
-                        isReportableEvaluation && {
+                        evaluationSupportsReportHistory(originalEvaluation) && {
                             key: 'reports',
                             label: 'Reports',
                             'data-attr': 'llma-evaluation-reports-tab',
                             content: (
                                 <EvaluationReportsTab
                                     evaluationId={evaluation.id}
+                                    generationDisabledReason={
+                                        isReportableEvaluation
+                                            ? undefined
+                                            : 'Add a passing rule to generate new reports.'
+                                    }
                                     userAccessLevel={evaluation.user_access_level ?? undefined}
                                     onConfigureClick={() => setActiveTab('configuration')}
                                 />

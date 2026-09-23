@@ -13,14 +13,17 @@ from .evaluation_configs import REPORTABLE_OUTPUT_TYPES_BY_TARGET
 
 
 class EvaluationReportQuerySet(models.QuerySet):
-    def reportable(self) -> "EvaluationReportQuerySet":
+    def for_supported_evaluations(self) -> "EvaluationReportQuerySet":
         reportable_filter = models.Q()
         for target, output_types in REPORTABLE_OUTPUT_TYPES_BY_TARGET.items():
             reportable_filter |= models.Q(
                 evaluation__target=target,
                 evaluation__output_type__in=output_types,
             )
-        return self.filter(reportable_filter).exclude(
+        return self.filter(reportable_filter)
+
+    def reportable(self) -> "EvaluationReportQuerySet":
+        return self.for_supported_evaluations().exclude(
             models.Q(evaluation__output_type="numeric")
             & (
                 ~models.Q(evaluation__output_config__has_key="passing_rule")

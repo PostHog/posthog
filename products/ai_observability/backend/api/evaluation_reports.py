@@ -658,7 +658,8 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             report_queryset = report_queryset.filter(evaluation_id__in=visible_evaluation_ids)
         # Generate validates eligibility explicitly so unsupported legacy rows return a useful 400.
         if self.action != "generate":
-            report_queryset = report_queryset.reportable()
+            # Reading stored reports must not depend on the current passing rule.
+            report_queryset = report_queryset.for_supported_evaluations()
         if self.action not in ("update", "partial_update"):
             report_queryset = report_queryset.filter(deleted=False)
 

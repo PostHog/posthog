@@ -1,5 +1,6 @@
 import {
     evaluationOffersSessionTarget,
+    evaluationSupportsReportHistory,
     evaluationSupportsReports,
     evaluationSupportsRunOutcomes,
 } from './evaluationCapabilities'
@@ -31,6 +32,7 @@ describe('evaluationCapabilities', () => {
             const evaluation = { output_type: outputType, target }
 
             expect(evaluationSupportsReports(evaluation)).toBe(supportsReports)
+            expect(evaluationSupportsReportHistory(evaluation)).toBe(supportsReports || outputType === 'numeric')
             expect(evaluationSupportsRunOutcomes(evaluation)).toBe(supportsRunOutcomes)
         }
     )

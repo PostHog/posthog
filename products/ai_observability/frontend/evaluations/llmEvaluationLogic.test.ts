@@ -5,6 +5,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { HogQLQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivityScope } from '~/types'
 
@@ -811,6 +812,59 @@ return result`,
         })
 
         describe('runsSummary', () => {
+            it('applies the selected dates to both runs and statistics, preserving the full backfill view', async () => {
+                const queries: HogQLQuery[] = []
+                useMocks({
+                    get: {
+                        '/api/projects/:teamId/evaluations/:id/backfills/:backfillId/': () => ({
+                            id: 'backfill-1',
+                            window_start: '2024-01-01T00:00:00Z',
+                            window_end: '2024-02-01T00:00:00Z',
+                        }),
+                    },
+                    post: {
+                        '/api/environments/:teamId/query/HogQLQuery/': async ({ request }) => {
+                            const { query } = (await request.json()) as { query: HogQLQuery }
+                            queries.push(query)
+                            return { results: query.query.includes('count() as total') ? [[4, 4, 3]] : [] }
+                        },
+                    },
+                })
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess', 'loadRunsStatsSuccess'])
+                expect(queries.length).toBeGreaterThan(0)
+                expect(queries.every((query) => query.filters?.dateRange?.date_from === '-7d')).toBe(true)
+
+                for (const dateRange of [
+                    { date_from: '-30d', date_to: null },
+                    { date_from: '2024-01-01', date_to: '2024-02-01' },
+                    { date_from: 'all', date_to: null },
+                ]) {
+                    queries.length = 0
+                    await expectLogic(logic, () =>
+                        logic.actions.setRunsDates(dateRange.date_from, dateRange.date_to)
+                    ).toDispatchActions(['loadEvaluationRunsSuccess', 'loadRunsStatsSuccess'])
+                    expect(queries).toHaveLength(2)
+                    expect(queries.every((query) => query.query.includes('AND {filters}'))).toBe(true)
+                    expect(queries.map((query) => query.filters?.dateRange)).toEqual([dateRange, dateRange])
+                    expect(router.values.searchParams.date_from).toBe(dateRange.date_from)
+                }
+
+                queries.length = 0
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.aiObservabilityEvaluation('eval-123'), {
+                        backfill_id: 'backfill-1',
+                        date_from: '-7d',
+                    })
+                ).toDispatchActions(['loadEvaluationRunsSuccess', 'loadRunsStatsSuccess'])
+                expect(queries).toHaveLength(2)
+                expect(
+                    queries.every((query) => query.query.includes("$ai_evaluation_backfill_id = 'backfill-1'"))
+                ).toBe(true)
+                expect(queries.every((query) => !query.filters?.dateRange && !query.query.includes('{filters}'))).toBe(
+                    true
+                )
+            })
+
             it('loads numeric threshold counts after the evaluation configuration arrives', async () => {
                 logic.unmount()
                 const numeric: EvaluationConfig = {

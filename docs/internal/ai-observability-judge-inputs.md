@@ -56,3 +56,13 @@ Separate properties preserve the existing boolean property's type and saved quer
 The numeric property uses normal numeric inference and can be aggregated in Insights.
 Numeric queries use `toFloat(properties.$ai_evaluation_numeric_result)` to also handle properties whose metadata has not been registered yet.
 No property-definition migration is required before enabling `llm-analytics-numeric-evaluations`.
+
+## Run history and reports
+
+The evaluation's Runs tab defaults to the last seven days.
+Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.
+Opening a specific backfill shows all runs from that backfill, regardless of the date filter.
+Backfilled results use the original generation's timestamp.
+
+Removing a numeric evaluation's passing rule stops new report generation and scheduled delivery.
+Existing reports remain accessible through the Reports tab and the report list, detail, and history API endpoints.

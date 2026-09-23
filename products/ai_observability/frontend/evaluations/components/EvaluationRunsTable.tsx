@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
@@ -45,8 +46,10 @@ export function EvaluationRunsTable(): JSX.Element {
         evaluationRunsError,
         originalEvaluation: evaluation,
         evaluationRunsLoading,
+        runsDateRange,
+        runsBackfillId,
     } = useValues(llmEvaluationLogic)
-    const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
+    const { refreshEvaluationRuns, setRunsDates } = useActions(llmEvaluationLogic)
     const showOutcomeFilters = evaluation?.output_type === 'numeric' || evaluationSupportsRunOutcomes(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
     // Every run in this table belongs to `evaluation`, so its polarity applies to the whole column.
@@ -81,9 +84,11 @@ export function EvaluationRunsTable(): JSX.Element {
         </div>
     ) : (
         <div className="text-center py-8">
-            <div className="text-muted mb-2">No evaluation runs yet</div>
+            <div className="text-muted mb-2">No evaluation runs found</div>
             <div className="text-sm text-muted">
-                Runs will appear here once this evaluation starts executing based on your triggers.
+                {runsBackfillId
+                    ? 'Runs will appear here as this backfill progresses.'
+                    : 'Try a wider date range, or check that the evaluation is enabled and its triggers match your data.'}
             </div>
         </div>
     )
@@ -140,14 +145,22 @@ export function EvaluationRunsTable(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <div className="flex justify-between items-center">
-                {showOutcomeFilters ? (
-                    <EvaluationRunsFilters />
-                ) : showSentimentFilters ? (
-                    <SentimentEvaluationRunsFilters />
-                ) : (
-                    <div />
-                )}
+            <div className="flex flex-wrap gap-2 justify-between items-center">
+                <div className="flex flex-wrap items-center gap-2">
+                    {!runsBackfillId && (
+                        <DateFilter
+                            dateFrom={runsDateRange.date_from}
+                            dateTo={runsDateRange.date_to}
+                            onChange={setRunsDates}
+                            size="small"
+                        />
+                    )}
+                    {showOutcomeFilters ? (
+                        <EvaluationRunsFilters />
+                    ) : showSentimentFilters ? (
+                        <SentimentEvaluationRunsFilters />
+                    ) : null}
+                </div>
                 <LemonButton
                     type="secondary"
                     icon={<IconRefresh />}

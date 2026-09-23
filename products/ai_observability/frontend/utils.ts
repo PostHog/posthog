@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { isObject, isString } from 'lib/utils/guards'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { DateRange, LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
@@ -1276,12 +1276,13 @@ export async function queryEvaluationRuns(params: {
     traceId?: string
     sessionId?: string
     backfillId?: string
+    dateRange?: DateRange
     /** Bounds the scan so it can prune partitions. Omitted for the trace and generation surfaces,
      * which read a single unit's runs and have always been unbounded. */
     lookbackDays?: number
     forceRefresh?: boolean
 }): Promise<EvaluationRun[]> {
-    const { evaluationId, traceId, sessionId, backfillId, lookbackDays, forceRefresh } = params
+    const { evaluationId, traceId, sessionId, backfillId, dateRange, lookbackDays, forceRefresh } = params
 
     const propertyValue = evaluationId || traceId || sessionId
 
@@ -1320,6 +1321,7 @@ export async function queryEvaluationRuns(params: {
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
             ${backfillId ? hogql.raw(`AND properties.$ai_evaluation_backfill_id = ${escapeHogQLString(backfillId)}`) : hogql.raw('')}
             ${lookbackDays ? hogql.raw(`AND timestamp >= now() - INTERVAL ${Math.floor(lookbackDays)} DAY`) : hogql.raw('')}
+            ${dateRange ? hogql.raw('AND {filters}') : hogql.raw('')}
         ORDER BY timestamp DESC
         LIMIT ${EVALUATION_RUNS_QUERY_LIMIT}
     `
@@ -1327,7 +1329,10 @@ export async function queryEvaluationRuns(params: {
     const response = await api.queryHogQL(
         query,
         { scene: 'AIObservability', productKey: 'llm_analytics' },
-        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+        {
+            ...(dateRange && { queryParams: { filters: { dateRange } } }),
+            ...(forceRefresh && { refresh: 'force_blocking' }),
+        }
     )
 
     return (response.results || []).map(mapEvaluationRunRow)
@@ -1351,9 +1356,10 @@ export async function queryEvaluationRunsStats(params: {
     evaluationId?: string
     traceId?: string
     backfillId?: string
+    dateRange?: DateRange
     forceRefresh?: boolean
 }): Promise<EvaluationRunsStats> {
-    const { evaluation, evaluationId, traceId, backfillId, forceRefresh } = params
+    const { evaluation, evaluationId, traceId, backfillId, dateRange, forceRefresh } = params
 
     const propertyValue = evaluationId || traceId
 
@@ -1376,12 +1382,16 @@ export async function queryEvaluationRunsStats(params: {
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
             ${backfillId ? hogql.raw(`AND properties.$ai_evaluation_backfill_id = ${escapeHogQLString(backfillId)}`) : hogql.raw('')}
+            ${dateRange ? hogql.raw('AND {filters}') : hogql.raw('')}
     `
 
     const response = await api.queryHogQL(
         query,
         { scene: 'AIObservability', productKey: 'llm_analytics' },
-        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+        {
+            ...(dateRange && { queryParams: { filters: { dateRange } } }),
+            ...(forceRefresh && { refresh: 'force_blocking' }),
+        }
     )
 
     const row = response.results?.[0]

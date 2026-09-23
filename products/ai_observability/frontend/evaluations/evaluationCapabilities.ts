@@ -12,19 +12,22 @@ export function isBooleanEvaluationOutput(outputType: EvaluationOutputType | nul
     return outputType === 'boolean'
 }
 
+export function evaluationSupportsReportHistory(
+    evaluation: Pick<EvaluationConfig, 'output_type' | 'target'> | null | undefined
+): boolean {
+    return !!evaluation && (REPORTABLE_OUTPUT_TYPES_BY_TARGET[evaluation.target]?.has(evaluation.output_type) ?? false)
+}
+
 export function evaluationSupportsReports(
     evaluation:
         | (Pick<EvaluationConfig, 'output_type' | 'target'> & Partial<Pick<EvaluationConfig, 'output_config'>>)
         | null
         | undefined
 ): boolean {
-    if (evaluation?.output_type == null || evaluation.target == null) {
-        return false
-    }
-    if (evaluation.output_type === 'numeric' && !evaluation.output_config?.passing_rule) {
-        return false
-    }
-    return REPORTABLE_OUTPUT_TYPES_BY_TARGET[evaluation.target]?.has(evaluation.output_type) ?? false
+    return (
+        evaluationSupportsReportHistory(evaluation) &&
+        (evaluation?.output_type !== 'numeric' || !!evaluation.output_config?.passing_rule)
+    )
 }
 
 export function evaluationSupportsRunOutcomes(
