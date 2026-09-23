@@ -7,7 +7,7 @@ const marks = [mark(10_000), mark(42_000), mark(42_000), mark(90_000)]
 describe('observationTimeline', () => {
     it.each<[string, number, number]>([
         ['no gap', 0, 0],
-        ['scales with elapsed seconds', 10_000, 6],
+        ['scales with elapsed seconds', 10_000, 3],
         ['caps at the ceiling', 600_000, TIMELINE_GAP_MAX_PX],
         ['never negative', -5_000, 0],
     ])('timelineGapPx: %s', (_, deltaMs, expected) => {

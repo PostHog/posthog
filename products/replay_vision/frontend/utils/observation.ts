@@ -153,14 +153,22 @@ function lastSentence(text: string): string | null {
     for (const match of flat.matchAll(/[.!?]+\s+/g)) {
         start = match.index + match[0].length
     }
-    const last = flat
-        .slice(start)
-        .replace(/[.!?]+$/, '')
-        .trim()
+    const last = tidyClause(flat.slice(start))
     if (!last) {
         return null
     }
     return last.length > SNIPPET_MAX_LENGTH ? `${last.slice(0, SNIPPET_MAX_LENGTH - 1)}…` : last
+}
+
+/** Fragments left between chips, e.g. `) and the banner appeared` or `, then it failed (see`. */
+function tidyClause(fragment: string): string {
+    const clause = fragment
+        .replace(/[.!?]+\s*$/, '')
+        .replace(/^[^\p{L}\p{N}"'“‘([]+/u, '')
+        .replace(/^(and|but|then|so)\b\s*/i, '')
+        .replace(/\s*\([^)]*$/, '')
+        .replace(/[\s,;:\-–—]+$/, '')
+    return clause.charAt(0).toUpperCase() + clause.slice(1)
 }
 
 /** Cited timestamps in a succeeded observation's output, each with the sentence that cites it. */

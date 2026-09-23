@@ -1,40 +1,43 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconChevronDown, IconCopy, IconEye } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconCollapse, IconExpand, IconEye } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonInput, LemonSwitch, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown/LemonDropdown'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi, ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { citedTextToPlainText } from '../utils/citations'
+import { SCANNER_TYPE_TAG_TYPE, configFromSnapshot, scannerTypeLabel } from '../replay_scanners/types'
 import {
-    firstCitationMs,
+    ObservationSeekbarMark,
     isFlaggedObservation,
     isSummaryObservation,
+    observationSeekbarMarks,
     readModelOutput,
     readReasoning,
-    readScore,
-    readSummary,
-    readTags,
-    readTitle,
-    readVerdict,
     scannerLabel,
 } from '../utils/observation'
+import { currentMarkIndex, nextMarkAfter } from '../utils/observationTimeline'
 import { quotaUx } from '../utils/quotaProjection'
 import { ScanBlock, recordingScanBlock } from '../utils/scanEligibility'
 import { visionSurfaceShown } from '../utils/visionSurface'
-import { CitedText, ObservationStatusTag } from './ObservationCard'
+import { CitedMarkdown } from './CitedMarkdown'
+import {
+    FailureDetail,
+    IneligibleDetail,
+    ObservationPrimaryOutput,
+    ObservationResultSummary,
+    ObservationStatusTag,
+} from './ObservationCard'
 import { ObservationProgressBar } from './ObservationProgressBar'
 import { ObservationRetryButton } from './ObservationRetryButton'
 import { ObservationTimeline } from './ObservationTimeline'
-import { ScannerTypeBadge } from './ScannerTypeBadge'
+import { ScannerTypeBadge, scannerTypeIcon } from './ScannerTypeBadge'
 
 export function PlayerSidebarObservationsTab(): JSX.Element | null {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -43,7 +46,7 @@ export function PlayerSidebarObservationsTab(): JSX.Element | null {
     if (!visionSurfaceShown(logicProps) || !sessionRecordingId) {
         return null
     }
-    return <ObservationsTabContent sessionId={sessionRecordingId} />
+    return <ObservationsTabContent key={sessionRecordingId} sessionId={sessionRecordingId} />
 }
 
 function ScannerPicker({
@@ -133,191 +136,265 @@ function ScannerPicker({
     )
 }
 
-function VerdictChips({
+const CURRENT_MOMENT_SELECTOR = '[data-current-moment]'
+
+const isInFlight = (o: ReplayObservationApi): boolean => o.status === 'pending' || o.status === 'running'
+
+function defaultFocus(observations: ReplayObservationApi[]): ReplayObservationApi | null {
+    return (
+        observations.find(isInFlight) ?? observations.find((o) => o.status === 'succeeded') ?? observations[0] ?? null
+    )
+}
+
+function ObservationRuns({
+    sessionId,
     observations,
+    seekbarMarks,
     onSeek,
 }: {
+    sessionId: string
     observations: ReplayObservationApi[]
+    seekbarMarks: ObservationSeekbarMark[]
     onSeek: (timestampMs: number) => void
 }): JSX.Element | null {
+    const logic = observationsDockLogic({ sessionId })
+    const { focusedObservationId, followMoments, retryingObservationIds } = useValues(logic)
+    const { focusObservation, setFollowMoments, retryObservation } = useActions(logic)
+    const { currentPlayerTime } = useValues(sessionRecordingPlayerLogic)
+    const paneRef = useRef<HTMLDivElement>(null)
+    const followedMs = useRef<number | null>(null)
+    const marksByRun = useMemo(
+        () => new Map(observations.map((o) => [o.id, observationSeekbarMarks([o])])),
+        [observations]
+    )
+    const focused = observations.find((o) => o.id === focusedObservationId) ?? defaultFocus(observations)
+    const currentIndex = currentMarkIndex(seekbarMarks, currentPlayerTime)
+    const currentMs = currentIndex >= 0 ? seekbarMarks[currentIndex].timestampMs : null
+
+    useEffect(() => {
+        if (!followMoments) {
+            followedMs.current = null
+            return
+        }
+        if (currentMs === null || followedMs.current === currentMs) {
+            return
+        }
+        const owns = (o: ReplayObservationApi): boolean =>
+            marksByRun.get(o.id)?.some((m) => m.timestampMs === currentMs) ?? false
+        if (focused && !owns(focused)) {
+            const owner = observations.find(owns)
+            if (owner) {
+                focusObservation(owner.id)
+                return
+            }
+        }
+        followedMs.current = currentMs
+        paneRef.current?.querySelector<HTMLElement>(CURRENT_MOMENT_SELECTOR)?.scrollIntoView({ block: 'nearest' })
+    }, [currentMs, followMoments, focused, observations, marksByRun, focusObservation])
+
     if (observations.length === 0) {
         return null
     }
+    const flaggedCount = observations.filter(isFlaggedObservation).length
     return (
-        <div className="flex flex-wrap gap-1" data-attr="vision-verdict-chips">
-            {observations.map((observation) => {
-                const scannerType = observation.scanner_snapshot?.scanner_type
-                const verdict = readVerdict(observation)
-                const score = readScore(observation)
-                const tags = readTags(observation)
-                const value =
-                    scannerType === 'monitor'
-                        ? verdict
-                            ? verdict.charAt(0).toUpperCase() + verdict.slice(1)
-                            : '—'
-                        : scannerType === 'scorer'
-                          ? score !== null
-                              ? String(score)
-                              : '—'
-                          : tags.length > 0
-                            ? tags.join(', ')
-                            : 'No categories'
-                const reasoning = readReasoning(observation)
-                const citationMs = firstCitationMs(observation)
-                const tooltip = [
-                    reasoning
-                        ? citedTextToPlainText(reasoning, readModelOutput(observation)?.reasoning_segments)
-                        : null,
-                    citationMs !== null ? 'Click to jump to the first cited moment.' : null,
-                ]
-                    .filter(Boolean)
-                    .join('\n\n')
-                return (
-                    <Tooltip key={observation.id} title={tooltip || null}>
-                        <LemonTag
-                            // A yes verdict isn't inherently good, so no success green.
-                            type={isFlaggedObservation(observation) ? 'highlight' : 'default'}
-                            onClick={citationMs !== null ? () => onSeek(citationMs) : undefined}
-                            forceClickable={citationMs !== null}
-                            data-attr="vision-verdict-chip"
-                        >
-                            <span className="truncate max-w-40">{scannerLabel(observation)}</span>
-                            <span className="opacity-60">·</span>
-                            <span className="truncate max-w-40">{value}</span>
-                        </LemonTag>
+        <div className="flex-1 min-h-0 overflow-y-auto" data-attr="vision-observation-runs">
+            {focused && (
+                <FocusPane
+                    ref={paneRef}
+                    sessionId={sessionId}
+                    observation={focused}
+                    marks={marksByRun.get(focused.id) ?? []}
+                    onSeek={onSeek}
+                    onRetry={() => retryObservation(focused.id)}
+                    retrying={retryingObservationIds.includes(focused.id)}
+                />
+            )}
+            <div className="sticky top-0 z-10 flex items-center gap-2 px-2 py-1 border-b bg-surface-primary">
+                <span className="text-xs font-semibold uppercase tracking-wide text-secondary">Runs</span>
+                <LemonBadge.Number count={observations.length} maxDigits={2} size="small" status="muted" showZero />
+                {flaggedCount > 0 && (
+                    <Tooltip title={`${flaggedCount} flagged`}>
+                        <LemonBadge.Number count={flaggedCount} size="small" status="primary" />
                     </Tooltip>
-                )
-            })}
-        </div>
-    )
-}
-
-function BriefSection({
-    observation,
-    clampable,
-    onSeek,
-}: {
-    observation: ReplayObservationApi
-    clampable: boolean
-    onSeek: (timestampMs: number) => void
-}): JSX.Element | null {
-    const [expanded, setExpanded] = useState(false)
-    const title = readTitle(observation)
-    const summary = readSummary(observation)
-    if (!title && !summary) {
-        return null
-    }
-    const segments = readModelOutput(observation)?.summary_segments
-    const clamped = clampable && !expanded
-    return (
-        <div className="flex flex-col gap-1" data-attr="vision-brief">
-            <div className="flex items-center gap-2 min-w-0">
-                <span className="text-xs font-semibold uppercase tracking-wide text-secondary">Brief</span>
-                <span className="text-xs text-secondary truncate">{scannerLabel(observation)}</span>
-                <div className="ml-auto flex items-center gap-1 shrink-0">
-                    {summary && (
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconCopy />}
-                            tooltip="Copy brief"
-                            onClick={() =>
-                                void copyToClipboard(
-                                    [title, citedTextToPlainText(summary, segments)].filter(Boolean).join('\n\n'),
-                                    'summary'
-                                )
-                            }
-                            data-attr="vision-copy-summary"
-                        />
-                    )}
-                    <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
-                        Details
-                    </Link>
-                </div>
+                )}
             </div>
-            {title && <span className="text-sm font-semibold">{title}</span>}
-            {summary && (
-                <p className={cn('text-sm mb-0', clamped ? 'line-clamp-2' : 'whitespace-pre-wrap')}>
-                    <CitedText text={summary} segments={segments} onSeek={onSeek} />
-                </p>
-            )}
-            {summary && clampable && (
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    className="self-start"
-                    onClick={() => setExpanded(!expanded)}
-                    data-attr="vision-brief-toggle"
-                >
-                    {expanded ? 'Show less' : 'Show full brief'}
-                </LemonButton>
-            )}
+            <div className="p-1">
+                {observations.map((observation) => {
+                    const count = marksByRun.get(observation.id)?.length ?? 0
+                    const scannerType = observation.scanner_snapshot?.scanner_type
+                    return (
+                        <LemonButton
+                            key={observation.id}
+                            fullWidth
+                            size="small"
+                            active={observation.id === focused?.id}
+                            icon={
+                                scannerType ? (
+                                    <Tooltip title={scannerTypeLabel(scannerType)}>
+                                        <LemonTag type={SCANNER_TYPE_TAG_TYPE[scannerType]} size="small">
+                                            {scannerTypeIcon(scannerType)}
+                                        </LemonTag>
+                                    </Tooltip>
+                                ) : undefined
+                            }
+                            onClick={() => {
+                                focusObservation(observation.id)
+                                setFollowMoments(false)
+                            }}
+                            data-attr="vision-run-row"
+                        >
+                            <span className="flex items-center gap-2 min-w-0 w-full font-normal">
+                                <span className="text-sm truncate flex-1">{scannerLabel(observation)}</span>
+                                <span className="flex items-center gap-2 min-w-0 max-w-[60%]">
+                                    <RunResult observation={observation} />
+                                    {count > 0 && (
+                                        <Tooltip title={`${count} cited moment${count === 1 ? '' : 's'}`}>
+                                            <LemonBadge.Number
+                                                count={count}
+                                                maxDigits={2}
+                                                size="small"
+                                                status={isFlaggedObservation(observation) ? 'primary' : 'muted'}
+                                            />
+                                        </Tooltip>
+                                    )}
+                                </span>
+                            </span>
+                        </LemonButton>
+                    )
+                })}
+            </div>
         </div>
     )
 }
 
-function UnsettledRuns({
-    observations,
-    onRetry,
-    retryingIds,
-}: {
-    observations: ReplayObservationApi[]
-    onRetry: (observationId: string) => void
-    retryingIds: string[]
-}): JSX.Element | null {
-    if (observations.length === 0) {
+function RunResult({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
+    if (observation.status !== 'succeeded') {
+        return <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
+    }
+    if (isSummaryObservation(observation)) {
         return null
     }
+    return <ObservationResultSummary observation={observation} />
+}
+
+const FocusPane = forwardRef<
+    HTMLDivElement,
+    {
+        sessionId: string
+        observation: ReplayObservationApi
+        marks: ObservationSeekbarMark[]
+        onSeek: (timestampMs: number) => void
+        onRetry: () => void
+        retrying: boolean
+    }
+>(function FocusPane({ sessionId, observation, marks, onSeek, onRetry, retrying }, ref) {
+    const [textOpenFor, setTextOpenFor] = useState<string | null>(null)
+    const showText = textOpenFor === observation.id
+    const { height: contentHeight, ref: contentRef } = useResizeObserver<HTMLDivElement>({ box: 'border-box' })
+    const isSummary = isSummaryObservation(observation)
+    const reasoning = observation.status === 'succeeded' && !isSummary ? readReasoning(observation) : null
+    const hasText = observation.status === 'succeeded' && (isSummary || reasoning !== null)
+    const textLabel = isSummary ? 'summary' : 'reasoning'
+    const prompt = configFromSnapshot(observation.scanner_snapshot)?.prompt ?? null
     return (
-        <div className="flex flex-col border-t" data-attr="vision-unsettled-runs">
-            {observations.map((observation) => (
-                <div key={observation.id} className="flex flex-col gap-1.5 px-2 py-1.5 border-b last:border-b-0">
-                    <div className="flex items-center gap-2">
-                        <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
-                        <span className="text-sm truncate flex-1">{scannerLabel(observation)}</span>
-                        {observation.error_reason && (
+        <div
+            ref={ref}
+            className="overflow-hidden transition-[height] duration-200 ease-in-out border-b"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ height: contentHeight }}
+            data-attr="vision-focus-run"
+        >
+            <div ref={contentRef}>
+                <div className="flex items-center gap-2 px-2 py-1">
+                    <Tooltip title={prompt}>
+                        <span className="text-sm font-semibold truncate">{scannerLabel(observation)}</span>
+                    </Tooltip>
+                    <span className="ml-auto shrink-0 min-w-0 max-w-[50%]">
+                        <RunResult observation={observation} />
+                    </span>
+                </div>
+                <div className="flex flex-col gap-2 px-2 pb-2">
+                    {observation.status === 'failed' && observation.error_reason && (
+                        <FailureDetail errorReason={observation.error_reason} />
+                    )}
+                    {observation.status === 'ineligible' && observation.error_reason && (
+                        <IneligibleDetail errorReason={observation.error_reason} />
+                    )}
+                    {observation.error_reason && (
+                        <div>
                             <ObservationRetryButton
                                 status={observation.status}
                                 errorReason={observation.error_reason}
-                                onRetry={() => onRetry(observation.id)}
-                                loading={retryingIds.includes(observation.id)}
+                                onRetry={onRetry}
+                                loading={retrying}
                                 size="xsmall"
                                 dataAttr="vision-tab-retry-observation"
                             />
-                        )}
-                        <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
-                            Details
-                        </Link>
-                    </div>
-                    {(observation.status === 'pending' || observation.status === 'running') && (
+                        </div>
+                    )}
+                    {isInFlight(observation) && (
                         <ObservationProgressBar
                             observationId={observation.id}
                             sessionId={observation.session_id}
                             compact
                         />
                     )}
+                    {marks.length > 0 && <ObservationTimeline sessionId={sessionId} marks={marks} onSeek={onSeek} />}
+                    {observation.status === 'succeeded' && marks.length === 0 && (
+                        <span className="text-xs text-muted">No cited moments.</span>
+                    )}
+                    <div className="flex items-center gap-2">
+                        {hasText && (
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                sideIcon={showText ? <IconCollapse /> : <IconExpand />}
+                                onClick={() => setTextOpenFor(showText ? null : observation.id)}
+                                data-attr="vision-run-text-toggle"
+                            >
+                                {showText ? `Hide ${textLabel}` : `Show ${textLabel}`}
+                            </LemonButton>
+                        )}
+                        <Link to={urls.replayVisionObservation(observation.id)} className="text-xs ml-auto">
+                            View details
+                        </Link>
+                    </div>
+                    {hasText && showText && (
+                        <div className="text-sm">
+                            {isSummary ? (
+                                <ObservationPrimaryOutput
+                                    observation={observation}
+                                    showPrompt={false}
+                                    expandSummary
+                                    copyable
+                                    onSeek={onSeek}
+                                />
+                            ) : (
+                                <CitedMarkdown
+                                    text={reasoning ?? ''}
+                                    segments={readModelOutput(observation)?.reasoning_segments}
+                                    onSeek={onSeek}
+                                />
+                            )}
+                        </div>
+                    )}
                 </div>
-            ))}
+            </div>
         </div>
     )
-}
+})
 
 function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { observations, observationsLoading, retryingObservationIds, seekbarMarks, hasObservationsInFlight } =
-        useValues(logic)
-    const { retryObservation } = useActions(logic)
+    const { observations, observationsLoading, seekbarMarks, followMoments } = useValues(logic)
+    const { setFollowMoments } = useActions(logic)
     // The player logic is keyed; seek the exact mounted instance, not a propless default
-    const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, sessionPlayerMetaData, currentPlayerTime } = useValues(sessionRecordingPlayerLogic)
     const seekToTime = (ms: number): void => {
         sessionRecordingPlayerLogic.findMounted(logicProps)?.actions.seekToTime(ms)
     }
     const scanBlock = recordingScanBlock(sessionPlayerMetaData)
-
-    // Every observation lands in exactly one place: brief, chip, or footer line.
-    const succeeded = observations.filter((o) => o.status === 'succeeded')
-    const brief = succeeded.find(isSummaryObservation) ?? null
-    const verdicts = succeeded.filter((o) => !isSummaryObservation(o))
-    const unsettled = observations.filter((o) => o.status !== 'succeeded')
+    const nextMoment = nextMarkAfter(seekbarMarks, currentPlayerTime)
 
     return (
         <div className="flex flex-col flex-1 min-h-0" data-attr="vision-observations-tab">
@@ -347,28 +424,37 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
                 </div>
             ) : (
                 <>
-                    <div className="flex flex-col gap-2 p-2 border-b bg-surface-secondary">
-                        <div className="flex items-center">
-                            <ScannerPicker sessionId={sessionId} scanBlock={scanBlock} type="secondary" />
-                        </div>
-                        <VerdictChips observations={verdicts} onSeek={seekToTime} />
-                        {brief && (
-                            <BriefSection observation={brief} clampable={seekbarMarks.length > 0} onSeek={seekToTime} />
+                    <div className="@container flex items-center gap-2 p-2 border-b bg-surface-secondary">
+                        <ScannerPicker sessionId={sessionId} scanBlock={scanBlock} type="secondary" />
+                        {seekbarMarks.length > 0 && (
+                            <div className="ml-auto flex items-center gap-2">
+                                <LemonSwitch
+                                    size="xsmall"
+                                    checked={followMoments}
+                                    onChange={setFollowMoments}
+                                    label="Follow"
+                                    data-attr="vision-follow-moments"
+                                />
+                                <span className="hidden @[400px]:block">
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        sideIcon={<IconChevronRight />}
+                                        disabledReason={nextMoment ? undefined : 'No later moments'}
+                                        onClick={() => nextMoment && seekToTime(nextMoment.timestampMs)}
+                                        data-attr="vision-next-moment"
+                                    >
+                                        Next moment
+                                    </LemonButton>
+                                </span>
+                            </div>
                         )}
                     </div>
-                    {seekbarMarks.length > 0 ? (
-                        <ObservationTimeline sessionId={sessionId} marks={seekbarMarks} onSeek={seekToTime} />
-                    ) : (
-                        <div className="flex-1 flex items-center justify-center p-4 text-center text-sm text-muted">
-                            {hasObservationsInFlight
-                                ? 'Scanning… cited moments will appear here as results land.'
-                                : 'No cited moments yet. Run a scanner to add some.'}
-                        </div>
-                    )}
-                    <UnsettledRuns
-                        observations={unsettled}
-                        onRetry={retryObservation}
-                        retryingIds={retryingObservationIds}
+                    <ObservationRuns
+                        sessionId={sessionId}
+                        observations={observations}
+                        seekbarMarks={seekbarMarks}
+                        onSeek={seekToTime}
                     />
                 </>
             )}

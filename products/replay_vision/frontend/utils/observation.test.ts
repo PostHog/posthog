@@ -8,7 +8,7 @@ import {
 } from './observation'
 
 const summarizerEntry = { scannerName: 'Session summarizer', headline: null, snippet: 'Rage clicked pay' }
-const longSentence = 'x'.repeat(200)
+const longSentence = 'X'.repeat(200)
 
 function makeObservation(
     scannerType: string,
@@ -117,6 +117,37 @@ describe('observation utils', () => {
                             { scannerName: 'Monitor A', headline: null, snippet: 'Saw it' },
                             { scannerName: 'Scorer B', headline: 'Score: 3', snippet: 'Also saw it' },
                         ],
+                    },
+                ],
+            },
+            {
+                name: 'clauses between chips drop dangling punctuation, brackets and conjunctions',
+                observations: [
+                    makeObservation('monitor', {
+                        reasoning:
+                            'Opened the page (t 10), they searched (t 20), and hit an error (see (t 30)) so a banner appeared: (t 40).',
+                    }),
+                ],
+                expected: [
+                    {
+                        timestampMs: 10_000,
+                        flagged: false,
+                        entries: [{ scannerName: 'Scanner', headline: null, snippet: 'Opened the page' }],
+                    },
+                    {
+                        timestampMs: 20_000,
+                        flagged: false,
+                        entries: [{ scannerName: 'Scanner', headline: null, snippet: 'They searched' }],
+                    },
+                    {
+                        timestampMs: 30_000,
+                        flagged: false,
+                        entries: [{ scannerName: 'Scanner', headline: null, snippet: 'Hit an error' }],
+                    },
+                    {
+                        timestampMs: 40_000,
+                        flagged: false,
+                        entries: [{ scannerName: 'Scanner', headline: null, snippet: 'A banner appeared' }],
                     },
                 ],
             },
