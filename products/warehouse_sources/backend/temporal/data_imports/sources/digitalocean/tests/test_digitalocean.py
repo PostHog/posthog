@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean import (
+    DIGITALOCEAN_BASE_URL,
     _paginator,
     digitalocean_source,
     get_resource,
@@ -16,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.digitaloce
     DIGITALOCEAN_ENDPOINTS,
     PAGE_SIZE,
 )
+
+TOP_LEVEL_ENDPOINTS = [name for name, config in DIGITALOCEAN_ENDPOINTS.items() if config.fanout is None]
 
 
 def _make_response(json_body: dict[str, Any] | None = None, status_code: int = 200) -> Response:
@@ -67,7 +70,7 @@ class TestDigitalOceanPaginator:
 
 
 class TestDigitalOceanGetResource:
-    @pytest.mark.parametrize("endpoint", list(DIGITALOCEAN_ENDPOINTS.keys()))
+    @pytest.mark.parametrize("endpoint", TOP_LEVEL_ENDPOINTS)
     def test_resource_matches_endpoint_config(self, endpoint: str) -> None:
         config = DIGITALOCEAN_ENDPOINTS[endpoint]
         resource = get_resource(config)
@@ -201,3 +204,70 @@ class TestDigitalOceanValidateCredentials:
 
         _, kwargs = mock_session.return_value.get.call_args
         assert kwargs["headers"]["Authorization"] == "Bearer dop_v1_token"
+
+
+class TestDigitalOceanInvoiceFanout:
+    _INVOICE_UUID = "22737513-0ea7-4206-8ceb-98a575af7681"
+
+    def _rows(self, endpoint: str) -> list[dict[str, Any]]:
+        resource = digitalocean_source("dop_v1_token", endpoint, team_id=1, job_id="job-1")
+        return [row for page in resource for row in page]
+
+    def _mock_invoice_list(self, requests_mock: Any) -> None:
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices",
+            json={"invoices": [{"invoice_uuid": self._INVOICE_UUID, "amount": "27.13"}]},
+        )
+
+    def test_invoice_items_carry_their_parent_invoice_uuid(self, requests_mock: Any) -> None:
+        # Line items carry no invoice reference of their own, so without the parent projection
+        # (and its rename off the `_invoices_` prefix) spend can't be joined back to an invoice.
+        self._mock_invoice_list(requests_mock)
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{self._INVOICE_UUID}",
+            json={"invoice_items": [{"product": "Droplets", "amount": "12.34"}]},
+        )
+
+        assert self._rows("invoice_items") == [
+            {"product": "Droplets", "amount": "12.34", "invoice_uuid": self._INVOICE_UUID}
+        ]
+
+    def test_invoice_items_paginate_within_one_invoice(self, requests_mock: Any) -> None:
+        # An invoice with hundreds of resources spans pages; the child must follow
+        # links.pages.next per parent rather than syncing only the first page of line items.
+        self._mock_invoice_list(requests_mock)
+        page_two = f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{self._INVOICE_UUID}?page=2"
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{self._INVOICE_UUID}",
+            [
+                {"json": {"invoice_items": [{"product": "Droplets"}], "links": {"pages": {"next": page_two}}}},
+                {"json": {"invoice_items": [{"product": "Spaces"}], "links": {}}},
+            ],
+        )
+
+        assert [row["product"] for row in self._rows("invoice_items")] == ["Droplets", "Spaces"]
+
+    def test_invoice_summary_yields_one_row_from_the_bare_object(self, requests_mock: Any) -> None:
+        # The summary endpoint returns the record as the response body rather than wrapped in a
+        # list, so a list-shaped data_selector would sync nothing for it.
+        self._mock_invoice_list(requests_mock)
+        summary = {"invoice_uuid": self._INVOICE_UUID, "billing_period": "2020-01", "amount": "27.13"}
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{self._INVOICE_UUID}/summary", json=summary
+        )
+
+        assert self._rows("invoice_summaries") == [summary]
+
+    def test_both_sides_of_the_fanout_ask_for_the_max_page(self, requests_mock: Any) -> None:
+        # The fan-out helper is wired with no page-size param of its own, so `per_page` rides on
+        # the fan-out config. Dropping it from either side falls back to DigitalOcean's default
+        # of 20 rows a page, which is 10x the requests against a 250-per-minute limit.
+        invoices = requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices",
+            json={"invoices": [{"invoice_uuid": self._INVOICE_UUID}]},
+        )
+        items = requests_mock.get(f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{self._INVOICE_UUID}", json={})
+        self._rows("invoice_items")
+
+        assert invoices.last_request.qs["per_page"] == [str(PAGE_SIZE)]
+        assert items.last_request.qs["per_page"] == [str(PAGE_SIZE)]
