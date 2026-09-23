@@ -19,7 +19,7 @@ export const scene: SceneExport = {
 
 export function OrganizationDeactivated(): JSX.Element {
     const { isNotActiveReason } = useValues(organizationLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { isCloud } = useValues(preflightLogic)
 
     return (
         <div className="max-w-[600px] mx-auto px-2 py-8">
@@ -28,7 +28,7 @@ export function OrganizationDeactivated(): JSX.Element {
                     <HedgehogStop className="w-52 h-52" />
                     <h3>Your organization has been deactivated. {isNotActiveReason}</h3>
                     {/* `ALLOWED_WHILE_BLOCKED` in posthog/middleware.py keeps billing reachable from here. */}
-                    {preflight?.cloud && (
+                    {isCloud && (
                         <>
                             <p className="text-secondary mb-0">
                                 If this is because of an unpaid balance, you can pay it in billing and get your
