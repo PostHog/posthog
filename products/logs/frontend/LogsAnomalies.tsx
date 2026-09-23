@@ -3,34 +3,23 @@ import { memo } from 'react'
 
 import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 
-import { DateRangePicker } from 'lib/components/DateFilter/DateRangePicker/DateRangePicker'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import type { LogMessage } from '~/queries/schema/schema-general'
-import type { DateMappingOption } from '~/types'
 
+import { AnomaliesDatePicker } from 'products/logs/frontend/components/AnomaliesDatePicker'
 import { AnomalyBandChart } from 'products/logs/frontend/components/AnomalyBandChart'
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { LogTag } from 'products/logs/frontend/components/LogTag'
 import type { LogsSeriesBandSeriesApi } from 'products/logs/frontend/generated/api.schemas'
 import { logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
 
-// The backend charts at most a week at a time and cannot reach past 35 days, because the
-// source table drops what it would need. Rolling options only: a fixed span needs no calendar,
-// so there is no week boundary to snap and no timezone to snap it in. Pick an arbitrary week
-// through the picker's own start and end fields.
-const DATE_OPTIONS: DateMappingOption[] = [
-    { key: 'Last 24 hours', values: ['-24h'], defaultInterval: 'hour' },
-    { key: 'Last 3 days', values: ['-3d'], defaultInterval: 'hour' },
-    { key: 'Last 7 days', values: ['-7d'], defaultInterval: 'hour' },
-]
-
 export function LogsAnomalies(): JSX.Element {
     const { serviceName, dateRange } = useValues(logsAnomaliesLogic)
-    const { setServiceName, setDateRange } = useActions(logsAnomaliesLogic)
+    const { setServiceName, setDateRange, stepDateRange } = useActions(logsAnomaliesLogic)
 
     return (
         <div className="flex flex-col gap-4 flex-1 min-h-0">
@@ -48,12 +37,10 @@ export function LogsAnomalies(): JSX.Element {
                     />
                 </span>
                 <span data-attr="logs-anomalies-date-range">
-                    <DateRangePicker
+                    <AnomaliesDatePicker
                         dateRange={dateRange}
                         setDateRange={setDateRange}
-                        logicKey="logs-anomalies"
-                        dateOptions={DATE_OPTIONS}
-                        allowedRollingDateOptions={['hours', 'days']}
+                        stepDateRange={stepDateRange}
                     />
                 </span>
             </div>
