@@ -32,6 +32,9 @@ def _resolve_type(key: SearchAttributeKey) -> enums.IndexedValueType.ValueType:
     return value_type
 
 
+# A plain gRPC channel, not the temporalio Client. The Client completes RPCs on Tokio threads. At exit, CPython
+# can drop its Tokio runtime while one of those threads waits for the GIL, and the process then never exits
+# (https://github.com/temporalio/sdk-python/issues/300 tracks the same race).
 def _open_channel() -> grpc.Channel:
     target = f"{settings.TEMPORAL_HOST}:{settings.TEMPORAL_PORT}"
     if settings.TEMPORAL_CLIENT_CERT and settings.TEMPORAL_CLIENT_KEY:
@@ -67,17 +70,17 @@ class Command(BaseCommand):
         namespace = options["namespace"]
         dry_run = options["dry_run"]
 
-        # Use a plain gRPC channel here, not the temporalio Client. The Client delivers each RPC result
-        # from a Tokio thread, and the interpreter drops the Tokio runtime during finalization. If that
-        # thread still needs the GIL to finish delivering the last result, CPython parks it forever, and
-        # the runtime drop waits for it, so a short-lived process can hang at exit.
-        # https://github.com/temporalio/sdk-python/issues/300 tracks the same race.
+        # Match the Temporal SDK clients, which send the target namespace in this header on every request.
+        rpc_metadata = (("temporal-namespace", namespace),)
+
         with _open_channel() as channel:
             operator_service = OperatorServiceStub(channel)
 
             # List existing attributes
             resp = operator_service.ListSearchAttributes(
-                ops.ListSearchAttributesRequest(namespace=namespace), timeout=_RPC_TIMEOUT_SECONDS
+                ops.ListSearchAttributesRequest(namespace=namespace),
+                timeout=_RPC_TIMEOUT_SECONDS,
+                metadata=rpc_metadata,
             )
             existing = set(resp.custom_attributes.keys())
 
@@ -103,6 +106,7 @@ class Command(BaseCommand):
             operator_service.AddSearchAttributes(
                 ops.AddSearchAttributesRequest(namespace=namespace, search_attributes=to_register),
                 timeout=_RPC_TIMEOUT_SECONDS,
+                metadata=rpc_metadata,
             )
 
             logger.info("Done")
