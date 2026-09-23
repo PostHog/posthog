@@ -655,6 +655,15 @@ describe('dataNodeLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toMatchValues({ isShowingCachedResults: false })
+
+        // kea catches a throw inside a listener and logs it, so the loadDataSuccess guard shows up
+        // as a logged error rather than a failed action.
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+        logic.actions.loadData()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+        const loggedErrors = consoleError.mock.calls
+        consoleError.mockRestore()
+        expect(loggedErrors).toEqual([])
     })
 
     it('passes filtersOverride to api', async () => {
