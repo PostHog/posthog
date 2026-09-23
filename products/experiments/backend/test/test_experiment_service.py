@@ -805,24 +805,38 @@ class TestExperimentService(APIBaseTest):
 
         assert expected_error in str(ctx.exception)
 
-    def test_create_experiment_rejects_saved_metrics_from_another_team(self) -> None:
-        self._create_flag(key="saved-metrics-team-check")
-        other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        saved_metric = ExperimentSavedMetric.objects.create(
-            team=other_team,
-            name="Other Team Metric",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
-        )
+    @parameterized.expand(
+        [
+            (
+                "from_another_team",
+                True,
+                {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
+                "Saved metric does not exist or does not belong to this project",
+            ),
+            (
+                "legacy_query",
+                False,
+                {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": []}},
+                "Legacy shared metrics can't be added to an experiment: Unlinkable Metric",
+            ),
+        ]
+    )
+    def test_create_experiment_rejects_unlinkable_saved_metric(
+        self, _: str, from_other_team: bool, query: dict, expected_error: str
+    ) -> None:
+        self._create_flag(key="saved-metrics-link-check")
+        team = Team.objects.create(organization=self.organization, name="Other Team") if from_other_team else self.team
+        saved_metric = ExperimentSavedMetric.objects.create(team=team, name="Unlinkable Metric", query=query)
         service = self._service()
 
         with self.assertRaises(ValidationError) as ctx:
             service.create_experiment(
-                name="Wrong Team Metric",
-                feature_flag_key="saved-metrics-team-check",
+                name="Unlinkable Metric Experiment",
+                feature_flag_key="saved-metrics-link-check",
                 saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
             )
 
-        assert "Saved metric does not exist or does not belong to this project" in str(ctx.exception)
+        assert expected_error in str(ctx.exception)
 
     @parameterized.expand(
         [

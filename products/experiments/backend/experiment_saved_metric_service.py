@@ -10,12 +10,10 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ExperimentFunnelMetric,
-    ExperimentFunnelsQuery,
     ExperimentMeanMetric,
     ExperimentMetricType,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
-    ExperimentTrendsQuery,
 )
 
 from posthog.models.team.team import Team
@@ -52,25 +50,18 @@ class ExperimentSavedMetricService:
             raise ValidationError("Metric query kind must be 'ExperimentMetric'")
 
         try:
-            if kind == "ExperimentMetric":
-                if "metric_type" not in query:
-                    raise ValidationError("ExperimentMetric requires a metric_type")
-                if query["metric_type"] == ExperimentMetricType.MEAN:
-                    ExperimentMeanMetric(**query)
-                elif query["metric_type"] == ExperimentMetricType.FUNNEL:
-                    ExperimentFunnelMetric(**query)
-                elif query["metric_type"] == ExperimentMetricType.RATIO:
-                    ExperimentRatioMetric(**query)
-                elif query["metric_type"] == ExperimentMetricType.RETENTION:
-                    ExperimentRetentionMetric(**query)
-                else:
-                    raise ValidationError(
-                        "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"
-                    )
-            elif kind == "ExperimentTrendsQuery":
-                ExperimentTrendsQuery(**query)
-            elif kind == "ExperimentFunnelsQuery":
-                ExperimentFunnelsQuery(**query)
+            if "metric_type" not in query:
+                raise ValidationError("ExperimentMetric requires a metric_type")
+            if query["metric_type"] == ExperimentMetricType.MEAN:
+                ExperimentMeanMetric(**query)
+            elif query["metric_type"] == ExperimentMetricType.FUNNEL:
+                ExperimentFunnelMetric(**query)
+            elif query["metric_type"] == ExperimentMetricType.RATIO:
+                ExperimentRatioMetric(**query)
+            elif query["metric_type"] == ExperimentMetricType.RETENTION:
+                ExperimentRetentionMetric(**query)
+            else:
+                raise ValidationError("ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'")
         except pydantic.ValidationError as e:
             raise ValidationError(str(e.errors())) from e
 

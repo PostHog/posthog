@@ -271,8 +271,6 @@ export type AnyDataNode =
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
     | TraceSpansAttributeBreakdownQuery
-    | ExperimentFunnelsQuery
-    | ExperimentTrendsQuery
     | CalendarHeatmapQuery
     | RecordingsQuery
     | TracesQuery
@@ -334,8 +332,6 @@ export type QuerySchema =
     | ErrorTrackingBreakdownsQuery
     | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
-    | ExperimentFunnelsQuery
-    | ExperimentTrendsQuery
     | ExperimentQuery
     | ExperimentExposureQuery
     | DocumentSimilarityQuery
@@ -1302,8 +1298,6 @@ export type DataTableNodeSourceUnion =
     | MarketingAnalyticsAggregatedQuery
     | ErrorTrackingQuery
     | ErrorTrackingIssueCorrelationQuery
-    | ExperimentFunnelsQuery
-    | ExperimentTrendsQuery
     | TracesQuery
     | TraceQuery
     | SessionQuery
@@ -1337,8 +1331,6 @@ export interface DataTableNode
                     | MarketingAnalyticsAggregatedQuery
                     | ErrorTrackingQuery
                     | ErrorTrackingIssueCorrelationQuery
-                    | ExperimentFunnelsQuery
-                    | ExperimentTrendsQuery
                     | TracesQuery
                     | SessionQuery
                     | EndpointsUsageTableQuery
@@ -5482,42 +5474,8 @@ export enum ExperimentSignificanceCode {
     HighPValue = 'high_p_value',
 }
 
-export interface ExperimentTrendsQueryResponse {
-    kind: NodeKind.ExperimentTrendsQuery
-    insight: Record<string, any>[]
-    count_query?: TrendsQuery
-    exposure_query?: TrendsQuery
-    variants: ExperimentVariantTrendsBaseStats[]
-    probability: Record<string, number>
-    significant: boolean
-    significance_code: ExperimentSignificanceCode
-    stats_version?: integer
-    p_value: number
-    credible_intervals: Record<string, [number, number]>
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarning[]
-}
-
-export type CachedExperimentTrendsQueryResponse = CachedQueryResponse<ExperimentTrendsQueryResponse>
-
-export interface ExperimentFunnelsQueryResponse {
-    kind: NodeKind.ExperimentFunnelsQuery
-    insight: Record<string, any>[][]
-    funnels_query?: FunnelsQuery
-    variants: ExperimentVariantFunnelsBaseStats[]
-    probability: Record<string, number>
-    significant: boolean
-    significance_code: ExperimentSignificanceCode
-    expected_loss: number
-    credible_intervals: Record<string, [number, number]>
-    stats_version?: integer
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarning[]
-}
-
-export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<ExperimentFunnelsQueryResponse>
-
-export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
+/** Stored shape of a legacy experiment metric. It no longer runs, so it is kept only to list and migrate legacy experiments. */
+export interface ExperimentFunnelsQuery {
     kind: NodeKind.ExperimentFunnelsQuery
     uuid?: string
     name?: string
@@ -5526,14 +5484,13 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
     fingerprint?: string
 }
 
-export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
+/** Stored shape of a legacy experiment metric. It no longer runs, so it is kept only to list and migrate legacy experiments. */
+export interface ExperimentTrendsQuery {
     kind: NodeKind.ExperimentTrendsQuery
     uuid?: string
     name?: string
     experiment_id?: integer
     count_query: TrendsQuery
-    // Defaults to $feature_flag_called if not specified
-    // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
     fingerprint?: string
 }
@@ -5863,15 +5820,6 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is ExperimentRetentionMetric =>
     metric.metric_type === ExperimentMetricType.RETENTION
 
-// Legacy experiment query type guards
-export const isExperimentTrendsQuery = (
-    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
-): query is ExperimentTrendsQuery => query.kind === NodeKind.ExperimentTrendsQuery
-
-export const isExperimentFunnelsQuery = (
-    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
-): query is ExperimentFunnelsQuery => query.kind === NodeKind.ExperimentFunnelsQuery
-
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
@@ -5945,22 +5893,6 @@ export interface ExperimentQueryResponse {
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean
 
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarning[]
-}
-
-// Strongly typed variants of ExperimentQueryResponse for better type safety
-export interface LegacyExperimentQueryResponse {
-    kind: NodeKind.ExperimentQuery
-    insight: Record<string, any>[]
-    metric: ExperimentMetric
-    variants: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
-    probability: Record<string, number>
-    significant: boolean
-    significance_code: ExperimentSignificanceCode
-    stats_version?: integer
-    p_value: number
-    credible_intervals: Record<string, [number, number]>
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }
@@ -6091,7 +6023,6 @@ export interface ExperimentExposureQueryResponse {
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
-export type CachedLegacyExperimentQueryResponse = CachedQueryResponse<LegacyExperimentQueryResponse>
 export type CachedNewExperimentQueryResponse = CachedQueryResponse<NewExperimentQueryResponse>
 
 export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>

@@ -1053,10 +1053,10 @@ class EnterpriseExperimentsViewSet(
         Move a legacy experiment onto the new experiments engine.
 
         Creates a new experiment with the same configuration and its metrics converted
-        to the new format, and returns it. The legacy experiment is left untouched and
-        keeps its results, so the project ends up with two experiments. Both point at
-        the same feature flag, so no new rollout is needed and users keep the variant
-        they already have.
+        to the new format, and returns it. Legacy experiments no longer show results,
+        so this is how to get results for one. The legacy experiment is left untouched,
+        so the project ends up with two experiments. Both point at the same feature
+        flag, so no new rollout is needed and users keep the variant they already have.
 
         Legacy shared metrics used by the experiment are converted as part of the same
         call. Each one gets a new shared metric, and the new experiment links to that.

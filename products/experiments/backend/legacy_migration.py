@@ -60,7 +60,7 @@ def migrate_experiment(
 ) -> ExperimentMigration:
     """Create a new-engine copy of a legacy experiment, or return the copy made earlier.
 
-    The original is left untouched and keeps its results. Both experiments point at the same
+    The original is left untouched. Both experiments point at the same
     feature flag, so the copy needs no new rollout.
 
     Legacy shared metrics have to be migrated too. With migrate_shared_metrics they are migrated
