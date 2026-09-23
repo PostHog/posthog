@@ -1,5 +1,6 @@
 export type SettingsCategory =
   | "general"
+  | "appearance"
   | "notifications"
   | "plan-usage"
   | "cost-management"
@@ -24,6 +25,7 @@ export type SettingsCategory =
 
 const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "general",
+  "appearance",
   "notifications",
   "plan-usage",
   "cost-management",
@@ -56,6 +58,7 @@ export function isSettingsCategory(value: string): value is SettingsCategory {
 // can't ship without a name. `cloud-environments` shares the Environments page.
 export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   general: "General",
+  appearance: "Appearance",
   notifications: "Notifications",
   "plan-usage": "Plan & usage",
   "cost-management": "Cost management",

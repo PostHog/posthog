@@ -2,6 +2,7 @@ import { CostManagementSettings } from "@posthog/ui/features/cost-management/Cos
 import { McpServersView } from "@posthog/ui/features/mcp-servers/components/McpServersView";
 import { AdvancedSettings } from "@posthog/ui/features/settings/sections/AdvancedSettings";
 import { AgentsSettings } from "@posthog/ui/features/settings/sections/AgentsSettings";
+import { AppearanceSettings } from "@posthog/ui/features/settings/sections/AppearanceSettings";
 import { DiscordSettings } from "@posthog/ui/features/settings/sections/DiscordSettings";
 import { EnvironmentsSettings } from "@posthog/ui/features/settings/sections/environments/EnvironmentsSettings";
 import { GeneralSettings } from "@posthog/ui/features/settings/sections/GeneralSettings";
@@ -44,8 +45,19 @@ function defineSettingsPage(
   return { title, component, layout };
 }
 
+// Pages whose changes show in the app itself, so the dialog drops its backdrop
+// to let the reader watch them land.
+const APP_REVEALING_PAGES: ReadonlySet<SettingsCategory> = new Set([
+  "appearance",
+]);
+
+export function settingsPageRevealsApp(category: SettingsCategory): boolean {
+  return APP_REVEALING_PAGES.has(category);
+}
+
 const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
   general: defineSettingsPage("General", GeneralSettings),
+  appearance: defineSettingsPage("Appearance", AppearanceSettings),
   notifications: defineSettingsPage("Notifications", NotificationsSettings),
   "plan-usage": defineSettingsPage("Plan & usage", PlanUsageSettings),
   "cost-management": defineSettingsPage(
