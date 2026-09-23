@@ -88,6 +88,7 @@ describe('AddWidgetModal', () => {
             'Error tracking',
             'Experiments',
             'Logs',
+            'Notebooks',
             'Session replay',
             'Support',
             'Surveys',
