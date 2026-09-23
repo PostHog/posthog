@@ -23,8 +23,8 @@ COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
 # timeout leaves the whole stack missing.
 LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-3}"
 LAUNCH_RETRY_DELAY="${WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY:-5}"
-# Registry mirror for Docker Hub images, such as https://mirror.gcr.io. Unset keeps the
-# daemon as configured.
+# Registry that mirrors Docker Hub, such as mirror.gcr.io. When set, launch pulls each Docker
+# Hub image from it first, so `compose up` finds the image locally and never asks Docker Hub.
 REGISTRY_MIRROR="${WAIT_FOR_DOCKER_REGISTRY_MIRROR:-}"
 
 usage() {
@@ -189,28 +189,31 @@ run_launch_once() {
     compose_up "$@"
 }
 
-use_registry_mirror() {
-    local config
-    local pid
+pull_through_registry_mirror() {
+    local image
+    local path
+    local host
+    local pids=()
 
     [ -n "$REGISTRY_MIRROR" ] || return 0
-    config=$(sudo cat /etc/docker/daemon.json 2>/dev/null) || config=''
-    [ -n "$config" ] || config='{}'
-    config=$(jq --arg mirror "$REGISTRY_MIRROR" '. + {"registry-mirrors": [$mirror]}' <<< "$config") || config=''
-    # No systemd in some CI sandboxes; dockerd reloads registry-mirrors on SIGHUP instead.
-    if [ -z "$config" ] || ! sudo tee /etc/docker/daemon.json >/dev/null <<< "$config" \
-        || ! pid=$(pidof dockerd) || ! sudo kill -HUP "$pid"; then
-        echo "Could not set registry mirror ${REGISTRY_MIRROR}; pulling from Docker Hub." >&2
-        return 0
-    fi
-    for _ in $(seq 1 10); do
-        if docker info --format '{{json .RegistryConfig.Mirrors}}' | grep -qF "$REGISTRY_MIRROR"; then
-            echo "Docker Hub images come through ${REGISTRY_MIRROR}."
-            return 0
+    while read -r image; do
+        [[ -z "$image" || "$image" == *@* ]] && continue
+        path="${image#docker.io/}"
+        if [[ "$path" == */* ]]; then
+            host="${path%%/*}"
+            # Images from other registries (ghcr.io, quay.io, ...) pull as usual.
+            [[ "$path" == "$image" && ( "$host" == *.* || "$host" == *:* || "$host" == localhost ) ]] && continue
+        else
+            path="library/${path}"
         fi
-        sleep 1
+        # A failed mirror pull leaves the image for `compose up` to pull from Docker Hub.
+        { docker pull -q "${REGISTRY_MIRROR}/${path}" >/dev/null 2>&1 \
+            && docker tag "${REGISTRY_MIRROR}/${path}" "$image"; } &
+        pids+=("$!")
+    done < <(compose config --images "$@" 2>/dev/null)
+    for pid in "${pids[@]}"; do
+        wait "$pid" || true
     done
-    echo "Docker did not load registry mirror ${REGISTRY_MIRROR}; pulling from Docker Hub." >&2
 }
 
 run_launch() {
@@ -249,12 +252,12 @@ run_launch() {
     done
 
     launch_services=("$@")
-    use_registry_mirror
 
     launch_runner() {
         local inner_attempt=1
         local inner_sleep_time
 
+        pull_through_registry_mirror "${launch_services[@]}"
         while [ "$inner_attempt" -le "$LAUNCH_RETRIES" ]; do
             if run_launch_once "$down_mode" "${launch_services[@]}"; then
                 echo "Docker Compose launch succeeded"
