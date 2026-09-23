@@ -9,8 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { DataModelingNode } from '~/types'
 
-import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
-
+import { lineageDataLogic } from './lineage/lineageDataLogic'
 import { modelsSceneLogic } from './modelsSceneLogic'
 
 function buildNode(id: string, overrides: Partial<DataModelingNode> = {}): DataModelingNode {

@@ -15,9 +15,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DataQualityOverview } from 'products/data_quality/frontend/overview/DataQualityOverview'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
-import { MonitoringTab } from './scene/MonitoringTab'
-import { OverviewTab } from './scene/OverviewTab'
-import { SettingsTab } from './scene/SettingsTab'
+import { MonitoringTab } from './tabs/MonitoringTab'
+import { OverviewTab } from './tabs/OverviewTab'
+import { SettingsTab } from './tabs/SettingsTab'
 
 export const scene: SceneExport = {
     component: DataWarehouseScene,

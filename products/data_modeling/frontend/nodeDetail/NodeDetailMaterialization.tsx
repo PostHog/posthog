@@ -10,7 +10,7 @@ import { MaterializationStatusPanel } from 'scenes/data-warehouse/saved_queries/
 
 import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
 
-import { nodeDetailSceneLogic } from '../nodeDetailSceneLogic'
+import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 const HedgehogDoctor = pngHoggie(doctor)
 

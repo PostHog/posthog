@@ -10,9 +10,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
-import { NodeDetailActions } from 'products/data_modeling/frontend/nodeDetail/NodeDetailActions'
-
+import { NODE_TYPE_TAG_SETTINGS } from '../lineage/nodeStyles'
+import { NodeDetailActions } from './NodeDetailActions'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
