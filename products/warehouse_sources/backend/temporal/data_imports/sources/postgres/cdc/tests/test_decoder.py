@@ -3,7 +3,7 @@ import struct
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 from parameterized import parameterized
@@ -612,6 +612,24 @@ class TestTransactionBufferGuard:
 
                 assert len(list(first.decode_message(_make_commit(), "0/2"))) == 2
                 assert len(self._decode(second, [row, row])) == 2
+
+    def test_a_failed_spill_write_returns_its_budget_on_close(self) -> None:
+        budget = _WorkerSpillBudget(limit=10_000)
+        full_disk = MagicMock()
+        full_disk.write.side_effect = OSError(28, "No space left on device")
+        with (
+            patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 1),
+            patch(f"{_DECODER_MODULE}._worker_spill_budget", budget),
+            patch(f"{_DECODER_MODULE}.tempfile.TemporaryFile", return_value=full_disk),
+        ):
+            decoder = self._decoder_with_relation()
+            decoder.decode_message(_make_begin(), "0/1")
+            with pytest.raises(OSError):
+                decoder.decode_message(_make_insert(1, [("t", "1"), None, None, None]), "0/1")
+
+            decoder.close()
+
+        assert budget.reserve(10_000)
 
     @parameterized.expand([("at_a_spill", 1), ("at_commit", 100)])
     def test_raises_when_decoding_a_transaction_outlasts_the_time_limit(self, _name: str, chunk: int) -> None:

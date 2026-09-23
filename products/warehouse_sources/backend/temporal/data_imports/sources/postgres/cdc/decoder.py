@@ -111,8 +111,9 @@ class _SpillFile:
     def write(self, line: bytes) -> bool:
         if not self._budget.reserve(len(line)):
             return False
-        self.file.write(line)
+        # Counted before the write, so close() releases the reservation even when the write fails.
         self.bytes += len(line)
+        self.file.write(line)
         return True
 
     def close(self) -> None:
