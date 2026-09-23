@@ -1177,7 +1177,10 @@ class AlertListFiltersSerializer(serializers.Serializer):
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = (
-        AlertConfiguration.objects.select_related("team", "insight", "threshold", "created_by")
+        AlertConfiguration.objects.select_related("insight", "threshold", "created_by")
+        # The joined insight row carries JSON columns that no alert response reads. They are
+        # large enough on real insights to dominate the bytes this list query pulls off disk.
+        .defer("insight__filters", "insight__query_metadata", "insight__layouts")
         .prefetch_related(
             "subscribed_users",
             Prefetch(

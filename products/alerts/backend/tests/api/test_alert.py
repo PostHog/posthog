@@ -7,6 +7,8 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
@@ -325,6 +327,55 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         )
         assert list_for_another_insight.status_code == status.HTTP_200_OK
         assert len(list_for_another_insight.json()["results"]) == 0
+
+    def test_list_serializes_insight_without_extra_queries_per_alert(self) -> None:
+        def create_alert(name: str) -> dict[str, Any]:
+            insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
+            # Legacy JSON columns the alert response never reads. They are deferred on the list
+            # queryset, so touching one again would refetch the insight row per alert.
+            Insight.objects.filter(id=insight["id"]).update(
+                filters={"insight": "TRENDS", "events": [{"id": "$pageview"}]},
+                query_metadata={"kinds": ["TrendsQuery"]},
+                layouts={"sm": {"w": 6, "h": 5}},
+            )
+            self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                {
+                    "insight": insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                    "name": name,
+                },
+            )
+            return insight
+
+        first_insight = create_alert("first alert")
+        with CaptureQueriesContext(connection) as one_alert_queries:
+            response = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+        assert len(results) == 1
+        insight_payload = results[0]["insight"]
+        assert insight_payload["query"] == first_insight["query"]
+        assert insight_payload["short_id"] == first_insight["short_id"]
+
+        create_alert("second alert")
+        create_alert("third alert")
+        with CaptureQueriesContext(connection) as three_alert_queries:
+            response = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 3
+
+        # Narrowing the joined columns must not make the row lazy-load: a touched deferred
+        # column, or a touched alert.team, shows up as one extra query per alert.
+        def row_fetches(queries: CaptureQueriesContext, table: str) -> int:
+            return len([q for q in queries.captured_queries if f'FROM "{table}"' in q["sql"]])
+
+        for table in ("posthog_dashboarditem", "posthog_team"):
+            assert row_fetches(three_alert_queries, table) == row_fetches(one_alert_queries, table)
 
     @parameterized.expand(
         [
