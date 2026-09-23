@@ -19,6 +19,7 @@ import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isAccessDeniedError } from 'lib/api-error'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -700,11 +701,11 @@ const createFieldsErrorNode = (nodeId: string): TreeDataItem => {
 }
 
 // A failed schema load must not look like an empty project: say it failed and offer the retry.
-const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataItem[] => [
+const createLoadErrorNodes = (prefix: string, message: string, onRetry: () => void): TreeDataItem[] => [
     {
         id: `${prefix}-error/`,
-        name: "Couldn't load your schema",
-        displayName: <span className="text-danger">Couldn't load your schema</span>,
+        name: message,
+        displayName: <span className="text-danger">{message}</span>,
         icon: <IconWarning className="text-danger" />,
         disableSelect: true,
         type: 'node',
@@ -723,6 +724,9 @@ const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataIt
         },
     },
 ]
+
+const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataItem[] =>
+    createLoadErrorNodes(prefix, "Couldn't load your schema", onRetry)
 
 const createDirectConnectionEmptyNodes = (connectionId: string): TreeDataItem[] => [
     {
@@ -1955,6 +1959,7 @@ export interface queryDatabaseLogicValues {
     highlightedDropFolderId: string | null
     hogqlMetrics: DataCatalogMetricApi[]
     joinsByFieldName: Record<string, DataWarehouseViewLink>
+    metricsLoadFailed: boolean
     pendingViewFolderOverrides: Record<string, string | null>
     propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
     queryTabState: QueryTabState | null
@@ -2038,6 +2043,21 @@ export interface queryDatabaseLogicActions {
     deleteJoin: (join: DataWarehouseViewLink) => {
         join: DataWarehouseViewLink
     } // joinsDataLogic
+    loadMetrics: () => any // metricsLogic
+    loadMetricsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // metricsLogic
+    loadMetricsSuccess: (
+        allMetrics: DataCatalogMetricApi[],
+        payload?: any
+    ) => {
+        allMetrics: DataCatalogMetricApi[]
+        payload?: any
+    } // metricsLogic
     toggleEditJoinModal: (join: DataWarehouseViewLink) => {
         join: DataWarehouseViewLink
     } // viewLinkLogic
@@ -2345,7 +2365,8 @@ export interface queryDatabaseLogicMeta {
             materializingViewIds: string[],
             propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
             databaseFieldsComplete: boolean,
-            tableFieldsStatus: TableFieldsStatus
+            tableFieldsStatus: TableFieldsStatus,
+            metricsLoadFailed: boolean
         ) => TreeDataItem[]
         displayedTreeData: (
             searchTerm: string,
@@ -2510,9 +2531,19 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
             databaseTableListLogic,
             ['refreshDatabaseSchema', 'hydrateTableFields', 'ensureAllTableFields'],
+            metricsLogic,
+            ['loadMetrics', 'loadMetricsSuccess', 'loadMetricsFailure'],
         ],
     })),
     reducers({
+        metricsLoadFailed: [
+            false,
+            {
+                loadMetrics: () => false,
+                loadMetricsSuccess: () => false,
+                loadMetricsFailure: (_, { errorObject }) => !isAccessDeniedError(errorObject ?? {}),
+            },
+        ],
         editingDraftId: [
             null as string | null,
             {
@@ -3379,6 +3410,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.propertyDefinitionLists,
                 s.databaseFieldsComplete,
                 s.tableFieldsStatus,
+                s.metricsLoadFailed,
             ],
             (
                 treeDataContext: TreeDataContext,
@@ -3394,7 +3426,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 materializingViewIds: string[],
                 propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
                 databaseFieldsComplete: boolean,
-                tableFieldsStatus: TableFieldsStatus
+                tableFieldsStatus: TableFieldsStatus,
+                metricsLoadFailed: boolean
             ): TreeDataItem[] => {
                 const {
                     allPosthogTables,
@@ -3586,6 +3619,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     }
                 }
 
+                const metricsChildren = metricsLoadFailed
+                    ? createLoadErrorNodes('metrics', "Couldn't load metrics", () => actions.loadMetrics())
+                    : hogqlMetrics.map((metric) => createMetricNode(metric))
+
                 const draftsChildren: TreeDataItem[] = []
 
                 if (featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
@@ -3646,14 +3683,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                           ]
                         : []),
                     createTopLevelFolderNode('views', viewsChildren),
-                    ...(hogqlMetrics.length > 0
-                        ? [
-                              createTopLevelFolderNode(
-                                  'metrics',
-                                  hogqlMetrics.map((metric) => createMetricNode(metric))
-                              ),
-                          ]
-                        : []),
+                    ...(metricsChildren.length > 0 ? [createTopLevelFolderNode('metrics', metricsChildren)] : []),
                     ...(featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
                         ? []
                         : [createTopLevelFolderNode('managed-views', managedViewsChildren)]),

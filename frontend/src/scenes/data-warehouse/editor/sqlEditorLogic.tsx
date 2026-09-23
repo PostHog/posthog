@@ -6,6 +6,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -98,6 +99,7 @@ import {
     dataCatalogMetricsPartialUpdate,
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import type { ExternalDataSourceConnectionOptionApi } from '../../../../../products/warehouse_sources/frontend/generated/api.schemas'
@@ -374,17 +376,26 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     }
 }
 
-function metricEditorSourceQuery(definition: Record<string, unknown> | null | undefined): DataVisualizationNode {
-    const storedHogQLSource = definition?.kind === NodeKind.HogQLQuery ? (definition as unknown as HogQLQuery) : {}
+function hogQLEditorSourceQuery(source: Partial<HogQLQuery> = {}): DataVisualizationNode {
     return {
         kind: NodeKind.DataVisualizationNode,
         source: {
-            ...storedHogQLSource,
+            ...source,
             kind: NodeKind.HogQLQuery,
-            query: typeof definition?.query === 'string' ? definition.query : '',
+            query: typeof source.query === 'string' ? source.query : '',
         },
         display: ChartDisplayType.Auto,
     }
+}
+
+function metricEditorSourceQuery(definition: Record<string, unknown> | null | undefined): DataVisualizationNode | null {
+    if (!definition) {
+        return hogQLEditorSourceQuery()
+    }
+    if (definition.kind !== NodeKind.HogQLQuery) {
+        return null
+    }
+    return hogQLEditorSourceQuery(definition as Partial<HogQLQuery>)
 }
 
 function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizationNode {
@@ -894,6 +905,13 @@ export interface sqlEditorLogicActions {
     openMaterializationModal: (view?: DataWarehouseSavedQuery) => {
         view: DataWarehouseSavedQuery | undefined
     }
+    openMetricFromUrl: (
+        metricName: string,
+        biEditorState: BIEditorState | null
+    ) => {
+        biEditorState: BIEditorState | null
+        metricName: string
+    }
     reportAIQueryAccepted: () => {
         value: true
     }
@@ -1329,6 +1347,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }),
         setMetricPrefill: (metricPrefill: MetricFormPrefill | null) => ({ metricPrefill }),
         setEditingMetricName: (metricName: string | null) => ({ metricName }),
+        openMetricFromUrl: (metricName: string, biEditorState: BIEditorState | null) => ({ metricName, biEditorState }),
         updateEditingMetric: true,
         setMetricUpdating: (updating: boolean) => ({ updating }),
         updateInsight: true,
@@ -2716,11 +2735,49 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         }) as unknown as Record<string, unknown>,
                     })
                     captureBIEditorQuerySaved(biEditorState, 'metric', 'create')
+                    metricsLogic.findMounted()?.actions.loadMetrics()
                     actions.setMetricPrefill(null)
                     lemonToast.success('Metric created')
                     router.actions.push(urls.dataCatalogMetric(metric.name))
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to create metric')
+                }
+            },
+            openMetricFromUrl: async ({ metricName, biEditorState }, breakpoint) => {
+                const openMetricTab = (sourceQuery: DataVisualizationNode, boundMetricName?: string): void => {
+                    actions.createTab(
+                        sourceQuery.source.query,
+                        undefined,
+                        undefined,
+                        undefined,
+                        boundMetricName,
+                        biEditorState ?? undefined
+                    )
+                    actions.setQueryInput(sourceQuery.source.query)
+                    actions.setSourceQuery(sourceQuery)
+                }
+                try {
+                    // Validate before it reaches the request path: the value is interpolated
+                    // into the URL unencoded, so a name containing "../" could otherwise
+                    // traverse to a metric in another project. The name regex forbids slashes.
+                    if (validateMetricName(metricName)) {
+                        throw new Error('Invalid metric name')
+                    }
+                    const metric = await dataCatalogMetricsRetrieve(String(ApiConfig.getCurrentTeamId()), metricName)
+                    breakpoint()
+                    const metricSourceQuery = metricEditorSourceQuery(metric.definition)
+                    if (!metricSourceQuery) {
+                        throw new Error('Metric is not defined in SQL')
+                    }
+                    openMetricTab(metricSourceQuery, metric.name)
+                } catch (error) {
+                    if (isBreakpoint(error as Error)) {
+                        throw error
+                    }
+                    breakpoint()
+                    // Invalid name, metric not found, or no access — open an unbound empty tab
+                    // rather than binding an update target we couldn't verify.
+                    openMetricTab(hogQLEditorSourceQuery())
                 }
             },
             updateEditingMetric: async () => {
@@ -2741,6 +2798,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         }
                     )
                     captureBIEditorQuerySaved(biEditorState, 'metric', 'update')
+                    metricsLogic.findMounted()?.actions.loadMetrics()
                     lemonToast.success('Metric updated')
                     router.actions.push(urls.dataCatalogMetric(values.editingMetricName))
                 } catch (error: any) {
@@ -3617,41 +3675,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.edit_metric) {
-                    const openMetricTab = (sourceQuery: DataVisualizationNode, metricName?: string): void => {
-                        actions.createTab(
-                            sourceQuery.source.query,
-                            undefined,
-                            undefined,
-                            undefined,
-                            metricName,
-                            biEditorStateFromUrl ?? undefined
-                        )
-                        actions.setQueryInput(sourceQuery.source.query)
-                        actions.setSourceQuery(sourceQuery)
-                    }
                     // edit_metric binds the "Update metric" button to overwrite a named metric.
                     // Both edit_metric and open_query are URL-controlled, so we never bind the
                     // update target to URL-supplied SQL — a crafted link could otherwise overwrite
                     // a teammate's metric with arbitrary HogQL. Load the metric server-side and open
                     // its stored query, so the update target and its definition come from the same
                     // authenticated response.
-                    try {
-                        // Validate before it reaches the request path: the value is interpolated
-                        // into the URL unencoded, so a name containing "../" could otherwise
-                        // traverse to a metric in another project. The name regex forbids slashes.
-                        if (validateMetricName(searchParams.edit_metric)) {
-                            throw new Error('Invalid metric name')
-                        }
-                        const metric = await dataCatalogMetricsRetrieve(
-                            String(ApiConfig.getCurrentTeamId()),
-                            searchParams.edit_metric
-                        )
-                        openMetricTab(metricEditorSourceQuery(metric.definition), metric.name)
-                    } catch {
-                        // Invalid name, metric not found, or no access — open an unbound empty tab
-                        // rather than binding an update target we couldn't verify.
-                        openMetricTab(metricEditorSourceQuery(null))
-                    }
+                    actions.openMetricFromUrl(searchParams.edit_metric, biEditorStateFromUrl)
                     tabAdded = true
                 } else if (searchParams.open_query) {
                     // kea-router decodes JSON-shaped URL values to objects — a node here carries
