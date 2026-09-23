@@ -572,6 +572,16 @@ def user_github_integration_from_installation(
     except (ValueError, AttributeError):
         expires_in = 3600
 
+    # A re-link without organization context keeps the stored one, so later diagnostics stay durable.
+    stored_organization_id = (
+        None
+        if originating_organization_id
+        else UserIntegration.objects.filter(
+            user=user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id=installation.installation_id
+        )
+        .values_list("config__originating_organization_id", flat=True)
+        .first()
+    )
     config: dict[str, Any] = {
         "installation_id": installation.installation_id,
         "expires_in": expires_in,
@@ -585,7 +595,9 @@ def user_github_integration_from_installation(
         "user_token_refreshed_at": now,
         "credential_version": str(uuid4()),
         "identity_verified_at": authorization.identity_verified_at,
-        "originating_organization_id": str(originating_organization_id) if originating_organization_id else None,
+        "originating_organization_id": str(originating_organization_id)
+        if originating_organization_id
+        else stored_organization_id,
     }
     if authorization.access_token_expires_in is not None:
         config["user_access_token_expires_at"] = now + authorization.access_token_expires_in

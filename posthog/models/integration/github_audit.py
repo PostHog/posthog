@@ -41,6 +41,8 @@ class GitHubAuditPayload:
             "personal_discovery_status",
         }
     )
+    # Organizations with many GitHub projects would otherwise grow each discovery row without bound.
+    MAX_RECORDED_INSTALLATIONS = 50
     EVENT_FIELDS = {
         "created": {"outcome"},
         "deleted": {"outcome"},
@@ -102,7 +104,9 @@ class GitHubAuditPayload:
             response = value.get("response")
             result["response"] = cls.fields(response, cls.RESPONSE_FIELDS)
             if isinstance(response, dict):
-                result["response"]["installations"] = cls.candidates(response.get("installations"))
+                installations = cls.candidates(response.get("installations"))
+                result["response"]["installation_count"] = len(installations)
+                result["response"]["installations"] = installations[: cls.MAX_RECORDED_INSTALLATIONS]
         elif event in {"link_rejected", "setup_failed"}:
             field = "rejection_reason" if event == "link_rejected" else "failure_category"
             result[field] = cls.error_codes(value.get(field))

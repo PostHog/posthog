@@ -64,7 +64,7 @@ from posthog.models.integration import (
     StripeIntegration,
     github_account_type,
 )
-from posthog.models.integration.github_audit import GitHubAudit
+from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayload
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -7374,7 +7374,10 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
             log for log in logs if log.detail and log.detail["trigger"]["payload"]["event"] == "discovery_completed"
         )
         assert completed.detail is not None
-        assert completed.detail["trigger"]["payload"]["response"] == response.json()
+        assert completed.detail["trigger"]["payload"]["response"] == {
+            **response.json(),
+            "installation_count": len(response.json()["installations"]),
+        }
         github_request_mock.return_value.status_code = 503
         response = self.client.get(f"/api/projects/{self.team.id}/integrations/github/available_installations/")
         assert response.json()["personal_discovery_status"] == "unavailable"
@@ -7487,6 +7490,20 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert payload["response"]["installations"] == [{"installation_id": "9007", "account_name": "synthetic-owner"}]
         assert "synthetic-secret" not in json.dumps(log.detail)
         assert "synthetic-secret" not in json.dumps(captured, default=str)
+
+    def test_github_audit_caps_recorded_installations(self) -> None:
+        installations = [
+            {"installation_id": str(9100 + index), "account_name": f"synthetic-owner-{index}"}
+            for index in range(GitHubAuditPayload.MAX_RECORDED_INSTALLATIONS + 5)
+        ]
+        GitHubAudit(organization_id=self.organization.id, team_id=self.team.id).record(
+            "discovery_completed", discovery_id="synthetic-discovery", response={"installations": installations}
+        )
+        log = ActivityLog.objects.get(activity="github_diagnostic")
+        assert log.detail is not None
+        response = log.detail["trigger"]["payload"]["response"]
+        assert response["installation_count"] == len(installations)
+        assert response["installations"] == installations[: GitHubAuditPayload.MAX_RECORDED_INSTALLATIONS]
 
     @parameterized.expand([({},), ({"installation_id": None},)])
     @patch("posthog.api.integration.link_existing_team_github_integration")

@@ -1238,8 +1238,17 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         self.assertEqual(integration.integration_id, "67890")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_new")
 
-    def test_same_installation_updates_existing_integration(self):
-        _create_user_integration(self.user, integration_id="12345")
+    @parameterized.expand(
+        [
+            ("relink_without_organization_keeps_stored", False, "stored"),
+            ("relink_with_organization_replaces_stored", True, "new"),
+        ]
+    )
+    def test_same_installation_updates_existing_integration(self, _name, relink_with_organization, expected):
+        stored_organization = Organization.objects.create(name="Synthetic stored organization")
+        existing = _create_user_integration(self.user, integration_id="12345")
+        existing.config["originating_organization_id"] = str(stored_organization.id)
+        existing.save(update_fields=["config"])
         integration = user_github_integration_from_installation(
             self.user,
             GitHubInstallationAccess(
@@ -1257,11 +1266,14 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
                 access_token_expires_in=28800,
                 refresh_token_expires_in=15897600,
             ),
+            originating_organization_id=self.organization.id if relink_with_organization else None,
         )
 
         self.assertEqual(UserIntegration.objects.filter(user=self.user, kind="github").count(), 1)
         self.assertEqual(integration.integration_id, "12345")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_refreshed")
+        expected_organization = stored_organization if expected == "stored" else self.organization
+        self.assertEqual(integration.config["originating_organization_id"], str(expected_organization.id))
 
     @parameterized.expand(
         [
