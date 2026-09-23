@@ -335,12 +335,8 @@ impl Service {
     }
 }
 
-/// Resolve how far back one request may keep its own timestamps.
-///
-/// A request that asks for more than the deployment allows is rejected instead of being
-/// narrowed to the default. A historical import that is quietly narrowed writes most of its
-/// records onto the ingest time, and the client cannot detect that from the response, so the
-/// data is wrong in a way nobody notices until someone queries the old range.
+/// An over-wide request is rejected, not narrowed to the default. A quietly narrowed import
+/// writes most of its records onto the ingest time and still returns 200, so nobody notices.
 pub(crate) fn resolve_backfill_window(
     requested_days: Option<u32>,
     max_backfill_days: u32,

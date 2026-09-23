@@ -198,34 +198,26 @@ impl KafkaLogRow {
 
 const DEFAULT_MAX_PAST_HOURS: i64 = 24;
 
-/// The past bound applied when a caller does not choose one.
 pub fn default_max_past() -> TimeDelta {
     TimeDelta::hours(DEFAULT_MAX_PAST_HOURS)
 }
 
-/// The future bound is deliberately separate from the past bound and never widens. A
-/// timestamp ahead of the ingest time is always a client clock error, while a timestamp far
-/// behind it is what a historical import legitimately sends. Widening both together would let
-/// one client write rows past the end of every other query range on the team.
+/// Never widens with the past bound. A timestamp ahead of the ingest time is always a client
+/// clock error, so widening both together would let one client write past every other query range.
 const MAX_FUTURE_HOURS: i64 = 24;
 
-/// Override timestamps outside the accepted window. Returns the final timestamp and the
-/// original if it was overridden.
+/// Returns the final timestamp, and the original when it was overridden.
 pub fn override_timestamp(timestamp: DateTime<Utc>) -> (DateTime<Utc>, Option<DateTime<Utc>>) {
     override_timestamp_with_past_limit(timestamp, default_max_past())
 }
 
-/// As `override_timestamp`, with the past bound chosen by the caller so a historical import can
-/// keep its original timestamps. The future bound stays fixed.
 pub fn override_timestamp_with_past_limit(
     timestamp: DateTime<Utc>,
     max_past: TimeDelta,
 ) -> (DateTime<Utc>, Option<DateTime<Utc>>) {
     let now = Utc::now();
 
-    // `DateTime`'s `Sub` panics when the result leaves chrono's year range, which a large
-    // configured backfill ceiling can reach. Fall back to the earliest representable instant so
-    // an oversized bound accepts every past timestamp, which is what the operator asked for.
+    // `Sub` panics when the result leaves chrono's year range, which a large ceiling reaches.
     let earliest = now
         .checked_sub_signed(max_past)
         .unwrap_or(DateTime::<Utc>::MIN_UTC);
@@ -613,8 +605,6 @@ mod tests {
                 TimeDelta::days(-400),
                 TimeDelta::days(300),
             ),
-            // A widened past bound must not widen the future bound, or one client with a fast
-            // clock could write rows past the end of every other query range on the team.
             (
                 "a day ahead, widened past bound",
                 TimeDelta::hours(25),
@@ -648,8 +638,7 @@ mod tests {
 
     #[test]
     fn override_timestamp_applies_a_24_hour_past_bound() {
-        // Asserts only the reported original, because the replacement value is the ingest time
-        // and comparing that across two calls races the clock.
+        // Asserts the original only: the replacement is the ingest time, which races the clock.
         let inside = Utc::now() - TimeDelta::hours(23);
         let outside = Utc::now() - TimeDelta::hours(25);
 
