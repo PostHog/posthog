@@ -95,9 +95,9 @@ describe('BrowserPool', () => {
         expect(env).not.toHaveProperty('INTERNAL_API_SECRET')
         expect(env).not.toHaveProperty('AWS_WEB_IDENTITY_TOKEN_FILE')
         expect(env.PATH).toBe(process.env.PATH)
-        // Chrome reads the proxy environment when --proxy-server is absent, so these variables have to
-        // survive the filter for egress containment to hold if that argument is ever dropped.
-        expect(env.HTTPS_PROXY).toBe('http://smokescreen:4750')
+        // Without --proxy-server, Chrome reads the proxy environment. Passing it would route Chrome
+        // through the proxy even after RASTERIZER_USE_PROXY=false asks for direct egress.
+        expect(env).not.toHaveProperty('HTTPS_PROXY')
     })
 
     it('launches separate browsers for concurrent pages', async () => {

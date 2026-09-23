@@ -58,14 +58,6 @@ const CHROME_ENV_ALLOWLIST = [
     // the fonts, the rendered frames fall back to boxes.
     'FONTCONFIG_PATH',
     'FONTCONFIG_FILE',
-    // These are not secrets, and they keep egress containment if --proxy-server is ever dropped:
-    // Chrome then falls back to the proxy environment instead of dialling out directly.
-    'HTTPS_PROXY',
-    'HTTP_PROXY',
-    'NO_PROXY',
-    'https_proxy',
-    'http_proxy',
-    'no_proxy',
 ]
 
 function chromeEnv(): NodeJS.ProcessEnv {
