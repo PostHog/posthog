@@ -1,5 +1,5 @@
 import { deepEqual } from 'fast-equals'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useState } from 'react'
@@ -23,9 +23,11 @@ import {
     dashboardFilterViewSearchParams,
 } from './dashboardFilterViewUtils'
 import { dashboardLogic } from './dashboardLogic'
+import { parseURLFilters } from './dashboardUtils'
 
 export function DashboardFilterViews(): JSX.Element | null {
     const enabled = useFeatureFlag('DASHBOARD_FILTER_SAVED_VIEWS')
+    const { applySavedFilterView } = useActions(dashboardLogic)
     const { dashboard, placement, canEditDashboard, effectiveEditBarFilters, urlFilters } = useValues(dashboardLogic)
     const [saving, setSaving] = useState(false)
 
@@ -67,11 +69,9 @@ export function DashboardFilterViews(): JSX.Element | null {
                 ...dashboardFilterViewAnalyticsProperties(view.filters),
             })
         }
-        router.actions.push(
-            currentLocation.pathname,
-            dashboardFilterViewSearchParams(currentLocation.searchParams, activeView?.id, view),
-            currentLocation.hashParams
-        )
+        const searchParams = dashboardFilterViewSearchParams(currentLocation.searchParams, activeView?.id, view)
+        applySavedFilterView(parseURLFilters(searchParams))
+        router.actions.push(currentLocation.pathname, searchParams, currentLocation.hashParams)
     }
 
     const createView = (): void => {

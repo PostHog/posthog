@@ -31,7 +31,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
-import { HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     DashboardPlacement,
@@ -621,6 +621,49 @@ describe('dashboardLogic', () => {
             })
             expect(logic.values.dashboard?.persisted_filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
             expect(successToast).toHaveBeenCalledWith('Dashboard changes saved')
+        })
+
+        it('switches complex saved filter views without persisting dashboard defaults', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const first: DashboardFilter = {
+                date_from: '-30d',
+                date_to: '-1d',
+                interval: 'week' as const,
+                filterTestAccounts: false,
+                properties: [
+                    { key: 'plan', type: PropertyFilterType.Person, operator: PropertyOperator.Exact, value: 'pro' },
+                    {
+                        key: '$browser',
+                        type: PropertyFilterType.Event,
+                        operator: PropertyOperator.IsNot,
+                        value: 'Safari',
+                    },
+                ],
+                breakdown_filter: {
+                    breakdowns: [
+                        { property: '$browser', type: 'event' as const },
+                        { property: 'plan', type: 'person' as const },
+                        { property: 'company_id', type: 'group' as const, group_type_index: 0 },
+                    ],
+                },
+            }
+            const second: DashboardFilter = {
+                date_from: '-7d',
+                interval: 'day' as const,
+                filterTestAccounts: true,
+                properties: [
+                    { key: 'region', type: PropertyFilterType.Person, operator: PropertyOperator.Exact, value: 'east' },
+                ],
+                breakdown_filter: { breakdown: 'region', breakdown_type: 'person' as const },
+            }
+
+            for (const filters of [first, second, first, second, first]) {
+                await expectLogic(logic, () => logic.actions.applySavedFilterView(filters)).toFinishAllListeners()
+                expect(logic.values.effectiveEditBarFilters).toEqual(filters)
+                expect(logic.values.settingsForRefresh.filters).toEqual(filters)
+                expect(logic.values.dashboard?.persisted_filters).toBeUndefined()
+            }
+            expect(api.update).not.toHaveBeenCalled()
         })
 
         it('counts each added property filter', async () => {

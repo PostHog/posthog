@@ -840,6 +840,9 @@ export interface dashboardLogicActions {
     setDashboardSettingsDraft: (settings: DashboardSettings | null) => {
         settings: DashboardSettings | null
     }
+    applySavedFilterView: (filters: DashboardFilter) => {
+        filters: DashboardFilter
+    }
     setDashboardStreamFailed: () => {
         value: true
     }
@@ -1419,6 +1422,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         setDashboardSettingsDraft: (settings: DashboardSettings | null) => ({ settings }),
+        applySavedFilterView: (filters: DashboardFilter) => ({ filters }),
         setPreviewedDashboardSettings: (settings: DashboardSettings | null) => ({ settings }),
         setInitialDashboardSettingsOverride: (settings: DashboardSettings) => ({ settings }),
         clearInitialDashboardSettingsOverride: true,
@@ -3420,6 +3424,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        applySavedFilterView: ({ filters }) => {
+            actions.setInitialDashboardSettingsOverride({ ...values.initialDashboardSettingsOverride, filters })
+            actions.setDashboardSettingsDraft({
+                ...values.currentDashboardSettings,
+                filters: combineDashboardFilters(values.savedDashboardSettings.filters, filters),
+            })
+            actions.previewDashboardChanges()
+        },
         scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
             if (!cache.widgetTileRefreshScheduler) {
                 cache.widgetTileRefreshScheduler = createDashboardWidgetTileRefreshScheduler((id) =>
