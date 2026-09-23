@@ -7,6 +7,8 @@ message becomes blocks.
 
 from typing import Any, Final
 
+from slack_sdk.errors import SlackApiError
+
 from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
 
 from products.alerts.backend.delivery.message import AlertMessage
@@ -53,14 +55,18 @@ class SlackTransport:
         if workspace_id is None or channel is None:
             raise DeliveryError("This Slack destination is missing its workspace or channel.")
 
-        response = SlackIntegration(
-            self._integration(team_id=team_id, workspace_id=workspace_id)
-        ).client.chat_postMessage(
-            channel=channel,
-            text=message.headline,
-            blocks=blocks_for(message),
-            thread_ts=in_reply_to.external_ref.get("ts") if in_reply_to else None,
-        )
+        client = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id)).client
+        try:
+            response = client.chat_postMessage(
+                channel=channel,
+                text=message.headline,
+                blocks=blocks_for(message),
+                thread_ts=in_reply_to.external_ref.get("ts") if in_reply_to else None,
+            )
+        except SlackApiError as error:
+            # Only a DeliveryError reaches the failure counter, and Slack raises this for the
+            # refusals a person can fix, such as a channel the bot has left.
+            raise DeliveryError(f"Slack refused the message: {error.response.get('error')}") from error
         timestamp = response.get("ts")
         if not timestamp:
             raise DeliveryError("Slack accepted the message but returned no timestamp to reply to.")

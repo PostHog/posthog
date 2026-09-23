@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from slack_sdk.errors import SlackApiError
+
 from posthog.models.integration import Integration
 
 from products.alerts.backend.delivery.message import AlertMessage
@@ -73,6 +75,14 @@ class TestSlackTransport(APIBaseTest):
         # An unscoped lookup finds the integration by id alone and sends into it.
         with pytest.raises(DeliveryError):
             self._send(team_id=self.team.id + 1)
+
+    def test_a_refusal_from_slack_becomes_a_delivery_error(self) -> None:
+        with patch("products.alerts.backend.delivery.slack.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client.chat_postMessage.side_effect = SlackApiError(
+                "channel_not_found", {"error": "channel_not_found"}
+            )
+            with pytest.raises(DeliveryError):
+                SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
 
     def test_a_destination_missing_its_channel_is_refused(self) -> None:
         target = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": self.integration.id})
