@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
-import { isInDeferredInitSample, loadPostHogJS } from './loadPostHogJS'
+import { describeFeatureFlagsFailure, isInDeferredInitSample, loadPostHogJS } from './loadPostHogJS'
 
 describe('loadPostHogJS', () => {
     describe('isInDeferredInitSample', () => {
@@ -11,6 +11,42 @@ describe('loadPostHogJS', () => {
                 expect(isInDeferredInitSample(sessionId)).toBe(sampleOnProperty(sessionId, 0.5))
             }
         )
+    })
+
+    describe('describeFeatureFlagsFailure', () => {
+        it.each([
+            [
+                'an HTTP error',
+                ['api_error_503'],
+                { $feature_flag_error: 'api_error_503', status: 503, reachedPostHog: true },
+            ],
+            ['a timeout', ['timeout'], { $feature_flag_error: 'timeout', status: null, reachedPostHog: false }],
+            [
+                'a blocked request',
+                ['connection_error'],
+                { $feature_flag_error: 'connection_error', status: null, reachedPostHog: false },
+            ],
+            [
+                'several codes',
+                ['api_error_500', 'errors_while_computing_flags'],
+                {
+                    $feature_flag_error: 'api_error_500,errors_while_computing_flags',
+                    status: 500,
+                    reachedPostHog: true,
+                },
+            ],
+            [
+                'no persisted codes',
+                undefined,
+                { $feature_flag_error: 'unknown_error', status: null, reachedPostHog: false },
+            ],
+        ])('describes %s', (_name, sdkErrors, expected) => {
+            expect(describeFeatureFlagsFailure(sdkErrors)).toEqual({
+                $feature_flag_error: expected.$feature_flag_error,
+                feature_flag_error_status: expected.status,
+                feature_flag_request_reached_posthog: expected.reachedPostHog,
+            })
+        })
     })
 
     describe('without a project key', () => {

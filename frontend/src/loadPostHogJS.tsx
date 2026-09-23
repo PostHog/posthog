@@ -40,6 +40,45 @@ export interface LoadPostHogJSOptions {
     metrics?: Partial<BrowserMetricsConfig>
 }
 
+/** Where posthog-js persists the error codes it classified the last `/flags` failure with. */
+const SDK_FEATURE_FLAG_ERRORS_KEY = '$feature_flag_errors'
+
+/** The codes posthog-js uses when no HTTP response came back at all. */
+const TRANSPORT_ERROR_CODES = ['timeout', 'connection_error', 'unknown_error']
+
+export interface FeatureFlagsFailureProperties {
+    /** Comma-joined posthog-js error codes, the same vocabulary as `$feature_flag_called`. */
+    $feature_flag_error: string
+    /** HTTP status of the failed `/flags` request, or null when no response came back. */
+    feature_flag_error_status: number | null
+    /** Whether the request reached PostHog. False points at the network, an ad blocker, or a timeout. */
+    feature_flag_request_reached_posthog: boolean
+}
+
+/**
+ * The SDK callback only says that loading failed, so read the codes posthog-js persisted for the
+ * same failure. Without them an outage and ad blocker noise look identical on the alert.
+ */
+export function describeFeatureFlagsFailure(sdkErrors: unknown): FeatureFlagsFailureProperties {
+    const codes = Array.isArray(sdkErrors) ? sdkErrors.filter((code): code is string => typeof code === 'string') : []
+    if (!codes.length) {
+        return {
+            $feature_flag_error: 'unknown_error',
+            feature_flag_error_status: null,
+            feature_flag_request_reached_posthog: false,
+        }
+    }
+
+    const apiErrorCode = codes.find((code) => code.startsWith('api_error_'))
+    const status = apiErrorCode ? Number.parseInt(apiErrorCode.slice('api_error_'.length), 10) : NaN
+
+    return {
+        $feature_flag_error: codes.join(','),
+        feature_flag_error_status: Number.isNaN(status) ? null : status,
+        feature_flag_request_reached_posthog: !codes.some((code) => TRANSPORT_ERROR_CODES.includes(code)),
+    }
+}
+
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(window.JS_POSTHOG_API_KEY, {
@@ -176,12 +215,19 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             identity_hash: window.JS_POSTHOG_IDENTITY_HASH,
         })
 
-        posthog.onFeatureFlags((_flags, _variants, context) => {
+        posthog.onFeatureFlags((flags, _variants, context) => {
             if (inStorybook() || inStorybookTestRunner() || !context?.errorsLoading) {
                 return
             }
 
-            posthog.capture('onFeatureFlags error')
+            posthog.capture('onFeatureFlags error', {
+                ...describeFeatureFlagsFailure(posthog.persistence?.props?.[SDK_FEATURE_FLAG_ERRORS_KEY]),
+                feature_flag_count: flags.length,
+                browser_online: window.navigator.onLine,
+                // Time the user waited before the app gave up. A blocked request fails at once, a
+                // timeout does not.
+                feature_flag_error_after_ms: Math.round(performance.now()),
+            })
 
             // Track that we failed to load feature flags
             window.POSTHOG_GLOBAL_ERRORS ||= {}
