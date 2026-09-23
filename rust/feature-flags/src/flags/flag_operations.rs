@@ -117,13 +117,6 @@ impl FeatureFlag {
 
     /// Returns true if the bucketing hash decides the outcome of this condition.
     ///
-    /// A condition at 100% rollout gives every person that passes its property filters the
-    /// same result, so the rollout reads no identifier. The variant can still depend on the
-    /// hash. `get_matching_variant` gives every hash the first variant with a non-zero share
-    /// when that share is 100% or more, and gives every hash no variant when no share is
-    /// non-zero. In every other case some hashes fall past the first variant, to a later
-    /// variant or to no variant. A condition that pins a variant by name reads no hash.
-    ///
     /// This does not use `has_hash_dependent_variants`. That method treats a single reachable
     /// variant as hash-independent, but hashes past that variant's share still map to no
     /// variant, and reading it here would let such a flag bucket its variant on `distinct_id`.
