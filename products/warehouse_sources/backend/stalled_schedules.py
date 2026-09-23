@@ -15,7 +15,7 @@ This module carries the predicate that finds those schemas from Postgres alone, 
 periodic sweep that reports them and the management command that repairs them.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, QuerySet, Value
 from django.db.models.functions import Coalesce, Greatest
@@ -194,25 +194,15 @@ def find_stalled_schemas(
         queryset = queryset.filter(source__source_type__iexact=source_type)
 
     queryset = queryset.select_related("source").order_by("last_synced_at")
-    if limit is not None:
-        queryset = queryset[:limit]
-
-    schemas = list(queryset)
-    if not schemas:
-        return []
-
-    # One query for the whole batch rather than one per schema. The batch is small by
-    # construction: a healthy fleet returns nothing here.
-    schemas_with_running_jobs = set(
-        ExternalDataJob.objects.filter(
-            schema_id__in=[schema.id for schema in schemas],
-            status=ExternalDataJob.Status.RUNNING,
-        ).values_list("schema_id", flat=True)
-    )
 
     now = timezone.now()
-    stalled = []
-    for schema in schemas:
+    # `limit` counts reported schemas, so it applies after the Python filters below. A slice on
+    # the queryset lets quiet schemas, which sort first, fill every slot, and the callers' cap
+    # checks then miss the stalled schemas behind them.
+    schemas: list[tuple[ExternalDataSchema, datetime]] = []
+    for schema in queryset.iterator():
+        if limit is not None and len(schemas) >= limit:
+            break
         last_run_at = schema.last_run_at
         # The queryset already excludes a null stamp, which makes `last_run_at` non-null too.
         # The checks are here because the column is nullable, so the arithmetic below has no
@@ -235,23 +225,37 @@ def find_stalled_schemas(
             continue
         if schema.cdc_halted:
             continue
-        stalled.append(
-            StalledSchema(
-                schema_id=str(schema.id),
-                team_id=schema.team_id,
-                name=schema.name,
-                source_id=str(schema.source_id),
-                source_type=schema.source.source_type,
-                kind="stuck_job" if schema.id in schemas_with_running_jobs else "no_runs",
-                stalled_for=now - last_run_at,
-                cdc_ingest_mode=(schema.source.job_inputs or {}).get("cdc_ingest_mode", "legacy"),
-                admin_paused=bool((schema.sync_type_config or {}).get("admin_unpause_schedule_after_run")),
-                has_sync_interval=schema.sync_frequency_interval is not None,
-                cdc_streaming=schema.is_cdc and schema.cdc_mode == "streaming",
-                cdc_halted=schema.cdc_halted,
-            )
+        schemas.append((schema, last_run_at))
+
+    if not schemas:
+        return []
+
+    # One query for the whole batch rather than one per schema. The batch is small by
+    # construction: a healthy fleet returns nothing here.
+    schemas_with_running_jobs = set(
+        ExternalDataJob.objects.filter(
+            schema_id__in=[schema.id for schema, _ in schemas],
+            status=ExternalDataJob.Status.RUNNING,
+        ).values_list("schema_id", flat=True)
+    )
+
+    return [
+        StalledSchema(
+            schema_id=str(schema.id),
+            team_id=schema.team_id,
+            name=schema.name,
+            source_id=str(schema.source_id),
+            source_type=schema.source.source_type,
+            kind="stuck_job" if schema.id in schemas_with_running_jobs else "no_runs",
+            stalled_for=now - last_run_at,
+            cdc_ingest_mode=(schema.source.job_inputs or {}).get("cdc_ingest_mode", "legacy"),
+            admin_paused=bool((schema.sync_type_config or {}).get("admin_unpause_schedule_after_run")),
+            has_sync_interval=schema.sync_frequency_interval is not None,
+            cdc_streaming=schema.is_cdc and schema.cdc_mode == "streaming",
+            cdc_halted=schema.cdc_halted,
         )
-    return stalled
+        for schema, last_run_at in schemas
+    ]
 
 
 def repair_stalled_schema(stalled: StalledSchema) -> bool:
