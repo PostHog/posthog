@@ -177,24 +177,26 @@ export function MenuItems({
                       : entry.path === itemShortcutPath)
         )?.id
 
+    const terminalMenuItem =
+        terminalEnabled && root === 'project://' && item.record?.path ? (
+            <MenuItem
+                asChild
+                data-attr="tree-item-menu-open-in-terminal"
+                onClick={(event) => {
+                    event.stopPropagation()
+                    const parts = splitPath(item.record?.path)
+                    openInTerminal(joinPath(item.record?.type === 'folder' ? parts : parts.slice(0, -1)))
+                }}
+            >
+                <ButtonPrimitive menuItem>
+                    <IconTerminal className="size-4 text-tertiary" /> Open in terminal
+                </ButtonPrimitive>
+            </MenuItem>
+        ) : null
+
     return (
         <>
             {productMenu}
-            {terminalEnabled && root === 'project://' && item.record?.path ? (
-                <MenuItem
-                    asChild
-                    data-attr="tree-item-menu-open-in-terminal"
-                    onClick={(event) => {
-                        event.stopPropagation()
-                        const parts = splitPath(item.record?.path)
-                        openInTerminal(joinPath(item.record?.type === 'folder' ? parts : parts.slice(0, -1)))
-                    }}
-                >
-                    <ButtonPrimitive menuItem>
-                        <IconTerminal className="size-4 text-tertiary" /> Open in terminal
-                    </ButtonPrimitive>
-                </MenuItem>
-            ) : null}
             {showSelectMenuItems ? (
                 <>
                     <MenuItem
@@ -275,6 +277,7 @@ export function MenuItems({
                     <MenuSeparator />
                 </>
             ) : null}
+            {!isSimpleSidepanelEnabled && terminalMenuItem}
             {!isSimpleSidepanelEnabled && item.record?.path ? (
                 (root === 'shortcuts://' || root === 'custom-products://') &&
                 (item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/')) ? (
@@ -494,6 +497,7 @@ export function MenuItems({
                     {(!isItemAFolder || !shortcutEntryIdMap.has(item.id) || checkedItemCountNumeric > 0) && (
                         <MenuSeparator />
                     )}
+                    {terminalMenuItem}
                     <MenuItem
                         asChild
                         disabled={shortcutDataLoading}
