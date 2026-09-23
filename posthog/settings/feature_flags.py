@@ -10,6 +10,11 @@ from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
 
+# Enable with the Rust reader after guarded producers have populated both cache tiers.
+FLAG_DEFINITIONS_REQUIRE_PROVENANCE: bool = get_from_env(
+    "FLAG_DEFINITIONS_REQUIRE_PROVENANCE", False, type_cast=str_to_bool
+)
+
 # Encryption keys for remote-config feature flag payloads, kept separate from
 # Temporal's keys (posthog/settings/temporal.py) so the two rotate independently.
 # An ordered list: the first key encrypts new payloads, every key can decrypt. That

@@ -27,6 +27,7 @@ from posthoganalytics.request import US_INGESTION_ENDPOINT
 from posthog.utils import capture_exception_throttled, get_instance_region
 
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
+from products.feature_flags.backend.legacy_definitions_cache import PROVENANCE_HEADER
 from products.feature_flags.backend.local_evaluation import flag_definitions_hypercache
 
 logger = structlog.get_logger(__name__)
@@ -46,8 +47,9 @@ def sync_cross_region_flags() -> None:
     """Refresh EU's mirror of US team 2's flag definitions from the US region.
 
     No-op outside EU or when the PSAK isn't configured. Uses the endpoint's ETag
-    support: sends `If-None-Match` with the locally cached ETag, so an unchanged
-    upstream is a 304 with no payload transferred and no local write.
+    support once the mirror has provenance. Unverified mirrors fetch a full body
+    on each tick so a guarded response can warm the cache before enforcement starts.
+    After verification, unchanged definitions return 304 without a local write.
     """
     # Defense in depth: the beat registration in scheduled.py is also EU-gated.
     # This keeps direct invocation (shell, tests) safe outside EU.
@@ -60,7 +62,8 @@ def sync_cross_region_flags() -> None:
         return
 
     headers = {"Authorization": f"Bearer {token}"}
-    local_etag = flag_definitions_hypercache.get_etag(EU_CROSS_REGION_MIRROR_CACHE_KEY)
+    # A full response must replace an unverified mirror before enforcement can start.
+    local_etag = flag_definitions_hypercache.get_verified_etag(EU_CROSS_REGION_MIRROR_CACHE_KEY)
     if local_etag:
         headers["If-None-Match"] = f'"{local_etag}"'
 
@@ -91,6 +94,11 @@ def sync_cross_region_flags() -> None:
         )
         return
 
+    verified = response.headers.get(PROVENANCE_HEADER) == "1"
+    if settings.FLAG_DEFINITIONS_REQUIRE_PROVENANCE and not verified:
+        logger.warning("cross_region_flags_sync_unverified_definitions")
+        return
+
     try:
         payload = response.json()
     except ValueError as e:
@@ -106,10 +114,11 @@ def sync_cross_region_flags() -> None:
 
     # update_cache (not bare set_cache_value) for parity with the signal-driven write
     # path: it emits the cache-sync metrics dashboards watch, and its info log only
-    # fires when flags actually changed, since unchanged upstreams 304 above. The
-    # write is unconditional (no skip_if_unchanged): a 200 already means the content
-    # changed, and a non-Team key isn't tracked in the expiry sorted set, so this
+    # fires on full responses, including unverified warmup reads. The write is
+    # unconditional: a non-Team key isn't tracked in the expiry sorted set, so this
     # write is what re-stamps the Redis TTL. On a long run of 304s the entry can
     # still expire; that self-heals within one tick, because the etag expires with
     # it, so the next poll sends no If-None-Match and gets a full 200.
-    flag_definitions_hypercache.update_cache(EU_CROSS_REGION_MIRROR_CACHE_KEY, data=payload)
+    flag_definitions_hypercache.update_cache(
+        EU_CROSS_REGION_MIRROR_CACHE_KEY, data=payload, publish_provenance=verified
+    )

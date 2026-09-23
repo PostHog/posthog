@@ -323,6 +323,19 @@ pub struct HyperCacheReader {
 }
 
 impl HyperCacheReader {
+    pub fn companion(&self, object_name: &str) -> Self {
+        let mut config = self.config.clone();
+        config.object_name = object_name.to_owned();
+        config.enable_etag = false;
+        config.expiry_sorted_set_key = None;
+        config.read_repair_ttl_seconds = None;
+        Self {
+            redis_client: self.redis_client.clone(),
+            s3_client: self.s3_client.clone(),
+            config,
+        }
+    }
+
     /// Read repair is a stampede damper, not a writer. A TTL beyond this would outlive the
     /// refresh cycle and widen how long a `HyperCacheWriter::delete` race can resurrect a
     /// deleted key for. Caps a misconfigured env var (e.g. seconds vs. milliseconds) instead
@@ -812,6 +825,29 @@ impl HyperCacheReader {
         {
             Ok(result) => result,
             Err(_) => Err(HyperCacheError::Timeout("redis timeout".to_string())),
+        }
+    }
+
+    /// Fetch from S3 only — no Redis read and no read repair. Pairs with
+    /// [`Self::get_typed_from_redis`] for a caller that must validate a payload against a
+    /// companion object stored beside it: proof taken from one tier and a body from the
+    /// other can combine two generations of the cache. A confirmed NotFound surfaces as
+    /// `CacheMiss`, so an absent key stays distinguishable from an unreachable bucket.
+    pub async fn get_typed_from_s3<T: DeserializeOwned>(
+        &self,
+        key: &KeyType,
+    ) -> Result<T, HyperCacheError> {
+        let s3_cache_key = self.config.get_s3_cache_key(key);
+        match timeout(
+            self.config.s3_timeout,
+            self.try_get_typed_from_s3::<T>(&s3_cache_key),
+        )
+        .await
+        {
+            Ok(Ok((value, _raw_json))) => Ok(value),
+            Ok(Err(HyperCacheError::S3(S3Error::NotFound(_)))) => Err(HyperCacheError::CacheMiss),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(HyperCacheError::Timeout("s3 timeout".to_string())),
         }
     }
 

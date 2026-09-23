@@ -1791,6 +1791,8 @@ impl TestContext {
 
         let payload = serde_json::to_string(&flags_data)?;
 
+        let proof = json!({"etag": common_hypercache::writer::compute_etag(&payload)}).to_string();
+        redis.set(format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.provenance.json"), proof).await?;
         redis
             .set(cache_key, payload)
             .await
@@ -1809,6 +1811,8 @@ impl TestContext {
         let cache_key =
             format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json");
         let payload = serde_json::to_string(&flags_data)?;
+        let proof = json!({"etag": common_hypercache::writer::compute_etag(&payload)}).to_string();
+        redis_client.set(format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.provenance.json"), proof).await?;
         redis_client
             .set(cache_key, payload)
             .await
@@ -1840,10 +1844,10 @@ impl TestContext {
     pub async fn populate_cache_for_team_with_etag(
         &self,
         team_id: i32,
-        etag: &str,
-    ) -> Result<(), Error> {
+        flag_key: &str,
+    ) -> Result<String, Error> {
         let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
-        self.populate_cache_for_team_with_etag_on(redis_client, team_id, etag)
+        self.populate_cache_for_team_with_etag_on(redis_client, team_id, flag_key)
             .await
     }
 
@@ -1854,10 +1858,17 @@ impl TestContext {
         &self,
         redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
         team_id: i32,
-        etag: &str,
-    ) -> Result<(), Error> {
-        self.populate_flag_definitions_cache(redis_client.clone(), team_id)
+        flag_key: &str,
+    ) -> Result<String, Error> {
+        let payload = json!({"flags": [{"key": flag_key, "filters": {"groups": []}}], "cohorts": {}, "group_type_mapping": {}}).to_string();
+        let etag = common_hypercache::writer::compute_etag(&payload);
+        redis_client
+            .set(
+                format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json"),
+                payload,
+            )
             .await?;
+        redis_client.set(format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.provenance.json"), json!({"etag": etag}).to_string()).await?;
 
         let etag_key =
             format!("posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag");
@@ -1867,7 +1878,7 @@ impl TestContext {
             .set_bytes(etag_key, pickled_etag, None)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to set ETag: {e}"))?;
-        Ok(())
+        Ok(etag)
     }
 
     /// Generates a unique test email address with an optional prefix
