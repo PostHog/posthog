@@ -1113,7 +1113,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
-        TeamCustomerAnalyticsConfig.objects.filter(pk=config.pk).update(account_group_type_index=0)
+        config.account_group_type_index = 0
+        config.save(update_fields=["account_group_type_index"])
         create_account(team_id=self.team.pk)
 
         response = self.client.patch(

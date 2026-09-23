@@ -1014,13 +1014,16 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
-        if self.instance is not None and "account_group_type_index" in attrs:
-            if account_group_type_index_drift_blocked(
+        if (
+            self.instance is not None
+            and "account_group_type_index" in attrs
+            and account_group_type_index_drift_blocked(
                 self.instance.team_id,
                 self.instance.account_group_type_index,
                 attrs["account_group_type_index"],
-            ):
-                raise serializers.ValidationError({"account_group_type_index": ACCOUNT_GROUP_TYPE_INDEX_DRIFT_MESSAGE})
+            )
+        ):
+            raise serializers.ValidationError({"account_group_type_index": ACCOUNT_GROUP_TYPE_INDEX_DRIFT_MESSAGE})
         return attrs
 
 
