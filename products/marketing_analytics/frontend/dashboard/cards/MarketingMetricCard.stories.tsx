@@ -80,7 +80,10 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Interactive: Story = { render: () => <CardsPreview /> }
-export const Loading: Story = { render: () => <CardsPreview initiallyLoading /> }
+export const Loading: Story = {
+    render: () => <CardsPreview initiallyLoading />,
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
 export const Narrow: Story = {
     render: () => (
         <div className="w-[32.5rem] max-w-full">
