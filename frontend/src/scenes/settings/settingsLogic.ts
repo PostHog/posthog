@@ -233,7 +233,8 @@ export interface settingsLogicMeta {
             sections: SettingSection[],
             doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
             preflight: PreflightStatus | null,
-            currentTeam: TeamPublicType | TeamType | null
+            currentTeam: TeamPublicType | TeamType | null,
+            isAdminOrOwner: boolean | null
         ) => Setting[]
         selectedSetting: (settings: Setting[], selectedSettingId: SettingId | null) => Setting | null
         doesMatchFlags: (featureFlags: FeatureFlagsSet) => (flagDefinition: Pick<Setting, 'flag'>) => boolean
@@ -244,7 +245,8 @@ export interface settingsLogicMeta {
             sections: SettingSection[],
             doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
             preflight: PreflightStatus | null,
-            currentTeam: TeamPublicType | TeamType | null
+            currentTeam: TeamPublicType | TeamType | null,
+            isAdminOrOwner: boolean | null
         ) => GlobalSearchFuse
         searchResults: (searchTerm: string, globalSearchIndex: GlobalSearchFuse) => SearchResultGroup[]
         filteredLevels: (
