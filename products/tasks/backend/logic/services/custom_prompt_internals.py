@@ -4,7 +4,7 @@ import re
 import json
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -1078,62 +1078,77 @@ def _open_object_depth(text: str) -> int:
     return depth
 
 
-def extract_json_from_text(text: str | None, label: str) -> Any:
-    """Extract JSON from text that might contain markdown formatting or surrounding commentary."""
-    if text is None:
-        raise ValueError(f"Text to extract JSON from ({label}) is None")
+def _collect_json_values(text: str) -> tuple[list[Any], bool]:
+    """Read every JSON value `text` holds, in the order the extractor prefers them.
 
-    # 1. ```json ... ``` fenced code block (non-greedy to stop at first closing fence)
-    match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-    if match:
-        candidate = match.group(1).strip()
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
+    The second element reports a truncation: a decode that runs to the end of the text is a valid
+    object the reply was cut off inside. The scan stops there, so a fragment never joins the list.
+    """
+    values: list[Any] = []
 
-    # 2. ``` ... ``` generic code block that happens to contain JSON
-    match = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL)
-    if match:
-        candidate = match.group(1).strip()
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
+    # 1. ```json ... ``` fenced code blocks (non-greedy to stop at each closing fence)
+    # 2. ``` ... ``` generic code blocks that happen to contain JSON
+    for pattern in (r"```json\s*(.*?)\s*```", r"```\s*(.*?)\s*```"):
+        for match in re.finditer(pattern, text, re.DOTALL):
+            try:
+                values.append(json.loads(match.group(1).strip()))
+            except json.JSONDecodeError:
+                continue
 
-    # 3. Bare JSON object in surrounding text — decode from each { from the left, stopping at the
+    # 3. Bare JSON objects in surrounding text — decode from each { from the left, stopping at the
     # end of that object, so trailing commentary does not have to be balanced.
     decoder = json.JSONDecoder()
     start = 0
     while (brace_pos := text.find("{", start)) != -1:
         try:
-            value, _ = decoder.raw_decode(text, brace_pos)
+            value, end_pos = decoder.raw_decode(text, brace_pos)
         except json.JSONDecodeError as e:
-            # A decode that ran to the end of the text is a valid object the reply was cut off inside
-            # — a truncation. Returning a nested object from it would hand the caller a fragment, and
+            # Returning a nested object from a truncated reply would hand the caller a fragment, and
             # the schema error that follows names a missing field instead of the truncation. A decode
             # that fails well before the end is just a stray brace in prose, so skip past it.
             if e.pos >= len(text.rstrip()):
-                raise TruncatedAgentOutputError(label) from e
+                return values, True
             start = brace_pos + 1
             continue
-        return value
+        values.append(value)
+        start = end_pos
 
-    # 4. Last resort — try the whole text as-is, then surface a classified error so
-    # callers (and operators reading the failure) can tell empty / truncated / fenced / prose apart
-    # instead of seeing a bare "Expecting value: line 1 column 1 (char 0)".
-    stripped = text.strip()
+    # 4. The whole text as-is, which also covers valid top-level JSON that is not an object.
     try:
-        return json.loads(stripped)
-    except json.JSONDecodeError as e:
-        if not stripped:
-            raise ValueError(f"No JSON in {label}: end-turn text was empty or whitespace-only") from e
-        if _open_object_depth(text) > 0:
-            raise TruncatedAgentOutputError(label) from e
-        if "```" in text:
-            raise ValueError(
-                f"No valid JSON in {label}: text has a code fence but its contents did not parse as JSON"
-            ) from e
-        raise ValueError(
-            f"No JSON in {label}: end-turn text was prose with no JSON object (starts with {stripped[:60]!r})"
-        ) from e
+        values.append(json.loads(text.strip()))
+    except json.JSONDecodeError:
+        pass
+    return values, False
+
+
+def extract_json_from_text(text: str | None, label: str, required_keys: Collection[str] | None = None) -> Any:
+    """Extract JSON from text that might contain markdown formatting or surrounding commentary.
+
+    `required_keys` names the fields the caller needs. An agent turn often holds several JSON
+    objects — a tool call, a tool error envelope, a sample query — before the answer, so the last
+    object that carries every required key wins over the first object in the text.
+    """
+    if text is None:
+        raise ValueError(f"Text to extract JSON from ({label}) is None")
+
+    values, truncated = _collect_json_values(text)
+    if required_keys:
+        for value in reversed(values):
+            if isinstance(value, dict) and all(key in value for key in required_keys):
+                return value
+    if truncated:
+        raise TruncatedAgentOutputError(label)
+    if values:
+        return values[0]
+
+    # Last resort — surface a classified error so callers (and operators reading the failure) can
+    # tell empty / truncated / fenced / prose apart instead of seeing a bare
+    # "Expecting value: line 1 column 1 (char 0)".
+    stripped = text.strip()
+    if not stripped:
+        raise ValueError(f"No JSON in {label}: end-turn text was empty or whitespace-only")
+    if _open_object_depth(text) > 0:
+        raise TruncatedAgentOutputError(label)
+    if "```" in text:
+        raise ValueError(f"No valid JSON in {label}: text has a code fence but its contents did not parse as JSON")
+    raise ValueError(f"No JSON in {label}: end-turn text was prose with no JSON object (starts with {stripped[:60]!r})")

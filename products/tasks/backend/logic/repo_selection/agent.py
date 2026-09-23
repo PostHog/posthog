@@ -519,6 +519,26 @@ context and repo names alone.
 </jsonschema>"""
 
 
+def _salvage_repo_selection(text: str, candidate_repos: list[str]) -> RepoSelectionResult:
+    """Read a selection out of an end turn that did not validate against `RepoSelectionResult`.
+
+    A failure here costs the caller its automatic selection, so a reply that names exactly one
+    candidate is still worth keeping. Two or more named candidates leave the conclusion ambiguous:
+    raise instead, because the runner then fails the turn the way it did before this salvage, and
+    the caller keeps its own fallback. Never answer "no repository" from here — callers read that
+    as a decision the agent made.
+    """
+    lowered = text.lower()
+    named = {repo for repo in candidate_repos if repo.lower() in lowered}
+    if len(named) != 1:
+        raise ValueError(f"End-turn text names {len(named)} candidate repositories, so no selection can be read")
+    repository = named.pop()
+    return RepoSelectionResult(
+        repository=repository,
+        reason=f"The agent's answer was not readable, but its reply named only {repository}.",
+    )
+
+
 async def select_repository(
     team_id: int,
     user_id: int,
@@ -637,6 +657,9 @@ async def select_repository(
         signal_report_id=signal_report_id,
         ai_stage="repo_selection",
         internal=True,
+        # An unreadable end turn used to fail the whole selection, and the caller then dropped the
+        # user into a manual repository picker. Read the pick out of the raw reply instead.
+        fallback_from_text=lambda text: _salvage_repo_selection(text, candidate_repos),
     )
     # Track repo discovery execution (for example, for Slack)
     if on_research_session is not None:
