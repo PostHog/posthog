@@ -61,6 +61,8 @@ class TraceQueryDateRange(QueryDateRange):
     # Forward buffer: an upper bound on a single trace's duration. A trace that maps to a chat can
     # stay open across days, so a sub-day bound silently truncates it.
     FORWARD_CAPTURE_RANGE_MINUTES = 7 * 24 * 60
+    # Callers name calendar days: the trace detail tool takes a date-only `date_to`.
+    CALENDAR_DAY_DATE_TO_IS_INCLUSIVE = True
 
     def date_from_for_filtering(self) -> datetime:
         return super().date_from()

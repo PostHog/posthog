@@ -54,6 +54,8 @@ class TracesQueryDateRange(QueryDateRange):
     """
 
     CAPTURE_RANGE_MINUTES = 10
+    # Callers name calendar days: the trace list tool takes a date-only `date_to`.
+    CALENDAR_DAY_DATE_TO_IS_INCLUSIVE = True
 
     def date_from_for_filtering(self) -> datetime:
         return super().date_from()

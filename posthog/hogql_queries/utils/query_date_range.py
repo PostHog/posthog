@@ -51,6 +51,13 @@ class QueryDateRange:
     _now_without_timezone: datetime
     _earliest_timestamp_fallback: Optional[datetime]
 
+    # A `date_to` that names a calendar day covers the whole day, so an interval coarser than an
+    # hour ends the range at the last moment of it. A shorter interval ends the range at midnight,
+    # which makes a range that asks for a single day return nothing. A subclass whose callers pass
+    # calendar days sets this to True. The default stays False because the app date picker writes a
+    # bare day for every custom range, so a wider rule would move existing hour-granularity charts.
+    CALENDAR_DAY_DATE_TO_IS_INCLUSIVE = False
+
     def __init__(
         self,
         date_range: Optional[DateRange],
@@ -117,7 +124,9 @@ class QueryDateRange:
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
-            if compare_interval_length(self.interval_type, ">", IntervalType.HOUR) or self._date_to_is_calendar_day:
+            if compare_interval_length(self.interval_type, ">", IntervalType.HOUR) or (
+                self.CALENDAR_DAY_DATE_TO_IS_INCLUSIVE and self._date_to_is_calendar_day
+            ):
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             elif is_relative:
                 if self.interval_type == IntervalType.HOUR:
@@ -131,11 +140,7 @@ class QueryDateRange:
 
     @cached_property
     def _date_to_is_calendar_day(self) -> bool:
-        """Whether `date_to` names a calendar day with no time of day, such as `2026-09-01`.
-
-        Such a bound covers the whole day, so the range must end at the last moment of it. A bound
-        that ends at midnight instead makes a range that asks for one day return no data.
-        """
+        """Whether `date_to` names a calendar day with no time of day, such as `2026-09-01`."""
         date_to = self._date_range.date_to if self._date_range else None
         return bool(date_to and CALENDAR_DAY_RE.fullmatch(date_to.strip()))
 

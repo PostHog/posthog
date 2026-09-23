@@ -17,6 +17,10 @@ from posthog.interval_specs import PERIOD_MAP
 from posthog.models.team import WeekStartDay
 
 
+class CalendarDayInclusiveDateRange(QueryDateRange):
+    CALENDAR_DAY_DATE_TO_IS_INCLUSIVE = True
+
+
 class TestQueryDateRange(APIBaseTest):
     def test_parsed_date(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
@@ -308,16 +312,18 @@ class TestQueryDateRange(APIBaseTest):
 
     @parameterized.expand(
         [
-            (IntervalType.DAY, "2021-04-25", "2021-04-25T23:59:59.999999Z"),
-            (IntervalType.HOUR, "2021-04-25", "2021-04-25T23:59:59.999999Z"),
-            (IntervalType.MINUTE, "2021-04-25", "2021-04-25T23:59:59.999999Z"),
-            (IntervalType.MINUTE, "2021-04-25T10:30:00Z", "2021-04-25T10:30:00Z"),
+            (QueryDateRange, IntervalType.DAY, "2021-04-25", "2021-04-25T23:59:59.999999Z"),
+            (QueryDateRange, IntervalType.HOUR, "2021-04-25", "2021-04-25T00:00:00Z"),
+            (QueryDateRange, IntervalType.MINUTE, "2021-04-25", "2021-04-25T00:00:00Z"),
+            (CalendarDayInclusiveDateRange, IntervalType.MINUTE, "2021-04-25", "2021-04-25T23:59:59.999999Z"),
+            (CalendarDayInclusiveDateRange, IntervalType.MINUTE, "2021-4-25", "2021-04-25T23:59:59.999999Z"),
+            (CalendarDayInclusiveDateRange, IntervalType.MINUTE, "2021-04-25T10:30:00Z", "2021-04-25T10:30:00Z"),
         ]
     )
-    def test_bare_calendar_date_to_is_inclusive(self, interval, date_to, expected):
+    def test_bare_calendar_date_to_is_inclusive(self, date_range_class, interval, date_to, expected):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
         date_range = DateRange(date_from="2021-04-01", date_to=date_to)
-        query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=interval, now=now)
+        query_date_range = date_range_class(team=self.team, date_range=date_range, interval=interval, now=now)
 
         self.assertEqual(query_date_range.date_to(), parser.isoparse(expected))
 
