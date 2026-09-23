@@ -2994,7 +2994,6 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
@@ -4064,6 +4063,8 @@ jobs:
                   api="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?app_id=$DEPOT_APP_ID&check_name="
                   gate_url="$api$(jq -rn --arg n "$DEPOT_GATE_CHECK" '$n | @uri')"
                   wait_url="$api$(jq -rn --arg n "$DEPOT_WAIT_CHECK" '$n | @uri')"
+                  # shellcheck disable=SC2016 # $since and $pr are jq variables
+                  latest_run='[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id)'
                   # Reads one Depot check run into the named variable: absent, a status, or a
                   # conclusion. A 304 leaves it as it was.
                   # shellcheck disable=SC2034 # the nameref writes the caller's variable
@@ -4077,7 +4078,7 @@ jobs:
                       case "$code" in
                           200)
                               mv "/tmp/relay-$2.etag.new" "/tmp/relay-$2.etag"
-                              slot=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' "/tmp/relay-$2")
+                              slot=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" "$latest_run"' | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' "/tmp/relay-$2")
                               refusals=0
                               ;;
                           304) refusals=0 ;;
@@ -4114,7 +4115,33 @@ jobs:
                               esac
                               ;;
                           queued|in_progress|pending|waiting|requested) ;;
-                          *) echo "::error::Depot gate concluded $gate for $SHA"; exit 1 ;;
+                          *)
+                              depot_url=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" "$latest_run"' | .details_url // ""' /tmp/relay-gate)
+                              echo "::error::Backend tests on Depot CI concluded $gate. This step's log lists the retry options."
+                              printf '%s\n' \
+                                  "Backend tests for $SHA ran on Depot CI, not GitHub Actions. Re-running this job alone reads the same result." \
+                                  "Depot run: ${depot_url:-not found}" \
+                                  ""
+                              if [[ $depot_url =~ ^https://depot\.dev/orgs/([^/]+)/workflows/([a-z0-9]+) ]]; then
+                                  org=${BASH_REMATCH[1]}
+                                  workflow=${BASH_REMATCH[2]}
+                                  printf '%s\n' \
+                                      "Retry through the Depot CLI (needs access to the Depot org $org):" \
+                                      "  depot ci diagnose --org $org --workflow $workflow   # the failures, and the run ID on the 'Run:' line" \
+                                      "  depot ci retry <run ID> --org $org --workflow $workflow --failed" \
+                                      "  depot ci status <run ID> --org $org   # repeat until the run finishes" \
+                                      "  gh run rerun $GITHUB_RUN_ID --repo $REPO --failed   # relays the new Depot result" \
+                                      ""
+                              fi
+                              printf '%s\n' \
+                                  "Retry without Depot access: a new commit starts a fresh run." \
+                                  "  git commit --allow-empty -m 'chore: retry backend ci' && git push" \
+                                  "" \
+                                  "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there." \
+                                  "  gh pr edit $PR_NUMBER --repo $REPO --add-label ci-backend-github" \
+                                  "  git commit --allow-empty -m 'chore: retry backend ci on github actions' && git push"
+                              exit 1
+                              ;;
                       esac
                       # The gate check only appears when the matrix is done, so once Depot has
                       # started, a slower poll costs at most a minute of latency.

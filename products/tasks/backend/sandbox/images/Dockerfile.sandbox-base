@@ -161,7 +161,7 @@ RUN set -eux; \
 # every sandbox image with no PostHog commit or review. Bump this deliberately
 # in a reviewed PR when picking up a new agent release. COMMIT_HASH invalidates
 # the layer for PostHog-side image changes that keep the agent version unchanged.
-ARG AGENT_VERSION=2.4.208
+ARG AGENT_VERSION=2.4.215
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
     cd /scripts && \

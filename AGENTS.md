@@ -104,7 +104,7 @@ Never run `gh pr merge` or click the GitHub merge button — both are blocked by
 
 **Agents must not enqueue, merge, re-enqueue, or otherwise cause a PR to land without explicit user approval in the current conversation for the identified PR or stack.**
 Do not infer that approval from requests to prepare a PR, move it toward merge, make it ready, monitor it, or resolve its blockers.
-Agents may inspect status, fix code and CI, apply the `stamphog` label when a required approval is missing, and report that a PR is ready — then wait for a direct instruction.
+Agents may inspect status, fix code and CI, request a stamphog review when a required approval is missing (MCP first, label fallback, see `/merging-prs`), and report that a PR is ready — then wait for a direct instruction.
 
 Once approved, follow `/merging-prs` for the enqueue, watch and failure loop. It also covers why the PR's own checks never show queue progress.
 

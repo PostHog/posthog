@@ -1054,6 +1054,19 @@ class TestExperimentService(APIBaseTest):
                     "start_handling": "first_seen",
                 },
             ),
+            (
+                "valid_retention_exposure_start",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": {"kind": "ExperimentExposureNode"},
+                    "completion_event": {"kind": "EventsNode", "event": "purchase"},
+                    "retention_window_start": 0,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                    "start_handling": "first_seen",
+                },
+            ),
         ]
     )
     def test_validate_experiment_metrics_accepts_valid_payloads(self, _: str, metric: dict) -> None:
@@ -1185,6 +1198,56 @@ class TestExperimentService(APIBaseTest):
                 ]
             )
         assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    # ------------------------------------------------------------------
+    # validate_experiment_metrics — retention with an exposure start
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _retention_metric(**overrides) -> dict:
+        return {
+            "kind": "ExperimentMetric",
+            "metric_type": "retention",
+            "start_event": {"kind": "ExperimentExposureNode"},
+            "completion_event": {"kind": "EventsNode", "event": "purchase"},
+            "retention_window_start": 0,
+            "retention_window_end": 7,
+            "retention_window_unit": "day",
+            "start_handling": "first_seen",
+            **overrides,
+        }
+
+    def test_validate_experiment_metrics_accepts_conversion_window_on_custom_start_retention(self) -> None:
+        ExperimentService.validate_experiment_metrics(
+            [
+                self._retention_metric(
+                    start_event={"kind": "EventsNode", "event": "$pageview"},
+                    start_handling="last_seen",
+                    conversion_window=14,
+                    conversion_window_unit="day",
+                )
+            ]
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "conversion_window",
+                {"conversion_window": 14, "conversion_window_unit": "day"},
+                "conversion window",
+            ),
+            ("conversion_window_unit_only", {"conversion_window_unit": "day"}, "conversion window"),
+            ("last_seen_start_handling", {"start_handling": "last_seen"}, "last_seen"),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_ignored_settings_on_exposure_start(
+        self, _: str, overrides: dict, expected_fragment: str
+    ) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([self._retention_metric(**overrides)])
+        assert expected_fragment in str(ctx.exception), (
+            f"Expected fragment {expected_fragment!r} in error: {ctx.exception}"
+        )
 
     # ------------------------------------------------------------------
     # validate_experiment_metrics — improved pydantic error messages
@@ -5615,6 +5678,7 @@ class TestExperimentService(APIBaseTest):
             service.update_experiment(experiment, update_data)
         self.assertIn("legacy metric formats", str(cm.exception))
         self.assertIn(f"Cannot update: {expected_field_in_error}", str(cm.exception))
+        self.assertIn(f"/experiments/{experiment.id}/migrate", str(cm.exception))
 
     @parameterized.expand(
         [
