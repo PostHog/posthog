@@ -555,7 +555,13 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
 
     @parameterized.expand(
         [
-            ("submitted_to_merge_queue", MergeQueueState.NOT_READY, False, "pr_in_merge_queue", "in the merge queue"),
+            (
+                "submitted_to_merge_queue",
+                MergeQueueState.NOT_READY,
+                False,
+                "pr_in_merge_queue",
+                "submitted to the merge queue",
+            ),
             ("stacked_pull_requests", None, True, "pr_has_stacked_pull_requests", "stacked on this branch"),
         ]
     )
@@ -729,13 +735,13 @@ class TestFailedRunActivity(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("enqueued", MergeQueueState.TESTING, False, "pr_in_merge_queue", "entered the merge queue"),
+            ("enqueued", MergeQueueState.TESTING, False, "pr_in_merge_queue", "submitted to the merge queue"),
             (
                 "ejected_by_the_turn_push",
                 MergeQueueState.EJECTED,
                 False,
                 "pr_in_merge_queue",
-                "entered the merge queue",
+                "submitted to the merge queue",
             ),
             ("stacked", None, True, "pr_has_stacked_pull_requests", "now stacked on this branch"),
         ]

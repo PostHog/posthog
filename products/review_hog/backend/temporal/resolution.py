@@ -29,6 +29,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.sync import database_sync_to_async
@@ -194,7 +195,9 @@ def _fetch_pr_metadata(input: ResolveThreadsInput, token: str, installation_id: 
 
 def _run_github(team_id: int, integration_row_id: int) -> GitHubIntegration:
     """The run-pinned installation, rebuilt from its row so every call mints a fresh token."""
-    return GitHubIntegration(Integration.objects.get(id=integration_row_id, team_id=team_id))
+    return GitHubIntegration(
+        Integration.objects.get(id=integration_row_id, team_id=team_id), source="review_hog", priority=Priority.NORMAL
+    )
 
 
 def _merge_queue_state(input: ResolveThreadsInput, github: GitHubIntegration) -> MergeQueueState | None:

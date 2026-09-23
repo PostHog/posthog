@@ -289,11 +289,11 @@ def render_resolution_held_section(hold: CommitHold, *, done: int = 0, total: in
         why = "A fix commit here would leave the stacked pull requests out of date"
     else:
         line = (
-            f"Stopped resolving comments at {done}/{total}: this pull request entered the merge queue"
+            f"Stopped resolving comments at {done}/{total}: this pull request was submitted to the merge queue"
             if total
-            else "Not resolving comments: this pull request is in the merge queue"
+            else "Not resolving comments: this pull request is submitted to the merge queue"
         )
-        why = "A fix commit would remove it from the queue"
+        why = "A fix commit would change what was submitted, or remove it from the queue"
     return "\n".join([f"**{line}**", "", f"<sub>{why}, so the open threads stay with you.</sub>"])
 
 
