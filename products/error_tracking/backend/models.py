@@ -625,8 +625,8 @@ class ErrorTrackingStackFrame(UUIDTModel):
             # Covers the source maps recommendation's count of recent JavaScript frames. The
             # predicate holds the language test, so Postgres never detoasts the wide `contents`
             # column to answer it. The scan still visits the heap for every row on a page the
-            # visibility map does not mark all-visible, which on this insert-hot table is most
-            # of the recent window — hence the lowered autovacuum insert scale factor.
+            # visibility map does not mark all-visible. The table's lowered autovacuum insert
+            # scale factor is what keeps that map covering the recent window.
             models.Index(
                 fields=["team", "created_at"],
                 include=["resolved"],

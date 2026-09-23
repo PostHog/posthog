@@ -1,13 +1,12 @@
 from django.db import migrations
 
-# The source maps recommendation counts each team's JavaScript frames from the last 24 hours.
-# et_frame_team_created_js_idx covers that count, but an index-only scan still visits the heap
-# for every row on a page the visibility map does not mark all-visible, and this table is
-# insert-hot: the freshest 24 hours is exactly the part the map never covers. At the default
-# insert scale factor of 0.2 a table this large waits for 20% growth before an insert-driven
-# autovacuum runs, so the count pays a heap visit per recent row. 0.005 keeps the map close to
-# the write head. An insert-driven vacuum skips all-visible pages and skips the index pass when
-# it finds no dead tuples, so the extra work stays proportional to the new pages.
+# et_frame_team_created_js_idx covers the source maps recommendation's count of recent
+# JavaScript frames, but an index-only scan visits the heap for every row on a page the
+# visibility map does not mark all-visible. At the default insert scale factor of 0.2 a table
+# this large waits for 20% growth before an insert-driven autovacuum runs, so the map never
+# covers the recent window this count reads. 0.005 keeps it close to the write head. An
+# insert-driven vacuum skips all-visible pages, and skips the index pass when it finds no
+# dead tuples, so the extra work stays proportional to the new pages.
 TABLE = "posthog_errortrackingstackframe"
 INSERT_SCALE_FACTOR = 0.005
 
