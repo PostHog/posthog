@@ -369,7 +369,6 @@ class TestBuildTurnTranscript(SimpleTestCase):
 
 def _judgment(**overrides: Any) -> TurnJudgment:
     judgment = TurnJudgment(
-        model="jev-1.13.0",
         show_probability=0.9,
         intent=TurnIntent.METRIC_STATE,
         offer=OfferKind.SCOUT,

@@ -177,7 +177,6 @@ _ISSUE_RESOLVED = Noul(
 
 @frozen
 class TurnJudgment:
-    model: str
     show_probability: float
     intent: TurnIntent
     offer: OfferKind
@@ -296,29 +295,23 @@ def judge_turn(transcript: TurnTranscript, *, available: frozenset[OfferKind]) -
         return None
 
     choices = answers.choices
-    offer = OfferKind(choices["offer"].choice)
-    insight_key = choices["insight"].choice if "insight" in choices else _NO_MATCH
-    issue_key = choices["error_issue"].choice if "error_issue" in choices else _NO_MATCH
+
+    def picked(question_id: str, default: str) -> str:
+        # Speculative questions are only asked when their offer is available, so an absent answer
+        # falls back to a default the policy never reads.
+        return choices[question_id].choice if question_id in choices else default
+
     return TurnJudgment(
-        model=answers.model,
         show_probability=answers.nouls["show_offer"].noul,
         intent=TurnIntent(choices["intent"].choice),
-        offer=offer,
+        offer=OfferKind(choices["offer"].choice),
         offer_probabilities=dict(choices["offer"].probabilities),
-        scout_mode=ScoutMode(choices["scout_mode"].choice) if "scout_mode" in choices else ScoutMode.REPORT,
-        cadence=ScoutCadence(choices["cadence"].choice) if "cadence" in choices else ScoutCadence.WEEKLY,
-        notebook_template=(
-            NotebookTemplate(choices["notebook_template"].choice)
-            if "notebook_template" in choices
-            else NotebookTemplate.CONVERSATION
-        ),
-        alert_direction=(
-            AlertDirection(choices["alert_direction"].choice)
-            if "alert_direction" in choices
-            else AlertDirection.DECREASE
-        ),
-        alert_change_percent=_ALERT_CHANGE_PERCENT[choices["alert_change"].choice] if "alert_change" in choices else 20,
-        insight=_insight_options(transcript).get(insight_key),
-        error_issue=_issue_options(transcript).get(issue_key),
+        scout_mode=ScoutMode(picked("scout_mode", ScoutMode.REPORT)),
+        cadence=ScoutCadence(picked("cadence", ScoutCadence.WEEKLY)),
+        notebook_template=NotebookTemplate(picked("notebook_template", NotebookTemplate.CONVERSATION)),
+        alert_direction=AlertDirection(picked("alert_direction", AlertDirection.DECREASE)),
+        alert_change_percent=_ALERT_CHANGE_PERCENT[picked("alert_change", "moderate")],
+        insight=_insight_options(transcript).get(picked("insight", _NO_MATCH)),
+        error_issue=_issue_options(transcript).get(picked("error_issue", _NO_MATCH)),
         issue_resolved_probability=answers.nouls["issue_resolved"].noul if "issue_resolved" in answers.nouls else 0.0,
     )
