@@ -18,10 +18,6 @@ from pydantic import ValidationError
 
 from products.signals.backend.artefact_schemas import SuggestedReviewers
 from products.signals.backend.models import SignalReportArtefact, SignalReportSuggestedReviewer
-from products.signals.backend.report_generation.resolve_reviewers import (
-    ReviewerIdentity,
-    reviewer_identities_from_payloads,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -50,6 +46,14 @@ def _current_reviewer_artefacts(team_id: int, report_id: str) -> list[SignalRepo
 
 
 def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSuggestedReviewer]:
+    # `receivers` imports this module from `SignalsConfig.ready()`, so importing reviewer
+    # resolution at module scope would put it and the signals contracts behind it on the
+    # `django.setup()` path of every process. Only an index write needs them.
+    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
+        ReviewerIdentity,
+        reviewer_identities_from_payloads,
+    )
+
     log_fields = {
         "team_id": artefact.team_id,
         "report_id": str(artefact.report_id),
