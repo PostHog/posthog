@@ -106,8 +106,8 @@ export function WizardRunTable({
                     )
                 }
                 return (
-                    <Text size="sm" className="flex items-center gap-1">
-                        <IconFolder />
+                    <Text size="xs" className="flex h-6 items-center gap-1 px-2">
+                        <IconFolder className="size-3" />
                         {wizardWorkspaceLabel(run)}
                     </Text>
                 )
