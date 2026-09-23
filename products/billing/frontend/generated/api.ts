@@ -28,6 +28,7 @@ import type {
     BillingProductsApi,
     BillingProductsListParams,
     BillingProductsRetrieveParams,
+    BillingProductsSummaryApi,
     BillingProjectsApi,
     BillingSpendExportRetrieveParams,
     BillingSpendRetrieveParams,
@@ -785,6 +786,24 @@ export const billingProductsRetrieve = async (
     options?: RequestInit
 ): Promise<BillingProductApi> => {
     return apiMutator<BillingProductApi>(getBillingProductsRetrieveUrl(organizationId, productKey, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProductsSummaryRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/products/summary/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get every product in summary
+ */
+export const billingProductsSummaryRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingProductsSummaryApi> => {
+    return apiMutator<BillingProductsSummaryApi>(getBillingProductsSummaryRetrieveUrl(organizationId), {
         ...options,
         method: 'GET',
     })

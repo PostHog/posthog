@@ -17,6 +17,7 @@ import { insightsList, insightsRetrieve } from 'products/product_analytics/front
 
 import { markdownNode, PosthogFilesystem, terminalFilename } from './posthogFilesystem'
 import { TerminalCommands } from './terminalCommands'
+import { parseRemovalArguments, RM_SCRIPT } from './terminalRemove'
 
 interface Command {
     name: string
@@ -45,6 +46,7 @@ ph <command> --json '{...}'       Supply a JSON arguments object
 ph <command> --json @args.json    Read arguments from a Linux file
 ph <command> --json -            Read arguments from stdin
 ph refresh                       Reload the project tree and connected tool catalog
+ph open [path]                   Open a project file or folder in PostHog (defaults to .)
 
 Examples:
   ph notebooks-list --limit 10 | jq .results
@@ -135,7 +137,8 @@ export class PosthogCommands {
     constructor(
         private projectId: string,
         private signal: AbortSignal,
-        private filesystem: PosthogFilesystem
+        private filesystem: PosthogFilesystem,
+        private navigate: (url: string) => void
     ) {
         this.toolDirectory = filesystem.directory('tools', filesystem.root)
         const options = { signal }
@@ -253,6 +256,7 @@ export class PosthogCommands {
             this.register(tool)
         }
         new TerminalCommands(filesystem, (argv, cwd) => this.execute(argv, cwd))
+        filesystem.text('rm', filesystem.directory('bin', filesystem.root), RM_SCRIPT)
     }
 
     private register(tool: Command): void {
@@ -362,6 +366,29 @@ export class PosthogCommands {
 
     async execute(argv: string[], cwd: string): Promise<unknown> {
         const [name = 'help', ...rest] = argv
+        if (name === 'terminal-remove') {
+            if (rest.length !== 2 || rest[0] !== '--json') {
+                throw new Error('Use rm to delete PostHog files.')
+            }
+            const request = z
+                .object({ argv: z.array(z.string()).max(1000) })
+                .strict()
+                .parse(JSON.parse(rest[1]))
+            const { paths, recursive, force } = parseRemovalArguments(request.argv)
+            await this.filesystem.removePaths(paths, recursive, force)
+            return null
+        }
+        if (name === 'open') {
+            if (rest.length > 1) {
+                throw new Error('Use open with one file or folder path. Quote paths containing spaces.')
+            }
+            const url = await this.filesystem.navigationUrl(rest[0] ?? '.', cwd)
+            if (this.signal.aborted) {
+                throw new Error('The terminal stopped. Start it again before opening a file.')
+            }
+            this.navigate(url)
+            return `Opened ${rest[0] ?? '.'} in PostHog.`
+        }
         if (name === 'help' || name === '--help') {
             if (!rest.length) {
                 return help
@@ -394,7 +421,17 @@ export class PosthogCommands {
             const { invoke: _, ...description } = tool
             return description
         }
-        return tool.invoke(await this.parseArguments(tool, rest, cwd))
+        const args = await this.parseArguments(tool, rest, cwd)
+        if (tool.name.includes('/') || tool.name === 'notebooks-destroy' || args.deleted) {
+            await this.filesystem.confirmOperation({
+                title: tool.name.includes('/') ? 'Run a connected tool?' : 'Delete a PostHog object?',
+                description: tool.name.includes('/')
+                    ? `Run ${tool.name} from project ${this.projectId}. Connected tools can change or delete data in external services. Review the tool and its arguments before continuing.`
+                    : `Run ${tool.name} in project ${this.projectId}. This deletes the specified notebook for everyone in the project.`,
+                items: [tool.description, JSON.stringify(args, null, 2)],
+            })
+        }
+        return tool.invoke(args)
     }
 
     private async find(name: string): Promise<Command> {

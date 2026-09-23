@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
+import { router } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -7,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { NinePServer } from './ninepServer'
 import { PosthogCommands } from './posthogCommands'
 import { PosthogFilesystem } from './posthogFilesystem'
+import { TerminalConfirmation } from './terminalConfirmation'
 import { terminalDockLogic } from './terminalDockLogic'
 import { TerminalRuntime } from './terminalRuntime'
 import { TerminalSession } from './TerminalSession'
@@ -29,6 +31,7 @@ export interface terminalLogicValues {
     currentTeamId: number | null // teamLogic
     terminalEnabled: boolean // terminalDockLogic
     clipboardError: string | null
+    confirmation: TerminalConfirmation | null
     error: string | null
     hasSelection: boolean
     hasStarted: boolean
@@ -43,6 +46,13 @@ export interface terminalLogicActions {
     focusTerminal: () => {
         value: true
     } // terminalDockLogic
+    answerConfirmation: (
+        confirmation: TerminalConfirmation,
+        approved: boolean
+    ) => {
+        approved: boolean
+        confirmation: TerminalConfirmation
+    }
     attach: (container: HTMLElement) => {
         container: HTMLElement
     }
@@ -63,6 +73,9 @@ export interface terminalLogicActions {
     }
     setClipboardError: (error: string | null) => {
         error: string | null
+    }
+    setConfirmation: (confirmation: TerminalConfirmation | null) => {
+        confirmation: TerminalConfirmation | null
     }
     setError: (error: string | null) => {
         error: string | null
@@ -96,6 +109,8 @@ export const terminalLogic = kea<terminalLogicType>([
         actions: [terminalDockLogic, ['focusTerminal']],
     }),
     actions({
+        setConfirmation: (confirmation: TerminalConfirmation | null) => ({ confirmation }),
+        answerConfirmation: (confirmation: TerminalConfirmation, approved: boolean) => ({ confirmation, approved }),
         start: true,
         attach: (container: HTMLElement) => ({ container }),
         detach: (container: HTMLElement) => ({ container }),
@@ -112,6 +127,10 @@ export const terminalLogic = kea<terminalLogicType>([
         setSaveError: (error: string | null) => ({ error }),
     }),
     reducers({
+        confirmation: [
+            null as TerminalConfirmation | null,
+            { setConfirmation: (_, { confirmation }) => confirmation, stop: () => null },
+        ],
         hasStarted: [false, { start: () => true }],
         runRequested: [false, { start: () => true, stop: () => false }],
         hasSelection: [false, { setHasSelection: (_, { selected }) => selected }],
@@ -126,10 +145,15 @@ export const terminalLogic = kea<terminalLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        answerConfirmation: ({ confirmation, approved }) => {
+            if (values.confirmation === confirmation) {
+                cache.answerConfirmation?.(approved)
+            }
+        },
         attach: ({ container }) => {
             if (!cache.session) {
                 cache.session = new TerminalSession(
-                    (data) => cache.runtime?.write(data),
+                    (data) => !values.confirmation && cache.runtime?.write(data),
                     (columns, rows) => cache.runtime?.resize(columns, rows),
                     actions.setHasSelection,
                     actions.paste
@@ -149,21 +173,27 @@ export const terminalLogic = kea<terminalLogicType>([
             }
         },
         detach: ({ container }) => cache.session?.detach(container),
-        focus: () => cache.session?.view.focus(),
+        focus: () => !values.confirmation && cache.session?.view.focus(),
         focusTerminal: () => actions.focus(),
         insertCommand: ({ command }) => {
+            if (values.confirmation) {
+                return
+            }
             cache.session?.view.paste(command)
             actions.focus()
         },
         copy: () => void copyToClipboard(cache.session?.view.getSelection() ?? '', 'terminal selection'),
         paste: async () => {
-            if (values.pasting) {
+            if (values.pasting || values.confirmation) {
                 return
             }
             actions.setPasting(true)
             actions.setClipboardError(null)
             try {
                 const text = await navigator.clipboard.readText()
+                if (values.confirmation) {
+                    return
+                }
                 cache.session?.view.paste(text)
                 actions.focus()
             } catch {
@@ -209,6 +239,7 @@ export const terminalLogic = kea<terminalLogicType>([
             disposables.add(
                 () => () => {
                     controller.abort()
+                    disposables.dispose('confirmation')
                     disposables.dispose('clock-sync')
                     runtime.dispose()
                     if (cache.runtime === runtime) {
@@ -222,12 +253,52 @@ export const terminalLogic = kea<terminalLogicType>([
                 'terminal',
                 { pauseOnPageHidden: false }
             )
-            const agent: TerminalAgent = { write: (data) => runtime.write(data), read: () => runtime.read() }
+            const agent: TerminalAgent = {
+                write: (data) => !values.confirmation && runtime.write(data),
+                read: () => runtime.read(),
+            }
             actions.setStatus('loading')
             try {
-                const filesystem = new PosthogFilesystem(String(projectId), controller.signal)
+                let confirmationQueue = Promise.resolve(false)
+                const filesystem = new PosthogFilesystem(String(projectId), controller.signal, (confirmation) => {
+                    const pending = confirmationQueue.then(() => {
+                        if (controller.signal.aborted) {
+                            return false
+                        }
+                        return new Promise<boolean>((resolve) => {
+                            disposables.add(
+                                () => {
+                                    const blockKeyboard = (event: KeyboardEvent): void => {
+                                        event.preventDefault()
+                                        event.stopImmediatePropagation()
+                                    }
+                                    for (const type of ['keydown', 'keypress', 'keyup'] as const) {
+                                        window.addEventListener(type, blockKeyboard, true)
+                                    }
+                                    cache.answerConfirmation = (approved: boolean): void => {
+                                        resolve(approved)
+                                        disposables.dispose('confirmation')
+                                    }
+                                    actions.setConfirmation(confirmation)
+                                    return () => {
+                                        resolve(false)
+                                        cache.answerConfirmation = null
+                                        actions.setConfirmation(null)
+                                        for (const type of ['keydown', 'keypress', 'keyup'] as const) {
+                                            window.removeEventListener(type, blockKeyboard, true)
+                                        }
+                                    }
+                                },
+                                'confirmation',
+                                { pauseOnPageHidden: false }
+                            )
+                        })
+                    })
+                    confirmationQueue = pending
+                    return pending
+                })
                 cache.filesystem = filesystem
-                new PosthogCommands(String(projectId), controller.signal, filesystem)
+                new PosthogCommands(String(projectId), controller.signal, filesystem, (url) => router.actions.push(url))
                 actions.setStatus('booting')
                 const server = new NinePServer(filesystem, (error) => {
                     if (!controller.signal.aborted) {
