@@ -496,10 +496,13 @@ _stock_flush_examples: defaultdict[str, list[str]] = defaultdict(list)
 def _busy_sessions(db_name: str) -> list[tuple[str, str]]:
     """Other client sessions on the database that are not idle, as (state, description) pairs."""
     with connections[db_name].cursor() as cursor:
+        # Only the command keyword of the last query: Django binds parameters client-side, so the
+        # full text can hold literal values, and this report lands in public CI logs.
         cursor.execute(
             """
             SELECT state, pid, application_name, wait_event_type, wait_event,
-                   now() - backend_start, now() - xact_start, now() - state_change, left(query, 200)
+                   now() - backend_start, now() - xact_start, now() - state_change,
+                   upper(split_part(ltrim(query), ' ', 1))
             FROM pg_stat_activity
             WHERE datname = current_database()
               AND pid <> pg_backend_pid()
@@ -511,9 +514,9 @@ def _busy_sessions(db_name: str) -> list[tuple[str, str]]:
             (
                 state,
                 f"pid={pid} state={state!r} app={app!r} wait_event={wait_type}/{wait_event} "
-                f"backend_age={backend_age} xact_age={xact_age} state_age={state_age} last_query={query!r}",
+                f"backend_age={backend_age} xact_age={xact_age} state_age={state_age} last_command={command}",
             )
-            for state, pid, app, wait_type, wait_event, backend_age, xact_age, state_age, query in cursor.fetchall()
+            for state, pid, app, wait_type, wait_event, backend_age, xact_age, state_age, command in cursor.fetchall()
         ]
 
 
