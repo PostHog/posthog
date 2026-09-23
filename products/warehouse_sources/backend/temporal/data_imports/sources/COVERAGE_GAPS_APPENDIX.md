@@ -2381,14 +2381,14 @@ Today (6): `balances`, `invites`, `keys`, `members`, `projects`, `requests`
 
 Diffed against: <https://developers.deepgram.com/openapi.json>
 
-- [ ] `/v1/projects/{project_id}/usage (+ /usage/breakdown)` — the headline metric: transcription/TTS usage per project, sliced by model and feature (high)
-- [ ] `/v1/projects/{project_id}/billing/breakdown` — spend broken down per project — pairs with balances to explain credit burn (high)
-- [ ] `/v1/models and /v1/projects/{project_id}/models` — lookup table resolving the model IDs that appear on synced request rows (high)
+- [x] `/v1/projects/{project_id}/usage (+ /usage/breakdown)` — the headline metric: transcription/TTS usage per project, sliced by model and feature (high)
+- [x] `/v1/projects/{project_id}/billing/breakdown` — spend broken down per project — pairs with balances to explain credit burn (high)
+- [x] `/v1/models and /v1/projects/{project_id}/models` — lookup table resolving the model IDs that appear on synced request rows (high)
 - [ ] `/v1/projects/{project_id}/purchases` — credit purchase transactions behind the balance (medium)
-- [ ] `/v1/projects/{project_id}/usage/fields and /billing/fields` — the set of models, methods and features seen in a period — breakdown dimensions for usage (medium)
+- [x] `/v1/projects/{project_id}/usage/fields and /billing/fields` — the set of models, methods and features seen in a period — breakdown dimensions for usage (medium)
 - [ ] `/v1/projects/{project_id}/members/{member_id}/scopes` — membership permissions per project member (low)
 
-Note: The Management API is only ~28 GET operations; the missing pieces are almost entirely the usage/billing analytics half of it. Agent configuration endpoints (/agents, /agent-variables) were excluded as config.
+Note: The Management API is only ~28 GET operations; the missing pieces are almost entirely the usage/billing analytics half of it. Agent configuration endpoints (/agents, /agent-variables) were excluded as config. Of the ticked entries, `/v1/projects/{project_id}/usage` itself was left out: its response carries only the requested window and resolution, with no results payload, and the vendor points at `/usage/breakdown` for the numbers. `/v1/models` was covered by the project-scoped variant, which returns the same models plus the project's non-public ones.
 
 ## Deepsource — gaps
 
