@@ -32,6 +32,9 @@ const g = await api.tags.list(projectId)
 // ruleid: prefer-codegen-api-namespaced-posthog_ai
 const h = await api.coreMemory.get()
 
+// ruleid: prefer-codegen-api-namespaced-shared-activity
+const l = await api.activity.list(id)
+
 // The bare verbs are the other rule's job.
 // ok: prefer-codegen-api-namespaced-signals
 const i = await api.get(`api/projects/${projectId}/signals/reports/`)

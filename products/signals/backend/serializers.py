@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
+    GITHUB_LABEL_NAME_MAX_LENGTH,
     MAX_SCOUT_REPORT_NOTES,
     AutonomyPriority,
     SignalActorKind,
@@ -60,6 +61,7 @@ from .models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
 from .report_metric_access import ReportMetricAccessPolicy
@@ -160,6 +162,13 @@ class _SourceConfigField(serializers.JSONField):
     plain JSONField; steering-key validation stays in the serializer's `validate`."""
 
 
+# The three states get_status maps the warehouse import's status down to. Declared so the generated
+# client narrows to them rather than to a bare string, which is what the frontend already does by
+# hand. `status` is too generic a field name for drf-spectacular to name a set on its own, so the
+# name comes from ENUM_NAME_OVERRIDES.
+SIGNAL_SOURCE_CONFIG_STATUSES = ["running", "completed", "failed"]
+
+
 class SignalSourceConfigSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField(
         help_text=(
@@ -189,6 +198,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         # Absent key means "not read yet", a `None` value means the read failed.
         self._data_import_statuses_by_team: dict[int, dict[_DataImportSchema, set[str]] | None] = {}
 
+    @extend_schema_field(serializers.ChoiceField(choices=SIGNAL_SOURCE_CONFIG_STATUSES, allow_null=True))
     def get_status(self, obj: SignalSourceConfig) -> str | None:
         schema = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
         if schema is None:
@@ -369,6 +379,25 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "default. Needs a GitHub integration that can reach the issue's repository."
         ),
     )
+    pull_request_label_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether self-driving adds a label to every pull request it opens, so GitHub search, "
+            "saved searches, and notification rules can separate them from other automation on the "
+            "repository. False by default. Needs a GitHub integration that can reach the repository."
+        ),
+    )
+    pull_request_label = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=GITHUB_LABEL_NAME_MAX_LENGTH,
+        help_text=(
+            f"The label name self-driving applies, at most {GITHUB_LABEL_NAME_MAX_LENGTH} characters. "
+            f"Null or blank means '{DEFAULT_PULL_REQUEST_LABEL}'. The label is created in the repository "
+            "when it does not exist yet. Only used while pull_request_label_enabled is true."
+        ),
+    )
     reports_generated_today = serializers.SerializerMethodField(
         help_text=(
             "How many reports first became visible in the inbox during the current project-timezone "
@@ -381,6 +410,11 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "local midnight. Always false when max_reports_per_day is null."
         )
     )
+
+    def validate_pull_request_label(self, value: str | None) -> str | None:
+        # One stored shape for "use the default", so a team that clears the box does not get a
+        # label GitHub would refuse.
+        return (value or "").strip() or None
 
     # Memoized per serializer instance: both computed fields need the same count, and an
     # instance only ever renders the team's one singleton row.
@@ -418,6 +452,8 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "max_reports_per_day",
             "default_open_pull_request_ready",
             "github_issue_writeback_enabled",
+            "pull_request_label_enabled",
+            "pull_request_label",
             "reports_generated_today",
             "daily_report_limit_reached",
             "created_at",

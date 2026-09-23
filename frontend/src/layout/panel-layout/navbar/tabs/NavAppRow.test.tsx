@@ -1,11 +1,13 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, TeamType } from '~/types'
 
+import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { NavAppRow } from './NavAppRow'
 
@@ -24,6 +26,21 @@ describe('NavAppRow', () => {
     })
 
     afterEach(cleanup)
+
+    it('closes the temporary navigation when selecting the current app', () => {
+        router.actions.push('/project/1/feature_flags')
+        panelLayoutLogic.mount()
+        panelLayoutLogic.actions.toggleLayoutNavCollapsed(true)
+        panelLayoutLogic.actions.setNavOverlayOpen(true)
+        const { container } = render(
+            <NavAppRow item={{ path: 'Feature flags', iconType: 'feature_flag', href: '/feature_flags' }} />
+        )
+
+        fireEvent.click(container.querySelector('[data-attr="nav-apps-item"]')!)
+
+        expect(panelLayoutLogic.values.isNavOverlayOpen).toBe(false)
+        expect(panelLayoutLogic.values.isLayoutNavCollapsed).toBe(true)
+    })
 
     it('disables navigation and starring when access to a product is denied', () => {
         window.POSTHOG_APP_CONTEXT = {
