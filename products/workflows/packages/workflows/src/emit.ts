@@ -3,13 +3,16 @@
 
 import type {
     Action,
+    ActionOutputVariables,
     BranchCondition,
     Duration,
     Edge,
     EmailSender,
     ExitCondition,
     FunctionInputs,
+    JsonObject,
     JsonValue,
+    StepFilters,
     TriggerConfig,
     WorkflowDefinition,
     WorkflowStatus,
@@ -457,14 +460,70 @@ function place(steps: readonly Step[], ids: Ids, inBranch: boolean): Placement[]
         if (step.kind === 'branch') {
             return { step, id, branches: step.branches.map((spec) => place(spec.then, ids, true)) }
         }
+        if (step.kind === 'passthrough') {
+            return { step, id, branches: step.branches.map((subPath) => place(subPath, ids, true)) }
+        }
         return { step, id }
     })
 }
 
 // PostHog's action serializer defaults a missing description to an empty string, so a step
 // without one leaves the key out and a second push still finds nothing changed.
-function descriptionOf(step: Step): { description?: string } {
+function descriptionOf(step: { readonly description?: string }): { description?: string } {
     return step.description === undefined ? {} : { description: step.description }
+}
+
+function optionalActionFields(step: Step): {
+    filters?: StepFilters | null
+    on_error?: 'continue' | 'abort' | null
+    output_variable?: ActionOutputVariables | null
+} {
+    if (step.kind !== 'passthrough') {
+        return {}
+    }
+    return {
+        ...(step.filters === undefined ? {} : { filters: step.filters }),
+        ...(step.on_error === undefined ? {} : { on_error: step.on_error }),
+        ...(step.output_variable === undefined ? {} : { output_variable: step.output_variable }),
+    }
+}
+
+function resolvePassThroughConfig(
+    step: Step & { kind: 'passthrough' },
+    actionId: string,
+    context: Context
+): JsonObject {
+    if (!Object.hasOwn(step.config, 'inputs')) {
+        return step.config as JsonObject
+    }
+
+    const inputs = step.config.inputs
+    if (typeof inputs !== 'object' || inputs === null || Array.isArray(inputs)) {
+        refuseNestedSecret(inputs, 'inputs', step)
+        return step.config as JsonObject
+    }
+
+    const resolvedInputs: Record<string, JsonValue> = {}
+    for (const [key, raw] of Object.entries(inputs)) {
+        if (!isSecretRef(raw)) {
+            refuseNestedSecret(raw, key, step)
+            resolvedInputs[key] = raw
+            continue
+        }
+        const value = context.env[raw.__secret]
+        if (value === undefined || value === '') {
+            throw new WorkflowError({
+                status: 'missing_secret',
+                message: `The environment variable ${raw.__secret} is not set or is empty.`,
+                why: `Step "${step.name}" names ${raw.__secret} for the secret input "${key}". A secret is always sent rather than read back from PostHog, so there is nothing to send.`,
+                fix: `Set ${raw.__secret} in the environment that runs the push, then push again.`,
+            })
+        }
+        resolvedInputs[key] = { value }
+        context.secretInputs.push({ actionId, inputKey: key, envName: raw.__secret })
+    }
+
+    return { ...step.config, inputs: resolvedInputs }
 }
 
 // Returns the id of the path's first node, which the caller needs for the edge into it.
@@ -513,17 +572,28 @@ function emitPath(placements: readonly Placement[], continuation: string, contex
             return
         }
 
-        const conditions: BranchCondition[] = step.branches.map((spec) => ({
-            name: spec.name,
-            filters: { properties: [...spec.when] },
-        }))
-        context.actions.push({
-            id,
-            name: step.name,
-            ...descriptionOf(step),
-            type: 'conditional_branch',
-            config: { conditions },
-        })
+        if (step.kind === 'branch') {
+            const conditions: BranchCondition[] = step.branches.map((spec) => ({
+                name: spec.name,
+                filters: { properties: [...spec.when] },
+            }))
+            context.actions.push({
+                id,
+                name: step.name,
+                ...descriptionOf(step),
+                type: 'conditional_branch',
+                config: { conditions },
+            })
+        } else {
+            context.actions.push({
+                id,
+                name: step.name,
+                ...descriptionOf(step),
+                ...optionalActionFields(step),
+                type: step.type,
+                config: resolvePassThroughConfig(step, id, context),
+            } as Action)
+        }
         // The fall-through edge is the no-match path out of the branch.
         context.edges.push({ from: id, to: next, type: 'continue' })
 

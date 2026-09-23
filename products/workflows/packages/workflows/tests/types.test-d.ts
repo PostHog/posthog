@@ -1,7 +1,20 @@
 // `tsc` fails this file when an `@ts-expect-error` line stops being an error, so a
 // type rule that relaxes breaks the build.
 
-import { branch, delay, email, fn, group, onSchedule, path, person, secret, workflow } from '../src/index.js'
+import {
+    branch,
+    delay,
+    email,
+    fn,
+    group,
+    onSchedule,
+    path,
+    person,
+    secret,
+    step,
+    trigger,
+    workflow,
+} from '../src/index.js'
 
 const wait = delay('1d', { name: 'Wait a day' })
 const onPaidPlan = [person('plan', 'exact', ['pro'])] as const
@@ -107,3 +120,28 @@ workflow({
 // @ts-expect-error - groupTypeIndex is required
 const accountTier = group('tier', 'exact', ['enterprise'])
 void accountTier
+
+step({
+    type: 'function_sms',
+    name: 'Send a text message',
+    config: { template_id: 'template-twilio', inputs: { message: { value: 'Hello' } } },
+    on_error: 'continue',
+    output_variable: { key: 'sms_result', label: 'SMS result' },
+})
+step({
+    type: 'function_sms',
+    name: 'Send a secret text',
+    config: { template_id: 'template-twilio', inputs: { message: secret('SMS_MESSAGE') } },
+})
+
+workflow({
+    key: 'manual-start',
+    name: 'Manual start',
+    on: trigger({
+        type: 'manual',
+        template_id: 'template-source-webhook',
+        inputs: { event: { value: '$workflow_triggered' }, distinct_id: { value: '{request.body.user_id}' } },
+    }),
+    steps: path(wait),
+    exit: { reason: 'Done' },
+})

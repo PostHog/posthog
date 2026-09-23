@@ -74,7 +74,10 @@ export interface ActionFilters {
  *
  * Build one with `onEvent` or `onSchedule` and pass it as the workflow's `on`.
  */
-export type TriggerConfig = { readonly type: 'event'; readonly filters: ActionFilters } | { readonly type: 'schedule' }
+export type TriggerConfig =
+    | { readonly type: 'event'; readonly filters: ActionFilters }
+    | { readonly type: 'schedule' }
+    | ({ readonly type: string } & JsonObject)
 
 /**
  * One condition of a `conditional_branch` action in the definition.
@@ -151,6 +154,22 @@ export interface EmailSender {
  */
 export type EmailDesign = Readonly<Record<string, unknown>>
 
+export interface ActionOutputVariable {
+    readonly key: string
+    readonly result_path?: string | null
+    readonly spread?: boolean | null
+    readonly label?: string | null
+}
+
+export type ActionOutputVariables = ActionOutputVariable | readonly ActionOutputVariable[]
+
+export interface StepFilters {
+    readonly events?: readonly JsonValue[]
+    readonly properties?: readonly JsonValue[]
+    readonly actions?: readonly JsonValue[]
+    readonly [key: string]: JsonValue | readonly JsonValue[] | undefined
+}
+
 interface ActionBase {
     readonly id: string
     readonly name: string
@@ -160,6 +179,9 @@ interface ActionBase {
      * Absent when the step sets none, which PostHog stores as an empty string.
      */
     readonly description?: string
+    readonly filters?: StepFilters | null
+    readonly on_error?: 'continue' | 'abort' | null
+    readonly output_variable?: ActionOutputVariables | null
 }
 
 /**
@@ -188,6 +210,11 @@ export type Action =
               readonly inputs: { readonly email: { readonly value: EmailMessage } }
           }
       })
+    | (ActionBase & { readonly type: 'function_sms'; readonly config: JsonObject })
+    | (ActionBase & { readonly type: 'function_push'; readonly config: JsonObject })
+    | (ActionBase & { readonly type: 'wait_until_condition'; readonly config: JsonObject })
+    | (ActionBase & { readonly type: 'wait_until_time_window'; readonly config: JsonObject })
+    | (ActionBase & { readonly type: 'random_cohort_branch'; readonly config: JsonObject })
     | (ActionBase & { readonly type: 'exit'; readonly config: { readonly reason: string } })
 
 /**

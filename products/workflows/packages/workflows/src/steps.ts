@@ -1,11 +1,14 @@
 import type {
+    ActionOutputVariables,
     Duration,
     EmailDesign,
     EmailMessage,
     JsonValue,
     PropertyCondition,
     PropertyOperator,
+    StepFilters,
 } from './definition.js'
+import { WorkflowError } from './errors.js'
 
 /**
  * A named environment variable, standing in for a value the repository must not hold.
@@ -92,6 +95,24 @@ interface StepBase {
     readonly description?: string
 }
 
+interface ActionFieldOptions {
+    readonly filters?: StepFilters | null
+    readonly on_error?: 'continue' | 'abort' | null
+    readonly output_variable?: ActionOutputVariables | null
+}
+
+export type PassThroughActionConfig = {
+    readonly [key: string]: JsonValue | Readonly<Record<string, JsonValue | SecretRef>> | undefined
+    readonly inputs?: Readonly<Record<string, JsonValue | SecretRef>>
+}
+
+/** The options `step` takes. */
+export interface PassThroughStepOptions extends StepBase, ActionFieldOptions {
+    readonly type: string
+    readonly config: PassThroughActionConfig
+    readonly branches?: readonly Path[]
+}
+
 /**
  * A step: one thing a workflow does, as a value.
  *
@@ -106,6 +127,15 @@ export type Step =
       >
     | Readonly<StepBase & { kind: 'email'; email: EmailMessage }>
     | Readonly<StepBase & { kind: 'branch'; branches: readonly [BranchSpec, ...BranchSpec[]] }>
+    | Readonly<
+          StepBase &
+              ActionFieldOptions & {
+                  kind: 'passthrough'
+                  type: string
+                  config: PassThroughActionConfig
+                  branches: readonly Path[]
+              }
+      >
 
 function withMeta<T extends object>(
     options: { readonly id?: string; readonly description?: string },
@@ -444,6 +474,83 @@ export function branch(options: {
     branches: readonly [BranchSpec, ...BranchSpec[]]
 }): Step {
     return withMeta(options, { kind: 'branch' as const, name: options.name, branches: options.branches })
+}
+
+/**
+ * A pass-through step, emitted as the action type and config you give it.
+ *
+ * Use this when a copied workflow uses an action type that has no typed helper yet, such
+ * as `function_sms`, `wait_until_condition`, `wait_until_time_window`, `random_cohort_branch`
+ * or a `delay` shape the typed `delay` helper does not cover. The `config` is emitted
+ * verbatim, except that a `secret` passed as a whole entry of `config.inputs` resolves
+ * the same way it does for `fn`. A secret inside an input value is a refusal. When
+ * `config.inputs` is absent, this helper does not resolve secrets.
+ *
+ * Set `branches` for action types whose branch edges are part of the graph, for example
+ * `random_cohort_branch` or `wait_until_condition`. The SDK emits one branch edge to
+ * each path in order, using `index: 0`, `index: 1` and so on, plus the fall-through
+ * `continue` edge to the next step.
+ *
+ * @param options - The action type, label, config and optional branch paths.
+ * @param options.type - The PostHog action type to emit. `trigger` and `exit` are reserved.
+ * @param options.name - The label, which also gives the action id its slug.
+ * @param options.id - Pins the action id, so a rename keeps the id a live run is on.
+ * @param options.description - What the step is for, shown on the step in the editor.
+ * @param options.config - The action config to emit.
+ * @param options.filters - Property filters gating this action, as stored by the editor.
+ * @param options.on_error - Whether a run continues or aborts when this action fails.
+ * @param options.output_variable - Where the action result is stored for later steps.
+ * @param options.branches - Branch paths to emit as indexed branch edges.
+ * @returns A step value to place with `path`.
+ * @throws {WorkflowError} `reserved_action_type` when `type` is `trigger` or `exit`; at
+ * emit, `missing_secret` when a whole input names an unset variable, and `nested_secret`
+ * when a secret sits inside a larger input value.
+ * @example
+ * ```ts
+ * import { path, step } from '@posthog/workflows'
+ *
+ * const sendText = step({
+ *     type: 'function_sms',
+ *     name: 'Send a text message',
+ *     config: {
+ *         template_id: 'template-twilio',
+ *         inputs: { message: { value: 'Thanks for signing up.' } },
+ *     },
+ * })
+ *
+ * const split = step({
+ *     type: 'random_cohort_branch',
+ *     name: 'Split traffic',
+ *     config: { cohorts: [{ percentage: 50, name: 'A' }, { percentage: 50, name: 'B' }] },
+ *     branches: [path(sendText), path(sendText)],
+ * })
+ * ```
+ */
+export function step(options: PassThroughStepOptions): Step {
+    if (options.type === 'trigger' || options.type === 'exit') {
+        throw new WorkflowError({
+            status: 'reserved_action_type',
+            message: `The action type "${options.type}" is reserved.`,
+            why: 'Every workflow has one trigger action and one exit action, and the SDK emits them from workflow options.',
+            fix:
+                options.type === 'trigger'
+                    ? 'Use trigger(...) in the workflow on field.'
+                    : 'Use the workflow exit field.',
+        })
+    }
+
+    return Object.freeze({
+        kind: 'passthrough' as const,
+        type: options.type,
+        name: options.name,
+        config: options.config,
+        branches: options.branches ?? [],
+        ...(options.id === undefined ? {} : { id: options.id }),
+        ...(options.description === undefined ? {} : { description: options.description }),
+        ...(options.filters === undefined ? {} : { filters: options.filters }),
+        ...(options.on_error === undefined ? {} : { on_error: options.on_error }),
+        ...(options.output_variable === undefined ? {} : { output_variable: options.output_variable }),
+    })
 }
 
 /**

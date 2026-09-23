@@ -1,4 +1,4 @@
-import type { PropertyCondition, TriggerConfig } from './definition.js'
+import type { JsonObject, PropertyCondition, TriggerConfig } from './definition.js'
 
 /**
  * A trigger that starts a run for each matching event, emitted as the trigger action's
@@ -81,4 +81,33 @@ export function onEvent(options: { event: string; properties?: readonly Property
  */
 export function onSchedule(): TriggerConfig {
     return { type: 'schedule' }
+}
+
+/**
+ * A pass-through trigger, emitted as the trigger action's config.
+ *
+ * Use this when a copied workflow starts from a trigger type that has no typed helper yet,
+ * such as `webhook`, `manual`, `batch`, `tracking_pixel`, `data-warehouse-table`,
+ * `data-warehouse-view` or `internal-event`. The config is emitted verbatim as the
+ * trigger action's `config`. For webhook triggers, include the fixed source template id
+ * the editor stores.
+ *
+ * @param config - The trigger config to emit.
+ * @returns A trigger config to pass as a workflow's `on`.
+ * @example
+ * ```ts
+ * import { trigger } from '@posthog/workflows'
+ *
+ * const startsFromWebhook = trigger({
+ *     type: 'webhook',
+ *     template_id: 'template-source-webhook',
+ *     inputs: {
+ *         event: { value: '{request.body.event}' },
+ *         distinct_id: { value: '{request.body.distinct_id}' },
+ *     },
+ * })
+ * ```
+ */
+export function trigger(config: TriggerConfig & JsonObject): TriggerConfig {
+    return Object.freeze(config)
 }

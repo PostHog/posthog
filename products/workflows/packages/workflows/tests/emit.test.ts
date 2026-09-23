@@ -13,6 +13,8 @@ import {
     path,
     person,
     secret,
+    step,
+    trigger,
     webhook,
     workflow,
 } from '../src/index.js'
@@ -303,6 +305,115 @@ describe('@posthog/workflows', () => {
         assert.ok(!('description' in action(onboarding.emit({ env }).definition.actions, 'wait_a_day')))
     })
 
+    test('emits a pass-through step as the action type and config it was given', () => {
+        const sendSms = step({
+            type: 'function_sms',
+            name: 'Send a text message',
+            config: {
+                template_id: 'template-twilio',
+                inputs: { message: { value: 'Thanks for signing up.' } },
+            },
+            filters: { properties: [{ key: 'subscribed', operator: 'exact', value: true, type: 'person' }] },
+            on_error: 'continue',
+            output_variable: { key: 'sms_result', label: 'SMS result' },
+        })
+
+        const actions = (around(path(sendSms)).emit() as { definition: { actions: Action[] } }).definition.actions
+        assert.deepStrictEqual(action(actions, 'send_a_text_message'), {
+            id: 'send_a_text_message',
+            name: 'Send a text message',
+            type: 'function_sms',
+            config: {
+                template_id: 'template-twilio',
+                inputs: { message: { value: 'Thanks for signing up.' } },
+            },
+            filters: { properties: [{ key: 'subscribed', operator: 'exact', value: true, type: 'person' }] },
+            on_error: 'continue',
+            output_variable: { key: 'sms_result', label: 'SMS result' },
+        })
+    })
+
+    test('emits branch edges from a pass-through step with branches', () => {
+        const sendA = delay('1d', { name: 'Send A' })
+        const sendB = delay('2d', { name: 'Send B' })
+        const split = step({
+            type: 'random_cohort_branch',
+            name: 'Split traffic',
+            config: {
+                cohorts: [
+                    { percentage: 50, name: 'A' },
+                    { percentage: 50, name: 'B' },
+                ],
+            },
+            branches: [path(sendA), path(sendB)],
+        })
+
+        const { definition } = around(path(split, delay('3d', { name: 'Rejoin' }))).emit() as {
+            definition: { actions: Action[]; edges: unknown[] }
+        }
+
+        assert.deepStrictEqual(action(definition.actions, 'split_traffic'), {
+            id: 'split_traffic',
+            name: 'Split traffic',
+            type: 'random_cohort_branch',
+            config: {
+                cohorts: [
+                    { percentage: 50, name: 'A' },
+                    { percentage: 50, name: 'B' },
+                ],
+            },
+        })
+        assert.deepStrictEqual(definition.edges, [
+            { from: 'trigger_node', to: 'split_traffic', type: 'continue' },
+            { from: 'split_traffic', to: 'rejoin', type: 'continue' },
+            { from: 'send_a', to: 'rejoin', type: 'continue' },
+            { from: 'split_traffic', to: 'send_a', type: 'branch', index: 0 },
+            { from: 'send_b', to: 'rejoin', type: 'continue' },
+            { from: 'split_traffic', to: 'send_b', type: 'branch', index: 1 },
+            { from: 'rejoin', to: 'exit_node', type: 'continue' },
+        ])
+    })
+
+    test('emits a pass-through trigger as the trigger action config', () => {
+        const flow = workflow({
+            key: 'webhook-trigger',
+            name: 'Webhook trigger',
+            on: trigger({
+                type: 'webhook',
+                template_id: 'template-source-webhook',
+                inputs: {
+                    event: { value: '{request.body.event}' },
+                    distinct_id: { value: '{request.body.distinct_id}' },
+                },
+            }),
+            steps: path(delay('1d', { name: 'Wait' })),
+            exit: { reason: 'Done' },
+        })
+
+        assert.deepStrictEqual(action(flow.emit().definition.actions, 'trigger_node'), {
+            id: 'trigger_node',
+            name: 'Trigger',
+            type: 'trigger',
+            config: {
+                type: 'webhook',
+                template_id: 'template-source-webhook',
+                inputs: {
+                    event: { value: '{request.body.event}' },
+                    distinct_id: { value: '{request.body.distinct_id}' },
+                },
+            },
+        })
+    })
+
+    for (const reservedType of ['trigger', 'exit'] as const) {
+        test(`refuses ${reservedType} as a pass-through step action type`, () => {
+            assert.strictEqual(
+                refusal(() => step({ type: reservedType, name: 'Start again', config: {} })).status,
+                'reserved_action_type'
+            )
+        })
+    }
+
     test('makes one node per placement, so a reused step is not one shared node', () => {
         const { definition } = onboarding.emit({ env })
         const placements = definition.actions.filter((candidate) => candidate.name === 'Tell the CRM to follow up')
@@ -344,6 +455,30 @@ describe('@posthog/workflows', () => {
         assert.deepStrictEqual(secretInputs, [
             { actionId: 'tell_the_crm_to_follow_up', inputKey: 'signing_secret', envName: 'CRM_TOKEN' },
             { actionId: 'tell_the_crm_to_follow_up_2', inputKey: 'signing_secret', envName: 'CRM_TOKEN' },
+        ])
+    })
+
+    test('sends a pass-through step whole-input secret and never the variable name', () => {
+        const sendSms = step({
+            type: 'function_sms',
+            name: 'Send a secret text',
+            config: { template_id: 'template-twilio', inputs: { message: secret('CRM_TOKEN') } },
+        })
+
+        const { definition, secretInputs } = around(path(sendSms)).emit() as {
+            definition: { actions: Action[] }
+            secretInputs: unknown[]
+        }
+
+        assert.ok(!JSON.stringify(definition).includes('CRM_TOKEN'))
+        assert.deepStrictEqual(action(definition.actions, 'send_a_secret_text'), {
+            id: 'send_a_secret_text',
+            name: 'Send a secret text',
+            type: 'function_sms',
+            config: { template_id: 'template-twilio', inputs: { message: { value: 'shhh' } } },
+        })
+        assert.deepStrictEqual(secretInputs, [
+            { actionId: 'send_a_secret_text', inputKey: 'message', envName: 'CRM_TOKEN' },
         ])
     })
 

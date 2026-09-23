@@ -70,8 +70,8 @@ Each rule is stated in full in the JSDoc of the symbol that owns it, which your 
 
 ## v1 surface
 
-Actions: `delay`, `fn` (any PostHog destination template by id), `webhook`, `email`, `branch`, and the trigger and exit the compiler adds.
-Triggers: `onEvent` and `onSchedule`.
+Actions: `delay`, `fn` (any PostHog destination template by id), `webhook`, `email`, `branch`, `step` (pass-through actions), and the trigger and exit the compiler adds.
+Triggers: `onEvent`, `onSchedule` and `trigger` (pass-through trigger configs).
 Every step also takes an optional `description`, which PostHog keeps on the action and shows in the editor.
 
 ## Develop
