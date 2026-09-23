@@ -10,6 +10,7 @@ from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
+from posthog.models.team.team_events_retention_grant import TeamEventsRetentionGrant
 from posthog.temporal.sync_events_retention.activities import sync_events_retention
 from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
 
@@ -53,6 +54,20 @@ async def test_syncs_event_retention_months_from_billing(features: list[dict], e
     await sync_to_async(team.refresh_from_db)()
     assert team.event_retention_months == expected_months
     assert team.updated_at > previous_updated_at
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_grant_keeps_the_window_above_the_entitlement():
+    team = await _team_with_features(
+        [{"key": "product_analytics_data_retention", "limit": 1, "unit": "year"}], current_months=999
+    )
+    await sync_to_async(TeamEventsRetentionGrant.objects.create)(team=team, retention_months=84)
+
+    await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
+
+    await sync_to_async(team.refresh_from_db)()
+    assert team.event_retention_months == 84
 
 
 @pytest.mark.django_db(transaction=True)

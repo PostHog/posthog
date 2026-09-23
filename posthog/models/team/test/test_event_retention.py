@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.models.organization import Organization, ProductFeature
 from posthog.models.team.event_retention import parse_events_feature_to_months, reconcile_organization_events_retention
 from posthog.models.team.team import Team
+from posthog.models.team.team_events_retention_grant import TeamEventsRetentionGrant
 
 
 class TestParseEventsFeatureToMonths:
@@ -75,3 +76,29 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
 
         self.team.refresh_from_db()
         assert self.team.event_retention_months == 12
+
+    def test_grant_extends_the_window_until_removed(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._set_retention_feature(1, "year")
+        reconcile_organization_events_retention(self.organization)
+
+        grant = TeamEventsRetentionGrant.objects.create(team=self.team, retention_months=84)
+        self.team.refresh_from_db()
+        assert self.team.event_retention_months == 84
+
+        assert reconcile_organization_events_retention(self.organization) == 0
+
+        grant.delete()
+        self.team.refresh_from_db()
+        other_team.refresh_from_db()
+        assert self.team.event_retention_months == 12
+        assert other_team.event_retention_months == 12
+
+    def test_grant_never_shortens_the_window(self) -> None:
+        self._set_retention_feature(7, "years")
+        TeamEventsRetentionGrant.objects.create(team=self.team, retention_months=12)
+
+        assert reconcile_organization_events_retention(self.organization) == 0
+
+        self.team.refresh_from_db()
+        assert self.team.event_retention_months == 84

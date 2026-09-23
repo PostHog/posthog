@@ -6,8 +6,8 @@ from django.utils import timezone
 from temporalio import activity
 
 from posthog.constants import AvailableFeature
-from posthog.models.team import Team
-from posthog.models.team.event_retention import parse_events_feature_to_months
+from posthog.models.team import Team, TeamEventsRetentionGrant
+from posthog.models.team.event_retention import events_retention_target_months, parse_events_feature_to_months
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -59,6 +59,10 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> SyncEventsRe
             if not teams:
                 break
             last_pk = teams[-1].pk
+            grant_months_by_team = {
+                grant.team_id: grant.retention_months
+                async for grant in TeamEventsRetentionGrant.objects.filter(team_id__in=[team.pk for team in teams])
+            }
 
             teams_to_update: list[Team] = []
             changes: list[dict] = []
@@ -66,7 +70,9 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> SyncEventsRe
                 retention_feature = team.organization.get_available_feature(
                     AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
                 )
-                target_months = parse_events_feature_to_months(retention_feature)
+                target_months = events_retention_target_months(
+                    parse_events_feature_to_months(retention_feature), grant_months_by_team.get(team.pk)
+                )
                 if team.event_retention_months != target_months:
                     changes.append(
                         {

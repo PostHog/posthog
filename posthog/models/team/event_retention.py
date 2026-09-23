@@ -2,6 +2,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
+from django.db.models import F
 from django.utils import timezone
 
 import posthoganalytics
@@ -105,15 +106,45 @@ def organization_events_retention_months(organization: "Organization") -> int:
     return parse_events_feature_to_months(organization.get_available_feature(EVENTS_DATA_RETENTION_FEATURE))
 
 
+def events_retention_target_months(organization_months: int, grant_months: Optional[int]) -> int:
+    return max(organization_months, grant_months or 0)
+
+
 def reconcile_organization_events_retention(organization: "Organization") -> int:
     """Align the org's teams with its entitlement-derived retention window; returns teams updated.
 
     Re-reads the persisted entitlement so overlapping billing syncs can't apply a stale in-memory snapshot.
     """
     organization.refresh_from_db(fields=["available_product_features"])
-    target_months = organization_events_retention_months(organization)
-    return (
+    organization_months = organization_events_retention_months(organization)
+    rows = (
         Team.objects.filter(organization=organization)
-        .exclude(event_retention_months=target_months)
-        .update(event_retention_months=target_months, updated_at=timezone.now())
+        .annotate(grant_months=F("events_retention_grant__retention_months"))
+        .values_list("id", "event_retention_months", "grant_months")
+    )
+    team_ids_by_target: dict[int, list[int]] = {}
+    for team_id, current_months, grant_months in rows:
+        target_months = events_retention_target_months(organization_months, grant_months)
+        if current_months != target_months:
+            team_ids_by_target.setdefault(target_months, []).append(team_id)
+    updated = 0
+    for target_months, team_ids in team_ids_by_target.items():
+        updated += Team.objects.filter(pk__in=team_ids).update(
+            event_retention_months=target_months, updated_at=timezone.now()
+        )
+    return updated
+
+
+def reconcile_team_events_retention(team: Team) -> None:
+    grant_months = (
+        Team.objects.filter(pk=team.pk)
+        .annotate(grant_months=F("events_retention_grant__retention_months"))
+        .values_list("grant_months", flat=True)
+        .first()
+    )
+    target_months = events_retention_target_months(
+        organization_events_retention_months(team.organization), grant_months
+    )
+    Team.objects.filter(pk=team.pk).exclude(event_retention_months=target_months).update(
+        event_retention_months=target_months, updated_at=timezone.now()
     )
