@@ -17,7 +17,7 @@ import {
 } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { apiStatusLogic, awaitReauthentication } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -7348,6 +7348,15 @@ function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promi
     })
 }
 
+async function isStaleSessionResponse(response: Response): Promise<boolean> {
+    try {
+        const data = await response.clone().json()
+        return data?.code === 'sensitive_action_required_reauth'
+    } catch {
+        return false
+    }
+}
+
 async function handleFetch(
     url: string,
     method: string,
@@ -7403,6 +7412,12 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
+            return await handleFetch(url, method, fetcher, true)
+        }
+    }
+
+    if (response.status === 403 && !isRetry && (await isStaleSessionResponse(response))) {
+        if (await awaitReauthentication()) {
             return await handleFetch(url, method, fetcher, true)
         }
     }
