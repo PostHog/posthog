@@ -33,6 +33,7 @@ import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLog
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
+import { hasSuperpowers } from 'lib/utils/superpowers'
 import { insightLogic, insightOverridesPresent } from 'scenes/insights/insightLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -40,6 +41,7 @@ import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { EventsNode, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
@@ -176,7 +178,10 @@ export function InsightRefreshDataHint({
 }
 
 function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element | null {
-    if (queryId == null) {
+    const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
+
+    if (queryId == null || !hasSuperpowers(user, preflight)) {
         return null
     }
 
@@ -296,13 +301,20 @@ function LoadingDetails({
     rowsRead: number
     bytesRead: number
     secondsElapsed: number
-}): JSX.Element {
+}): JSX.Element | null {
+    const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
+
     const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
     const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
     const cpuUtilization =
         (pollResponse?.status?.query_progress?.active_cpu_time || 0) /
         (pollResponse?.status?.query_progress?.time_elapsed || 1) /
         10000
+
+    if (!hasSuperpowers(user, preflight)) {
+        return null
+    }
 
     return (
         <>

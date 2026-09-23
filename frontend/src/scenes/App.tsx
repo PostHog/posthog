@@ -65,7 +65,7 @@ function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.El
     )
 }
 
-/** Lazy-loaded Kea devtools panel, only rendered in dev mode with dev tools open */
+/** Lazy-loaded Kea devtools panel, only rendered for staff or a debug instance with dev tools open */
 function KeaDevtoolsLoader(): JSX.Element | null {
     const [DevTools, setDevTools] = React.useState<React.ComponentType | null>(null)
     React.useEffect(() => {

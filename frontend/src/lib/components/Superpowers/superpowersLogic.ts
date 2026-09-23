@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 
 
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { hasSuperpowers } from 'lib/utils/superpowers'
 // eslint-disable-next-line import/no-cycle
 import { userLogic } from 'scenes/userLogic'
 
@@ -104,7 +105,7 @@ export const superpowersLogic = kea<superpowersLogicType>([
                 user: null | import('../../../types').UserType,
                 preflight: null | import('../../../types').PreflightStatus
             ) => {
-                return user?.is_staff || preflight?.is_debug || preflight?.instance_preferences?.debug_queries
+                return hasSuperpowers(user, preflight)
             },
         ],
         mcpHintsDismissed: [
