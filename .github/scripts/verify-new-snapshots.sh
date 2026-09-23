@@ -87,10 +87,14 @@ for test_file in "${!test_files[@]}"; do
             break
         fi
 
-        # Calculate checksums of snapshots related to this test file
-        if [ -f "$test_snapshot" ]; then
-            sha256sum "$test_snapshot" >> "$temp_dir/checksums_run${run}.txt"
+        # A rerun that leaves the file missing ran in the wrong events-schema mode
+        # or mapped to the wrong test file; passing here would drop the snapshot.
+        if [ ! -f "$test_snapshot" ]; then
+            echo "  ❌ Run $run did not recreate $test_snapshot"
+            failed_files+=("$test_file (snapshot not regenerated)")
+            break
         fi
+        sha256sum "$test_snapshot" >> "$temp_dir/checksums_run${run}.txt"
     done
 
     # Compare checksums across runs if all runs succeeded
