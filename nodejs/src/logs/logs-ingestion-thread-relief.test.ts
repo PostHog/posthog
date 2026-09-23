@@ -1,4 +1,3 @@
-// Serial: asserts an event-loop lag ceiling, so a worker competing for CPU fails it.
 import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
@@ -80,6 +79,13 @@ const createKafkaMessages = async (bodies: string[], headers: Record<string, str
     )
 }
 
+// Counted rather than decoded: the logs output carries AVRO, not JSON.
+const producedLogCount = (): number =>
+    mockProducerObserver
+        .getProducedMessages()
+        .filter((batch) => batch.topic === KAFKA_LOGS_CLICKHOUSE)
+        .flatMap((batch) => batch.messages).length
+
 describe('LogsIngestionConsumer thread relief', () => {
     let consumer: LogsIngestionConsumer
     let hub: Hub
@@ -150,27 +156,36 @@ describe('LogsIngestionConsumer thread relief', () => {
             }
         )
 
-        let lastCheck = Date.now()
-        let longestDelay = 0
-        const interval = setInterval(() => {
-            longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
-            lastCheck = Date.now()
-        }, 0)
+        // Progress per event-loop turn, not milliseconds per turn: a batch that hogs the main
+        // thread finishes a large share of its messages in one turn, and a batch that yields
+        // stays close behind the loop. A contended runner stretches every wall-clock gap but
+        // cannot change how much work fits between two turns, so this holds under CI load.
+        let sampling = true
+        let countAtLastTurn = 0
+        let mostPerTurn = 0
+        const sampleTurn = (): void => {
+            const count = producedLogCount()
+            mostPerTurn = Math.max(mostPerTurn, count - countAtLastTurn)
+            countAtLastTurn = count
+            if (sampling) {
+                setImmediate(sampleTurn)
+            }
+        }
+        setImmediate(sampleTurn)
 
         try {
             await (
                 await consumer.processKafkaBatch(messages)
             ).backgroundTask
         } finally {
-            clearInterval(interval)
+            sampling = false
+            // The await resolves on a microtask, so no further turn is guaranteed. Sample here
+            // as well, or a batch that blocked to the end would leave its last stretch unmeasured
+            // and pass on an empty measurement.
+            sampleTurn()
         }
 
-        // Counted rather than decoded: the logs output carries AVRO, not JSON.
-        const produced = mockProducerObserver
-            .getProducedMessages()
-            .filter((batch) => batch.topic === KAFKA_LOGS_CLICKHOUSE)
-            .flatMap((batch) => batch.messages)
-        expect(produced).toHaveLength(numberToTest)
-        expect(longestDelay).toBeLessThan(120)
+        expect(producedLogCount()).toEqual(numberToTest)
+        expect(mostPerTurn).toBeLessThanOrEqual(numberToTest / 10)
     })
 })
