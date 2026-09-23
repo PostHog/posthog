@@ -22,7 +22,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinition } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinition, PropertyFilterRow } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
 import { OperatorValueSelectProps } from './components/OperatorValueSelect'
@@ -31,7 +31,7 @@ import { PropertyFilterInternalProps } from './types'
 
 export interface PropertyFiltersProps {
     endpoint?: string | null
-    propertyFilters?: AnyPropertyFilter[] | null
+    propertyFilters?: PropertyFilterRow[] | null
     onChange: (filters: AnyPropertyFilter[]) => void
     pageKey: string
     showConditionBadge?: boolean
@@ -158,7 +158,7 @@ export function PropertyFilters({
             )}
             <div className="PropertyFilters__content max-w-full">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                    {displayedFilters.map((item: AnyPropertyFilter, index: number) => {
+                    {displayedFilters.map((item: PropertyFilterRow, index: number) => {
                         return (
                             <React.Fragment key={displayedFilterIds[index]}>
                                 {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (

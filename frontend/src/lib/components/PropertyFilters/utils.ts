@@ -44,6 +44,7 @@ import {
     PersonPropertyFilter,
     PropertyDefinition,
     PropertyDefinitionType,
+    PropertyFilterRow,
     PropertyFilterType,
     PropertyFilterValue,
     PropertyGroupFilter,
@@ -212,7 +213,7 @@ export function formatPropertyLabel(
 }
 
 /** Make sure unverified user property filter input has at least a "type" */
-export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {
+export function sanitizePropertyFilter(propertyFilter: PropertyFilterRow): PropertyFilterRow {
     if (!propertyFilter.type) {
         return {
             ...(propertyFilter as any), // TS error with spreading a union
@@ -356,9 +357,9 @@ export function isPropertyGroupFilterLike(
  * outer group already does, so every filter inside gets its own row. A nested group that joins its
  * values differently keeps one row, because flattening it would change what the insight returns. */
 export function inlineEquivalentPropertyGroups(
-    values: (AnyPropertyFilter | PropertyGroupFilterValue)[],
+    values: PropertyFilterRow[],
     operator: FilterLogicalOperator
-): (AnyPropertyFilter | PropertyGroupFilterValue)[] {
+): PropertyFilterRow[] {
     return values.flatMap((value) => {
         if (!isPropertyGroupFilterLike(value)) {
             return [value]

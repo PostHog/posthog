@@ -16,6 +16,7 @@ import {
     AnyPropertyFilter,
     FilterLogicalOperator,
     PropertyDefinition,
+    PropertyFilterRow,
     PropertyFilterValue,
     PropertyGroupFilter,
     PropertyOperator,
@@ -26,7 +27,7 @@ export interface PropertyFilterBaseProps {
 }
 
 export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
-    propertyFilters?: AnyPropertyFilter[] | null
+    propertyFilters?: PropertyFilterRow[] | null
     onChange: (filters: AnyPropertyFilter[]) => void
     sendAllKeyUpdates?: boolean
 }
@@ -38,7 +39,7 @@ export interface PropertyGroupFilterLogicProps extends PropertyFilterBaseProps {
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicOnChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
-    filters: AnyPropertyFilter[]
+    filters: PropertyFilterRow[]
     setFilter: (index: number, property: AnyPropertyFilter) => void
     filterIndex: number
     eventNames?: string[]
@@ -52,7 +53,7 @@ export interface PropertyFilterInternalProps {
     index: number
     onComplete: () => void
     disablePopover: boolean
-    filters: AnyPropertyFilter[]
+    filters: PropertyFilterRow[]
     setFilter: (index: number, property: AnyPropertyFilter) => void
     editable?: boolean
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']

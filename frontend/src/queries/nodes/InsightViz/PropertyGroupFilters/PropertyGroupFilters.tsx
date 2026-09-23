@@ -16,7 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
+import { InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
 import { AndOrFilterSelect } from './AndOrFilterSelect'
@@ -59,9 +59,7 @@ export function PropertyGroupFilters({
     const groupRows = useMemo(
         () =>
             propertyGroupFilter.values?.map((group: PropertyGroupFilterValue) =>
-                isPropertyGroupFilterLike(group)
-                    ? (inlineEquivalentPropertyGroups(group.values, group.type) as AnyPropertyFilter[])
-                    : null
+                isPropertyGroupFilterLike(group) ? inlineEquivalentPropertyGroups(group.values, group.type) : null
             ) ?? [],
         [propertyGroupFilter.values]
     )

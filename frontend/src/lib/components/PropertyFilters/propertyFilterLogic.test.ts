@@ -11,6 +11,8 @@ import {
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyFilterValue,
+    PropertyFilterRow,
+    PropertyGroupFilterValue,
     PropertyOperator,
 } from '~/types'
 
@@ -32,7 +34,7 @@ describe('propertyFilterLogic', () => {
     })
 
     function mountLogic(
-        overrides: { propertyFilters?: AnyPropertyFilter[]; sendAllKeyUpdates?: boolean } = {}
+        overrides: { propertyFilters?: PropertyFilterRow[]; sendAllKeyUpdates?: boolean } = {}
     ): ReturnType<typeof propertyFilterLogic.build> {
         const logic = propertyFilterLogic({
             pageKey: 'test',
@@ -61,7 +63,7 @@ describe('propertyFilterLogic', () => {
             })
             logic.actions.remove(0)
             expect(logic.values.filters).toHaveLength(2)
-            expect(logic.values.filters[0].key).toBe('$os')
+            expect(logic.values.filters[0]).toMatchObject({ key: '$os' })
             expect(Object.keys(logic.values.filters[1])).toHaveLength(0)
         })
 
@@ -75,10 +77,10 @@ describe('propertyFilterLogic', () => {
     })
 
     describe('nested property groups', () => {
-        const nestedGroup = {
+        const nestedGroup: PropertyGroupFilterValue = {
             type: FilterLogicalOperator.Or,
             values: [eventFilter('$os', 'Mac', PropertyOperator.Exact), eventFilter('$lib', 'web')],
-        } as unknown as AnyPropertyFilter
+        }
 
         it('keeps a nested group when another row changes', async () => {
             const logic = mountLogic({
