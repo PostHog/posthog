@@ -5507,6 +5507,33 @@ class TestExperimentService(APIBaseTest):
 
         assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
 
+    @parameterized.expand(
+        [
+            ("default", None, "DESC"),
+            ("name", "name", "ASC"),
+            ("name descending", "-name", "DESC"),
+            ("start date", "start_date", "ASC"),
+            ("duration", "duration", "ASC"),
+            ("duration descending", "-duration", "DESC"),
+            ("status", "status", "ASC"),
+            ("status descending", "-status", "DESC"),
+            ("created by", "created_by", "ASC"),
+            ("created by descending", "-created_by", "DESC"),
+            ("conclusion", "conclusion", "ASC"),
+            ("conclusion descending", "-conclusion", "DESC"),
+        ]
+    )
+    def test_filter_experiments_queryset_breaks_order_ties_on_id(
+        self, _: str, order: str | None, direction: str
+    ) -> None:
+        queryset = self._service().filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order} if order else {},
+        )
+
+        assert str(queryset.query).endswith(f'"posthog_experiment"."id" {direction}')
+
     def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
             self._service().filter_experiments_queryset(
