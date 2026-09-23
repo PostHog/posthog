@@ -6,7 +6,7 @@ return serialized responses. No business logic here.
 """
 
 from functools import cached_property
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import quote
 
 from django.conf import settings
@@ -76,8 +76,10 @@ _INSTALL_STATE_MAX_AGE_SECONDS = 60 * 60
 # `enabled` is split by direction: turning reviews on takes editor, turning them off takes manager.
 REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
 
+ReviewLevel = Literal["editor", "manager"]
 
-def _required_review_level(validated_data: dict[str, Any]) -> str | None:
+
+def _required_review_level(validated_data: dict[str, Any]) -> ReviewLevel | None:
     """The stamphog level a write needs because of the review fields it names, or None for none.
 
     A supplied value counts even when it matches the stored one: the view reads the row before the
@@ -214,7 +216,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             raise NotFound()
         return config
 
-    def _require_review_level(self, request: Request, level: str | None) -> None:
+    def _require_review_level(self, request: Request, level: ReviewLevel | None) -> None:
         """Refuse a review-gating write below `level` on the stamphog resource.
 
         Service credentials (project secret keys, team secret tokens) are synthetic users the RBAC
