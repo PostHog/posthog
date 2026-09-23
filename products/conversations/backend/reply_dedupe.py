@@ -25,6 +25,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Protocol
 
+from django.db import IntegrityError
 from django.db.models import Q
 from django.utils import timezone
 
@@ -64,6 +65,7 @@ SUPPORT_AUTHOR_TYPE = "support"
 
 REPLY_IN_PROGRESS_ERROR_TYPE = "reply_in_progress"
 REPLY_IN_PROGRESS_DETAIL = "This message is already being sent. Check the thread before sending it again."
+WORKFLOW_DISPATCH_UNIQUE_CONSTRAINT = "posthog_comment_workflow_dispatch_uniq"
 
 COMPOSE_IN_PROGRESS_ERROR_TYPE = "compose_in_progress"
 COMPOSE_IN_PROGRESS_DETAIL = "This ticket is already being created. Check the inbox before composing it again."
@@ -305,8 +307,9 @@ def _run_deduplicated(fingerprint: _DedupeFingerprint, create: Callable[[], Any]
 
     The shared core for both create endpoints, so the reservation protocol can't drift between
     them. The caller owns the response shape: a REPLAYED outcome is theirs to render as a 200 and a
-    CONFLICT as a 409. Exceptions from ``create`` propagate unchanged after the reservation is
-    settled. On CONFLICT the object is None.
+    CONFLICT as a 409. Exceptions from ``create`` propagate after the reservation is settled,
+    except a workflow dispatch uniqueness race, which returns the winning comment. On CONFLICT
+    the object is None.
     """
     reservation = reserve(fingerprint)
     if reservation.state is ReservationState.REPLAY:
@@ -325,6 +328,19 @@ def _run_deduplicated(fingerprint: _DedupeFingerprint, create: Callable[[], Any]
 
     try:
         created_object = create()
+    except IntegrityError as error:
+        is_workflow_dispatch_conflict = (
+            isinstance(fingerprint, ReplyFingerprint)
+            and fingerprint.idempotency_key is not None
+            and WORKFLOW_DISPATCH_UNIQUE_CONSTRAINT in str(error)
+        )
+        if is_workflow_dispatch_conflict:
+            recovered = fingerprint.find_persisted_match(created_after=attempted_at)
+            if recovered is not None:
+                publish(reservation, recovered.id)
+                return CreateOutcome.REPLAYED, recovered
+        release(reservation)
+        raise
     except Exception:
         # Receivers and mention fan-out run after the INSERT, so an exception does not mean the row
         # is absent. Releasing blindly would make an already-delivered object immediately repeatable.

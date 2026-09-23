@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import IntegrityError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -11,7 +12,9 @@ from posthog.models.comment import Comment
 from posthog.redis import get_client
 
 from products.conversations.backend import reply_dedupe
+from products.conversations.backend.models.constants import WORKFLOW_DISPATCH_KEY
 from products.conversations.backend.reply_dedupe import (
+    WORKFLOW_DISPATCH_UNIQUE_CONSTRAINT,
     CreateOutcome,
     ReplyFingerprint,
     ReservationState,
@@ -149,6 +152,40 @@ class TestReplyDedupe(BaseTest):
         guarded = create_deduplicated(fingerprint, self._fail_if_called)
 
         assert guarded.outcome is CreateOutcome.REPLAYED
+        assert Comment.objects.count() == 1
+
+    def test_workflow_unique_constraint_race_returns_the_winning_message(self):
+        idempotency_key = "11111111-1111-4111-8111-111111111111:send_message:0"
+        item_context = {
+            "author_type": "workflow",
+            "is_private": False,
+            WORKFLOW_DISPATCH_KEY: idempotency_key,
+        }
+        fingerprint = ReplyFingerprint.for_workflow(
+            team_id=self.team.id,
+            item_id=self.item_id,
+            content="Automated reply",
+            item_context=item_context,
+            idempotency_key=idempotency_key,
+        )
+
+        def persist_then_report_unique_conflict() -> Comment:
+            comment = Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=self.item_id,
+                content="Automated reply",
+                item_context=item_context,
+            )
+            assert comment.id is not None
+            raise IntegrityError(
+                f'duplicate key value violates unique constraint "{WORKFLOW_DISPATCH_UNIQUE_CONSTRAINT}"'
+            )
+
+        guarded = create_deduplicated(fingerprint, persist_then_report_unique_conflict)
+
+        assert guarded.outcome is CreateOutcome.REPLAYED
+        assert guarded.comment is not None
         assert Comment.objects.count() == 1
 
     def test_committed_row_is_replayed_when_publication_never_landed(self):

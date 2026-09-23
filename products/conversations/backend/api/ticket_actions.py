@@ -123,6 +123,14 @@ class TicketActionMessageSerializer(serializers.Serializer):
         return stripped
 
 
+class TicketActionMessageResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the created or replayed ticket message.")
+    is_private = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the message is an internal note hidden from the customer.",
+    )
+
+
 def validate_ticket_id(ticket_id: str | uuid.UUID) -> Response | None:
     """Return an error Response if ticket_id is not a valid UUID, else None."""
     # Django's <uuid:ticket_id> converter passes uuid.UUID; uuid.UUID(uuid_obj)
@@ -631,6 +639,6 @@ def handle_ticket_message(request: Request, team: Team, ticket_id: str | uuid.UU
 
     created = guarded.outcome is CreateOutcome.CREATED
     return Response(
-        {"id": str(comment.id), "is_private": is_private},
+        TicketActionMessageResponseSerializer({"id": comment.id, "is_private": is_private}).data,
         status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
     )

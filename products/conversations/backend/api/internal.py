@@ -11,6 +11,7 @@ does not expose, so the route is unreachable from the public internet.
 import uuid
 from typing import Any, cast
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -23,6 +24,8 @@ from posthog.models import Team
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
 from products.conversations.backend.api.ticket_actions import (
+    TicketActionMessageResponseSerializer,
+    TicketActionMessageSerializer,
     handle_ticket_get,
     handle_ticket_message,
     handle_ticket_patch,
@@ -72,6 +75,13 @@ class InternalTicketView(APIView):
         TICKET_ACTION_AUTH_COUNTER.labels(auth_method="scoped_jwt", http_method="patch").inc()
         return handle_ticket_patch(request, team, ticket_id)
 
+    @extend_schema(
+        request=TicketActionMessageSerializer,
+        responses={
+            status.HTTP_200_OK: TicketActionMessageResponseSerializer,
+            status.HTTP_201_CREATED: TicketActionMessageResponseSerializer,
+        },
+    )
     def post(self, request: Request, team_id: str, ticket_id: uuid.UUID) -> Response:
         team, error = _check_ticket_access(request, ticket_id)
         if error:

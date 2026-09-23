@@ -89,9 +89,11 @@ class TestInternalTicketAPI(BaseTest):
         self.assertEqual(comment.content, "We are on it.")
         self.assertEqual(comment.item_id, str(self.ticket.id))
         self.assertIsNone(comment.created_by_id)
-        self.assertEqual(comment.item_context["author_type"], WORKFLOW_AUTHOR_TYPE)
-        self.assertEqual(comment.item_context["author_name"], WORKFLOW_AUTHOR_NAME)
-        self.assertFalse(comment.item_context["is_private"])
+        item_context = comment.item_context
+        assert item_context is not None
+        self.assertEqual(item_context["author_type"], WORKFLOW_AUTHOR_TYPE)
+        self.assertEqual(item_context["author_name"], WORKFLOW_AUTHOR_NAME)
+        self.assertFalse(item_context["is_private"])
 
     def test_post_private_note(self):
         response = self.client.post(
@@ -103,8 +105,10 @@ class TestInternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(response.json()["is_private"])
         comment = Comment.objects.get(id=response.json()["id"], team_id=self.team.id)
-        self.assertTrue(comment.item_context["is_private"])
-        self.assertEqual(comment.item_context["author_type"], WORKFLOW_AUTHOR_TYPE)
+        item_context = comment.item_context
+        assert item_context is not None
+        self.assertTrue(item_context["is_private"])
+        self.assertEqual(item_context["author_type"], WORKFLOW_AUTHOR_TYPE)
 
     def test_post_deduplicates_by_workflow_step_execution(self):
         payload = {"message": "We are on it.", "is_private": False, "idempotency_key": "run-1:send:0"}
