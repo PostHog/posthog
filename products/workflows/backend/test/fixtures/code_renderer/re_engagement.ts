@@ -8,7 +8,6 @@ import { onEvent, path, step, workflow } from '@posthog/workflows'
 export const reEngagement = workflow({
     key: 're-engagement',
     name: 'Re-engagement',
-    status: 'active',
     on: onEvent({ event: 'trial started' }),
     steps: path(
         step({

@@ -6,7 +6,6 @@ import { delay, email, path, trigger, workflow } from '@posthog/workflows'
 export const trialNudgeV2 = workflow({
     key: 'trial-nudge-v2',
     name: 'Trial nudge (v2)',
-    status: 'draft',
     on: trigger(
         {
             type: 'event',
