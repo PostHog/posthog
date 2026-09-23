@@ -101507,6 +101507,20 @@ export namespace Schemas {
       query: _TracingDurationHistogramQueryBody;
     }
 
+    export interface _TracingDurationHistogramRow {
+      /** Lower bound of the duration bucket in nanoseconds. */
+      bucket_ns: number;
+      /** Service the count belongs to. */
+      service: string;
+      /** Spans in this bucket for this service. */
+      count: number;
+    }
+
+    export interface _TracingDurationHistogramResponse {
+      /** One row per duration bucket and service. */
+      results: _TracingDurationHistogramRow[];
+    }
+
     export interface _TracingErrorCountsRequest {
       /**
          * Hex trace IDs to count exceptions for, matched against the exception's `$trace_id` property. Case insensitive. At most 200 per request.
@@ -101586,20 +101600,6 @@ export namespace Schemas {
       topSessions: _TracingImpactTopValue[];
       /** Top person distinct IDs on the matching spans, ordered by span count descending (topK, at most 5). */
       topUsers: _TracingImpactTopValue[];
-    }
-
-    export interface _TracingDurationHistogramRow {
-      /** Lower bound of the duration bucket in nanoseconds. */
-      bucket_ns: number;
-      /** Service the count belongs to. */
-      service: string;
-      /** Spans in this bucket for this service. */
-      count: number;
-    }
-
-    export interface _TracingDurationHistogramResponse {
-      /** One row per duration bucket and service. */
-      results: _TracingDurationHistogramRow[];
     }
 
     export interface _TracingLatencyHeatmapCell {
