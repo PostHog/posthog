@@ -60,7 +60,10 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     suggestedFiltersLabel?: string
     enableKeywordShortcuts?: boolean
+    promoteSelectedItemToFirstPosition?: boolean
     selectingKeyOnly?: boolean
+    /** Called when the popover is opened. */
+    onOpen?: () => void
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -103,7 +106,9 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         definitionPopoverRenderer,
         suggestedFiltersLabel,
         enableKeywordShortcuts,
+        promoteSelectedItemToFirstPosition,
         selectingKeyOnly,
+        onOpen,
         width,
         placement,
         sideIcon,
@@ -128,7 +133,12 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     ) : placeholder || placeholderClass ? (
         <span className={placeholderClass}>{placeholder}</span>
     ) : null
-    buttonPropsFinal.onClick = () => setVisible(!visible)
+    buttonPropsFinal.onClick = () => {
+        if (!visible) {
+            onOpen?.()
+        }
+        setVisible(!visible)
+    }
     if (!buttonPropsFinal.type) {
         buttonPropsFinal.type = 'secondary'
     }
@@ -170,6 +180,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     definitionPopoverRenderer={definitionPopoverRenderer}
                     suggestedFiltersLabel={suggestedFiltersLabel}
                     enableKeywordShortcuts={enableKeywordShortcuts}
+                    promoteSelectedItemToFirstPosition={promoteSelectedItemToFirstPosition}
                     selectingKeyOnly={selectingKeyOnly}
                     width={width}
                 />
@@ -252,6 +263,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                 allowNonCapturedEvents={allowNonCapturedEvents}
                 suggestedFiltersLabel={suggestedFiltersLabel}
                 enableKeywordShortcuts={enableKeywordShortcuts}
+                onOpen={onOpen}
                 triggerButtonProps={{
                     icon: buttonPropsRest.icon,
                     sideIcon: sideIcon,

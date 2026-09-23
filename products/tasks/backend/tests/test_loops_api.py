@@ -1196,6 +1196,24 @@ class LoopRunsAPITest(LoopsAPITestCase):
 
         self.assertEqual(collected_ids, list(reversed(created_run_ids)))
 
+        failed_ids = created_run_ids[::2]
+        TaskRun.objects.filter(id__in=failed_ids).update(status=TaskRun.Status.FAILED, error_message="Read failed")
+        failures = []
+        cursor = None
+        for _ in range(len(failed_ids) + 1):
+            response = self.owner_client.get(
+                runs_url, {"status": "failed", "limit": "2", **({"cursor": cursor} if cursor else {})}
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            page = response.json()
+            failures.extend(page["results"])
+            cursor = page["next_cursor"]
+            if cursor is None:
+                break
+        self.assertEqual([run["id"] for run in failures], list(reversed(failed_ids)))
+        self.assertTrue(all(run["error_message"] == "Read failed" for run in failures))
+        self.assertEqual(self.owner_client.get(runs_url, {"status": "unknown"}).status_code, 400)
+
     def test_runs_listing_is_invisible_for_personal_loop_of_another_member(self):
         loop_id = self._create_loop(self.owner_client, visibility="personal")["id"]
         response = self.peer_client.get(f"{self._loop_url(loop_id)}runs/")

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,48 +13,14 @@ import (
 	"time"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
-	"github.com/PostHog/posthog/services/hogql-language-service/internal/completion"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/httpapi"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/ratelimit"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/serviceauth"
-	"github.com/PostHog/posthog/services/hogql-language-service/internal/validation"
 )
 
-type server struct {
-	catalogs         *catalog.Registry
-	auth             *serviceauth.Authenticator
-	preAuthLimiter   *ratelimit.Limiter
-	principalLimiter *ratelimit.Limiter
-}
-
-type completionRequest struct {
-	Query            string                      `json:"query"`
-	Position         *int                        `json:"position,omitempty"`
-	PositionEncoding completion.PositionEncoding `json:"positionEncoding,omitempty"`
-	Cursor           string                      `json:"cursor,omitempty"`
-}
-
-type completionResponse struct {
-	completion.Result
-	CatalogRevision  string                      `json:"catalogRevision"`
-	DurationMicros   int64                       `json:"durationMicros"`
-	PositionEncoding completion.PositionEncoding `json:"positionEncoding"`
-}
-
-type validationRequest struct {
-	Query string `json:"query"`
-}
-
-type validationResponse struct {
-	validation.Result
-	CatalogRevision string `json:"catalogRevision"`
-}
-
-type catalogUpdate struct {
-	Revision string          `json:"revision"`
-	Catalog  catalog.Catalog `json:"catalog"`
-}
-
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
 	listenAddress := env("LISTEN_ADDR", "127.0.0.1:8091")
 	maxCatalogs, err := positiveIntEnv("MAX_CATALOGS", 1024)
 	if err != nil {
@@ -89,182 +54,28 @@ func main() {
 		fatalConfiguration(err)
 	}
 
-	s := &server{
-		catalogs:         catalog.NewRegistry(maxCatalogs, int64(maxCatalogBytes), catalogTTL),
-		auth:             serviceauth.New(keys, allowInsecure),
-		preAuthLimiter:   configuredLimiter("PRE_AUTH_RATE_LIMIT", 300, 100, maxRateLimitKeys, rateLimitIdleTTL),
-		principalLimiter: configuredLimiter("PRINCIPAL_RATE_LIMIT", 120, 60, maxRateLimitKeys, rateLimitIdleTTL),
-	}
+	catalogs := catalog.NewRegistry(maxCatalogs, int64(maxCatalogBytes), catalogTTL)
+	handler := httpapi.NewHandler(httpapi.Config{
+		Catalogs:         catalogs,
+		Auth:             serviceauth.New(keys, allowInsecure),
+		PreAuthLimiter:   configuredLimiter("PRE_AUTH_RATE_LIMIT", 300, 100, maxRateLimitKeys, rateLimitIdleTTL),
+		PrincipalLimiter: configuredLimiter("PRINCIPAL_RATE_LIMIT", 120, 60, maxRateLimitKeys, rateLimitIdleTTL),
+		Logger:           logger,
+	})
 	httpServer := &http.Server{
 		Addr:              listenAddress,
-		Handler:           s.handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	stats := s.catalogs.Stats()
+	stats := catalogs.Stats()
 	slog.Info("HogQL language service listening", "address", listenAddress, "catalogs", stats.Catalogs, "tables", stats.Tables, "properties", stats.Properties)
 	if err := httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
-}
-
-func (s *server) handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", s.health)
-	mux.Handle("PUT /teams/{teamID}/users/{userID}/catalog", s.authorized(serviceauth.OperationPublish, s.putCatalog))
-	mux.Handle("DELETE /teams/{teamID}/users/{userID}/catalog", s.authorized(serviceauth.OperationDelete, s.deleteCatalog))
-	mux.Handle("POST /teams/{teamID}/users/{userID}/autocomplete", s.authorized(serviceauth.OperationComplete, s.autocomplete))
-	mux.Handle("POST /teams/{teamID}/users/{userID}/validate", s.authorized(serviceauth.OperationValidate, s.validate))
-	return securityHeaders(mux)
-}
-
-func securityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		next.ServeHTTP(w, r)
-	})
-}
-
-type authorizedHandler func(http.ResponseWriter, *http.Request, serviceauth.Authorization)
-
-func (s *server) authorized(operation serviceauth.Operation, next authorizedHandler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		preAuthAllowed, retryAfter := s.preAuthLimiter.Allow(remoteAddress(r))
-		authorization, err := authorizationFromPath(r)
-		if err != nil {
-			if !preAuthAllowed {
-				writeRateLimitResponse(w, retryAfter)
-			} else {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-			}
-			return
-		}
-		if err := s.auth.Verify(r.Header.Get("Authorization"), authorization, operation); err != nil {
-			if !preAuthAllowed {
-				writeRateLimitResponse(w, retryAfter)
-			} else {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-			}
-			return
-		}
-		if allowed, retryAfter := s.principalLimiter.Allow(authorizationKey(authorization)); !allowed {
-			writeRateLimitResponse(w, retryAfter)
-			return
-		}
-		next(w, r, authorization)
-	})
-}
-
-func (s *server) putCatalog(w http.ResponseWriter, r *http.Request, authorization serviceauth.Authorization) {
-	var input catalogUpdate
-	if !decodeJSON(w, r, 64<<20, &input) {
-		return
-	}
-	if err := s.catalogs.Put(authorization, input.Revision, &input.Catalog); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"teamId": authorization.TeamID, "userId": authorization.UserID, "revision": input.Revision})
-}
-
-func (s *server) deleteCatalog(w http.ResponseWriter, _ *http.Request, authorization serviceauth.Authorization) {
-	if !s.catalogs.Delete(authorization) {
-		http.Error(w, "catalog not found", http.StatusNotFound)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *server) autocomplete(w http.ResponseWriter, r *http.Request, authorization serviceauth.Authorization) {
-	var input completionRequest
-	if !decodeJSON(w, r, 128<<10, &input) {
-		return
-	}
-	current, revision, ok := s.catalogs.Get(authorization)
-	if !ok {
-		http.Error(w, "catalog not found", http.StatusNotFound)
-		return
-	}
-	position := -1
-	if input.Position != nil {
-		position = *input.Position
-	}
-	positionEncoding := input.PositionEncoding
-	if positionEncoding == "" {
-		positionEncoding = completion.PositionEncodingUTF8
-	}
-	started := time.Now()
-	result, err := completion.Complete(current, input.Query, position, positionEncoding, input.Cursor)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	writeJSON(w, http.StatusOK, completionResponse{
-		Result:           result,
-		CatalogRevision:  revision,
-		DurationMicros:   time.Since(started).Microseconds(),
-		PositionEncoding: positionEncoding,
-	})
-}
-
-func (s *server) validate(w http.ResponseWriter, r *http.Request, authorization serviceauth.Authorization) {
-	var input validationRequest
-	if !decodeJSON(w, r, 128<<10, &input) {
-		return
-	}
-	current, revision, ok := s.catalogs.Get(authorization)
-	if !ok {
-		http.Error(w, "catalog not found", http.StatusNotFound)
-		return
-	}
-	writeJSON(w, http.StatusOK, validationResponse{Result: validation.Validate(current, input.Query), CatalogRevision: revision})
-}
-
-func (s *server) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func decodeJSON(w http.ResponseWriter, r *http.Request, maxBytes int64, target any) bool {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBytes))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
-		return false
-	}
-	return true
-}
-
-func authorizationFromPath(r *http.Request) (serviceauth.Authorization, error) {
-	teamID, err := strconv.ParseInt(r.PathValue("teamID"), 10, 64)
-	if err != nil {
-		return serviceauth.Authorization{}, errors.New("teamID and userID must be positive integers")
-	}
-	userID, err := strconv.ParseInt(r.PathValue("userID"), 10, 64)
-	if err != nil || teamID <= 0 || userID <= 0 {
-		return serviceauth.Authorization{}, errors.New("teamID and userID must be positive integers")
-	}
-	return serviceauth.Authorization{TeamID: teamID, UserID: userID}, nil
-}
-
-func remoteAddress(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
-
-func authorizationKey(authorization serviceauth.Authorization) string {
-	return strconv.FormatInt(authorization.TeamID, 10) + ":" + strconv.FormatInt(authorization.UserID, 10)
-}
-
-func writeRateLimitResponse(w http.ResponseWriter, retryAfter time.Duration) {
-	seconds := max(int64(1), int64((retryAfter+time.Second-1)/time.Second))
-	w.Header().Set("Retry-After", strconv.FormatInt(seconds, 10))
-	http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 }
 
 func isLoopbackAddress(address string) bool {
@@ -335,21 +146,6 @@ func positiveFloatEnv(name string, fallback float64) (float64, error) {
 		return 0, fmt.Errorf("%s must be a positive number", name)
 	}
 	return parsed, nil
-}
-
-func writeJSON(w http.ResponseWriter, status int, value any) {
-	body, err := json.Marshal(value)
-	if err != nil {
-		http.Error(w, "encode response", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-	w.WriteHeader(status)
-	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- json.Marshal escapes strings and this response has an application/json content type.
-	if _, err := w.Write(body); err != nil {
-		slog.Warn("write response", "error", err)
-	}
 }
 
 func allowInsecureAuthentication(listenAddress, configured string) (bool, error) {

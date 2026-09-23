@@ -14,6 +14,7 @@ const config: SignalScoutConfigApi = {
     skill_name: 'signals-scout-general',
     description: 'General scout',
     scout_origin: 'canonical',
+    scout_role: 'specialist',
     owners: [],
     enabled: true,
     status: 'active',
@@ -27,6 +28,7 @@ const config: SignalScoutConfigApi = {
     last_run_at: '2026-07-21T08:00:00Z',
     consecutive_failure_count: 0,
     status_changed_at: null,
+    status_changed_by: null,
     auto_pause_exempt: false,
     network_access: 'trusted',
     model: null,
@@ -34,6 +36,7 @@ const config: SignalScoutConfigApi = {
     source_product: null,
     source_id: null,
     created_at: '2026-07-21T00:00:00Z',
+    updated_at: '2026-07-21T00:00:00Z',
     write_scopes: [],
 }
 

@@ -54,6 +54,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     get_sandbox_class_for_run_backend,
     get_sandbox_class_for_sandbox_id,
+    needs_full_history,
     sandbox_repo_path,
     workload_for_origin_product,
 )
@@ -75,6 +76,7 @@ from products.tasks.backend.temporal.observability import (
     log_activity_execution,
     log_with_activity_context,
 )
+from products.tasks.backend.temporal.process_task.organization import check_organization_execution
 from products.tasks.backend.temporal.process_task.sandbox_connection import persist_sandbox_connection
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     replace_sandbox_credentials,
@@ -317,7 +319,7 @@ def _prewarmed_resume_needs_fresh_agent(
 
 
 def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
-    if ctx.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+    if not needs_full_history(ctx.origin_product):
         return False
 
     try:
@@ -656,7 +658,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
         task = _load_task(ctx)
-        shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
+        shallow_clone = not needs_full_history(task.origin_product)
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         credential_repository = repository or (ctx.repositories[0] if ctx.repositories else None)
@@ -698,6 +700,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         resume_mode = resume_mode_label(
             same_run_resume=run_state.same_run_resume,
             using_modal_snapshot=resume_snapshot_external_id is not None,
+            from_import_run=run_state.resume_from_import_run,
         )
         resume_decision_log = (
             activity.logger.warning if is_resume and resume_mode == "neither" else activity.logger.info
@@ -771,6 +774,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         image_source=prepared.image_source,
         **ctx.to_log_context(),
     ):
+        check_organization_execution(ctx.team_id)
         if not (ctx.state or {}).get("await_user_message"):
             task = _load_task(ctx)
             if reason := get_compute_quota_denial_reason(task):

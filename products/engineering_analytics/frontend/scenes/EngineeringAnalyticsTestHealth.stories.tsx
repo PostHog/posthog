@@ -24,6 +24,8 @@ const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
     available: true,
     owners_resolved: true,
     ttl_days: 15,
+    truncated: false,
+    limit: 5000,
     repository: 'PostHog/posthog',
     trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',
     teams: [
@@ -128,6 +130,19 @@ export const TrunkQuarantineDebtOwnersUnavailable: Story = {
     decorators: [
         mswDecorator({
             get: { 'api/projects/:team_id/engineering_analytics/trunk_quarantine/': OWNERS_UNAVAILABLE },
+        }),
+    ],
+}
+
+export const QuarantineLoadError: Story = {
+    render: () => <App />,
+    parameters: {
+        pageUrl: urls.engineeringAnalyticsTestHealth(),
+        testOptions: { waitForSelector: '.text-danger' },
+    },
+    decorators: [
+        mswDecorator({
+            get: { 'api/projects/:team_id/engineering_analytics/trunk_quarantine/': () => [500, null] },
         }),
     ],
 }

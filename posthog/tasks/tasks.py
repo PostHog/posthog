@@ -24,7 +24,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_conc
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
@@ -421,6 +421,7 @@ def _process_query_task_failure(
         # Important: Only retry for things that might be okay on the next try
         ClickHouseAtCapacity,
         ConcurrencyLimitExceeded,
+        QueryRanConcurrently,
     ),
     on_failure=_process_query_task_failure,
     retry_backoff=1,
@@ -1101,17 +1102,6 @@ def send_org_usage_reports() -> None:
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
     send_all_org_usage_reports.delay()
-
-
-@shared_task(ignore_result=True, retries=3)
-def clickhouse_send_license_usage() -> None:
-    try:
-        if not is_cloud():
-            from ee.tasks.send_license_usage import send_license_usage
-
-            send_license_usage()
-    except ImportError:
-        pass
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)

@@ -290,6 +290,7 @@ export function NotebookComponentShell({
                     raw: undefined,
                     errors: undefined,
                     props: {
+                        ...(definition?.persistNodeId ? { nodeId: currentNode.id } : {}),
                         ...Object.entries(currentNode.props).reduce<NotebookComponentProps>(
                             (accumulator, [key, value]) => {
                                 if (!propKeysToRemove.has(key)) {
@@ -304,7 +305,7 @@ export function NotebookComponentShell({
                 }
             })
         },
-        [node.id, updateNode]
+        [definition?.persistNodeId, node.id, updateNode]
     )
     const commitTitle = (): void => {
         if (cancellingTitleRef.current) {

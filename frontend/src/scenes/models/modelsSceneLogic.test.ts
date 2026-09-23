@@ -58,6 +58,7 @@ describe('modelsSceneLogic', () => {
                         buildNode('child', { last_run_status: 'Skipped' }),
                         buildNode('grandchild', { last_run_status: 'Skipped' }),
                         buildNode('paused', {
+                            last_run_status: 'Failed',
                             suspended: { clickhouse: { at: '2024-01-02T00:00:00Z', reason: 'boom', job_id: 'j1' } },
                         }),
                         buildNode('never-ran'),
@@ -128,17 +129,15 @@ describe('modelsSceneLogic', () => {
     })
 
     it('counts models whose last run failed and models that are suspended', async () => {
-        setFlag(FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES, true)
         await mount('/models')
         await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
         await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
 
-        expect(logic.values.failingNodes.map((node) => node.id)).toEqual(['broken'])
+        expect(logic.values.failingNodes.map((node) => node.id)).toEqual(['broken', 'paused'])
         expect(logic.values.suspendedNodes.map((node) => node.id)).toEqual(['paused'])
     })
 
     it('ignores a marker on an engine that does not serve queries', async () => {
-        setFlag(FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES, true)
         await mount('/models')
         await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
 
@@ -146,18 +145,7 @@ describe('modelsSceneLogic', () => {
         expect(logic.values.suspendedNodes.map((node) => node.id)).toEqual(['paused'])
     })
 
-    it('ignores markers on a team that does not enforce suspension', async () => {
-        setFlag(FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES, false)
-        await mount('/models')
-        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
-
-        // Detection writes markers for every team, but without enforcement the schedule
-        // keeps firing, so the marker records failures rather than a stopped model.
-        expect(logic.values.suspendedNodes).toEqual([])
-    })
-
     it('lists broken models with their error and what they hold up', async () => {
-        setFlag(FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES, true)
         await mount('/models')
         await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess', 'loadEdgesSuccess'])
         await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
@@ -178,6 +166,63 @@ describe('modelsSceneLogic', () => {
         expect(broken.reason).not.toEqual('a stale copy nothing should read')
         expect(broken.downstreamCount).toEqual(2)
         expect(broken.skippedCount).toEqual(2)
+    })
+
+    it.each<[string, string, any, string]>([
+        ['the model list', '/api/environments/:team_id/data_modeling_nodes/', lineageDataLogic, 'loadNodesFailure'],
+        [
+            'the view list',
+            '/api/projects/:team_id/warehouse_saved_queries/',
+            dataWarehouseViewsLogic,
+            'loadDataWarehouseSavedQueriesFailure',
+        ],
+    ])('reports a failure instead of resolving when %s fails to load', async (_case, path, failedLogic, action) => {
+        useMocks({ get: { [path]: () => [500, {}] } })
+        await mount('/models')
+        await expectLogic(failedLogic).toDispatchActions([action])
+
+        expect(logic.values.modelsFailed).toBe(true)
+        expect(logic.values.modelsResolved).toBe(false)
+    })
+
+    it.each<[string, DataModelingNode[], Record<string, any>[], boolean]>([
+        ['neither models nor views', [], [], true],
+        ['a view that is not a model yet', [], [{ id: 'query-1', name: 'a_view', columns: [] }], false],
+        [
+            'a warehouse source table and nothing else',
+            [buildNode('source-table', { type: 'table', saved_query_id: undefined })],
+            [],
+            true,
+        ],
+    ])('reports a project with %s as new: %s', async (_case, nodes, savedQueries, expected) => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/': { count: nodes.length, results: nodes },
+                '/api/projects/:team_id/warehouse_saved_queries/': {
+                    count: savedQueries.length,
+                    results: savedQueries,
+                },
+            },
+        })
+        await mount('/models')
+        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
+        await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        expect(logic.values.modelsResolved).toBe(true)
+        expect(logic.values.noModelsYet).toBe(expected)
+    })
+
+    it('stops reporting the model list resolved once a reload fails', async () => {
+        await mount('/models')
+        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
+        await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+        expect(logic.values.modelsResolved).toBe(true)
+
+        useMocks({ get: { '/api/environments/:team_id/data_modeling_nodes/': () => [500, {}] } })
+        lineageDataLogic.actions.loadNodes()
+        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesFailure'])
+
+        expect(logic.values.modelsResolved).toBe(false)
     })
 
     it('lists models behind schedule, minus the ones already listed as broken', async () => {

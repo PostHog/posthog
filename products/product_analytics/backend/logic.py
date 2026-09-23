@@ -79,6 +79,10 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
     return recently_viewed
 
 
+def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
+    return list(Insight.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids))
+
+
 def recent_viewers_by_insight(
     *, team_id: int, insight_ids: Collection[int], since: datetime, max_per_insight: int
 ) -> dict[int, list["User"]]:
@@ -152,3 +156,23 @@ def get_query_specific_instructions(kind: str) -> str:
         return "Focus on the balance between new, returning, resurrecting, and dormant users. Identify which group is dominating the total count."
 
     return "Focus on the most significant patterns and anomalies in the data."
+
+
+def get_or_create_saved_insight(
+    *,
+    team_id: int,
+    user_id: int,
+    short_id: str,
+    name: str | None,
+    description: str | None,
+    query: dict[str, object] | None,
+) -> tuple[int, bool]:
+    insight, created = Insight.objects_including_soft_deleted.get_or_create(
+        team_id=team_id,
+        short_id=short_id,
+        defaults={"created_by_id": user_id, "name": name, "description": description, "query": query, "saved": True},
+    )
+    if insight.deleted:
+        insight.deleted = False
+        insight.save(update_fields=["deleted"])
+    return insight.id, created

@@ -9,6 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -948,8 +949,10 @@ export const maxLogic = kea<maxLogicType>([
             handleCommandString(sidePanelStateLogic.values.selectedTabOptions, actions, values.effectivePhaiView)
         }
 
-        // Load conversation history on mount
-        actions.loadConversationHistory()
+        // The global logic may already be loading history for the navigation.
+        if (!values.conversationHistoryLoading) {
+            actions.loadConversationHistory()
+        }
     }),
 
     urlToAction(({ actions, values }) => ({
@@ -959,6 +962,9 @@ export const maxLogic = kea<maxLogicType>([
             }
         },
         [urls.ai()]: (_, search) => {
+            if (search.task) {
+                return
+            }
             if (search.ask && !search.chat && !values.question) {
                 // Clear any existing conversation so the tab title updates
                 if (values.conversationId && values.activeStreamingThreads === 0) {
@@ -1036,6 +1042,16 @@ export const maxLogic = kea<maxLogicType>([
                 return [urls.ai(), {}, router.values.location.hash]
             },
             startNewConversation: () => {
+                // A task open at `/ai?task=` keeps its previous chat in this logic, because the
+                // `urlToAction` handler above skips the cleanup while a task is selected. Deleting
+                // that chat then releases it here without the user navigating, so a bare `/ai`
+                // would drop the task parameter and close the task they are reading.
+                if (
+                    removeProjectIdIfPresent(router.values.location.pathname) === urls.ai() &&
+                    router.values.searchParams.task
+                ) {
+                    return undefined
+                }
                 return [urls.ai(), {}, router.values.location.hash]
             },
             openConversation: ({ conversationId }) => {

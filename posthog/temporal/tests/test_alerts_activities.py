@@ -50,7 +50,6 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     RecordFailedEvaluationActivityInputs,
-    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 
@@ -132,31 +131,6 @@ async def _create_alert(
         return alert
 
     return await _create()
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_retrieve_due_alerts_limits_each_schedule_run_without_starving_other_teams(
-    ateam: Team,
-) -> None:
-    max_alerts_per_run = 2
-    for _ in range(max_alerts_per_run):
-        await _create_alert(ateam, calculation_interval=AlertCalculationInterval.REAL_TIME.value)
-
-    other_team = await sync_to_async(Team.objects.create)(
-        organization_id=ateam.organization_id,
-        project_id=ateam.project_id,
-        name="Other team",
-    )
-    other_alert = await _create_alert(other_team)
-
-    alerts = await ActivityEnvironment().run(
-        retrieve_due_alerts,
-        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
-    )
-
-    assert len(alerts) == max_alerts_per_run
-    assert str(other_alert.id) in {alert.alert_id for alert in alerts}
 
 
 @pytest_asyncio.fixture
@@ -375,6 +349,26 @@ class TestPrepareAlert:
         assert check.calculated_value is None
         assert check.error is not None
         assert result.reason in check.error["message"]
+
+    async def test_auto_disable_when_the_insight_query_can_no_longer_run(self, ateam) -> None:
+        # The check runs before every evaluation, so an insight that loses a step after the alert
+        # was created disables the alert instead of leaving it failing and silent.
+        a = await _create_alert(
+            ateam,
+            query={"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            config={"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
+        )
+
+        env = ActivityEnvironment()
+        result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
+
+        assert result.action == PrepareAction.AUTO_DISABLE
+        assert result.reason is not None
+        assert "Funnels require at least two steps." in result.reason
+
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=a.pk)
+        assert refreshed.enabled is False
+        assert refreshed.state == AlertState.ERRORED
 
     async def test_auto_disable_email_alert_when_email_is_unavailable(self, alert_with_user) -> None:
         with patch("posthog.temporal.alerts.activities.is_email_available", return_value=False):

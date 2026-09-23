@@ -6,10 +6,11 @@ import zlib
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from posthog.test.base import BaseTest
+from posthog.test.base import PostHogTestCase
 
 import pandas as pd
 
@@ -18,9 +19,11 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend.logic.sources import (
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
+    WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
 )
+from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -34,7 +37,7 @@ GITHUB_SOURCE_PREFIX = "myprefix"
 
 
 @contextmanager
-def seeding_object_storage(test: BaseTest) -> Iterator[None]:
+def seeding_object_storage(test: PostHogTestCase) -> Iterator[None]:
     # Skipping locally keeps the suite usable without the dev stack; skipping in CI would drop every
     # warehouse-backed assertion behind a green job, so there it raises.
     try:
@@ -203,6 +206,7 @@ def _pr_row(
     created_at: str,
     *,
     merged_at: str | None = None,
+    closed_at: str | None = None,
     merge_commit_sha: str | None = None,
     head_sha: str = "",
     head_ref: str = "",
@@ -220,7 +224,7 @@ def _pr_row(
         "created_at": created_at,
         "updated_at": merged_at or created_at,
         "merged_at": merged_at,
-        "closed_at": merged_at,
+        "closed_at": closed_at or merged_at,
         "merge_commit_sha": merge_commit_sha,
         "user": _user(login),
         "head": f'{{"sha": "{head_sha}", "ref": "{head_ref}"}}',
@@ -282,7 +286,80 @@ def _run_row(
     }
 
 
-def create_github_warehouse_table(test: BaseTest, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
+def _deployment_row(
+    deployment_id: int, sha: str, environment: str, created_at: str, *, production: bool, transient: bool = False
+) -> dict:
+    return {
+        "id": deployment_id,
+        "sha": sha,
+        "ref": "master",
+        "task": "deploy",
+        "environment": environment,
+        "original_environment": environment,
+        "description": "",
+        "creator": "{}",
+        "payload": "{}",
+        "production_environment": production,
+        "transient_environment": transient,
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+
+
+def _status_row(status_id: int, deployment_id: int, state: str, environment: str, created_at: str) -> dict:
+    return {
+        "id": status_id,
+        "deployment_id": deployment_id,
+        "state": state,
+        "creator": "{}",
+        "description": "",
+        "environment": environment,
+        "target_url": "",
+        "log_url": "",
+        "environment_url": "",
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+
+
+def connect_github_jobs(test: PostHogTestCase, *, prefix: str, jobs: list[tuple[int, int, int, str]]) -> None:
+    """Seed ``workflow_jobs`` rows on the team's existing GitHub source, as ``(id, run_id, attempt,
+    conclusion)``. Reads that corroborate a span-derived signal against GitHub need this table."""
+    source = ExternalDataSource.objects.get(team=test.team, prefix=prefix)
+    now = datetime.now(UTC)
+    table_name = create_github_warehouse_table(
+        test,
+        "github_workflow_jobs",
+        WORKFLOW_JOBS_COLUMNS,
+        [
+            dict.fromkeys(WORKFLOW_JOBS_COLUMNS)
+            | {
+                "id": job_id,
+                "run_id": run_id,
+                "run_attempt": attempt,
+                "name": f"job-{job_id}",
+                "conclusion": conclusion,
+                "created_at": (now - timedelta(days=1)).isoformat(),
+                "started_at": (now - timedelta(days=1)).isoformat(),
+                "completed_at": now.isoformat(),
+            }
+            for job_id, run_id, attempt, conclusion in jobs
+        ],
+        source=source,
+        prefix=prefix,
+    )
+    link_schema(test.team, source, name=WORKFLOW_JOBS_SCHEMA, table=DataWarehouseTable.objects.get(name=table_name))
+
+
+def create_github_warehouse_table(
+    test: PostHogTestCase,
+    base_name: str,
+    columns: dict,
+    rows: list[dict[str, Any]],
+    *,
+    source: ExternalDataSource | None = None,
+    prefix: str = GITHUB_SOURCE_PREFIX,
+) -> str:
     # Returns the real table name (prefixed), which the builder is then told to read,
     # proving build_query honors the resolved name instead of a hardcoded one.
     df = pd.DataFrame(rows, columns=list(columns.keys()))
@@ -297,7 +374,8 @@ def create_github_warehouse_table(test: BaseTest, base_name: str, columns: dict,
             table_columns=columns,
             test_bucket=TEST_BUCKET,
             team=test.team,
-            source_prefix=GITHUB_SOURCE_PREFIX,
+            source=source,
+            source_prefix=prefix,
         )
     test.addCleanup(cleanup)
     return table.name

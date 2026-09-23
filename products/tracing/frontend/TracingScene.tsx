@@ -48,11 +48,16 @@ export const scene: SceneExport = {
 }
 
 export default function TracingScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const sceneLogic = tracingSceneLogic()
     // Keep filters + data + viewer logic alive across React unmounts by attaching them to the scene root.
     useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingViewerLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
+
+    if (featureFlags[FEATURE_FLAGS.TRACING_UI_V2]) {
+        return <p>Tracing UI v2</p>
+    }
 
     // Bind the scene's keyed instances so nested components (filter bar, sparkline, ...)
     // resolve them from context — the same components work inside an embedded viewer
@@ -125,10 +130,11 @@ function TracingSceneContents(): JSX.Element {
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
+    const impactStripEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP]
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
     // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
-    const { sparklineWindowMs } = useValues(tracingFiltersLogic)
+    const { sparklineWindowMs, utcDateRange } = useValues(tracingFiltersLogic)
     const operationsWindowMs = sparklineWindowMs.endMs - sparklineWindowMs.startMs
 
     const onDocsLinkClick = (): void => {
@@ -208,7 +214,9 @@ function TracingSceneContents(): JSX.Element {
                     sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
                     displayTimezone={TRACING_DISPLAY_TIMEZONE}
+                    currentDateTo={utcDateRange.date_to}
                     compare={compareConfig}
+                    compareActive={compareActive}
                     visibleRowDateRange={visibleRowDateRange}
                     durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
                     visibleRowDurationRange={visibleRowDurationRange}
@@ -233,6 +241,7 @@ function TracingSceneContents(): JSX.Element {
                                 rows={aggregation.current}
                                 loading={aggregationLoading}
                                 windowMs={operationsWindowMs}
+                                showImpact={impactStripEnabled}
                                 onRowClick={(row) =>
                                     router.actions.push(
                                         urls.tracingOperation(row.service_name, row.name, filters.dateRange)

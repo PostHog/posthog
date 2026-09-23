@@ -16,12 +16,11 @@ impl FeatureFlag {
         &self.filters.groups
     }
 
-    pub fn get_variants(&self) -> Vec<MultivariateFlagVariant> {
+    pub fn get_variants(&self) -> &[MultivariateFlagVariant] {
         self.filters
             .multivariate
             .as_ref()
-            .map(|m| m.variants.clone())
-            .unwrap_or_default()
+            .map_or(&[], |m| m.variants.as_slice())
     }
 
     pub fn get_payload(&self, match_val: &str) -> Option<serde_json::Value> {
@@ -52,10 +51,11 @@ impl FeatureFlag {
 
     /// Returns true if this flag has experience continuity enabled and is eligible for it.
     ///
-    /// Experience continuity is only supported for person-based flags using distinct_id bucketing.
+    /// Experience continuity is only supported for v1 person-based flags using distinct_id bucketing.
     /// Group-based flags and device_id bucketing flags are not eligible.
     pub fn has_experience_continuity(&self) -> bool {
-        self.ensure_experience_continuity.unwrap_or(false)
+        self.filters.is_v1()
+            && self.ensure_experience_continuity.unwrap_or(false)
             && self.get_group_type_index().is_none()
             && self.get_bucketing_identifier() == BucketingIdentifier::DistinctId
     }
@@ -1352,7 +1352,10 @@ mod tests {
     #[test]
     fn test_has_hash_dependent_variants_empty() {
         let mut flag = mock!(FeatureFlag);
-        flag.filters.multivariate = Some(MultivariateFlagOptions { variants: vec![] });
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![],
+            ..Default::default()
+        });
         assert!(!flag.has_hash_dependent_variants());
     }
 
@@ -1364,7 +1367,9 @@ mod tests {
                 key: "control".to_string(),
                 name: Some("Control".to_string()),
                 rollout_percentage: 100.0,
+                ..Default::default()
             }],
+            ..Default::default()
         });
         // Single variant at 100% is effectively not multivariate
         assert!(!flag.has_hash_dependent_variants());
@@ -1379,13 +1384,16 @@ mod tests {
                     key: "control".to_string(),
                     name: Some("Control".to_string()),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "test".to_string(),
                     name: Some("Test".to_string()),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         });
         assert!(flag.has_hash_dependent_variants());
     }
@@ -1399,13 +1407,16 @@ mod tests {
                     key: "control".to_string(),
                     name: Some("Control".to_string()),
                     rollout_percentage: 100.0, // This variant wins for everyone
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "test".to_string(),
                     name: Some("Test".to_string()),
                     rollout_percentage: 0.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         });
         // When any variant is at 100%, hashing doesn't matter - that variant always wins
         assert!(!flag.has_hash_dependent_variants());
@@ -1422,13 +1433,16 @@ mod tests {
                     key: "control".to_string(),
                     name: Some("Control".to_string()),
                     rollout_percentage: 40.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "test".to_string(),
                     name: Some("Test".to_string()),
                     rollout_percentage: 100.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         });
         assert!(flag.has_hash_dependent_variants());
     }
@@ -1443,13 +1457,16 @@ mod tests {
                     key: "control".to_string(),
                     name: Some("Control".to_string()),
                     rollout_percentage: 0.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "test".to_string(),
                     name: Some("Test".to_string()),
                     rollout_percentage: 100.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         });
         assert!(!flag.has_hash_dependent_variants());
     }
@@ -1464,13 +1481,16 @@ mod tests {
                     key: "control".to_string(),
                     name: Some("Control".to_string()),
                     rollout_percentage: 150.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "test".to_string(),
                     name: Some("Test".to_string()),
                     rollout_percentage: 10.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         });
         assert!(!flag.has_hash_dependent_variants());
     }
@@ -1485,13 +1505,16 @@ mod tests {
                     key: "control".to_string(),
                     name: Some("Control".to_string()),
                     rollout_percentage: 0.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "test".to_string(),
                     name: Some("Test".to_string()),
                     rollout_percentage: 0.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         });
         assert!(!flag.has_hash_dependent_variants());
     }
@@ -1506,18 +1529,22 @@ mod tests {
                     key: "a".to_string(),
                     name: Some("A".to_string()),
                     rollout_percentage: 30.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "b".to_string(),
                     name: Some("B".to_string()),
                     rollout_percentage: 100.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "c".to_string(),
                     name: Some("C".to_string()),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         });
         assert!(flag.has_hash_dependent_variants());
     }
@@ -1532,13 +1559,16 @@ mod tests {
                     key: "control".to_string(),
                     name: Some("Control".to_string()),
                     rollout_percentage: 40.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "test".to_string(),
                     name: Some("Test".to_string()),
                     rollout_percentage: 100.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         });
         assert!(flag.needs_hash_key_override());
     }
@@ -1685,6 +1715,13 @@ mod tests {
         }];
         // Partial rollout needs consistent bucketing
         assert!(flag.needs_hash_key_override());
+        assert!(flag.has_experience_continuity());
+
+        for version in [serde_json::json!(2), serde_json::json!(3)] {
+            flag.filters.extra.insert("version".to_string(), version);
+            assert!(!flag.has_experience_continuity());
+            assert!(!flag.needs_hash_key_override());
+        }
     }
 
     #[test]
@@ -1703,13 +1740,16 @@ mod tests {
                     key: "control".to_string(),
                     name: None,
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "test".to_string(),
                     name: None,
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         });
         // Has variants -> needs consistent variant assignment
         assert!(flag.needs_hash_key_override());
@@ -1770,13 +1810,16 @@ mod tests {
                     key: "control".to_string(),
                     name: None,
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "test".to_string(),
                     name: None,
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         });
         // Both conditions satisfied -> needs lookup
         assert!(flag.needs_hash_key_override());

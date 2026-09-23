@@ -150,6 +150,8 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
 - **A session row carries the same card and menu as the space's own list.**
   Both surfaces render `ChannelItemHoverCard` and `TaskRowContextMenu` from one
   `TaskRowMenuProps`, so the facts and the actions can't drift.
+  While either menu is open, its Archive shortcut acts on that menu's task.
+  When the menu closes, the shortcut acts on the visible task again.
   Rename is the one item the tree drops, because it edits in place and there is
   no inline editor on a row the keyboard is walking.
   The card also opens on the keyboard's highlight, 350ms after it lands — on a space row as well as a session one, so walking the tree shows the same card whichever kind of row the highlight lands on.

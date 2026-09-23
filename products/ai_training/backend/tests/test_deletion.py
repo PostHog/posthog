@@ -15,7 +15,7 @@ from products.ai_training.backend.facade.api import queue_person_training_deleti
 from products.ai_training.backend.models import AITrainingDeletionRequest
 
 
-@override_settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE="test-table")
+@override_settings(AI_RESEARCH_REPLAY_KEY_TABLE="test-table")
 class TestAITrainingDeletionOutbox(TestCase):
     def test_queue_filters_invalid_session_ids_and_batches_valid_sessions(self) -> None:
         session_id = "01a09f92-e780-7000-8000-000000000001"
@@ -31,7 +31,7 @@ class TestAITrainingDeletionOutbox(TestCase):
     ) -> None:
         person = Person(id=1, uuid=UUID("00000000-0000-0000-0000-000000000007"))
         person._distinct_ids = ["known", "alias"]
-        view = MagicMock(team_id=7)
+        view = MagicMock(team_id=7, organization=MagicMock(id=UUID("00000000-0000-0000-0000-00000000000a")))
         request = MagicMock(user=None)
         temporal = MagicMock()
         temporal.start_workflow = AsyncMock()

@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -26,6 +27,8 @@ import { userLogic } from 'scenes/userLogic'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     signalsReportArtefactsDiff,
+    signalsReportChecksDestroy,
+    signalsReportChecksList,
     signalsReportPrChecks,
     signalsReportPrComments,
     signalsReportPrReviewCommentDestroy,
@@ -42,6 +45,7 @@ import type {
     PullRequestCommentApi,
     PullRequestCommentReactionApi,
     ReportChartApi,
+    SignalReportCheckApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -78,6 +82,24 @@ const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRun
 
 /** Why the report's one implementation slot is still claimed. Mirrors the server's `_ImplementationSlotClaim`. */
 export type ImplementationSlotClaim = 'in_flight' | 'shipped_pr'
+
+export type PrChecksError = {
+    message: string
+    remediationUrl: string | null
+}
+
+const GITHUB_CHECKS_PERMISSION_MISSING_CODE = 'github_checks_permission_missing'
+
+function prChecksErrorFrom(error: unknown): PrChecksError {
+    if (error instanceof ApiError && error.code === GITHUB_CHECKS_PERMISSION_MISSING_CODE) {
+        const remediationUrl = (error.data as { remediation_url?: unknown } | null)?.remediation_url
+        return {
+            message: error.message,
+            remediationUrl: typeof remediationUrl === 'string' ? remediationUrl : null,
+        }
+    }
+    return { message: "Couldn't load the PR checks from GitHub.", remediationUrl: null }
+}
 
 // The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
 // gone), and the activity timeline renders the whole log. Pull a generous page so early entries
@@ -261,6 +283,7 @@ export interface inboxReportDetailLogicValues {
     addReviewerOptions: AvailableReviewerOption[]
     availableReviewers: AvailableReviewerOption[] | null
     availableReviewersLoading: boolean
+    cancellingCheckIds: string[]
     chartIdsKey: string
     chartPlacements: ChartPlacements
     chartsById: Map<string, ReportChartApi>
@@ -291,7 +314,7 @@ export interface inboxReportDetailLogicValues {
     prChecks: readonly PullRequestCheckApi[] | null
     prChecksBackedOff: boolean
     prChecksConsecutiveFailures: number
-    prChecksError: string | null
+    prChecksError: PrChecksError | null
     prChecksLoading: boolean
     prComments: readonly PullRequestCommentApi[] | null
     prCommentsError: string | null
@@ -302,6 +325,8 @@ export interface inboxReportDetailLogicValues {
     reportArtefacts: SignalReportArtefact[] | null
     reportArtefactsLoading: boolean
     reportCharts: ReportChartApi[]
+    reportChecks: SignalReportCheckApi[] | null
+    reportChecksLoading: boolean
     reportDiff: CommitDiffResponseApi | null
     reportDiffError: string | null
     reportDiffLoading: boolean
@@ -328,6 +353,12 @@ export interface inboxReportDetailLogicActions {
     discussReportSuccess: () => {
         value: true
     } // inboxTaskKickoffLogic
+    cancelReportCheck: (checkId: string) => {
+        checkId: string
+    }
+    cancelReportCheckDone: (checkId: string) => {
+        checkId: string
+    }
     closeDraftThread: () => {
         value: true
     }
@@ -419,6 +450,21 @@ export interface inboxReportDetailLogicActions {
         payload?: any
     ) => {
         reportArtefacts: SignalReportArtefact[]
+        payload?: any
+    }
+    loadReportChecks: () => any
+    loadReportChecksFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadReportChecksSuccess: (
+        reportChecks: SignalReportCheckApi[],
+        payload?: any
+    ) => {
+        reportChecks: SignalReportCheckApi[]
         payload?: any
     }
     loadReportDiff: ({ artefactId }: { artefactId: string }) => {
@@ -670,6 +716,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setFeedbackNoteDraft: (draft: string) => ({ draft }),
         // The note rides on the payload: the reducers below clear the draft, and listeners run after them.
         submitFeedbackNote: (note: string) => ({ note }),
+        cancelReportCheck: (checkId: string) => ({ checkId }),
+        // Fired whether the cancel succeeded or failed, so the row's button always comes back.
+        cancelReportCheckDone: (checkId: string) => ({ checkId }),
         // Driven by the submit listener only, so the re-entrancy guard and the Send button's
         // loading state read the same flag.
         setFeedbackNoteSubmitting: (submitting: boolean) => ({ submitting }),
@@ -696,6 +745,18 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         props.reportId
                     )
                     return response.signals
+                },
+            },
+        ],
+        reportChecks: [
+            null as SignalReportCheckApi[] | null,
+            {
+                loadReportChecks: async () => {
+                    const response = await signalsReportChecksList(
+                        String(teamLogic.values.currentTeamId),
+                        props.reportId
+                    )
+                    return response.results
                 },
             },
         ],
@@ -839,6 +900,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
 
     reducers({
         selectedPullRequestUrl: [null as string | null, { selectPullRequest: (_, { url }) => url }],
+        // Checks whose cancel request is in flight, so each row's Stop button disables itself
+        // without blocking a second row.
+        cancellingCheckIds: [
+            [] as string[],
+            {
+                cancelReportCheck: (state: string[], { checkId }: { checkId: string }) =>
+                    state.includes(checkId) ? state : [...state, checkId],
+                cancelReportCheckDone: (state: string[], { checkId }: { checkId: string }) =>
+                    state.filter((id) => id !== checkId),
+            },
+        ],
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
         report: [
             null as SignalReport | null,
@@ -945,10 +1017,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Cleared only on success (not on load start), so the section keeps showing the error while
         // a backed-off retry is in flight instead of flashing back to the loading skeleton.
         prChecksError: [
-            null as string | null,
+            null as PrChecksError | null,
             {
                 loadPrChecksSuccess: () => null,
-                loadPrChecksFailure: () => "Couldn't load the PR checks from GitHub.",
+                loadPrChecksFailure: (_, { errorObject }) => prChecksErrorFrom(errorObject),
             },
         ],
         // Consecutive failed checks fetches — feeds `prChecksBackedOff`.
@@ -1283,6 +1355,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        // The endpoint answers with the cancelled row, so the list is patched in place rather than
+        // refetched: the section keeps its scroll position and the other rows never flicker.
+        cancelReportCheck: async ({ checkId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.cancelReportCheckDone(checkId)
+                return
+            }
+            try {
+                const cancelled = await signalsReportChecksDestroy(String(teamId), props.reportId, checkId)
+                actions.loadReportChecksSuccess(
+                    (values.reportChecks ?? []).map((check) => (check.id === checkId ? cancelled : check))
+                )
+            } catch (error: any) {
+                lemonToast.error(error?.detail || "Couldn't stop this check. Try again in a moment.")
+            } finally {
+                actions.cancelReportCheckDone(checkId)
+            }
+        },
         setDetailTab: ({ tab }) => {
             // Reviewing the diff is the deepest engagement a report gets short of acting on it.
             if (tab === 'files' && values.report) {
@@ -1640,6 +1731,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         actions.loadReportArtefacts()
         actions.loadReportSignals()
         actions.loadAvailableReviewers()
+        // Loaded once per mount, unlike the artefact log: a check's soak window is measured in days
+        // and the coordinator's tick is coarse, so there is nothing for a poll to catch.
+        actions.loadReportChecks()
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)
         // Register the artefact-log poll once for the lifetime of the mount and let each tick decide

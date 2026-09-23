@@ -112,10 +112,30 @@ import path; a test pins them to the enum so a rename can't drop a product off t
 """
 
 
+FULL_HISTORY_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+    {
+        # Signals report research reads history for `git blame`
+        "signal_report",
+        # A pinned scout asks the same questions of the tree: `git log`, `git blame`, `--since`
+        "signals_scout",
+    }
+)
+"""Origin products whose sandboxes clone the full commit history instead of `--depth 1`.
+
+Every other origin keeps the fast-boot shallow clone. Nobody watches a fleet run, so a slower
+boot costs less than the unshallow fetch a skill body pays mid-run to get history back. Held as
+strings for the same reason as ``SELF_DRIVING_ORIGIN_PRODUCTS``; a test pins them to the enum.
+"""
+
+
 def workload_for_origin_product(origin_product: str | None) -> SandboxWorkload:
     if origin_product in SELF_DRIVING_ORIGIN_PRODUCTS:
         return SandboxWorkload.SELF_DRIVING
     return SandboxWorkload.DEFAULT
+
+
+def needs_full_history(origin_product: str | None) -> bool:
+    return origin_product in FULL_HISTORY_ORIGIN_PRODUCTS
 
 
 class ExecutionResult(BaseModel):
@@ -351,6 +371,33 @@ def build_agent_runtime_env_prefix(
     return f"env {body} " if body else ""
 
 
+AGENT_SERVER_BINARY_PATH = "/scripts/node_modules/.bin/agent-server"
+
+AGENT_SERVER_CAPABILITY_TOKENS: dict[str, str] = {
+    "auto_publish": "autoPublish",
+    "exec_permission_regex": "posthogExecPermissionRegex",
+    "pi_runtime": "POSTHOG_AGENT_RUNTIME",
+    "prewarmed_resume_message_driven": "prewarmedResumeMessageDriven",
+}
+
+
+def build_bundled_skills_clear_command() -> str:
+    """Delete the bundled skill folders when the sandbox environment asks for it.
+
+    The check runs inside the sandbox: a sandbox rehydrated by id carries no config env
+    vars, but the container environment still holds the value the launcher set.
+    """
+    paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
+    return f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then rm -rf {paths} && mkdir -p {paths}; fi'
+
+
+def build_agent_server_capability_probe(capability: str) -> str:
+    """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
+    CLI options, so probe the installed binary before passing a flag such as --autoPublish;
+    unsupported binaries degrade instead of crashing at launch."""
+    return f"grep -q {shlex.quote(AGENT_SERVER_CAPABILITY_TOKENS[capability])} {AGENT_SERVER_BINARY_PATH}"
+
+
 class SandboxBase(ABC):
     id: str
     config: SandboxConfig
@@ -478,42 +525,9 @@ class SandboxBase(ABC):
             )
         return False
 
-    def clear_bundled_skills_if_disabled(self) -> None:
-        """Delete the bundled skill folders when the sandbox environment asks for it.
-
-        The check runs inside the sandbox: a sandbox rehydrated by id carries no config env
-        vars, but the container environment still holds the value the launcher set.
-        """
-        paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
-        command = f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then rm -rf {paths} && mkdir -p {paths}; fi'
-        result = self.execute(command, timeout_seconds=30)
-        if result.exit_code != 0:
-            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
-
-    def agent_server_supports_auto_publish(self) -> bool:
-        """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
-        CLI options, so probe the installed binary before passing --autoPublish; unsupported
-        binaries degrade to review-first instead of crashing at launch."""
-        result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
-        return result.exit_code == 0
-
-    def agent_server_supports_exec_permission_regex(self) -> bool:
-        result = self.execute(
-            "grep -q posthogExecPermissionRegex /scripts/node_modules/.bin/agent-server", timeout_seconds=10
-        )
-        return result.exit_code == 0
-
-    def agent_server_supports_pi_runtime(self) -> bool:
-        result = self.execute(
-            "grep -q POSTHOG_AGENT_RUNTIME /scripts/node_modules/.bin/agent-server",
-            timeout_seconds=10,
-        )
-        return result.exit_code == 0
-
     def agent_server_supports_prewarmed_resume_message_driven(self) -> bool:
         result = self.execute(
-            "grep -q prewarmedResumeMessageDriven /scripts/node_modules/.bin/agent-server",
-            timeout_seconds=10,
+            build_agent_server_capability_probe("prewarmed_resume_message_driven"), timeout_seconds=10
         )
         return result.exit_code == 0
 
@@ -700,17 +714,20 @@ class SandboxBase(ABC):
                 if isinstance(raw_phases, dict)
                 else {}
             )
+            versioned_contract = isinstance(boot, dict) and "contractVersion" in boot
             for source, target in (
                 ("totalMs", "server_total"),
                 ("httpReadyMs", "http_ready"),
                 ("launcherToProcessMs", "launcher_to_process"),
             ):
+                if source == "totalMs" and not versioned_contract:
+                    continue
                 duration = boot.get(source) if isinstance(boot, dict) else None
                 if isinstance(duration, int | float) and not isinstance(duration, bool):
                     phases[target] = max(0, int(duration))
             boot_ms = payload.get("bootMs")
-            if "server_total" not in phases and isinstance(boot_ms, int | float) and not isinstance(boot_ms, bool):
-                phases["server_total"] = max(0, int(boot_ms))
+            if isinstance(boot_ms, int | float) and not isinstance(boot_ms, bool):
+                phases["process_total"] = max(0, int(boot_ms))
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
         except Exception:
             return None, {}

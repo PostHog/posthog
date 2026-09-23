@@ -3,8 +3,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
-
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack import (
     source as better_stack_source_module,
 )
@@ -37,10 +36,16 @@ class TestBetterStackGetSchemas:
             ("monitor_availability", False, False),
             ("monitor_groups", False, False),
             ("heartbeats", False, False),
+            ("heartbeat_availability", False, False),
             ("heartbeat_groups", False, False),
             ("status_pages", False, False),
+            ("status_page_resources", False, False),
             ("on_calls", False, False),
+            ("on_call_events", False, False),
+            ("on_call_rotations", False, False),
             ("escalation_policies", False, False),
+            ("severities", False, False),
+            ("severity_groups", False, False),
             ("team_members", False, False),
             ("roles", False, False),
         ]
@@ -137,6 +142,13 @@ class TestBetterStackResumableAndPipeline:
             ("incident_comments", ["incident_id", "id"], ["created_at"], "datetime", "desc"),
             ("monitor_response_times", ["monitor_id", "region", "at"], ["at"], "datetime", "desc"),
             ("monitor_availability", ["monitor_id"], None, None, "asc"),
+            ("heartbeat_availability", ["heartbeat_id"], None, None, "asc"),
+            # A status page resource id is only unique within its page, and a schedule's shift id
+            # only within that schedule, so both carry their parent.
+            ("status_page_resources", ["status_page_id", "id"], None, None, "asc"),
+            ("on_call_events", ["on_call_id", "id"], ["starts_at"], "datetime", "asc"),
+            # A rotation is one row per schedule and carries no id of its own.
+            ("on_call_rotations", ["on_call_id"], None, None, "asc"),
             # Members and pending invitations draw ids from separate spaces.
             ("team_members", ["id", "type"], None, None, "asc"),
             ("roles", ["id"], None, None, "asc"),
@@ -145,6 +157,8 @@ class TestBetterStackResumableAndPipeline:
             ("status_pages", ["id"], None, None, "asc"),
             ("on_calls", ["id"], None, None, "asc"),
             ("escalation_policies", ["id"], None, None, "asc"),
+            ("severities", ["id"], None, None, "asc"),
+            ("severity_groups", ["id"], None, None, "asc"),
         ]
     )
     def test_source_for_pipeline_per_endpoint(

@@ -204,3 +204,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
         )
 
     return MockJSONResponse(None, 404)
+
+
+def mocked_plugin_github_request(method, url, **kwargs):
+    return mocked_plugin_requests_get(url, **kwargs)

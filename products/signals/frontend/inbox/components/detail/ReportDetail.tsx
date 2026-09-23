@@ -9,10 +9,12 @@ import {
     IconSearch,
     IconSidebarClose,
     IconSidebarOpen,
+    IconTrends,
 } from '@posthog/icons'
 import { LemonButton, LemonTabs, LemonSelect } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
@@ -47,8 +49,12 @@ import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleto
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
+import { ReportChecksSection } from './ReportChecksSection'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
+import { ReportImpactMetrics } from './ReportImpactMetrics'
+import { ReportPrimaryMetric } from './ReportPrimaryMetric'
+import { ReportStatusSection } from './ReportStatusSection'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
@@ -187,11 +193,10 @@ interface InboxDetailFrameProps {
  * Shared chrome for the Report and Pull request detail bodies. A back link and the actions sit on
  * one row over a bordered container: the evidence rail on the left (Evidence first, then the PR
  * checks, reviewers, runs, and activity), and the report summary on the right under its own
- * "Report summary" header. The summary's title stands alone; the priority, the size of the change, and
- * the created/updated times head the "Files changed" tab, where a reviewer weighs the change. The
- * status and actionability chips stay off the page because the inbox section the report came from
- * already says what they said. The rail can be hidden (a persisted preference) so the report column,
- * and above all the diff, takes the full width.
+ * "Report summary" header. The status section collects the report and pull request state. The
+ * summary's title stands alone; the priority, the size of the change, and the created/updated times
+ * head the "Files changed" tab, where a reviewer weighs the change. The rail can be hidden (a
+ * persisted preference) so the report column, and above all the diff, takes the full width.
  * AgentRunDetail keeps its own layout.
  */
 export function InboxDetailFrame({
@@ -274,8 +279,9 @@ export function InboxDetailFrame({
         </span>
     )
 
-    // Hiding the rail gives the report column the full width, which is what reading a diff needs. The
-    // Both controls live on the rail: hide in the Evidence header, show in the strip the rail folds to.
+    // Hiding the rail gives the report column the full width, which is what reading a diff needs.
+    // Both controls live on the rail: hide in the header of its first section, show in the strip
+    // the rail folds to.
     const onToggleRail = (): void => {
         toggleEvidenceRail()
         captureSectionToggle('evidence_rail')(!evidenceRailCollapsed)
@@ -314,6 +320,15 @@ export function InboxDetailFrame({
 
     // The report body: title, summary, charts, and the rating. On a PR-bearing report it is the
     // "Summary" tab; otherwise it sits under the "Report summary" header.
+    // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
+    const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    const primaryMetric = metricsEnabled ? report.metrics?.find((metric) => metric.role === 'primary') : undefined
+    const supportingMetrics = metricsEnabled
+        ? (report.metrics?.filter((metric) => metric.role !== 'primary') ?? [])
+        : []
+    const impactMetrics =
+        supportingMetrics.length > 0 ? <ReportImpactMetrics reportId={report.id} metrics={supportingMetrics} /> : null
+
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
             {titleHeading}
@@ -325,14 +340,16 @@ export function InboxDetailFrame({
                         chartPlacements={chartPlacements}
                         implementButton={implementButton}
                         pullRequestNote={pullRequestNote}
+                        impactMetrics={impactMetrics}
                     />
                 ) : (
-                    <>
+                    <div className="flex flex-col gap-6">
                         <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
                             No summary yet. An agent is still investigating.
                         </p>
                         {pullRequestNote}
-                    </>
+                        {impactMetrics}
+                    </div>
                 )}
                 {trailingCharts.length > 0 && (
                     <div className="flex flex-col gap-4 mt-5">
@@ -392,14 +409,24 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
                 ) : (
                     <aside className={DETAIL_ASIDE_CLASS}>
-                        {/* Evidence leads: it is what the summary's claims rest on. */}
+                        <ReportStatusSection report={report} rightSlot={hideRailButton} />
+                        {/* The observation leads, then the evidence its claims rest on. */}
+                        {primaryMetric && (
+                            <DetailSection
+                                icon={<IconTrends />}
+                                title="Observation"
+                                collapsible
+                                onToggleCollapsed={captureSectionToggle('observation')}
+                            >
+                                <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
+                            </DetailSection>
+                        )}
                         {hasEvidence && (
                             <DetailSection
                                 icon={<IconSearch />}
                                 title="Evidence"
                                 collapsible
                                 onToggleCollapsed={captureSectionToggle('evidence')}
-                                rightSlot={hideRailButton}
                             >
                                 {reportSignalsLoading && reportSignals === null ? (
                                     <EvidenceSkeleton count={evidenceCount} />
@@ -427,6 +454,7 @@ export function InboxDetailFrame({
                         {children}
                         <SuggestedReviewersSection report={report} />
                         <ReportTasksSection report={report} />
+                        <ReportChecksSection report={report} />
                         <ReportActivitySection report={report} />
                         {asideFooter}
                     </aside>

@@ -3,15 +3,18 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 
 import {
-    SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSwitchGroupConfig,
-} from '~/queries/schema/schema-general'
+    SourceConfigResponseApi,
+    SourceFieldInputConfigApi,
+    SourceFieldSelectConfigApi,
+    SourceFieldSwitchGroupConfigApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { sourceFieldToElement } from './SourceForm'
 
-const SELECT_FIELD: SourceFieldSelectConfig = {
+// The two field types that carry a caption, both routed through the same caption-to-help contract.
+type CaptionField = SourceFieldSelectConfigApi | SourceFieldInputConfigApi
+
+const SELECT_FIELD: SourceFieldSelectConfigApi = {
     type: 'select',
     name: 'response_types',
     label: 'Responses to sync',
@@ -24,9 +27,21 @@ const SELECT_FIELD: SourceFieldSelectConfig = {
     caption: 'Changing this triggers a full refresh of the responses table.',
 }
 
-const SOURCE_CONFIG = { name: 'Typeform', fields: [] } as unknown as SourceConfig
+// The SSH host-key field is a textarea with a caption. The textarea branch used to drop the
+// caption while every sibling rendered it, so a caption-carrying textarea renders no help.
+const TEXTAREA_FIELD: SourceFieldInputConfigApi = {
+    type: 'textarea',
+    name: 'host_key',
+    label: 'SSH host key (optional)',
+    required: false,
+    placeholder: '',
+    secret: false,
+    caption: 'Paste the server public host key to verify its identity on connect.',
+}
 
-const SWITCH_GROUP_FIELD: SourceFieldSwitchGroupConfig = {
+const SOURCE_CONFIG = { name: 'Typeform', fields: [] } as unknown as SourceConfigResponseApi
+
+const SWITCH_GROUP_FIELD: SourceFieldSwitchGroupConfigApi = {
     type: 'switch-group',
     name: 'custom_properties',
     label: 'Customize synced properties',
@@ -56,7 +71,7 @@ const switchGroupState = (storedGroupValue: any, formValue?: any): { checked: bo
     return { checked: toggle.props.checked, childrenVisible: !!children.find((child: any) => child?.props?.name) }
 }
 
-const CONNECTION_STRING_FIELD: SourceFieldInputConfig = {
+const CONNECTION_STRING_FIELD: SourceFieldInputConfigApi = {
     type: 'text',
     name: 'connection_string',
     label: 'Connection string (optional)',
@@ -65,7 +80,7 @@ const CONNECTION_STRING_FIELD: SourceFieldInputConfig = {
     secret: true,
 }
 
-const POSTGRES_CONFIG = { name: 'Postgres', fields: [] } as unknown as SourceConfig
+const POSTGRES_CONFIG = { name: 'Postgres', fields: [] } as unknown as SourceConfigResponseApi
 
 // Renders the connection string field at a given value and reports whether it tells the user the
 // string didn't parse.
@@ -79,13 +94,19 @@ const connectionStringWarns = (value: string): boolean => {
 describe('sourceFieldToElement', () => {
     afterEach(cleanup)
 
-    it('renders a select field caption as field help text', () => {
-        const element = sourceFieldToElement(SELECT_FIELD, SOURCE_CONFIG)
+    it.each([
+        ['select', SELECT_FIELD],
+        ['textarea', TEXTAREA_FIELD],
+    ] as [string, CaptionField][])('renders a %s field caption as field help text', (_name, field) => {
+        const element = sourceFieldToElement(field, SOURCE_CONFIG)
         expect(element.props.help).toBeTruthy()
     })
 
-    it('omits help when a select field has no caption', () => {
-        const element = sourceFieldToElement({ ...SELECT_FIELD, caption: undefined }, SOURCE_CONFIG)
+    it.each([
+        ['select', SELECT_FIELD],
+        ['textarea', TEXTAREA_FIELD],
+    ] as [string, CaptionField][])('omits help when a %s field has no caption', (_name, field) => {
+        const element = sourceFieldToElement({ ...field, caption: undefined }, SOURCE_CONFIG)
         expect(element.props.help).toBeUndefined()
     })
 
