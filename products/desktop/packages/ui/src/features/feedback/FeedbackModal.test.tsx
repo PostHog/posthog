@@ -1,5 +1,5 @@
 import type { FeedbackSubmissionInput } from "@posthog/platform/feedback-context";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -196,70 +196,183 @@ describe("FeedbackModal", () => {
     expect(onFinished).toHaveBeenCalledTimes(1);
   });
 
-  it("sends selected logs, screenshot, and images together", async () => {
+  it.each(["upload", "paste"])(
+    "sends selected logs, screenshot, and images from %s together",
+    async (input) => {
+      const user = userEvent.setup();
+      await renderModal("feedback");
+
+      expect(readRecentLogs).not.toHaveBeenCalled();
+      expect(captureScreenshot).toHaveBeenCalledTimes(1);
+      expect(
+        screen.getByRole("checkbox", {
+          name: "Include screenshot of this window",
+        }),
+      ).not.toBeChecked();
+      await user.click(
+        screen.getByRole("checkbox", {
+          name: "Include screenshot of this window",
+        }),
+      );
+      let resolveLogs: (value: string | null) => void = () => {};
+      readRecentLogs.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveLogs = resolve;
+          }),
+      );
+      const logsCheckbox = screen.getByRole("checkbox", {
+        name: "Include recent app logs",
+      });
+      await user.click(logsCheckbox);
+      expect(readRecentLogs).toHaveBeenCalledTimes(1);
+      expect(logsCheckbox).toBeChecked();
+      expect(logsCheckbox).toBeEnabled();
+      expect(
+        screen.queryByText("Loading recent app logs"),
+      ).not.toBeInTheDocument();
+      resolveLogs("[info] Example log");
+      await screen.findByRole("button", { name: "View app logs" });
+
+      const image = new File(["image bytes"], "feedback.png", {
+        type: "image/png",
+      });
+      if (input === "upload") {
+        await user.upload(
+          screen.getByLabelText("Choose feedback images"),
+          image,
+        );
+      } else {
+        fireEvent.paste(
+          screen.getByPlaceholderText(
+            "What happened, and what did you expect?",
+          ),
+          {
+            clipboardData: { files: [image], getData: () => "" },
+          },
+        );
+      }
+      expect(await screen.findByText("1 attached")).toBeInTheDocument();
+      expect(
+        screen.getByRole("img", { name: "Attachment feedback.png" }),
+      ).toBeInTheDocument();
+
+      await user.type(
+        screen.getByPlaceholderText("What happened, and what did you expect?"),
+        "The page did not load",
+      );
+      await user.click(screen.getByRole("button", { name: "Send feedback" }));
+
+      await waitFor(() => expect(submitFeedback).toHaveBeenCalled());
+      expect(submitFeedback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          feedbackAppLogs: "[info] Example log",
+          screenshot: {
+            name: "posthog-desktop-screenshot.jpg",
+            dataUrl: "data:image/jpeg;base64,c2NyZWVuc2hvdA==",
+          },
+          images: [
+            expect.objectContaining({
+              name: "feedback.png",
+              dataUrl: expect.stringMatching(/^data:image\/jpeg;base64,/),
+            }),
+          ],
+        }),
+      );
+    },
+  );
+
+  it("keeps text paste and lets users remove pasted images", async () => {
     const user = userEvent.setup();
     await renderModal("feedback");
-
-    expect(readRecentLogs).not.toHaveBeenCalled();
-    expect(captureScreenshot).toHaveBeenCalledTimes(1);
-    expect(
-      screen.getByRole("checkbox", {
-        name: "Include screenshot of this window",
-      }),
-    ).not.toBeChecked();
+    const textarea = screen.getByPlaceholderText(
+      "What happened, and what did you expect?",
+    );
+    await user.click(textarea);
+    await user.paste("Example feedback");
+    expect(textarea).toHaveValue("Example feedback");
+    const accepted = fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [new File(["image"], "pasted.png", { type: "image/png" })],
+        getData: () => "More context",
+      },
+    });
+    expect(accepted).toBe(true);
     await user.click(
-      screen.getByRole("checkbox", {
-        name: "Include screenshot of this window",
-      }),
-    );
-    let resolveLogs: (value: string | null) => void = () => {};
-    readRecentLogs.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveLogs = resolve;
-        }),
-    );
-    const logsCheckbox = screen.getByRole("checkbox", {
-      name: "Include recent app logs",
-    });
-    await user.click(logsCheckbox);
-    expect(readRecentLogs).toHaveBeenCalledTimes(1);
-    expect(logsCheckbox).toBeChecked();
-    expect(logsCheckbox).toBeEnabled();
-    expect(
-      screen.queryByText("Loading recent app logs"),
-    ).not.toBeInTheDocument();
-    resolveLogs("[info] Example log");
-    await screen.findByRole("button", { name: "View app logs" });
-
-    const image = new File(["image bytes"], "feedback.png", {
-      type: "image/png",
-    });
-    await user.upload(screen.getByLabelText("Choose feedback images"), image);
-    expect(await screen.findByText("1 attached")).toBeInTheDocument();
-
-    await user.type(
-      screen.getByPlaceholderText("What happened, and what did you expect?"),
-      "The page did not load",
+      await screen.findByRole("button", { name: "Remove pasted.png" }),
     );
     await user.click(screen.getByRole("button", { name: "Send feedback" }));
-
-    await waitFor(() => expect(submitFeedback).toHaveBeenCalled());
     expect(submitFeedback).toHaveBeenCalledWith(
-      expect.objectContaining({
-        feedbackAppLogs: "[info] Example log",
-        screenshot: {
-          name: "posthog-desktop-screenshot.jpg",
-          dataUrl: "data:image/jpeg;base64,c2NyZWVuc2hvdA==",
-        },
-        images: [
-          expect.objectContaining({
-            name: "feedback.png",
-            dataUrl: expect.stringMatching(/^data:image\/jpeg;base64,/),
-          }),
-        ],
-      }),
+      expect.objectContaining({ images: [] }),
     );
+  });
+
+  it("shares the image limit between file selection and paste", async () => {
+    const user = userEvent.setup();
+    await renderModal("feedback");
+    await user.upload(
+      screen.getByLabelText("Choose feedback images"),
+      new File(["image"], "selected.png", { type: "image/png" }),
+    );
+    await screen.findByText("1 attached");
+    fireEvent.paste(
+      screen.getByPlaceholderText("What happened, and what did you expect?"),
+      {
+        clipboardData: {
+          files: ["second.png", "third.png"].map(
+            (name) => new File(["image"], name, { type: "image/png" }),
+          ),
+          getData: () => "",
+        },
+      },
+    );
+    await screen.findByText("2 attached");
+    expect(
+      screen.queryByRole("img", { name: "Attachment third.png" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("blocks submission while a pasted image is loading and recovers from invalid images", async () => {
+    const user = userEvent.setup();
+    let finish: BlobCallback = () => {};
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback) => {
+        finish = callback;
+      },
+    );
+    await renderModal("feedback");
+    const textarea = screen.getByPlaceholderText(
+      "What happened, and what did you expect?",
+    );
+    await user.type(textarea, "Example feedback");
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [new File(["image"], "pasted.png", { type: "image/png" })],
+        getData: () => "",
+      },
+    });
+    await waitFor(() =>
+      expect(HTMLCanvasElement.prototype.toBlob).toHaveBeenCalled(),
+    );
+    expect(
+      screen.getByRole("button", { name: "Send feedback" }),
+    ).toBeDisabled();
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(submitFeedback).not.toHaveBeenCalled();
+    finish(new Blob(["image"], { type: "image/jpeg" }));
+    await screen.findByText("1 attached");
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [new File(["image"], "unsupported.gif", { type: "image/gif" })],
+        getData: () => "",
+      },
+    });
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        "Choose a JPEG, PNG, or WebP image.",
+      ),
+    );
+    expect(screen.getByRole("button", { name: "Send feedback" })).toBeEnabled();
   });
 
   it("does not add logs after they are unchecked while loading", async () => {
