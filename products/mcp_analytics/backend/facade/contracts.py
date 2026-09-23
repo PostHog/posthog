@@ -283,6 +283,29 @@ class ActivityClientRow:
 
 
 @dataclass(frozen=True)
+class MeasuredServerStatsRow:
+    """One server's aggregate over a window of new-SDK $mcp_tool_call events."""
+
+    server_name: str
+    calls: int
+    sessions: int
+    errors: int
+    calls_with_intent: int
+    distinct_tools: int
+    client_names: int
+
+
+@dataclass(frozen=True)
+class MeasuredToolStatsRow:
+    """One tool's aggregate for a server over the same window."""
+
+    tool_name: str
+    description: str
+    calls: int
+    errors: int
+
+
+@dataclass(frozen=True)
 class ActivityRecentCall:
     timestamp: datetime
     tool: str

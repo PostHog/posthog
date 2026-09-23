@@ -57,6 +57,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.taxonomy.taxonomy import QUERY_DEPRECATED_EVENT_PROPERTIES
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.facade.api import insight_variables_for_team
@@ -67,6 +68,9 @@ from common.hogvm.python.stl.bytecode import BYTECODE_STL
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
+# The one path through a Hog function's globals that holds an event's own property bag. Other
+# `properties` bags (person, groups, a user-defined input) never carry person property setters.
+EVENT_PROPERTIES_GLOBALS_CHAIN = ["event", "properties"]
 
 
 def _get_direct_connection_metadata(context: HogQLContext) -> Optional[dict]:
@@ -564,12 +568,20 @@ def get_hogql_autocomplete(
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
     timings = HogQLTimings()
 
-    if database_arg is not None:
-        database = database_arg
-    else:
-        database = Database.create_for(team=team, user=user, timings=timings)
+    built_database: Optional[Database] = database_arg
+    context = HogQLContext(team_id=team.pk, team=team, user=user, database=database_arg, timings=timings)
 
-    context = HogQLContext(team_id=team.pk, team=team, user=user, database=database, timings=timings)
+    def get_database() -> Database:
+        """`Database.create_for` walks every warehouse table, join and view for the team, which
+        dominates the latency of an autocomplete request. Template languages (Hog, Hog templates,
+        Liquid) answer from `query.globals` and the STL alone, so they must never reach it.
+        """
+        nonlocal built_database
+        if built_database is None:
+            built_database = Database.create_for(team=team, user=user, timings=timings)
+            context.database = built_database
+        return built_database
+
     if query.sourceQuery:
         if query.sourceQuery.kind == "HogQLQuery" and (
             query.sourceQuery.query is None or query.sourceQuery.query == ""
@@ -641,18 +653,27 @@ def get_hogql_autocomplete(
             if isinstance(query.globals, dict):
                 if isinstance(node, ast.Field):
                     loop_globals: dict | None = query.globals
+                    entered_chain: list[str] = []
                     for index, key in enumerate(node.chain):
                         if MATCH_ANY_CHARACTER in str(key):
                             break
                         if loop_globals is not None and str(key) in loop_globals:
                             loop_globals = loop_globals[str(key)]
+                            entered_chain.append(str(key))
                         elif index == len(node.chain) - 1:
                             break
                         else:
                             loop_globals = None
                             break
                     if loop_globals is not None:
-                        add_globals_to_suggestions(loop_globals, response)
+                        # The sample event backing these globals is a real captured event, so its
+                        # property bag can still carry properties we no longer offer for querying.
+                        excluded_keys = (
+                            QUERY_DEPRECATED_EVENT_PROPERTIES
+                            if entered_chain == EVENT_PROPERTIES_GLOBALS_CHAIN
+                            else None
+                        )
+                        add_globals_to_suggestions(loop_globals, response, excluded_keys=excluded_keys)
                         # looking at a nested global object, no need for other suggestions
                         if loop_globals != query.globals:
                             break
@@ -682,6 +703,10 @@ def get_hogql_autocomplete(
 
             if select_ast is None:
                 break
+
+            # Everything below resolves against the team's schema, so this is the first point
+            # where the database has to exist.
+            database = get_database()
 
             if query.filters:
                 try:
@@ -802,6 +827,10 @@ def get_hogql_autocomplete(
                                             name__contains=match_term,
                                             type=property_type,
                                         )
+                                        if property_type == PropertyDefinition.Type.EVENT:
+                                            property_query = property_query.exclude(
+                                                name__in=QUERY_DEPRECATED_EVENT_PROPERTIES
+                                            )
 
                                     # One row past the limit sets `incomplete_list` without an unbounded COUNT(*):
                                     # an empty match_term makes the filter `LIKE '%%'`, so that count walked the
@@ -948,8 +977,12 @@ def extract_json_row(query_to_try, query_start, query_end):
     return query_to_try, query_start, query_end
 
 
-def add_globals_to_suggestions(globalVars: dict, response: HogQLAutocompleteResponse):
+def add_globals_to_suggestions(
+    globalVars: dict, response: HogQLAutocompleteResponse, excluded_keys: set[str] | None = None
+):
     if isinstance(globalVars, dict):
+        if excluded_keys:
+            globalVars = {key: value for key, value in globalVars.items() if key not in excluded_keys}
         existing_values = {item.label for item in response.suggestions}
         values: list[str | None] = []
         for key, value in globalVars.items():

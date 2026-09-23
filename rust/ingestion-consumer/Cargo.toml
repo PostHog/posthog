@@ -9,6 +9,7 @@ axum = { workspace = true }
 chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
+common-kafka-consumer = { path = "../common/kafka-consumer" }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
@@ -37,4 +38,5 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
+rstest = "0.26"
 uuid = { workspace = true }

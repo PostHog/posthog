@@ -1,9 +1,11 @@
+import { buildLocalCodeSnapshotPrompt } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
   buildCreatePrReportPrompt,
   buildDiscussReportPrompt,
   canCreateImplementationPr,
+  canResolveReport,
 } from "./reportActions";
 
 describe("buildCreatePrReportPrompt", () => {
@@ -185,6 +187,34 @@ describe("buildDiscussReportPrompt", () => {
     expect(withQuestion).toMatch(/can't fetch the report/i);
     expect(withoutQuestion).toMatch(/can't fetch the report/i);
   });
+
+  it("requires code-backed answers to disclose scan coverage", () => {
+    const prompt = buildDiscussReportPrompt({
+      reportId: "abc123",
+      isDevBuild: false,
+    });
+    expect(prompt).toContain("Code context checked");
+    expect(prompt).toContain("number of files scanned");
+    expect(prompt).toContain("excluded or unreadable path");
+  });
+
+  it("marks local code fallback results as limited and possibly stale", () => {
+    const prompt = buildLocalCodeSnapshotPrompt("Investigate this report.");
+    expect(prompt).toContain("uses the selected local folder directly");
+    expect(prompt).toContain("limited to the folder state during this run");
+    expect(prompt).toContain("possibly stale");
+    expect(prompt).toContain("ongoing background investigations");
+    expect(prompt).not.toContain("This task also covers");
+  });
+
+  it("names the repositories a local folder leaves out", () => {
+    const prompt = buildLocalCodeSnapshotPrompt("Investigate this report.", [
+      "acme/api",
+      "acme/web",
+    ]);
+    expect(prompt).toContain("This task also covers acme/api, acme/web.");
+    expect(prompt).toContain("report it as not checked");
+  });
 });
 
 describe("canCreateImplementationPr", () => {
@@ -214,5 +244,17 @@ describe("canCreateImplementationPr", () => {
     expect(
       canCreateImplementationPr(report, { hasLiveImplementationTask: true }),
     ).toBe(false);
+  });
+});
+
+describe("canResolveReport", () => {
+  it.each([
+    [true, "ready"],
+    [true, "pending_input"],
+    [false, "in_progress"],
+    [false, "resolved"],
+    [false, "suppressed"],
+  ] as const)("returns %s for %s reports", (expected, status) => {
+    expect(canResolveReport({ status } as SignalReport)).toBe(expected);
   });
 });

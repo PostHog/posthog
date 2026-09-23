@@ -85,6 +85,51 @@ describe("Agent", () => {
     );
   });
 
+  it("uses the machine's Claude Code login for an own-subscription session", async () => {
+    const agent = new Agent({ skipLogPersistence: true });
+
+    await agent.run("task-1", "run-1", {
+      adapter: "claude",
+      claudeModelAccess: "own-subscription",
+      repositoryPath: "/tmp/repo",
+    });
+
+    const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
+      [AcpConnectionConfig],
+    ];
+    expect(config.claudeMachineAuth).toBeDefined();
+    expect(config.claudeGatewayEnv).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps gateway auth for a Claude session on PostHog credits", async () => {
+    const agent = new Agent({
+      posthog: {
+        apiUrl: "https://us.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 1,
+      },
+      skipLogPersistence: true,
+    });
+
+    await agent.run("task-1", "run-1", {
+      adapter: "claude",
+      claudeModelAccess: "posthog-gateway",
+      repositoryPath: "/tmp/repo",
+    });
+
+    const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
+      [AcpConnectionConfig],
+    ];
+    expect(config.claudeMachineAuth).toBeUndefined();
+    expect(config.claudeGatewayEnv).toEqual(
+      expect.objectContaining({
+        anthropicBaseUrl: expect.any(String),
+        anthropicAuthToken: "token",
+      }),
+    );
+  });
+
   it("stops before starting Codex without authentication", async () => {
     const agent = new Agent({ skipLogPersistence: true });
 

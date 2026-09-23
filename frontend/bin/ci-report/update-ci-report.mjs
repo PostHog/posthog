@@ -17,6 +17,9 @@ export const SECTIONS = [
     { id: 'trunk-lane', title: 'Trunk lane' },
     { id: 'complexity-python', title: 'Complexity (Python)' },
     { id: 'complexity-ts', title: 'Complexity (TypeScript)' },
+    { id: 'duplication-python', title: 'Duplication (Python)' },
+    { id: 'duplication-ts', title: 'Duplication (TypeScript)' },
+    { id: 'comment-density', title: 'Comment density' },
     { id: 'bundle-size', title: 'Bundle size' },
     { id: 'eager-graph', title: 'Eager graph' },
     { id: 'toolbar-size', title: 'Toolbar bundle' },
@@ -200,14 +203,18 @@ function sectionEquals(a, b) {
     return !!a && !!b && a.status === b.status && a.summary === b.summary && a.inner === b.inner
 }
 
+// The logins behind the tokens that post the report: `github.token` on GitHub Actions and
+// the tests-posthog app on Depot CI. Each writer must adopt a report the other started, or
+// the PR gets a second report comment. A writer that moves to another token posts under a
+// new login, which orphans every existing report comment until that login is listed here.
+const REPORT_AUTHORS = new Set(['github-actions[bot]', 'tests-posthog[bot]'])
+
 // Only the report comments this tooling wrote itself. The marker alone is not enough:
 // anyone can comment on a public-repo PR, and a human "Quote reply" of the report keeps
 // the marker inside `> ` prefixes — matching on substring would adopt, merge, or DELETE
-// comments we do not own. The login is the identity behind the `github.token` the
-// posting workflow steps pass — moving them to a custom app token changes the login and
-// would orphan every existing report comment, so handle that transition here too.
+// comments we do not own.
 export function isReportComment(comment) {
-    return comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(MARKER)
+    return REPORT_AUTHORS.has(comment.user?.login) && comment.body?.startsWith(MARKER)
 }
 
 export async function deleteLegacyComments(prefixes, context = resolvePrContext('legacy comment cleanup')) {

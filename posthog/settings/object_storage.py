@@ -107,6 +107,10 @@ INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOK
 INBOX_RANKING_TRAINING_HOLDOUT_DAYS = get_from_env("INBOX_RANKING_TRAINING_HOLDOUT_DAYS", 7, type_cast=int)
 INBOX_RANKING_AUTO_PROMOTE = get_from_env("INBOX_RANKING_AUTO_PROMOTE", False, type_cast=str_to_bool)
 INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAYS", 3, type_cast=int)
+# Shadow dag (products/signals/dags/inbox_ranking/shadow): how many daily scores partitions back
+# the read looks for a score that already existed when a list was served. A report is scored on
+# the day it is born, so this bounds how old a report can be and still be graded.
+INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS", 60, type_cast=int)
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs

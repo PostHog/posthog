@@ -21,8 +21,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -32,8 +30,12 @@ import { QueryContext } from '~/queries/types'
 import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { getSeriesIdentification } from '../../shared/seriesIdentification'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
@@ -61,6 +63,7 @@ interface TrendsBarChartProps {
 
 const EMPTY_LABELS: string[] = []
 const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false, placement: 'cursor' as const }
+const EMBEDDED_MAX_CATEGORY_LABEL_WIDTH = 64
 
 type AggregationLabelFn = (groupTypeIndex: number | null | undefined) => { plural: string }
 
@@ -115,11 +118,17 @@ export function TrendsBarChart({
         goalLines,
         showValuesOnSeries,
         showMultipleYAxes,
+        isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const seriesIdentification = useMemo(
+        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
+        [indexedResults]
+    )
 
     const isAggregated = display === ChartDisplayType.ActionsBarValue
     const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
@@ -151,8 +160,16 @@ export function TrendsBarChart({
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
+                isSingleSeriesDefinition,
+                seriesIdentification,
             }),
-        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [
+            breakdownFilter,
+            allCohorts?.results,
+            formatPropertyValueForDisplay,
+            isSingleSeriesDefinition,
+            seriesIdentification,
+        ]
     )
 
     const { series, labels, displayLabels } = useMemo(() => {
@@ -210,6 +227,7 @@ export function TrendsBarChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
+    const hideAxes = context?.hideAxes
     const timeSeriesConfig: TimeSeriesBarChartConfig = useChartConfig(
         () => ({
             ...buildTrendsBarTimeSeriesConfig({
@@ -221,6 +239,7 @@ export function TrendsBarChart({
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
+                hideAxes,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
@@ -240,6 +259,7 @@ export function TrendsBarChart({
             interval,
             timezone,
             currentPeriodResult?.days,
+            hideAxes,
             trendsFilter?.xAxisLabel,
             trendsFilter?.yAxisLabel,
             goalLines,
@@ -274,13 +294,15 @@ export function TrendsBarChart({
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
+            hideXAxis: hideAxes,
+            hideYAxis: hideAxes,
             yTickFormatter: aggregatedYTickFormatter,
             xTickFormatter,
             xAxisLabel: trendsFilter?.xAxisLabel,
             yAxisLabel: trendsFilter?.yAxisLabel,
             // Breakdown values become category (y-axis) labels here; truncate long ones (e.g. URLs)
             // so they don't grow the margin and push the plot off screen. Full value shows on hover.
-            maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
+            maxCategoryLabelWidth: embedded ? EMBEDDED_MAX_CATEGORY_LABEL_WIDTH : MAX_CATEGORY_LABEL_WIDTH,
             // Dashboard/card tiles are a fixed height, so cap the rows to those that fit. The full
             // insight page is `embedded: false` — even when opened from a dashboard (dashboardId in
             // the URL) — so it keeps the grow-to-fit-all behavior and renders every breakdown row.
@@ -289,6 +311,7 @@ export function TrendsBarChart({
             bars: { fitToHeight: embedded, divergingStack: true },
         }
     }, [
+        hideAxes,
         yAxisScaleType,
         aggregatedYTickFormatter,
         trendsFilter?.xAxisLabel,
@@ -329,19 +352,10 @@ export function TrendsBarChart({
         [isAggregated, goalLines, series]
     )
 
-    const indexByResult = useMemo(() => {
-        const m = new Map<IndexedTrendResult, number>()
-        ;(indexedResults ?? []).forEach((r: IndexedTrendResult, i: number) => m.set(r, i))
-        return m
-    }, [indexedResults])
-
     // Anomaly markers must read the same axis their series is scaled against.
     const getYAxisId = useCallback(
-        (r: IndexedTrendResult) => {
-            const idx = indexByResult.get(r) ?? 0
-            return applyMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
-        },
-        [indexByResult, applyMultipleYAxes]
+        (r: IndexedTrendResult) => series.find((s) => s.key === String(r.id))?.yAxisId ?? DEFAULT_Y_AXIS_ID,
+        [series]
     )
 
     const onPointClick = useCallback(

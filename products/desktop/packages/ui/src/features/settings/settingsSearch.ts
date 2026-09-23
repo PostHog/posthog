@@ -7,6 +7,7 @@ export interface SettingsSearchEntry {
   category: SettingsCategory;
   label: string;
   keywords?: string[];
+  requiresBackupFiles?: boolean;
 }
 
 // Hand-curated index of the settings each page holds. When a page gains or
@@ -128,6 +129,11 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   },
   {
     category: "personalization",
+    label: "Simplified Technical English (ASD-STE100)",
+    keywords: ["ste100", "clear language", "writing style"],
+  },
+  {
+    category: "personalization",
     label: "Hedgehog mode",
     keywords: ["hedgehog", "buddy", "fun"],
   },
@@ -204,6 +210,27 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["responders", "scouts", "signal sources", "setup agent"],
   },
   {
+    category: "task-agent-defaults",
+    label: "Project default",
+    keywords: [
+      "default model",
+      "team default",
+      "reasoning effort",
+      "claude",
+      "codex",
+    ],
+  },
+  {
+    category: "task-agent-defaults",
+    label: "My default",
+    keywords: [
+      "default model",
+      "my model",
+      "personal default",
+      "reasoning effort",
+    ],
+  },
+  {
     category: "signals",
     label: "Self-driving",
     keywords: ["signals", "sources", "autostart", "base branches"],
@@ -249,6 +276,19 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["presence", "integration"],
   },
 
+  {
+    category: "advanced",
+    label: "Back up settings and sounds",
+    requiresBackupFiles: true,
+    keywords: [
+      "backup",
+      "export",
+      "import",
+      "restore",
+      "transfer",
+      "custom sounds",
+    ],
+  },
   {
     category: "advanced",
     label: "Always create pull requests for cloud runs",
@@ -300,12 +340,15 @@ function tokenScore(entry: SettingsSearchEntry, token: string): number {
 export function searchSettings(
   query: string,
   hiddenCategories: ReadonlySet<SettingsCategory>,
+  backupAvailable = true,
 ): SettingsSearchEntry[] {
   const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return [];
 
   return SETTINGS_SEARCH_INDEX.filter(
-    (entry) => !hiddenCategories.has(entry.category),
+    (entry) =>
+      !hiddenCategories.has(entry.category) &&
+      (backupAvailable || !entry.requiresBackupFiles),
   )
     .map((entry) => {
       let score = 0;

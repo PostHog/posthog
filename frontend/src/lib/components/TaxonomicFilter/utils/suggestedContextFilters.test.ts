@@ -160,4 +160,10 @@ describe('suggestedContextFilters', () => {
             expect(names(filterPinnedForContext(items, types, excludedProperties))).toEqual(expected)
         })
     })
+
+    it('drops a pinned value that is excluded for its group, keeping others', () => {
+        const items = [pinned(Events, '$feature_flag_called'), pinned(Events, '$pageview')]
+        const out = filterPinnedForContext(items, [Events], { [Events]: ['$feature_flag_called'] })
+        expect(names(out)).toEqual(['$pageview'])
+    })
 })

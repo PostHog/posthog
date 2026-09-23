@@ -102,11 +102,10 @@ def restrict_loop_activity_for_org(queryset: QuerySet[ActivityLog], organization
 
 
 def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
-    """Keep personal-channel canvases' metadata out of the team-wide activity feed.
+    """Keep Canvas metadata hidden by channel visibility or source policy out of the feed.
 
-    Canvas activity is team-scoped in the log, but a canvas in a personal channel is
-    owner-only (see `CanvasViewSet`). Restrict `Canvas`-scoped rows to canvases this
-    user may actually see. Lazy import keeps the canvas product off this module's path.
+    Restrict `Canvas`-scoped rows to canvases this user may access through `CanvasViewSet`.
+    Lazy import keeps the canvas product off this module's path.
     """
     from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
 
@@ -116,12 +115,12 @@ def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user
 
 def restrict_canvas_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
     """Org-wide equivalent of `restrict_canvas_activity`. The org route has no single
-    `team_id`, so deny other users' personal-channel canvas rows across the org. Canvases
-    are soft-deleted, so their visibility stays computable without a persisted snapshot.
+    `team_id`, so deny canvases hidden by channel visibility or source policy across the
+    org. Canvases are soft-deleted, so their visibility stays computable without a snapshot.
     """
     from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
 
-    hidden_ids = canvas_activity.hidden_personal_canvas_ids_for_org(organization_id, user)
+    hidden_ids = canvas_activity.hidden_canvas_ids_for_org(organization_id, user)
     if not hidden_ids:
         return queryset
     return queryset.exclude(Q(scope="Canvas") & Q(item_id__in=hidden_ids))
@@ -328,7 +327,13 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             scopes = str(params.get("scopes", "")).split(",")
             queryset = queryset.filter(scope__in=scopes)
         if params.get("item_id"):
-            queryset = queryset.filter(item_id=params.get("item_id"))
+            if set(str(params.get("scopes", "")).split(",")) == {"DataWarehouseSavedQuery", "DataQualityCheck"}:
+                # Load the product relationship only for a model's combined history feed.
+                from products.data_quality.backend.facade.activity import model_activity  # noqa: PLC0415
+
+                queryset = model_activity(queryset, self.team_id, params["item_id"])
+            else:
+                queryset = queryset.filter(item_id=params.get("item_id"))
 
         if params.get("page"):
             queryset = queryset.order_by(*activity_log_ordering(self.request))
@@ -399,7 +404,7 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         default=[],
-        help_text="Filter by API clients that generated the activity (from x-posthog-client header).",
+        help_text="Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).",
     )
     ip_addresses = JSONTolerantListField(
         child=serializers.CharField(validators=[_validate_ip_or_wildcard]),
@@ -538,7 +543,7 @@ class StaticFiltersSerializer(serializers.Serializer):
     activities = serializers.ListField(child=serializers.DictField(), help_text="Available activity types.")
     clients = serializers.ListField(
         child=serializers.DictField(),
-        help_text="API clients that have generated activity (from x-posthog-client header).",
+        help_text="API clients that have generated activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).",
     )
 
 

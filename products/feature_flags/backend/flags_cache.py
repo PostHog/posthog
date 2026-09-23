@@ -28,7 +28,7 @@ Manual operations:
 
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -53,6 +53,7 @@ from posthog.models.team import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.storage.cache_expiry_manager import (
     CacheRefreshCounts,
+    RefreshPacing,
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches,
     refresh_expiring_caches,
@@ -66,6 +67,7 @@ from posthog.storage.hypercache_manager import (
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
+from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags, serialize_feature_flags
@@ -97,22 +99,21 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
     """
     Extract direct flag dependency IDs from a serialized flag's filters.
 
-    Scans filters.groups[*].properties for type=="flag" properties and parses
-    their key as an integer flag ID. Inactive/deleted flags return empty deps
-    to match Rust's extract_dependencies behavior.
+    Parses the ``key`` of each flag-reference property as an integer flag ID.
+    Inactive/deleted flags return empty deps before their filters are read, to
+    match Rust's extract_dependencies behavior. Any other flag stored in a config
+    format other than version 1 raises ``ConfigFormatError``, which fails the whole
+    team's rebuild; ``HyperCache.update_cache`` then keeps the previous entry and ETag.
     """
     if _is_unevaluable(flag_data):
         return set()
 
     dep_ids: set[int] = set()
-    filters = flag_data.get("filters", {})
-    for group in filters.get("groups") or []:
-        for prop in group.get("properties") or []:
-            if prop.get("type") == "flag":
-                try:
-                    dep_ids.add(int(prop["key"]))
-                except (ValueError, KeyError, TypeError):
-                    continue
+    for prop in flag_dependency_properties(flag_data.get("filters", {})):
+        try:
+            dep_ids.add(int(prop["key"]))
+        except (ValueError, KeyError, TypeError):
+            continue
     return dep_ids
 
 
@@ -147,24 +148,15 @@ _COHORT_RECALCULATION_FIELDS = frozenset(
 def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> set[int]:
     """Extract cohort IDs directly referenced in active flag filters.
 
-    Only scans ``groups`` — the other filter sections cannot contain cohort
-    properties:
-    - ``feature_enrollment`` is a boolean gate for early-access features,
-      evaluated against person properties (``$feature_enrollment/*``).
-    - ``holdout`` uses a different schema for configuring experiment holdouts
-      with no property filters at all.
+    Inactive/deleted flags are skipped before their filters are read. Any other flag
+    stored in a config format other than version 1 raises ``ConfigFormatError``,
+    which fails the whole team's rebuild.
     """
     cohort_ids: set[int] = set()
     for flag in flags_data:
         if _is_unevaluable(flag):
             continue
-        for group in flag.get("filters", {}).get("groups") or []:
-            for prop in group.get("properties") or []:
-                if prop.get("type") == "cohort":
-                    try:
-                        cohort_ids.add(int(prop["value"]))
-                    except (ValueError, KeyError, TypeError):
-                        continue
+        cohort_ids |= referenced_cohort_ids(flag.get("filters", {}))
     return cohort_ids
 
 
@@ -930,6 +922,8 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     # Kafka-routing block further down this module and is deleted with it at
     # cutover, so it isn't defined yet when this config is constructed.
     get_primary_writer_fn=lambda team_id: get_team_primary_flags_writer(team_id),
+    # Late-bound for the same reason as get_primary_writer_fn above.
+    route_refresh_fn=lambda team_id: route_refresh_to_kafka(team_id),
     # The refresh loads flags by team id/project_id; it reads no other Team columns.
     # Narrowing the SELECT keeps it resilient to newly added Team columns the read
     # replica may not have applied yet (organization_id keeps the select_related valid).
@@ -976,7 +970,9 @@ def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 50
 
     This is the main hourly job that keeps caches fresh. It:
     1. Finds cache entries with TTL < threshold (up to limit)
-    2. Refreshes them with new data and full TTL
+    2. Refreshes them with new data and full TTL, or, for a team the refresh routing
+       flag has claimed, raises a Kafka invalidation and leaves the build to the Rust
+       builder instead
 
     Processes teams in batches (default 5000). If more teams are expiring than the limit,
     subsequent runs will process the next batch.
@@ -992,9 +988,18 @@ def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 50
                - Responsiveness: Completes quickly enough to not block other operations
 
     Returns:
-        CacheRefreshCounts with successful and failed refresh counts
+        CacheRefreshCounts with successful, failed and enqueued refresh counts
     """
-    return refresh_expiring_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
+    return refresh_expiring_caches(
+        FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
+        ttl_threshold_hours,
+        limit,
+        pacing=RefreshPacing(
+            chunk_size=settings.FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE,
+            delay_seconds=settings.FLAGS_CACHE_REFRESH_KAFKA_CHUNK_DELAY_SECONDS,
+            window_seconds=settings.FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS,
+        ),
+    )
 
 
 def cleanup_stale_expiry_tracking() -> int:
@@ -1041,12 +1046,18 @@ def get_cache_stats() -> dict[str, Any]:
 #
 # Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
 # _route_to_kafka, get_team_primary_flags_writer (and its config binding on
-# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), SHADOW_COMPARE_FLAG, _shadow_compare_enabled,
-# publish_shadow_invalidation, _produce_invalidation, _enqueue_invalidation,
-# and the Kafka branch inside it.
+# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), REFRESH_ROUTING_FLAG, _refresh_routing_enabled,
+# route_refresh_to_kafka (and its config binding), SHADOW_COMPARE_FLAG,
+# _shadow_compare_enabled, publish_shadow_invalidation, _produce_invalidation,
+# _enqueue_invalidation, and the Kafka branch inside it.
 # The signal handlers themselves stay; their tails simplify at cutover. The one
 # call site outside this block is the tail of update_team_service_flags_cache in
 # tasks.py, which goes with it.
+#
+# At cutover the sweep routes unconditionally: REFRESH_ROUTING_FLAG and its gate go,
+# and the binding is replaced by a hook that always produces, not deleted. The generic
+# surface it uses — route_refresh_fn, the enqueued count and RefreshPacing — keeps its
+# caller and stays.
 
 # Per-team gate that routes invalidation to Kafka instead of Celery — see
 # _enqueue_invalidation for why the two paths are mutually exclusive. The key
@@ -1142,6 +1153,92 @@ def _route_to_kafka(team_id: int) -> bool:
     return bool(result)
 
 
+# Per-team gate for the hourly expiry refresh sweep. A different flag from
+# KAFKA_ROUTING_FLAG on purpose: that one is pinned at 100% for the edit path, so
+# reusing it would move the sweep the moment this code shipped. The two ramp
+# independently, and setting this one back to 0 returns the next hourly run to the
+# Python builder with no cleanup, because a refresh message already in flight still
+# produces a correct build.
+REFRESH_ROUTING_FLAG = "flags-cache-refresh-kafka"
+
+
+def _refresh_routing_enabled(team_id: int) -> bool:
+    """Return True if this team's hourly refresh should be raised as a Kafka
+    invalidation instead of being built in the Celery worker.
+
+    FLAGS_CACHE_REFRESH_KAFKA_ENABLED is read before the flag, because the flag cannot
+    be scoped to one deployment: local evaluation resolves it against the single
+    project key set in posthog/apps.py, so raising it raises it in every region at
+    once. A region whose flags-cache-builder image predates the `source` field rejects
+    the message through deny_unknown_fields, counts it as a parse error and drops it,
+    and the dead letter queue holds build failures rather than parse failures, so
+    nothing can be replayed. The setting is read per deployment, so a lagging region
+    holds routing off on its own until its builder is rolled.
+
+    Every failure mode returns False, which keeps the sweep building in Python. That
+    is the safe direction: a build that happens is never worse than a message nobody
+    consumes.
+
+    Unlike `_route_to_kafka`, an unresolvable flag ticks no TOMBSTONE_COUNTER, for the
+    reason `_shadow_compare_enabled` gives. Local evaluation cannot resolve
+    REFRESH_ROUTING_FLAG for as long as the flag does not exist in PostHog, so a tick
+    would fire for every team of every run, which is about 5,000 an hour, and hold a
+    constant high rate on a panel that means "rare anomaly". A client that is actually
+    broken raises instead, and the warning below records that.
+    """
+    if not settings.FLAGS_CACHE_REFRESH_KAFKA_ENABLED:
+        return False
+
+    try:
+        return feature_enabled_or_false(
+            REFRESH_ROUTING_FLAG,
+            f"team-{team_id}",
+            groups={"project": str(team_id)},
+            group_properties={"project": {"id": str(team_id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        # Log so a fleet-wide silent disable is visible in Sentry rather than only as
+        # an enqueued gauge that quietly returns to zero mid-ramp.
+        logger.warning(
+            "flags_cache_refresh_routing_flag_evaluation_failed",
+            team_id=team_id,
+            flag=REFRESH_ROUTING_FLAG,
+            exc_info=True,
+        )
+        return False
+
+
+def route_refresh_to_kafka(team_id: int) -> bool:
+    """Routing hook for the expiry refresh sweep, bound on
+    FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.
+
+    Returns True when the team's refresh was raised as a Kafka invalidation, which
+    makes the sweep skip its own build and count the team as enqueued.
+
+    A produce failure propagates instead of returning True, so the sweep counts the
+    team as failed rather than enqueued. That covers what `produce` reports
+    synchronously: a full local queue, a serialization error, and a producer that
+    cannot be constructed. It does not cover broker-side loss, because `flush_timeout=0`
+    returns before any ack, so an unreachable cluster still queues the message locally
+    and the team reads as enqueued. The expiry backlog gauge and the verifier are what
+    catch that class, never this count.
+
+    A propagated error is still not a Celery fallback, for the reason
+    `_enqueue_invalidation` gives: the two paths are mutually exclusive so a broken
+    Kafka path shows up as a stale cache instead of being masked by Python quietly
+    building the team anyway. The sweep skips its own build for a team whose hook
+    failed. A team whose message is lost stays inside the expiry window, so the next
+    hourly run raises it again, and the verifier repairs it in the meantime.
+    """
+    if not _refresh_routing_enabled(team_id):
+        return False
+
+    _produce_invalidation(team_id, source="refresh", raise_on_error=True)
+    return True
+
+
 # Per-team gate for shadow parity publishing. A different flag from
 # KAFKA_ROUTING_FLAG on purpose: this one never decides which writer serves a
 # team, so the two ramp independently. See flags_cache_messages for what the
@@ -1233,8 +1330,14 @@ def publish_shadow_invalidation(team_id: int) -> None:
         _produce_invalidation(team_id, shadow=True)
 
 
-def _produce_invalidation(team_id: int, shadow: bool = False) -> None:
-    """Produce a single invalidation message; swallow Kafka errors.
+def _produce_invalidation(
+    team_id: int,
+    shadow: bool = False,
+    source: Literal["edit", "refresh"] = "edit",
+    raise_on_error: bool = False,
+) -> None:
+    """Produce a single invalidation message; log Kafka errors, and propagate them
+    only for a caller that reports them.
 
     A produce failure must not raise out of a signal handler and is deliberately
     not retried via Celery (see `_enqueue_invalidation`). The `except` below only
@@ -1247,9 +1350,21 @@ def _produce_invalidation(team_id: int, shadow: bool = False) -> None:
     `data` must be a dict, not pre-encoded bytes: `produce` runs it through
     `json.dumps`, so bytes would `TypeError` and silently fail the swallow path.
     `mode="json"` converts `datetime` to ISO string.
+
+    `source` names the producer that raised the message. The builder treats every
+    source identically and uses the value to attribute builds and latency, so a wrong
+    value costs a reading and never a build. See flags_cache_messages for why a region
+    whose builder predates the field must not be sent anything but the default.
+
+    `raise_on_error` belongs to the caller, not to the wire: it says whether a caller
+    is there to report the failure. The refresh sweep sets it so a team the `except`
+    below catches counts as failed instead of as a hand-off that never happened. It
+    reaches only that synchronous class, never a delivery failure, which arrives after
+    this function has returned. Signal handlers leave it off, because a flag edit has
+    nothing to report a produce failure to.
     """
     try:
-        msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC), shadow=shadow)
+        msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC), shadow=shadow, source=source)
         with producer_scope(topic=KAFKA_FLAGS_CACHE_INVALIDATION, flush_timeout=0) as producer:
             producer.produce(
                 topic=KAFKA_FLAGS_CACHE_INVALIDATION,
@@ -1260,8 +1375,15 @@ def _produce_invalidation(team_id: int, shadow: bool = False) -> None:
             )
     except Exception as e:
         logger.warning(
-            "flags_cache_invalidation_produce_failed", team_id=team_id, shadow=shadow, error=str(e), exc_info=True
+            "flags_cache_invalidation_produce_failed",
+            team_id=team_id,
+            shadow=shadow,
+            source=source,
+            error=str(e),
+            exc_info=True,
         )
+        if raise_on_error:
+            raise
 
 
 def _enqueue_invalidation(team_id: int) -> None:

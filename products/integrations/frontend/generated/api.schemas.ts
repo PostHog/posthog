@@ -174,6 +174,7 @@ export interface RoleLookupResponseApi {
  * * `google-pubsub` - Google Pubsub
  * * `google-search-console` - Google Search Console
  * * `google-sheets` - Google Sheets
+ * * `helpscout` - Helpscout
  * * `hubspot` - Hubspot
  * * `instagram` - Instagram
  * * `intercom` - Intercom
@@ -225,6 +226,7 @@ export const IntegrationKindEnumApi = {
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
+    Helpscout: 'helpscout',
     Hubspot: 'hubspot',
     Instagram: 'instagram',
     Intercom: 'intercom',
@@ -273,6 +275,8 @@ export interface IntegrationConfigApi {
     readonly created_by: UserBasicApi
     readonly errors: string
     readonly display_name: string
+    /** Slack only: whether reconnecting can request the files:write scope. */
+    readonly files_write_requestable: boolean
     /**
      * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
      * @nullable
@@ -329,6 +333,8 @@ export interface PatchedIntegrationConfigApi {
     readonly created_by?: UserBasicApi
     readonly errors?: string
     readonly display_name?: string
+    /** Slack only: whether reconnecting can request the files:write scope. */
+    readonly files_write_requestable?: boolean
     /**
      * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
      * @nullable
@@ -547,6 +553,7 @@ export interface IntegrationAccessRequestApi {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -710,6 +717,7 @@ export type IntegrationsListParams = {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -772,6 +780,7 @@ export const IntegrationsListKind = {
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
+    Helpscout: 'helpscout',
     Hubspot: 'hubspot',
     Instagram: 'instagram',
     Intercom: 'intercom',

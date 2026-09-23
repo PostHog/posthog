@@ -267,10 +267,10 @@ export interface userLogicActions {
         teamId: number
     }
     updateHasSeenProductIntroFor: (
-        productKey: ProductKey,
+        productKey: string | ProductKey,
         value?: boolean
     ) => {
-        productKey: ProductKey
+        productKey: string
         value: boolean
     }
     updateMemberJoinEmailForAllOrganizations: (
@@ -428,7 +428,12 @@ export const userLogic = kea<userLogicType>([
         }),
         cancelEmailChangeRequest: true,
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
-        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean = true) => ({ productKey, value }),
+        // Not only product keys: the map also holds keys composed per team, and keys for surfaces
+        // that are not products, which is what the endpoint accepts.
+        updateHasSeenProductIntroFor: (productKey: ProductKey | string, value: boolean = true) => ({
+            productKey,
+            value,
+        }),
         switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
         deleteUser: true,
         updateWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
@@ -760,16 +765,18 @@ export const userLogic = kea<userLogicType>([
         },
         updateHasSeenProductIntroFor: async ({ productKey, value }, breakpoint) => {
             await breakpoint(10)
-            await api
-                .update('api/users/@me/', {
-                    has_seen_product_intro_for: {
-                        ...values.user?.has_seen_product_intro_for,
-                        [productKey]: value,
-                    },
-                })
-                .then(() => {
-                    actions.loadUser()
-                })
+            try {
+                // Its own endpoint rather than a field on the user PATCH: that one needs a recently
+                // authenticated session, so a risk step-up would answer a dismissal with the re-auth modal.
+                // It also merges the key server-side, so two tabs can't drop each other's write.
+                await api.update('api/users/@me/product_intro_seen', { product_key: productKey, seen: value })
+                actions.loadUser()
+            } catch (error: any) {
+                // Marking an intro seen runs behind whatever the user is already doing, so a failure is
+                // logged rather than surfaced: a toast would land on top of the intro they just dismissed.
+                // The intro comes back next visit, which is the honest outcome of a write that didn't land.
+                console.error(error)
+            }
         },
         switchTeam: ({ teamId, destination }) => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()

@@ -1,8 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { useCallback, useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconFeedback } from 'lib/lemon-ui/icons'
@@ -21,10 +22,14 @@ import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { FacetRail } from './components/FacetRail/FacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
+import { TRACING_DISPLAY_TIMEZONE } from './dateFormats'
 import { tracingEmptyState } from './emptyState/tracingEmptyState'
+import type { ErrorScope } from './errorCorrelation'
 import { OperationsTable } from './OperationsTable'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
+import { TRACING_DOCS_URL } from './traceLinks'
+import { TracingAgentIntegration } from './TracingAgentIntegration'
 import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TracingDisplayBar } from './TracingDisplayBar'
@@ -33,10 +38,9 @@ import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLo
 import { tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
 import { tracingViewerLogic } from './tracingViewerLogic'
-import type { Span } from './types'
+import type { Span, SpanInspectorTab } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
-const TRACING_DOCS_URL = 'https://posthog.com/docs/tracing'
 
 export const scene: SceneExport = {
     component: TracingScene,
@@ -46,11 +50,16 @@ export const scene: SceneExport = {
 }
 
 export default function TracingScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const sceneLogic = tracingSceneLogic()
     // Keep filters + data + viewer logic alive across React unmounts by attaching them to the scene root.
     useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingViewerLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
+
+    if (featureFlags[FEATURE_FLAGS.TRACING_UI_V2]) {
+        return <p>Tracing UI v2</p>
+    }
 
     // Bind the scene's keyed instances so nested components (filter bar, sparkline, ...)
     // resolve them from context — the same components work inside an embedded viewer
@@ -59,6 +68,7 @@ export default function TracingScene(): JSX.Element {
         <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
             <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
                 <BindLogic logic={tracingViewerLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+                    <TracingAgentIntegration />
                     <TracingSceneContents />
                 </BindLogic>
             </BindLogic>
@@ -77,6 +87,12 @@ function TracingSceneContents(): JSX.Element {
         sparklineData,
         sparklineLoading,
         openTraceSpans,
+        traceIdentity,
+        traceSessionId,
+        sessionErrorBadgesEnabled,
+        errorBadgeByRow,
+        inspectorTab,
+        errorsScope,
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
         traceSpansLoadingMore,
@@ -112,6 +128,7 @@ function TracingSceneContents(): JSX.Element {
         fetchNextPage,
         loadMoreTraceSpans,
         setVisibleRowRange,
+        selectInspectorTab,
         setSort,
         setChartType,
         applyHeatmapBrush,
@@ -121,11 +138,40 @@ function TracingSceneContents(): JSX.Element {
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
+    const impactStripEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP]
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
     // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
-    const { sparklineWindowMs } = useValues(tracingFiltersLogic)
+    const { sparklineWindowMs, utcDateRange } = useValues(tracingFiltersLogic)
     const operationsWindowMs = sparklineWindowMs.endMs - sparklineWindowMs.startMs
+
+    // react-window rebuilds its row memo from the shallow values of rowProps, so one unstable
+    // value there re-renders every visible row. This handler and `spanErrors` below are both
+    // passed that way, so both hold their identity.
+    const onRowClick = useCallback(
+        (span: Span, tab?: SpanInspectorTab, errorsScope?: ErrorScope): void => {
+            // Clicking a row leaves the scrollable <main tabIndex="0"> as the active element;
+            // react-modal then scrolls it back into view when restoring focus on close. Blur so
+            // the restore target is <body>, which doesn't scroll.
+            ;(document.activeElement as HTMLElement | null)?.blur?.()
+            // Anchor the waterfall on the clicked span. In Spans mode this is often a child span,
+            // so without spanId the drawer would open unfocused at the root.
+            openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp, tab, errorsScope })
+        },
+        [openTrace]
+    )
+
+    // Absent while the flag is off, which is how the list decides whether to keep a badge column.
+    const spanErrors = useMemo(
+        () =>
+            sessionErrorBadgesEnabled
+                ? {
+                      badges: errorBadgeByRow,
+                      onShow: (span: Span, scope: ErrorScope) => onRowClick(span, 'errors', scope),
+                  }
+                : undefined,
+        [sessionErrorBadgesEnabled, errorBadgeByRow, onRowClick]
+    )
 
     const onDocsLinkClick = (): void => {
         addProductIntent({
@@ -185,17 +231,6 @@ function TracingSceneContents(): JSX.Element {
                     </>
                 }
             />
-            <LemonBanner
-                type="warning"
-                dismissKey="tracing-beta-notice"
-                action={{
-                    icon: <IconFeedback />,
-                    children: 'Share feedback',
-                    onClick: onFeedbackClick,
-                }}
-            >
-                Tracing is now in beta. Please share feedback on how to improve the product.
-            </LemonBanner>
             <>
                 <TracingFilterBar />
                 <SceneDivider />
@@ -203,8 +238,10 @@ function TracingSceneContents(): JSX.Element {
                     sparklineData={sparklineData}
                     sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
-                    displayTimezone="UTC"
+                    displayTimezone={TRACING_DISPLAY_TIMEZONE}
+                    currentDateTo={utcDateRange.date_to}
                     compare={compareConfig}
+                    compareActive={compareActive}
                     visibleRowDateRange={visibleRowDateRange}
                     durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
                     visibleRowDurationRange={visibleRowDurationRange}
@@ -229,6 +266,7 @@ function TracingSceneContents(): JSX.Element {
                                 rows={aggregation.current}
                                 loading={aggregationLoading}
                                 windowMs={operationsWindowMs}
+                                showImpact={impactStripEnabled}
                                 onRowClick={(row) =>
                                     router.actions.push(
                                         urls.tracingOperation(row.service_name, row.name, filters.dateRange)
@@ -249,6 +287,7 @@ function TracingSceneContents(): JSX.Element {
                                 hasMoreToLoad={hasMoreToLoad}
                                 onLoadMore={fetchNextPage}
                                 onVisibleRowRangeChange={setVisibleRowRange}
+                                spanErrors={spanErrors}
                                 orderBy={filters.orderBy}
                                 orderDirection={filters.orderDirection}
                                 onSort={(column) =>
@@ -266,15 +305,7 @@ function TracingSceneContents(): JSX.Element {
                                         </Link>
                                     </div>
                                 }
-                                onRowClick={(span: Span) => {
-                                    // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
-                                    // element; react-modal then scrolls it back into view when restoring focus
-                                    // on close. Blur so the restore target is <body>, which doesn't scroll.
-                                    ;(document.activeElement as HTMLElement | null)?.blur?.()
-                                    // Anchor the waterfall on the clicked span — in Spans mode this is often a
-                                    // child span, so without spanId the drawer would open unfocused at the root.
-                                    openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp })
-                                }}
+                                onRowClick={onRowClick}
                             />
                         )}
                     </div>
@@ -285,6 +316,12 @@ function TracingSceneContents(): JSX.Element {
                 traceId={selectedTraceId}
                 ts={selectedTraceTs}
                 spans={openTraceSpans}
+                identity={traceIdentity}
+                sessionId={traceSessionId}
+                showErrorsTab={sessionErrorBadgesEnabled}
+                inspectorTab={inspectorTab}
+                errorsScope={errorsScope}
+                onSelectInspectorTab={selectInspectorTab}
                 loading={isLoadingFullTrace}
                 hasMoreSpans={canLoadMoreTraceSpans}
                 loadingMoreSpans={traceSpansLoadingMore}

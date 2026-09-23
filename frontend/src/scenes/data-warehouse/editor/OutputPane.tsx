@@ -4,7 +4,15 @@ import 'react-data-grid/lib/styles.css'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
+import DataGrid, {
+    CellClickArgs,
+    // CellMouseEvent, onCellContextMenu, and event.preventGridDefault() are beta-only APIs from the
+    // exactly-pinned react-data-grid 7.0.0-beta.47; a manual bump could reshape them without a semver signal.
+    CellMouseEvent,
+    DataGridProps,
+    RenderHeaderCellProps,
+    SortColumn,
+} from 'react-data-grid'
 
 import {
     IconCode,
@@ -29,14 +37,16 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { tryJsonParse } from 'lib/utils/json'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -47,7 +57,8 @@ import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDe
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
-import { SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
+import { isSqlChartVisualizationType, SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
+import { SqlMetricCard } from '~/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard'
 import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
@@ -74,6 +85,7 @@ import {
 } from '~/types'
 
 import { WarehouseWizardHint } from 'products/data_warehouse/frontend/shared/components/WarehouseWizardHint'
+import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import {
     copyTableToCsv,
@@ -81,6 +93,7 @@ import {
     copyTableToJson,
     copyTableToMarkdown,
 } from '../../../queries/nodes/DataTable/clipboardUtils'
+import { EditorQueryScanBanner } from './components/EditorQueryScanBanner'
 import { FixErrorButton } from './components/FixErrorButton'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
@@ -586,6 +599,26 @@ interface OutputPaneProps {
     onShareTab?: () => void
 }
 
+/** The copyable text for a right-clicked grid cell, or null when the cell should fall through to the
+ *  native context menu. Exported so the branches below (details column, empty value, HogQLX skip) are
+ *  unit-testable, mirroring extractCellText in LemonTable. */
+export function extractGridCellValue(columnKey: string, row: Record<string, any>): string | null {
+    if (columnKey === '__details') {
+        return null
+    }
+    const value = row[columnKey]
+    if (value === null || value === undefined || value === '') {
+        return null
+    }
+    // HogQLX-shaped values render as rich content (links, sparklines, recording buttons) via
+    // renderHogQLX; copying String(value) would put the internal AST JSON on the clipboard, so skip
+    // them and let the native menu handle the cell instead.
+    if (typeof value === 'string' && value.startsWith('["__hx_tag",') && value.endsWith(']')) {
+        return null
+    }
+    return String(value)
+}
+
 export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareTab }: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
@@ -622,6 +655,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
     const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
+    const [selectedJson, setSelectedJson] = useState<object | null>(null)
 
     const setProgress = useCallback((loadId: string, progress: number) => {
         setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
@@ -741,7 +775,23 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                             return <TZLabel time={value} timestampStyle="absolute" />
                         }
 
-                        return value
+                        const parsedJson: unknown =
+                            typeof value === 'string' && cleanClickhouseType(type) === 'String'
+                                ? tryJsonParse(value)
+                                : null
+                        if (!parsedJson || typeof parsedJson !== 'object') {
+                            return value
+                        }
+
+                        return (
+                            <button
+                                type="button"
+                                className="block h-full w-full truncate text-left"
+                                onClick={() => setSelectedJson(parsedJson)}
+                            >
+                                {value}
+                            </button>
+                        )
                     },
                 }
             }) ?? []),
@@ -912,6 +962,11 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 columns={response?.columns || []}
                 columnKeys={response?.columns?.map((column: string, index: number) => `${column}_${index}`) || []}
             />
+            <LemonModal title="JSON" isOpen={selectedJson !== null} onClose={() => setSelectedJson(null)} width={800}>
+                <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words font-mono">
+                    {selectedJson ? JSON.stringify(selectedJson, null, 2) : ''}
+                </pre>
+            </LemonModal>
         </div>
     )
 }
@@ -958,12 +1013,7 @@ function InternalDataTableVisualization(
                 embedded
             />
         )
-    } else if (
-        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
-        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
-        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
-    ) {
+    } else if (isSqlChartVisualizationType(effectiveVisualizationType)) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
@@ -979,10 +1029,11 @@ function InternalDataTableVisualization(
                     insightNumericId={editingInsight?.id || 'new'}
                     showAnnotations={isDateXAxis && chartSettings.showAnnotations === true}
                     presetChartHeight={presetChartHeight}
+                    embedded={props.embedded}
                 />
             </BindLogic>
         )
-    } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+    } else if (PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
 
@@ -991,6 +1042,7 @@ function InternalDataTableVisualization(
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
+                visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
             />
@@ -1021,10 +1073,28 @@ function InternalDataTableVisualization(
         component = <TwoDimensionalHeatmap />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
+    } else if (effectiveVisualizationType === ChartDisplayType.Metric) {
+        component = (
+            <SqlMetricCard
+                xData={xData}
+                yData={yData}
+                metricSettings={chartSettings.metric}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     }
 
     if (props.embedded && !props.showSettingsPanel) {
-        return <div className="DataVisualization InsightCard__viz">{component}</div>
+        return (
+            <div
+                className={clsx(
+                    'DataVisualization InsightCard__viz',
+                    effectiveVisualizationType === ChartDisplayType.Metric && 'InsightCard__viz--Metric'
+                )}
+            >
+                {component}
+            </div>
+        )
     }
 
     return (
@@ -1121,6 +1191,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                         <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                     }
                 />
+                <EditorQueryScanBanner />
             </div>
         </div>
     )
@@ -1164,6 +1235,24 @@ const Content = ({
     // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
     const { loadingTimeSeconds } = useValues(dataNodeLogic)
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
+
+    const { closeCopyMenu, openCopyMenu, copyMenu } = useCellCopyContextMenu()
+
+    // Right-click a results cell to copy its value. Unlike the LemonTable feature (which reads DOM
+    // text), react-data-grid hands us the raw row value, so datetimes/numbers copy accurately.
+    const handleGridCellContextMenu = useCallback(
+        (args: CellClickArgs<any, any>, event: CellMouseEvent) => {
+            const text = extractGridCellValue(args.column.key, args.row)
+            if (text === null) {
+                closeCopyMenu() // Not a copyable data cell — close any open menu and fall back to the native one
+                return
+            }
+            event.preventGridDefault()
+            event.preventDefault()
+            openCopyMenu(event.currentTarget, text)
+        },
+        [closeCopyMenu, openCopyMenu]
+    )
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -1232,6 +1321,7 @@ const Content = ({
         return (
             <div className="absolute inset-0 flex flex-col border-t overflow-hidden">
                 <QueryWarningsBanner warnings={response?.warnings} />
+                <EditorQueryScanBanner />
                 <div className="flex flex-col flex-1 min-h-0 hide-scrollbar overflow-auto">
                     <InternalDataTableVisualization
                         uniqueKey={vizKey}
@@ -1303,6 +1393,7 @@ const Content = ({
         return (
             <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
                 <QueryWarningsBanner warnings={response?.warnings} />
+                <EditorQueryScanBanner />
                 {rows.length === 0 ? (
                     <EmptyResultsState />
                 ) : (
@@ -1313,7 +1404,9 @@ const Content = ({
                             rows={sortedRows}
                             sortColumns={sortColumns}
                             onSortColumnsChange={setSortColumns}
+                            onCellContextMenu={handleGridCellContextMenu}
                         />
+                        {copyMenu}
                     </TabScroller>
                 )}
             </div>

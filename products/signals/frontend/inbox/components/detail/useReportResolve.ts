@@ -6,6 +6,7 @@ import api from 'lib/api'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { SignalReport } from '../../types'
+import { hasOpenImplementationPr } from '../../utils/reportActions'
 import { openResolveReportDialog } from '../shell/ResolveReportDialog'
 
 /**
@@ -26,7 +27,7 @@ export function useReportResolve({
 }): { isResolving: boolean; onResolveClick: (event: React.MouseEvent) => void } {
     const [isResolving, setIsResolving] = useState(false)
     // The backend closes an open implementation PR on resolve; the dialog and the toast say so.
-    const hasOpenPr = !!report.implementation_pr_url && report.implementation_pr_merged !== true
+    const hasOpenPr = hasOpenImplementationPr(report)
 
     const onResolveClick = (event: React.MouseEvent): void => {
         event.preventDefault()

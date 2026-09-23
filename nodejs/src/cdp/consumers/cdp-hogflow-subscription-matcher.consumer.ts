@@ -4,6 +4,13 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import {
+    StepResume,
+    WorkflowStepResumeSchema,
+    counterStepResume,
+    processStepResumes,
+} from '~/cdp/services/hogflows/step-resume.service'
+import { parseWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
+import {
     KAFKA_CDP_INTERNAL_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_PERSON,
@@ -46,10 +53,6 @@ import { counterParseError } from './metrics'
 // regardless of this value — so steady-state recovery is committed-offset resume; latest only governs
 // the first bootstrap and offset-loss edge cases (covered by the deferred lag alerting follow-up).
 const startAtLatest = START_AT_LATEST
-
-// Expired watchers are not urgent — they have already stopped matching via the expires_at predicate,
-// so this only reclaims space.
-const WATCHER_SWEEP_INTERVAL_MS = 60_000
 
 // How stale the has-live-watchers gate may be. A team that just enrolled its first run while its only
 // goal flow was already paused waits at most this long to be admitted.
@@ -183,6 +186,9 @@ type MatchedJob = {
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
 
+// Emitted by Django when a run a workflow step dispatched ends; `origin_key` names the parked job.
+export const WORKFLOW_STEP_RESUME_EVENT = '$workflow_step_resume'
+
 // Wakes parked hogflow jobs when an event matches a `wait_until_condition` step
 // or a workflow conversion goal.
 export class CdpHogflowSubscriptionMatcherConsumer<
@@ -203,7 +209,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // the survivor's id so the survivor's person/event updates can wake them.
     private personDistinctIdKafkaConsumer: KafkaConsumerInterface
     private cyclotronPool: Pool
-    private watcherSweepTimer: NodeJS.Timeout | null = null
     private watcherTeamsRefreshTimer: NodeJS.Timeout | null = null
     // Teams with at least one unexpired watcher. Empty until the first refresh, which start() awaits
     // before consuming, so the gate is never consulted against an unpopulated set.
@@ -230,7 +235,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 groupId: 'cdp-hogflow-subscription-matcher-internal-events-consumer',
                 topic: KAFKA_CDP_INTERNAL_EVENTS,
             },
-            startAtLatest
+            {
+                ...startAtLatest,
+                ...(config.CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST
+                    ? { 'metadata.broker.list': config.CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST }
+                    : {}),
+            }
         )
         this.personDistinctIdKafkaConsumer = createKafkaConsumer(
             {
@@ -821,6 +831,38 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         return events
     }
 
+    // Step resumes name their job, so they skip the person and team gates the event parser applies.
+    public _splitStepResumes(messages: Message[]): { resumes: StepResume[]; rest: Message[] } {
+        const resumes: StepResume[] = []
+        const rest: Message[] = []
+        for (const message of messages) {
+            let parsed
+            try {
+                parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
+            } catch {
+                rest.push(message)
+                continue
+            }
+            if (parsed.event.event !== WORKFLOW_STEP_RESUME_EVENT) {
+                rest.push(message)
+                continue
+            }
+            const props = WorkflowStepResumeSchema.safeParse(parsed.event.properties)
+            const key = props.success ? parseWorkflowStepDispatchKey(props.data.origin_key) : null
+            if (!props.success || !key) {
+                counterStepResume.labels({ outcome: 'parse_error' }).inc()
+                continue
+            }
+            resumes.push({ ...props.data, ...key })
+        }
+        return { resumes, rest }
+    }
+
+    @instrumented('cdpHogflowSubscriptionMatcher.processStepResumes')
+    public async processStepResumes(resumes: StepResume[]): Promise<void> {
+        await processStepResumes(this.cyclotronPool, resumes)
+    }
+
     @instrumented('cdpHogflowSubscriptionMatcher.parseInternalEventMessages')
     public async _parseInternalEventsBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         const events: HogFunctionInvocationGlobals[] = []
@@ -1092,8 +1134,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     public override async start(): Promise<void> {
         await super.start()
-        // Watchers that convert are deleted by the claim; ones that never convert are only removed
-        // here, so without this the table grows for the lifetime of the deployment.
         // Awaited so the first batches are gated against a populated set rather than an empty one,
         // which would drop messages for teams whose only goal flow is paused. A failure here must not
         // stop the matcher starting: an empty set degrades the gate to its previous flow-only
@@ -1108,17 +1148,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 captureException(err)
             })
         }, WATCHER_TEAMS_REFRESH_INTERVAL_MS)
-        this.watcherSweepTimer = setInterval(() => {
-            void this.invocationResultsService.conversionWatchersService.sweepExpired().catch((err) => {
-                logger.error('⚠️', 'Conversion watcher sweep failed', { err })
-                captureException(err)
-            })
-        }, WATCHER_SWEEP_INTERVAL_MS)
-        // Neither timer is work the process should stay alive for: both are periodic maintenance that
-        // the next start picks up. Unref'd, a consumer that was started but never stopped cannot hold
-        // the event loop open — which is what a leaked one does to a long single-process test run.
+        // Not work the process should stay alive for: periodic maintenance that the next start picks
+        // up. Unref'd, a consumer that was started but never stopped cannot hold the event loop open —
+        // which is what a leaked one does to a long single-process test run.
         this.watcherTeamsRefreshTimer.unref()
-        this.watcherSweepTimer.unref()
         // Surface failures to each kafka consumer so the offset doesn't advance past a batch we
         // couldn't match. The pod will crash and replay; the SELECT is read-only and the UPDATE
         // (with `status = 'available'` guards) is idempotent, so replay is safe. All three streams
@@ -1136,11 +1169,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }),
             this.internalEventsKafkaConsumer.connect(async (messages) => {
                 return await instrumentFn('cdpHogflowSubscriptionMatcher.handleInternalEventsBatch', async () => {
+                    const { resumes, rest } = this._splitStepResumes(messages)
+                    const events = await this._parseInternalEventsBatch(rest)
                     return {
-                        backgroundTask: this.processBatch(
-                            await this._parseInternalEventsBatch(messages),
-                            'internal_events'
-                        ),
+                        backgroundTask: Promise.all([
+                            this.processBatch(events, 'internal_events'),
+                            this.processStepResumes(resumes),
+                        ]).then(() => undefined),
                     }
                 })
             }),
@@ -1158,9 +1193,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
-        if (this.watcherSweepTimer) {
-            clearInterval(this.watcherSweepTimer)
-        }
         if (this.watcherTeamsRefreshTimer) {
             clearInterval(this.watcherTeamsRefreshTimer)
         }
@@ -1385,12 +1417,14 @@ function rewriteStatePersonId(
             personIdRepointed: true,
             personIdRepointVersion: newVersion,
         }
-        // Mark this as a re-key wake so the wait handler can attribute its re-check outcome to the
-        // re-key (see rekeyWake). currentAction is always a wait_until_condition here (re-key scope).
-        // Only for merges: counterHogflowRekeyWake exists to judge whether waking on a merge is wasted
-        // churn, so folding first-mapping fills into it would blend two causes into one ratio.
-        if (parsed.state.currentAction && !fillingNullAnchor) {
-            parsed.state.currentAction = { ...parsed.state.currentAction, rekeyWake: true }
+        // Mark the wake so the wait handler knows the matcher woke this job rather than a polling
+        // re-check. currentAction is always a wait_until_condition here (re-key scope). The two causes
+        // stay separate flags: counterHogflowRekeyWake judges whether waking on a merge is wasted churn,
+        // so folding first-mapping fills into it would blend two causes into one ratio.
+        if (parsed.state.currentAction) {
+            parsed.state.currentAction = fillingNullAnchor
+                ? { ...parsed.state.currentAction, anchorWake: true }
+                : { ...parsed.state.currentAction, rekeyWake: true }
         }
         return Buffer.from(JSON.stringify(parsed))
     } catch (err) {

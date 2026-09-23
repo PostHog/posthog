@@ -1,0 +1,27 @@
+{
+    "letter": "MA",
+    "id": "MA3",
+    "cluster": 3,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/tools/pr-approval-agent/review_local.py:321 does use Python truthiness, but the production caller supplies a real boolean before serializing: /tmp/frozen-75215/products/stamphog/backend/temporal/activities.py:434-451 calls build_reviewer_invocation(self_driving_review=bool(output.get('inbox_review'))). /tmp/frozen-75215/products/stamphog/backend/logic/reviewer.py:119-137 constructs the top-level context explicitly, places PR data under the separate pr key, and json.dumps serializes the boolean as true/false. activities.py:468-474 writes that server-generated context immediately before executing review_local.py; :1123-1125 writes invocation.context_json. The standalone Action does not expose the flag (/tmp/frozen-75215/tools/pr-approval-agent/review_pr.py:973-984). No supported producer supplies the string 'false' or integer 1.",
+            "refutation": "I first traced the JSON producer and the sandbox invocation to test whether malformed PR-controlled data could reach the flag. The only production builder caller converts persisted provenance to bool and serializes an explicitly assembled dictionary; PR fields cannot overwrite that top-level value. The server then writes the context before starting the engine. Hand-editing the trusted runtime's input can demonstrate bool('false'), but no code path in this finding lets an untrusted caller do that. Strict boolean validation would be defensive hardening, not a demonstrated security bypass."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The production caller does not supply an arbitrary JSON value: products/stamphog/backend/temporal/activities.py:434-451 explicitly passes bool(output.get('inbox_review')) to build_reviewer_invocation. products/stamphog/backend/logic/reviewer.py:119-137 places that separate server-owned boolean at the top level and serializes it with json.dumps; PR data is nested under 'pr', so a PR field cannot override it. activities.py:468-474 overwrites the context after cloning and shipping the trusted engine, immediately before invocation; :1123-1131 writes the server-generated JSON. products/stamphog/backend/tests/test_integration.py:1413 asserts that the delivered self_driving_review value is the boolean True. tools/pr-approval-agent/test_review_local.py:282-290 verifies omitted flags retain bot refusal.",
+            "refutation": "I traced the JSON producer and sandbox write order to try to make the claimed string 'false' or integer 1 reachable. The only hosted producer normalizes the flag to a Python bool before JSON serialization, while the Action never passes it. A fabricated direct call to run() would demonstrate Python truthiness but not a shipping defect. Moreover, a party able to tamper with the trusted context could equally set the actual JSON boolean true, so 'is True' would not close the alleged tampering boundary. No reachable malformed-value path was found; strict validation would be optional hardening."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The only production producer passes a real bool: products/stamphog/backend/temporal/activities.py:434-451 calls build_reviewer_invocation with self_driving_review=bool(output.get('inbox_review')). products/stamphog/backend/logic/reviewer.py:101 defaults that argument to False, :119-132 places it directly in a new context dictionary, and :137 serializes the dictionary with json.dumps. activities.py:468-474 ships the trusted engine, writes this generated context, and invokes that engine. tools/pr-approval-agent/review_local.py:396-398 loads this JSON and calls run, whose :321 truthiness conversion therefore receives JSON true or false in production. There is no request/PR field copied into the flag and no production caller emitting a string or integer.",
+            "refutation": "I first traced context production to determine whether the alleged malformed values can actually reach the boolean conversion. They cannot through the shipped hosted path: the server normalizes its provenance check to bool before JSON serialization. A handcrafted local context containing 'false' or 1 demonstrates Python truthiness, not a reachable production gate bypass. A party able to replace the trusted context could also write the boolean true, so changing the consumer to 'is True' would not establish a security boundary against the claimed tampering. The flag's default is closed. No concrete source of non-boolean production flag values was found, so the finding is speculative hardening rather than a shipping defect."
+        }
+    ]
+}

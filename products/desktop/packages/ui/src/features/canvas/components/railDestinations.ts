@@ -1,6 +1,7 @@
 import {
   BellIcon,
   BookOpenTextIcon,
+  ChatsCircleIcon,
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
@@ -15,20 +16,22 @@ import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
 import {
   isRestorableVisitHref,
   type NavRailPane,
+  railPaneFoldsIntoWork,
 } from "@posthog/ui/features/canvas/railPane";
 import {
   applyTabViewState,
   showChannelList,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
-  getCurrentMatches,
   navigateToActivity,
   navigateToCanvases,
   navigateToChannel,
@@ -94,6 +97,12 @@ function showSpaces(): void {
   navigateToChannel(channelId);
 }
 
+/** Navigating to the root instead would close what you are reading. */
+function focusColumnSearch(): void {
+  useSidebarStore.getState().setOpen(true);
+  requestSidebarSearchFocus();
+}
+
 /**
  * Where each rail destination was when the ACTIVE TAB last left it. Per tab, so
  * a pick in one tab can never restore an href another tab established, and so
@@ -134,11 +143,12 @@ export function pickRailDestination(
   destination: RailDestination,
   current: NavRailPane,
 ): void {
-  const matches = getCurrentMatches();
-  const routePath = matches[matches.length - 1]?.fullPath ?? "";
+  // A report page belongs to the list that opened it, and only its `?from=`
+  // says which, so a route pattern cannot answer this.
+  const here = currentHref() ?? "";
   const onDestination =
     destination.pane === current &&
-    isRestorableVisitHref(destination.pane, routePath);
+    isRestorableVisitHref(destination.pane, here);
   if (onDestination) {
     (destination.onReclick ?? destination.onPick)();
     return;
@@ -183,6 +193,7 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: BellIcon,
     href: "/activity",
     onPick: navigateToActivity,
+    onReclick: focusColumnSearch,
     count: (counts) => counts.activity,
   },
   {
@@ -192,6 +203,7 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: ShapesIcon,
     href: "/canvases",
     onPick: () => navigateToCanvases(),
+    onReclick: focusColumnSearch,
   },
   {
     pane: "inbox",
@@ -200,6 +212,7 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: EnvelopeSimple,
     href: "/inbox",
     onPick: navigateToInbox,
+    onReclick: focusColumnSearch,
     shortcut: formatHotkey(SHORTCUTS.INBOX),
     count: (counts) => counts.inbox,
     enabled: (flags) => flags.inbox,
@@ -248,4 +261,31 @@ export function visibleRailDestinations(
   flags: RailFlags,
 ): readonly RailDestination[] {
   return RAIL_DESTINATIONS.filter(({ enabled }) => enabled?.(flags) ?? true);
+}
+
+export function showWorkColumn(): void {
+  useSidebarStore.getState().setOpen(true);
+}
+
+const WORK_DESTINATION: RailDestination = {
+  pane: "spaces",
+  label: "Work",
+  analyticsId: "spaces",
+  Icon: ChatsCircleIcon,
+  href: "/spaces",
+  onPick: () => {
+    showWorkColumn();
+    navigateToSpaces();
+  },
+  onReclick: showWorkColumn,
+};
+
+export function visibleWorkRailDestinations(
+  flags: RailFlags,
+): readonly RailDestination[] {
+  const rest = RAIL_DESTINATIONS.filter(
+    ({ enabled, pane }) =>
+      !railPaneFoldsIntoWork(pane) && (enabled?.(flags) ?? true),
+  );
+  return [WORK_DESTINATION, ...rest];
 }

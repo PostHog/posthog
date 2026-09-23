@@ -252,10 +252,30 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub seeder_person_max_concurrent_chunks: usize,
 
-    /// Emit empty-`matched` seeds for scanned non-matchers. They heal stale-TRUE state and cost
-    /// only a point-read on absent records (the consumer's no-create rule).
+    /// Which scanned persons a person chunk emits.
+    ///
+    /// On, this is the healer cadence: every scanned person is seeded, including empty-`matched`
+    /// ones, which is what retracts stale TRUE state. It has to see everyone, so it prunes nothing
+    /// and asks ClickHouse for no key filter.
+    ///
+    /// Off, a chunk emits only a person whose leaf truths can move a participating cohort's verdict
+    /// against an absent prior. Conditions whose keys the person's blob lacks are decided from a
+    /// verdict cached at validation instead of through the VM, and when every condition is decidable
+    /// that way the scan drops key-less rows in ClickHouse rather than transferring them.
     #[envconfig(default = "true")]
     pub seeder_person_emit_nonmatchers: bool,
+
+    /// Run the legacy wide scan alongside the projected scan and diff the resulting tiles.
+    ///
+    /// On by default, because taking this measurement is the only reason the layer exists and a
+    /// run that silently skipped it reads exactly like a clean one. Nothing downstream depends on
+    /// it either way: the projected arm's tiles are what a chunk emits regardless.
+    ///
+    /// Turn it off in charts to finish a long reseed at full speed once the measurement is in
+    /// hand, then delete the layer. While it is on a chunk pays its projected scan plus a full
+    /// wide one.
+    #[envconfig(default = "true")]
+    pub seeder_scan_shadow_compare: bool,
 
     #[envconfig(default = "14400")]
     pub seeder_ch_max_execution_time_secs: u64,
@@ -442,6 +462,15 @@ mod tests {
         let config = default_config();
         assert!(config.clickhouse_verify);
         assert!(config.clickhouse_ca.is_empty());
+    }
+
+    /// A default of off would make the validation run a silent no-op: the compare emits nothing,
+    /// so its counters are absent rather than zero, and an unmeasured run is indistinguishable
+    /// from a clean one. The measurement is the whole point of the layer, so it is what a pod does
+    /// unless an operator says otherwise.
+    #[test]
+    fn the_shadow_compare_runs_unless_an_operator_turns_it_off() {
+        assert!(default_config().seeder_scan_shadow_compare);
     }
 
     #[test]

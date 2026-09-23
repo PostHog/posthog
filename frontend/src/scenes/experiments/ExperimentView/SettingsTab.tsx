@@ -3,27 +3,43 @@ import { useActions, useValues } from 'kea'
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 import { urls } from 'scenes/urls'
 
-import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/types'
+import { tagsModel } from '~/models/tagsModel'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ExperimentStatsMethod,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { DEFAULT_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+import { CupedModal } from 'products/experiments/frontend/modals/CupedModal/CupedModal'
+import { StatsMethodModal } from 'products/experiments/frontend/modals/StatsMethodModal/StatsMethodModal'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getBaselineVariantKey } from '../utils'
 import { getCupedSelection, resolveCupedEnabled, resolveCupedLookbackDays } from './cuped'
-import { CupedModal } from './CupedModal'
 import { resolveSequentialEnabled } from './sequential'
-import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
-    const { experiment, statsMethod, variants } = useValues(experimentLogic)
-    const { updateExperimentSettings } = useActions(experimentLogic)
+    const { experiment, statsMethod, variants, experimentUpdateLoading } = useValues(experimentLogic)
+    const { updateExperiment, updateExperimentSettings } = useActions(experimentLogic)
     const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
+    const { tags: allExistingTags } = useValues(tagsModel)
+
+    const canEditExperiment = userHasAccess(
+        AccessControlResourceType.Experiment,
+        AccessControlLevel.Editor,
+        experiment.user_access_level
+    )
 
     const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
 
@@ -54,6 +70,22 @@ export function SettingsTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-8">
+            <div>
+                <h2 className="font-semibold text-lg">Tags</h2>
+                {canEditExperiment ? (
+                    <ObjectTags
+                        tags={experiment.tags ?? []}
+                        // Not updateExperimentSettings: tags don't affect metric
+                        // computation, so don't trigger its results refresh.
+                        onChange={(tags) => updateExperiment({ tags })}
+                        saving={experimentUpdateLoading}
+                        tagsAvailable={allExistingTags.filter((tag: string) => !experiment.tags?.includes(tag))}
+                        data-attr="experiment-tags"
+                    />
+                ) : (
+                    <ObjectTags tags={experiment.tags ?? []} staticOnly data-attr="experiment-tags" />
+                )}
+            </div>
             <div>
                 <h2 className="font-semibold text-lg">Statistics</h2>
                 <div className="flex items-center gap-2">
@@ -107,6 +139,7 @@ export function SettingsTab(): JSX.Element {
                 <h2 className="font-semibold text-lg">Baseline variant</h2>
                 <LemonSelect
                     value={getBaselineVariantKey(experiment)}
+                    loading={experimentUpdateLoading}
                     options={variants.map((v) => ({
                         value: v.key,
                         label: v.key,
@@ -125,6 +158,7 @@ export function SettingsTab(): JSX.Element {
                     <LemonCheckbox
                         label="Require completed conversion or retention window"
                         checked={experiment.only_count_matured_users ?? false}
+                        disabled={experimentUpdateLoading}
                         onChange={(checked) => {
                             updateExperimentSettings({ only_count_matured_users: checked })
                         }}

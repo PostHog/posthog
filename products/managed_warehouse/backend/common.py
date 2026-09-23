@@ -45,6 +45,7 @@ DUCKLAKE_CATALOG_RESET_ENV_VAR = "POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET"
 
 # The duckgres schema prefix the data-modeling shadow materialization writes models into.
 DATA_MODELING_DUCKGRES_SHADOW_SCHEMA_PREFIX = "shadow"
+DATA_MODELING_DUCKLAKE_SCHEMA_PREFIX = "posthog_data_modeling_team"
 
 logger = logging.getLogger(__name__)
 
@@ -566,6 +567,14 @@ def duckgres_data_modeling_schema(team_id: int) -> str:
     return f"{DATA_MODELING_DUCKGRES_SHADOW_SCHEMA_PREFIX}_{team_id}_models"
 
 
+def ducklake_data_modeling_schema(team_id: int) -> str:
+    return f"{DATA_MODELING_DUCKLAKE_SCHEMA_PREFIX}_{team_id}"
+
+
+def ducklake_data_modeling_table_name(model_label: str, normalized_name: str) -> str:
+    return sanitize_ducklake_identifier(model_label or normalized_name, default_prefix="model")
+
+
 TABLE_SUFFIX_MAX_LENGTH = 63
 # A schema name doubles as the suffix in `events_<suffix>` / `persons_<suffix>`, so it must
 # already be a safe SQL identifier — lowercase letters, numbers, and underscores. We validate
@@ -696,6 +705,8 @@ __all__ = [
     "duckgres_data_imports_schema",
     "duckgres_data_imports_table_name",
     "duckgres_data_modeling_schema",
+    "ducklake_data_modeling_schema",
+    "ducklake_data_modeling_table_name",
     "escape",
     "get_config",
     "get_ducklake_connection_string",

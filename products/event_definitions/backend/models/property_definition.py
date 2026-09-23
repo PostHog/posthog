@@ -6,6 +6,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.utils import invalidate_has_person_email_cache
@@ -50,7 +51,7 @@ class PropertyFormat(models.TextChoices):
     WithSlashesIncreasing = "DD/MM/YYYY hh:mm:ss", "DD/MM/YYYY hh:mm:ss"
 
 
-class PropertyDefinition(UUIDTModel):
+class PropertyDefinition(Taggable, UUIDTModel):
     class Type(models.IntegerChoices):
         EVENT = 1, "event"
         PERSON = 2, "person"
@@ -63,7 +64,7 @@ class PropertyDefinition(UUIDTModel):
         related_name="property_definitions",
         related_query_name="team",
     )
-    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True)
+    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, related_name="+")
     name = models.CharField(max_length=400)
     is_numerical = models.BooleanField(
         default=False
@@ -132,6 +133,18 @@ class PropertyDefinition(UUIDTModel):
                 fields=["name"],
                 opclasses=["gin_trgm_ops"],
             ),  # To speed up DB-based fuzzy searching
+            # `is_feature_flag=true` lists filter on `name LIKE '$feature/%'`. Without this index the
+            # planner answers that prefix from the trigram GIN above, which is not scoped by project and
+            # visits every `$feature/` row across all teams. The condition must stay identical to the
+            # filter in `QueryContext.with_feature_flags`, or the planner cannot prove the index applies.
+            models.Index(
+                Coalesce(F("project_id"), F("team_id")),
+                F("type"),
+                Coalesce(F("group_type_index"), -1),
+                F("name"),
+                condition=models.Q(name__startswith="$feature/"),
+                name="index_propdef_feature_flag",
+            ),
         ]
         constraints = [
             models.CheckConstraint(

@@ -206,12 +206,32 @@ class EffectivePolicy:
     independently, so a folder that raises one ceiling never opens a second
     budget for the other. No file ever gets more leniency than its own chain
     grants.
+
+    Per-scope budgets alone would let a PR's total grow with the number of
+    scopes it touches, so each ceiling also carries a roof over the whole PR.
     """
 
     file_scopes: tuple[ScopeBudget, ...]
     line_scopes: tuple[ScopeBudget, ...]
     folder_prose: str | None = None
     invalid_folder_files: tuple[str, ...] = ()
+
+    @property
+    def line_roof(self) -> int:
+        """Whole-PR substantive line ceiling: the most generous one in play.
+
+        Every grant is validated at or under the delegation ceiling, the global
+        pool is always a scope, and the loader rejects a ceiling under its own
+        global default, so the roof stays between the global default and that
+        ceiling. With no grant in play it equals the global default, which is
+        the single global total the gate had before ceilings became delegable.
+        """
+        return max(scope.ceiling for scope in self.line_scopes)
+
+    @property
+    def file_roof(self) -> int:
+        """Whole-PR substantive file ceiling. See `line_roof`."""
+        return max(scope.ceiling for scope in self.file_scopes)
 
     def governed_file_counts(self) -> tuple[tuple[str, int], ...]:
         """Changed files each granting AGENT_APPROVALS.md governs, path-sorted.
@@ -377,6 +397,25 @@ def _parse_overrides(raw: Any) -> dict[str, OverrideContract]:
     return overrides
 
 
+def _require_ceilings_cover_globals(size_gate: SizeGate, overrides: dict[str, OverrideContract]) -> None:
+    """A delegation ceiling under its own global default is incoherent - fail closed.
+
+    The ceiling is what bounds a PR's whole-PR roof. Under the global default it
+    would bound nothing, because the always-present global pool already carries
+    the roof past it, and delegation could then only ever lower a folder's
+    allowance.
+    """
+    globals_by_key = {"size_gate.max_lines": size_gate.max_lines, "size_gate.max_files": size_gate.max_files}
+    for key, contract in overrides.items():
+        global_value = globals_by_key.get(key)
+        if global_value is None:
+            continue
+        _require(
+            contract.ceiling >= global_value,
+            f"overrides.{key}.ceiling: {contract.ceiling} is under the global {key} ({global_value})",
+        )
+
+
 _FAMILIARITY_STRONG_KEYS = {"min_blame_overlap_pct"}
 _FAMILIARITY_MODERATE_KEYS = {"min_prior_prs", "max_days_since_touch"}
 
@@ -494,14 +533,17 @@ def load_policy(
     _require(raw["version"] == 1, f"policy version: unsupported version {raw['version']!r}")
 
     path_patterns, extensions = _parse_allow(raw["allow"])
+    size_gate = _parse_size_gate(raw["size_gate"])
+    overrides = _parse_overrides(raw["overrides"])
+    _require_ceilings_cover_globals(size_gate, overrides)
     return Policy(
         version=1,
         deny=_parse_deny(raw["deny"], lockfile_names),
         allow_path_patterns=path_patterns,
         allow_extensions=extensions,
-        size_gate=_parse_size_gate(raw["size_gate"]),
+        size_gate=size_gate,
         t1_subclasses=_parse_tiers(raw["tiers"]),
-        overrides=_parse_overrides(raw["overrides"]),
+        overrides=overrides,
         familiarity=_parse_familiarity(raw["familiarity"]),
         ownership=_parse_ownership(raw["ownership"], ownership_formats),
     )

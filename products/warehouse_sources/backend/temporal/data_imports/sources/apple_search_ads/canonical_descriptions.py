@@ -49,7 +49,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "id": "Identifier of the ad account, used as the `adAccountId` in the API context header.",
             "name": "Display name of the ad account.",
-            "roles": "Roles the API client holds on the ad account, such as API Account Read Only.",
+            "roles": "Roles the API user holds on the ad account, such as API Account Read Only.",
             "orgId": "Identifier of the organization the ad account belongs to.",
             "orgName": "Display name of the organization.",
             "currency": "Three-letter ISO currency code the organization is billed in.",

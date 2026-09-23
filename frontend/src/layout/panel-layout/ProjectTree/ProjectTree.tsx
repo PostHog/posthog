@@ -1,13 +1,21 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { ReactNode, RefObject, useEffect, useRef, useState } from 'react'
 
-import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusSmall, IconStar } from '@posthog/icons'
+import {
+    IconCheckbox,
+    IconChevronRight,
+    IconEllipsis,
+    IconFolderPlus,
+    IconHome,
+    IconPlusSmall,
+    IconStar,
+} from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import {
@@ -33,29 +41,50 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { isHomeFolder, withHomeFolderEmptyState } from './homeFolderUtils'
 import { MenuItems } from './menus/MenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
-import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
+import { TreeSortMenuItems } from './TreeSortMenuItems'
 import { calculateMovePath } from './utils'
 
-export interface ProjectTreeProps {
+interface ProjectTreeBaseProps {
+    layout?: 'panel' | 'inline'
+    beforeTree?: ReactNode
+    showShortcutHelp?: boolean
     logicKey?: string // key override?
     root?: string
-    onlyTree?: boolean
+    shortcutScope?: 'apps' | 'files'
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
+    disableScroll?: boolean
     /** Override the select mode from the internal logic */
     selectModeOverride?: LemonTreeSelectMode
     /** Override the checked items from the internal logic */
     checkedItemsOverride?: Record<string, boolean>
     /** Override the onItemChecked handler from the internal logic */
     onItemCheckedOverride?: (id: string, checked: boolean) => void
+    /**
+     * Runs in addition to the tree's own click handling, not instead of it. A caller that renders
+     * the tree inside a larger surface uses this to report the click in that surface's own terms.
+     */
+    onItemClicked?: (item: TreeDataItem | undefined) => void
     /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
     isActiveInPanel?: boolean
 }
+
+/** A bare tree has no panel to label, so `panelName` is only required when the panel renders. */
+export type ProjectTreeProps = ProjectTreeBaseProps &
+    (
+        | { onlyTree: true; panelName?: string }
+        | {
+              onlyTree?: false
+              /** Names the panel in the DOM. Pin it at the call site; a `data-attr` value is API and must not change. */
+              panelName: string
+          }
+    )
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
@@ -91,22 +120,26 @@ const isItemActive = (item: TreeDataItem): boolean => {
     return false
 }
 
-export function ProjectTree({
-    logicKey,
-    root,
-    onlyTree = false,
-    searchPlaceholder,
-    treeSize = 'default',
-    showRecents,
-    selectModeOverride,
-    checkedItemsOverride,
-    onItemCheckedOverride,
-    isActiveInPanel,
-}: ProjectTreeProps): JSX.Element {
+export function ProjectTree(props: ProjectTreeProps): JSX.Element {
+    const {
+        logicKey,
+        root,
+        shortcutScope,
+        onlyTree = false,
+        disableScroll = onlyTree || !!props.beforeTree,
+        searchPlaceholder,
+        treeSize = 'default',
+        showRecents,
+        selectModeOverride,
+        checkedItemsOverride,
+        onItemCheckedOverride,
+        onItemClicked,
+        isActiveInPanel,
+    } = props
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
+    const { viableItems, shortcutEntryIdMap, currentHomeFolder } = useValues(projectTreeDataLogic)
     const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
-    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
+    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, shortcutScope, isActiveInPanel }
     const {
         fullFileSystemFiltered,
         lastViewedId,
@@ -154,11 +187,9 @@ export function ProjectTree({
     )
 
     const showFilterDropdown = root === 'project://'
-    const showSortDropdown = root === 'project://'
+    const showSortMenuItems = root === 'project://'
 
-    const isStarredReorderEnabled = useFeatureFlag('STARRED_REORDER')
-
-    let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
+    let treeData: TreeDataItem[] = withHomeFolderEmptyState([...fullFileSystemFiltered], currentHomeFolder)
 
     // Apply checked items override for external control (e.g. product selection)
     if (checkedItemsOverride) {
@@ -172,7 +203,11 @@ export function ProjectTree({
     }
 
     if (fullFileSystemFiltered.length <= 5) {
-        if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
+        if (
+            props.showShortcutHelp !== false &&
+            root === 'shortcuts://' &&
+            (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)
+        ) {
             treeData.push({
                 id: 'products/shortcuts-helper-category',
                 name: 'Starred items',
@@ -225,7 +260,7 @@ export function ProjectTree({
             size={treeSize}
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
-            disableScroll={onlyTree ? true : false}
+            disableScroll={disableScroll}
             onItemClick={(item, event) => {
                 event.preventDefault()
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
@@ -247,6 +282,8 @@ export function ProjectTree({
                     has_href: !!item?.record?.href,
                     name: item?.name ?? null,
                 })
+
+                onItemClicked?.(item)
 
                 if (item?.record?.href) {
                     router.actions.push(
@@ -303,7 +340,6 @@ export function ProjectTree({
                 // Sibling reorder within the Starred (shortcuts://) list. All the index/position
                 // math lives in the kea logic so the component can stay focused on rendering.
                 if (
-                    isStarredReorderEnabled &&
                     typeof oldId === 'string' &&
                     typeof newId === 'string' &&
                     shortcutEntryIdMap.has(oldId) &&
@@ -343,7 +379,7 @@ export function ProjectTree({
             }}
             isItemDraggable={(item) => {
                 if (shortcutEntryIdMap.has(item.id)) {
-                    return isStarredReorderEnabled
+                    return true
                 }
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
@@ -353,7 +389,7 @@ export function ProjectTree({
 
                 // Allow dropping onto other top-level starred items to reorder them.
                 if (shortcutEntryIdMap.has(item.id)) {
-                    return isStarredReorderEnabled
+                    return true
                 }
 
                 // disable dropping for these IDS
@@ -381,7 +417,14 @@ export function ProjectTree({
 
                 return (
                     <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
-                        <MenuItems item={item} type="context" root={root} onlyTree={onlyTree} logicKey={logicKey} />
+                        <MenuItems
+                            item={item}
+                            type="context"
+                            root={root}
+                            onlyTree={onlyTree}
+                            logicKey={logicKey}
+                            isActiveInPanel={isActiveInPanel}
+                        />
                     </ContextMenuGroup>
                 )
             }}
@@ -395,7 +438,14 @@ export function ProjectTree({
 
                 return (
                     <DropdownMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
-                        <MenuItems item={item} type="dropdown" root={root} onlyTree={onlyTree} logicKey={logicKey} />
+                        <MenuItems
+                            item={item}
+                            type="dropdown"
+                            root={root}
+                            onlyTree={onlyTree}
+                            logicKey={logicKey}
+                            isActiveInPanel={isActiveInPanel}
+                        />
                     </DropdownMenuGroup>
                 )
             }}
@@ -532,11 +582,18 @@ export function ProjectTree({
                                 className="ml-[4px]"
                             />
                         )}
-                        <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
+                        <TreeNodeDisplayIcon
+                            item={item}
+                            expandedItemIds={expandedFolders}
+                            defaultFolderIcon={isHomeFolder(item, currentHomeFolder) ? <IconHome /> : undefined}
+                        />
                     </>
                 )
             }}
             renderItem={(item) => {
+                if (item.type === 'empty-folder') {
+                    return item.displayName
+                }
                 const isCustomProduct = root === 'custom-products://'
                 const isNew =
                     !isCustomProduct &&
@@ -547,7 +604,7 @@ export function ProjectTree({
                     <span className="truncate">
                         <span
                             className={cn('truncate', {
-                                'font-semibold': item.record?.type === 'folder' && item.type !== 'empty-folder',
+                                'font-semibold': item.record?.type === 'folder',
                             })}
                         >
                             {item.displayName}{' '}
@@ -584,12 +641,14 @@ export function ProjectTree({
         />
     )
 
-    if (onlyTree) {
+    if (props.onlyTree) {
         return tree
     }
 
     return (
         <PanelLayoutPanel
+            panelName={props.panelName}
+            layout={props.layout}
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
                     <TreeSearchField
@@ -605,8 +664,8 @@ export function ProjectTree({
                     <TreeFiltersDropdownMenu setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
                 ) : null
             }
-            sortDropdown={
-                showSortDropdown ? <TreeSortDropdownMenu sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
+            panelMenuItems={
+                showSortMenuItems ? <TreeSortMenuItems sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
             }
             panelActionsNewSceneLayout={[
                 {
@@ -678,7 +737,14 @@ export function ProjectTree({
                 </>
             )}
 
-            {tree}
+            {props.beforeTree ? (
+                <ScrollableShadows direction="vertical" className="flex-1 min-h-0" styledScrollbars>
+                    {props.beforeTree}
+                    {tree}
+                </ScrollableShadows>
+            ) : (
+                tree
+            )}
         </PanelLayoutPanel>
     )
 }

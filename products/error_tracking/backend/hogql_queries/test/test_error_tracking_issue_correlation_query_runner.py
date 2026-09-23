@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from posthog.schema import ErrorTrackingIssueCorrelationQuery
@@ -24,7 +24,7 @@ class TestErrorTrackingIssueCorrelationQueryRunner(ClickhouseTestMixin, APIBaseT
             .model_dump()
         )
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_column_names(self):
         columns = self._calculate()["columns"]

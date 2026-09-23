@@ -43,6 +43,19 @@ impl FrameResultTtlPolicy {
         base_ttl + self.jitter_for(id, base_ttl)
     }
 
+    // Age past which an unchanged snapshot must still write, so created_at keeps the
+    // rows inside the freshness window `load_snapshot` checks. Half the TTL leaves a
+    // full half-window of slack before a skipped write could turn the rows stale. The
+    // TTL carries the per-frame jitter from `stable_jitter_hash`, so refresh
+    // boundaries do not synchronize across frames.
+    pub(crate) fn refresh_age(
+        &self,
+        id: &RawFrameId,
+        records: &[ErrorTrackingStackFrame],
+    ) -> Duration {
+        self.ttl_for_records(id, records) / 2
+    }
+
     fn jitter_for(&self, id: &RawFrameId, base_ttl: Duration) -> Duration {
         if base_ttl <= Duration::zero() {
             return Duration::zero();
@@ -86,6 +99,22 @@ pub struct ErrorTrackingStackFrame {
 pub(crate) struct StoredFrameSnapshot {
     pub records: Vec<ErrorTrackingStackFrame>,
     pub fresh: bool,
+}
+
+// Decides whether an unchanged snapshot still needs a created_at refresh. Any row
+// past the refresh age must write: a row whose created_at never refreshes goes
+// permanently stale, and cymbal then re-resolves that frame on every cache miss
+// forever, which costs far more than the write it saved.
+pub(crate) fn unchanged_snapshot_needs_refresh(
+    policy: &FrameResultTtlPolicy,
+    id: &RawFrameId,
+    records: &[ErrorTrackingStackFrame],
+    now: DateTime<Utc>,
+) -> bool {
+    let refresh_age = policy.refresh_age(id, records);
+    records
+        .iter()
+        .any(|record| record.created_at <= now - refresh_age)
 }
 
 pub(crate) fn classify_frame_snapshot(
@@ -133,6 +162,22 @@ impl ErrorTrackingStackFrame {
     where
         E: Executor<'c, Database = sqlx::Postgres>,
     {
+        self.save_with_refresh_guard(e, None).await
+    }
+
+    // Racing writers load the same stale snapshot and would each rewrite identical
+    // content. With a threshold, the conflict update becomes a server-side no-op
+    // (no new tuple version, rows_affected 0) unless the row's content differs or
+    // its created_at is older than the threshold. `None` keeps the update
+    // unconditional.
+    pub(crate) async fn save_with_refresh_guard<'c, E>(
+        &self,
+        e: E,
+        refresh_if_older_than: Option<DateTime<Utc>>,
+    ) -> Result<u64, UnhandledError>
+    where
+        E: Executor<'c, Database = sqlx::Postgres>,
+    {
         let context = if let Some(context) = &self.context {
             Some(serde_json::to_value(context)?)
         } else {
@@ -148,6 +193,11 @@ impl ErrorTrackingStackFrame {
                 contents = $6,
                 resolved = $7,
                 context = $9
+            WHERE posthog_errortrackingstackframe.symbol_set_id IS DISTINCT FROM $5
+                OR posthog_errortrackingstackframe.contents IS DISTINCT FROM $6
+                OR posthog_errortrackingstackframe.resolved IS DISTINCT FROM $7
+                OR posthog_errortrackingstackframe.context IS DISTINCT FROM $9
+                OR posthog_errortrackingstackframe.created_at < COALESCE($10, 'infinity'::timestamptz)
             "#,
             self.id.hash_id,
             self.id.part,
@@ -158,6 +208,36 @@ impl ErrorTrackingStackFrame {
             self.resolved,
             Uuid::now_v7(),
             context,
+            refresh_if_older_than,
+        )
+        .execute(e)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    // Bumps created_at on every part of a raw frame without rewriting the row
+    // contents, so an unchanged re-resolution refreshes freshness without the fat
+    // JSON rewrite (a smaller tuple WAL record and no re-TOAST of `contents`).
+    // Returns the number of rows updated; a count below the loaded part count means
+    // the rows changed under us (for example symbol-set cleanup deleted them) and
+    // the caller must fall back to the full upsert.
+    pub(crate) async fn refresh_created_at<'c, E>(
+        e: E,
+        id: &RawFrameId,
+        created_at: DateTime<Utc>,
+    ) -> Result<u64, UnhandledError>
+    where
+        E: Executor<'c, Database = sqlx::Postgres>,
+    {
+        let result = sqlx::query!(
+            r#"
+            UPDATE posthog_errortrackingstackframe
+            SET created_at = $3
+            WHERE raw_id = $1 AND team_id = $2
+            "#,
+            id.hash_id,
+            id.team_id,
+            created_at,
         )
         .execute(e)
         .await?;
@@ -304,6 +384,118 @@ mod tests {
 
         let parts: Vec<i32> = loaded.iter().map(|record| record.id.part).collect();
         assert_eq!(parts, (0..8).collect::<Vec<i32>>());
+    }
+
+    // A refresh that misses a part, or fails to move created_at, leaves the snapshot
+    // permanently stale and cymbal re-resolves the frame on every cache miss forever.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn refresh_created_at_restores_freshness_without_rewriting_contents(pool: sqlx::PgPool) {
+        let raw_id = RawFrameId::new("raw-frame-id".to_string(), 0);
+        let policy = FrameResultTtlPolicy::new(Duration::minutes(30), Duration::minutes(30));
+        for part in 0..2 {
+            let id = FrameId::new(raw_id.hash_id.clone(), raw_id.team_id, part);
+            let frame = frame_with_part(id.clone(), part);
+            let mut record = ErrorTrackingStackFrame::new(id, None, frame, true, None);
+            record.created_at = Utc::now() - Duration::hours(2);
+            record.save(&pool).await.unwrap();
+        }
+
+        let stale = ErrorTrackingStackFrame::load_snapshot(&pool, &raw_id, policy)
+            .await
+            .unwrap();
+        assert!(!stale.fresh);
+
+        let rows = ErrorTrackingStackFrame::refresh_created_at(&pool, &raw_id, Utc::now())
+            .await
+            .unwrap();
+        assert_eq!(rows, 2);
+
+        let refreshed = ErrorTrackingStackFrame::load_snapshot(&pool, &raw_id, policy)
+            .await
+            .unwrap();
+        assert!(refreshed.fresh);
+        assert_eq!(
+            classify_frame_snapshot(&stale.records, &refreshed.records),
+            FrameWriteOutcome::Unchanged
+        );
+    }
+
+    // Without the guard, every racing writer that loaded the same stale snapshot
+    // rewrites an identical row, creating a dead tuple and index churn per race.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn guarded_save_suppresses_noop_conflict_rewrites(pool: sqlx::PgPool) {
+        let id = FrameId::new("raw-frame-id".to_string(), 0, 0);
+        let frame = frame_with_part(id.clone(), 0);
+        let record = ErrorTrackingStackFrame::new(id, None, frame, true, None);
+        assert_eq!(record.save(&pool).await.unwrap(), 1);
+
+        let threshold = Some(Utc::now() - Duration::minutes(10));
+
+        let mut duplicate = record.clone();
+        duplicate.created_at = Utc::now();
+        assert_eq!(
+            duplicate
+                .save_with_refresh_guard(&pool, threshold)
+                .await
+                .unwrap(),
+            0,
+            "identical content on a fresh row is a server-side no-op"
+        );
+
+        assert_eq!(
+            duplicate
+                .save_with_refresh_guard(&pool, Some(Utc::now() + Duration::seconds(1)))
+                .await
+                .unwrap(),
+            1,
+            "identical content still refreshes a row older than the threshold"
+        );
+
+        let mut changed = record.clone();
+        changed.resolved = false;
+        assert_eq!(
+            changed
+                .save_with_refresh_guard(&pool, threshold)
+                .await
+                .unwrap(),
+            1,
+            "changed content always writes"
+        );
+
+        assert_eq!(
+            record.save(&pool).await.unwrap(),
+            1,
+            "an unguarded save keeps the unconditional update"
+        );
+    }
+
+    #[test]
+    fn unchanged_snapshot_refreshes_only_past_half_ttl() {
+        let policy = FrameResultTtlPolicy::new(Duration::seconds(1000), Duration::seconds(1000));
+        let id = FrameId::new("raw-frame-id".to_string(), 1, 0);
+        let frame = frame_with_part(id.clone(), 0);
+        let mut record = ErrorTrackingStackFrame::new(id.clone(), None, frame, true, None);
+        let raw_id = RawFrameId::new(id.hash_id.clone(), id.team_id);
+        let now = Utc::now();
+
+        // The jittered TTL falls in [1000s, 1100s], so the refresh boundary falls in
+        // [500s, 550s]. Ages on either side of that band decide the same way for any
+        // jitter value.
+        record.created_at = now - Duration::seconds(499);
+        assert!(!unchanged_snapshot_needs_refresh(
+            &policy,
+            &raw_id,
+            std::slice::from_ref(&record),
+            now,
+        ));
+
+        record.created_at = now - Duration::seconds(551);
+        assert!(unchanged_snapshot_needs_refresh(
+            &policy,
+            &raw_id,
+            std::slice::from_ref(&record),
+            now,
+        ));
     }
 
     #[test]

@@ -198,13 +198,21 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "TeamConversationsTeamsChannelSync",
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationContext",
+        "TeamBusinessKnowledgeConfig",
         "TeamDataQualityConfig",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
         "TeamFeatureFlagsConfig",
+        # OneToOne extension of Team keyed on team_id, only ever read as get(team=team) via
+        # get_or_create_team_extension; no endpoint looks it up by a user-supplied ID.
+        "TeamFeatureFlagPolicyConfig",
+        # OneToOne extension keyed on the authorized Team; no independently addressable config ID.
+        "TeamHeatmapConfig",
+        "TeamTasksConfig",
         "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
+        "TeamTracingConfig",
         "TeamJsSnippetConfig",
         "TeamProvisioningConfig",
         # --- User preferences with no IDOR risk (read own data only) ---
@@ -220,9 +228,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ExplicitTeamMembership",
         # --- Other internal (no user-facing lookup by ID) ---
         "AlertCheck",
-        # Global CIMD URL blocklist - queried by `cimd_url` (unique), never by user-supplied ID.
-        # `created_by` is for audit only.
-        "CIMDBlocklistEntry",
         "CohortCalculationHistory",
         "ColumnConfiguration",
         "DataDeletionRequest",
@@ -296,6 +301,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "CommunitySkillFile",  # bundled files of a CommunitySkill (scoped via the catalog row)
         "HogFunctionTemplate",
         "MCPServer",
+        "MCPRegistryServer",  # instance-global MCP registry index, crawled from the official registry
+        "MCPRegistryTool",  # tools of an MCPRegistryServer (scoped via the catalog row)
+        "MCPRankingRun",  # one scoring pass over the global registry index
+        "MCPRankingScore",  # per-server score of an MCPRankingRun (scoped via the run/catalog rows)
         # --- Special (has source_team + destination_team, not a plain team) ---
         "ResourceTransfer",
         # --- Organization-scoped (correctly above team level) ---
@@ -380,9 +389,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
     user_scoped: set[str] = set()
     no_scope: set[str] = set()
 
-    # Billing alerts are organization-scoped through BillingAlertConfiguration. Team is only an
-    # execution context; claim and event records inherit scope through their canonical parent.
     organization_scoped_overrides = {
+        "AITrainingConsent",  # Plain organization_id survives organization deletion.
+        # Billing alerts inherit scope through BillingAlertConfiguration; team is an execution context.
         "BillingAlertConfiguration",
         "BillingAlertEvaluationClaim",
         "BillingAlertEvent",

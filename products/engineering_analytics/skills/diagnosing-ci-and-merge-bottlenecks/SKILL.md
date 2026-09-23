@@ -55,7 +55,11 @@ to take one failing test or red run to a verdict, switch to the `investigating-c
   quarantine candidates. **It does not answer "which tests are flaky"**: this queue only sees the main Backend pytest
   and Frontend Jest suites, and recovery proof only arrives when someone re-runs failed jobs (or a pytest test is hand-marked
   `@pytest.mark.flaky(reruns=N)`). Counts are absolute signal, never rates: passing runs are mostly not
-  emitted, so there is no honest denominator.
+  emitted, so there is no honest denominator. A CI setup break excludes every trial of the attempt, not only its
+  failures: a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams, or a job attempt
+  with 100 or more distinct failed or errored tests.
+  A real break that wide is left out too, so when a whole suite or job goes red, check `workflow-health` rather
+  than reading an empty queue as healthy.
 
 - **`engineering-analytics-sources`**: the team's connected GitHub sources and repos. With more than one of
   either, call it first and pass the chosen entry's `source_id` **and** `repo` to `pull-requests`,
@@ -142,3 +146,5 @@ numbers as a saved insight, a dashboard tile, or a scheduled email/Slack deliver
 (`<prefix>github_pull_requests` / `<prefix>github_workflow_runs`, prefix from `engineering-analytics-sources`)
 are directly queryable with HogQL, and that skill carries the curated column semantics plus the
 insight-create / subscriptions-create workflow.
+
+DORA environment defaults include all persistent production-marked or production-named regions. Read `selected_environments` for the validated exact scope. DRF validates explicit filters against real names, including transient environments. It trims and deduplicates valid names and rejects blank or unknown names with a 400 response. Omit the filter to use the default. Each regional deployment counts separately; lead time counts each PR once at its first successful deployment in any selected environment.

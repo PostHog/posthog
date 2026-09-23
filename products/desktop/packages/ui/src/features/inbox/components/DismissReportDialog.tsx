@@ -1,16 +1,25 @@
 import {
+  Button,
+  Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Label,
+  RadioGroup,
+  RadioGroupItem,
+  Textarea,
+} from "@posthog/quill";
+import {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
   isDismissalReasonSnooze,
 } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
-import {
-  ExplainedPauseLabel,
-  ExplainedSuppressLabel,
-} from "@posthog/ui/features/inbox/components/utils/ExplainedDismissOptionLabels";
-import { Button } from "@posthog/ui/primitives/Button";
-import { Dialog, Flex, RadioGroup, Text, TextArea } from "@radix-ui/themes";
-import { useEffect, useRef, useState } from "react";
+import { useId, useState } from "react";
 
 export interface DismissReportDialogResult {
   reason: DismissalReasonOptionValue;
@@ -21,14 +30,11 @@ export interface DismissReportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   report: SignalReport;
-  /** When greater than 1, copy reflects a bulk dismiss of the current selection. */
   selectedCount?: number;
   isSubmitting: boolean;
-  /**
-   * When snooze is not allowed for the current selection, the "Already fixed"
-   * option is disabled because that path snoozes instead of dismissing.
-   */
   snoozeDisabledReason: string | null;
+  initialReason?: DismissalReasonOptionValue;
+  initialNote?: string;
   onConfirm: (result: DismissReportDialogResult) => void;
 }
 
@@ -39,56 +45,30 @@ export function DismissReportDialog({
   selectedCount = 1,
   isSubmitting,
   snoozeDisabledReason,
+  initialReason,
+  initialNote = "",
   onConfirm,
-}: DismissReportDialogProps) {
-  const onOpenChangeRef = useRef(onOpenChange);
-  onOpenChangeRef.current = onOpenChange;
-
-  // Radix Themes nests Content inside the overlay scroll area, so backdrop clicks
-  // often land on padding/overlay nodes that never reach Content's dismiss layer.
-  useEffect(() => {
-    if (!open || isSubmitting) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-
-      const overlay = document.querySelector(
-        '.rt-DialogOverlay[data-state="open"]',
-      );
-      const content = document.querySelector(
-        '.rt-DialogContent[data-state="open"]',
-      );
-      if (!overlay?.contains(target) || content?.contains(target)) return;
-
-      onOpenChangeRef.current(false);
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    return () =>
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [open, isSubmitting]);
-
+}: DismissReportDialogProps): React.JSX.Element {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content
-        maxWidth="480px"
-        onPointerDownOutside={() => {
-          if (!isSubmitting) onOpenChange(false);
-        }}
-        onEscapeKeyDown={() => {
-          if (!isSubmitting) onOpenChange(false);
-        }}
-      >
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && isSubmitting) return;
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent className="sm:max-w-md" showCloseButton={!isSubmitting}>
         <DismissReportDialogBody
           report={report}
           selectedCount={selectedCount}
           isSubmitting={isSubmitting}
           snoozeDisabledReason={snoozeDisabledReason}
+          initialReason={initialReason}
+          initialNote={initialNote}
           onConfirm={onConfirm}
         />
-      </Dialog.Content>
-    </Dialog.Root>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -97,102 +77,154 @@ function DismissReportDialogBody({
   selectedCount,
   isSubmitting,
   snoozeDisabledReason,
+  initialReason,
+  initialNote = "",
   onConfirm,
 }: Omit<DismissReportDialogProps, "open" | "onOpenChange"> & {
   selectedCount: number;
-}) {
-  const [reason, setReason] = useState<DismissalReasonOptionValue | null>(null);
-  const [note, setNote] = useState("");
-
-  const handleConfirm = () => {
-    if (!reason) return;
-    onConfirm({ reason, note: note.trim() });
-  };
-
-  const alreadyFixedDisabled = snoozeDisabledReason !== null;
+}): React.JSX.Element {
+  const [reason, setReason] = useState<DismissalReasonOptionValue | null>(
+    initialReason ?? null,
+  );
+  const [note, setNote] = useState(initialNote);
+  const fieldId = useId();
   const pausesReport = reason != null && isDismissalReasonSnooze(reason);
   const reportNoun = selectedCount > 1 ? "reports" : "report";
+  const title = report.title?.trim() ? report.title : "Untitled report";
+  const hasOpenPr =
+    Boolean(report.implementation_pr_url) &&
+    report.implementation_pr_merged !== true;
+  const pauseOptions = DISMISSAL_REASON_OPTIONS.filter((option) =>
+    isDismissalReasonSnooze(option.value),
+  );
+  const hideOptions = DISMISSAL_REASON_OPTIONS.filter(
+    (option) => !isDismissalReasonSnooze(option.value),
+  );
+  const outcome =
+    reason == null
+      ? null
+      : pausesReport
+        ? `The ${reportNoun} comes back if another matching signal arrives.`
+        : `Matching signals won't surface the ${reportNoun} again.${hasOpenPr ? " The open pull request will be closed." : ""}`;
+
+  const renderOption = (
+    option: (typeof DISMISSAL_REASON_OPTIONS)[number],
+    disabled: boolean,
+  ): React.JSX.Element => {
+    const id = `${fieldId}-${option.value}`;
+    return (
+      <div key={option.value} className="flex items-center gap-2">
+        <RadioGroupItem value={option.value} id={id} disabled={disabled} />
+        <Label htmlFor={id} className="cursor-pointer font-normal">
+          {option.label}
+        </Label>
+      </div>
+    );
+  };
 
   return (
     <>
-      <Dialog.Title>
-        <Text className="text-balance font-bold text-lg">
-          {pausesReport
-            ? selectedCount > 1
-              ? `Pause ${selectedCount} reports?`
-              : `Pause report "${report.title?.trim() ? report.title : "Untitled report"}"?`
-            : selectedCount > 1
-              ? `Archive ${selectedCount} reports for everyone?`
-              : `Archive report "${report.title?.trim() ? report.title : "Untitled report"}" for everyone?`}
-        </Text>
-      </Dialog.Title>
-      <Dialog.Description className="text-gray-10 text-sm">
-        {pausesReport
-          ? `This pauses the ${reportNoun} for everyone in this project until another matching signal arrives. The ${reportNoun} can then return.`
-          : `This archives the ${reportNoun} for everyone in this project. Your feedback is saved and helps the agent.`}
-      </Dialog.Description>
+      <DialogHeader>
+        <DialogTitle>
+          {selectedCount > 1
+            ? `Dismiss ${selectedCount} reports?`
+            : `Dismiss report "${title}"?`}
+        </DialogTitle>
+        <DialogDescription>
+          {`This dismisses the ${reportNoun} for everyone in this project. Your feedback is saved and helps the agent.`}
+        </DialogDescription>
+      </DialogHeader>
 
-      <Flex direction="column" gap="4" mt="4">
-        <RadioGroup.Root
-          size="1"
-          value={reason ?? ""}
-          onValueChange={(value) =>
-            setReason(value as DismissalReasonOptionValue)
+      <DialogBody>
+        <div className="flex flex-col gap-4">
+          <RadioGroup
+            value={reason ?? ""}
+            onValueChange={(value) =>
+              setReason(value as DismissalReasonOptionValue)
+            }
+            className="gap-4"
+          >
+            <fieldset
+              aria-describedby={
+                snoozeDisabledReason ? `${fieldId}-pause-disabled` : undefined
+              }
+              className="flex flex-col gap-2"
+            >
+              <legend className="mb-2 font-medium text-(--gray-11) text-xs">
+                Pause until a new matching signal
+              </legend>
+              {snoozeDisabledReason ? (
+                <span
+                  id={`${fieldId}-pause-disabled`}
+                  className="-mt-2 text-(--gray-9) text-xs"
+                >
+                  {snoozeDisabledReason}
+                </span>
+              ) : null}
+              {pauseOptions.map((option) =>
+                renderOption(option, snoozeDisabledReason !== null),
+              )}
+            </fieldset>
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-2 font-medium text-(--gray-11) text-xs">
+                Don't surface again
+              </legend>
+              {hideOptions.map((option) => renderOption(option, false))}
+            </fieldset>
+          </RadioGroup>
+
+          <div className="flex flex-col gap-2">
+            <Label
+              htmlFor={`${fieldId}-note`}
+              className="font-medium text-(--gray-11) text-xs"
+            >
+              Details (optional)
+            </Label>
+            <Textarea
+              id={`${fieldId}-note`}
+              autoFocus={initialReason != null}
+              value={note}
+              onChange={(event) => {
+                const value = event.target.value;
+                setNote(value);
+                if (reason === null && value.trim()) {
+                  setReason("other");
+                }
+              }}
+              placeholder="What should the agent know?"
+              rows={3}
+              maxLength={4000}
+              disabled={isSubmitting}
+            />
+          </div>
+
+          <p
+            aria-live="polite"
+            className="text-muted-foreground text-xs empty:hidden"
+          >
+            {outcome}
+          </p>
+        </div>
+      </DialogBody>
+
+      <DialogFooter>
+        <DialogClose
+          render={
+            <Button variant="outline" size="sm" disabled={isSubmitting} />
           }
         >
-          <Flex direction="column" gap="2">
-            {DISMISSAL_REASON_OPTIONS.map((option) => {
-              const snoozesInsteadOfDismiss = isDismissalReasonSnooze(
-                option.value,
-              );
-              const disabled = snoozesInsteadOfDismiss && alreadyFixedDisabled;
-
-              return snoozesInsteadOfDismiss ? (
-                <ExplainedPauseLabel
-                  key={option.value}
-                  label={option.label}
-                  value={option.value}
-                  disabled={disabled}
-                  disabledReason={disabled ? snoozeDisabledReason : undefined}
-                />
-              ) : (
-                <ExplainedSuppressLabel
-                  key={option.value}
-                  label={option.label}
-                  value={option.value}
-                />
-              );
-            })}
-          </Flex>
-        </RadioGroup.Root>
-
-        <TextArea
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder="Optional: add detail"
-          size="1"
-          rows={3}
-          maxLength={4000}
-          disabled={isSubmitting}
-        />
-      </Flex>
-
-      <Flex gap="3" mt="4" justify="end">
-        <Dialog.Close>
-          <Button variant="soft" color="gray">
-            Cancel
-          </Button>
-        </Dialog.Close>
+          Cancel
+        </DialogClose>
         <Button
-          variant="solid"
+          variant="primary"
+          size="sm"
           disabled={!reason || isSubmitting}
-          disabledReason={!reason ? "you haven't picked a reason" : null}
-          onClick={handleConfirm}
           loading={isSubmitting}
+          onClick={() => reason && onConfirm({ reason, note: note.trim() })}
         >
-          {pausesReport ? "Pause for everyone" : "Archive for everyone"}
+          Dismiss report
         </Button>
-      </Flex>
+      </DialogFooter>
     </>
   );
 }

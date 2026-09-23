@@ -11,14 +11,16 @@ import {
     IconTrash,
     IconWarning,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
-import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
+import type { AITriageSource, AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
 import { richContentToHtml } from '../Editor/richContentToHtml'
+import { aiDraftAction } from './aiDraftAction'
 import { TeamOnlyBadge } from './TeamOnlyBadge'
 
 export interface MessageProps {
@@ -31,6 +33,31 @@ export interface MessageProps {
     onSubmitAiReplyFeedback?: (rating: AiReplyFeedbackRating, feedbackText?: string) => void
     onEdit?: () => void
     onDelete?: () => void
+    fullEmailLoading?: boolean
+    onViewFullEmail?: () => void
+    aiSources?: AITriageSource[]
+    aiDraftApplying?: boolean
+    onApplyAiDraft?: () => void
+}
+
+function citationDisplay(ref: string, sources: AITriageSource[]): { title: string; to?: string; external?: boolean } {
+    const source = sources.find((item) => item.ref === ref)
+    if (source?.source_id) {
+        return { title: source.title || ref, to: urls.businessKnowledgeSource(source.source_id) }
+    }
+    if (source?.url) {
+        return { title: source.title || ref, to: source.url, external: true }
+    }
+    if (ref.startsWith('https://') || ref.startsWith('http://')) {
+        try {
+            const parsed = new URL(ref)
+            return { title: `${parsed.host}${parsed.pathname}`.replace(/\/$/, '') || ref, to: ref, external: true }
+        } catch {
+            return { title: ref }
+        }
+    }
+    // A non-URL ref that no source resolved is a knowledge chunk id; the raw UUID is noise.
+    return { title: source?.title || 'Knowledge source' }
 }
 
 export function Message({
@@ -43,10 +70,17 @@ export function Message({
     onSubmitAiReplyFeedback,
     onEdit,
     onDelete,
+    fullEmailLoading = false,
+    onViewFullEmail,
+    aiSources = [],
+    aiDraftApplying = false,
+    onApplyAiDraft,
 }: MessageProps): JSX.Element {
     const isAgent = message.authorType === 'AI'
     const profileType = isAgent ? 'bot' : 'person'
     const isPrivate = message.isPrivate
+    const draftAction = aiDraftAction(message)
+    const citations = (message.citations ?? []).filter((item) => item.trim())
     const [feedbackText, setFeedbackText] = useState('')
     const [feedbackTextSubmitted, setFeedbackTextSubmitted] = useState(false)
     const wasRatedOnMount = useRef(!!aiReplyFeedbackRating)
@@ -87,7 +121,7 @@ export function Message({
                         where the robot glyph picks the colour up, and renders the name as a sibling —
                         so the name is coloured from this row rather than through the component. */}
                     <div
-                        className={`flex items-center justify-between w-full gap-2 mb-1 ${
+                        className={`flex items-center justify-between w-full gap-2 mb-1 min-w-0 ${
                             isAgent ? '[&_.profile-name]:text-ai' : ''
                         }`}
                     >
@@ -99,8 +133,11 @@ export function Message({
                             showName={true}
                             className={isAgent ? 'text-ai' : undefined}
                         />
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap justify-end min-w-0">
                             {isPrivate && <TeamOnlyBadge label="Private note" tone={isAgent ? 'agent' : 'teammate'} />}
+                            {isAgent && message.confidence != null && (
+                                <LemonTag size="small">{(message.confidence * 100).toFixed(0)}% confidence</LemonTag>
+                            )}
                             <span className="text-xs text-muted-alt">
                                 <TZLabel time={message.createdAt} />
                                 {(message.version ?? 0) > 0 ? ' (edited)' : null}
@@ -179,6 +216,60 @@ export function Message({
                                 <SupportMarkdown className="text-sm" disableImages>
                                     {message.content}
                                 </SupportMarkdown>
+                            )}
+                            {message.hasFullEmailContent && onViewFullEmail && (
+                                <div className="mt-2">
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="xsmall"
+                                        onClick={onViewFullEmail}
+                                        loading={fullEmailLoading}
+                                        data-attr="support-ticket-view-full-email"
+                                    >
+                                        View full email
+                                    </LemonButton>
+                                </div>
+                            )}
+                            {draftAction && onApplyAiDraft && (
+                                <div className="mt-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        loading={aiDraftApplying}
+                                        disabledReason={aiDraftApplying ? 'Inserting draft' : undefined}
+                                        onClick={onApplyAiDraft}
+                                        // pinned: autocapture / Playwright key. Do not rename.
+                                        data-attr={
+                                            draftAction === 'question'
+                                                ? 'ai-draft-use-question'
+                                                : 'ai-draft-use-as-reply'
+                                        }
+                                    >
+                                        {draftAction === 'question' ? 'Use question' : 'Use as reply'}
+                                    </LemonButton>
+                                </div>
+                            )}
+                            {citations.length > 0 && (
+                                <ol className="mt-2 mb-0 pl-4 text-xs text-muted-alt space-y-0.5">
+                                    {citations.map((ref, index) => {
+                                        const display = citationDisplay(ref, aiSources)
+                                        return (
+                                            <li key={`${ref}-${index}`}>
+                                                {display.to ? (
+                                                    <Link
+                                                        to={display.to}
+                                                        target={display.external ? '_blank' : undefined}
+                                                        className="break-all"
+                                                    >
+                                                        {display.title}
+                                                    </Link>
+                                                ) : (
+                                                    <span className="break-all">{display.title}</span>
+                                                )}
+                                            </li>
+                                        )
+                                    })}
+                                </ol>
                             )}
                         </div>
                         {showAiReplyFeedback && (

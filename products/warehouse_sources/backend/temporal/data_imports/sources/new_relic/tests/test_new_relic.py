@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -152,6 +152,12 @@ class TestExecuteGraphql:
         with pytest.raises(NewRelicRetryableError):
             self._execute(self._response(body=body))
 
+    def test_malformed_json_body_is_retryable(self) -> None:
+        response = self._response()
+        response.json.side_effect = requests.exceptions.JSONDecodeError("Unterminated string", "", 0)
+        with pytest.raises(NewRelicRetryableError):
+            self._execute(response)
+
     def test_returns_data_on_success(self) -> None:
         body = {"data": {"actor": {"account": {"id": ACCOUNT_ID}}}}
         assert self._execute(self._response(body=body)) == body["data"]
@@ -203,8 +209,12 @@ class TestFetchEventWindow:
         logger.warning.assert_called_once()
 
 
-@freeze_time("2026-01-02 12:00:00")
 class TestGetEventRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-01-02 12:00:00", tick=False):
+            yield
+
     def _now_ms(self) -> int:
         return int(datetime(2026, 1, 2, 12, tzinfo=UTC).timestamp() * 1000)
 

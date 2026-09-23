@@ -18,6 +18,7 @@ import { DSPyInstallation } from '@posthog/shared-onboarding/ai-observability/ds
 import { EveInstallation } from '@posthog/shared-onboarding/ai-observability/eve'
 import { FireworksAIInstallation } from '@posthog/shared-onboarding/ai-observability/fireworks-ai'
 import { GoogleInstallation } from '@posthog/shared-onboarding/ai-observability/google'
+import { GoogleADKInstallation } from '@posthog/shared-onboarding/ai-observability/google-adk'
 import { GroqInstallation } from '@posthog/shared-onboarding/ai-observability/groq'
 import { HeliconeInstallation } from '@posthog/shared-onboarding/ai-observability/helicone'
 import { HuggingFaceInstallation } from '@posthog/shared-onboarding/ai-observability/hugging-face'
@@ -78,6 +79,10 @@ const LLMAnthropicInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const LLMGoogleInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: GoogleInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMGoogleADKInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: GoogleADKInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
 const LLMOpenRouterInstructionsWrapper = withOnboardingDocsWrapper({
@@ -238,6 +243,7 @@ export const AIObservabilitySDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANTHROPIC]: LLMAnthropicInstructionsWrapper,
     [SDKKey.AWS_BEDROCK]: LLMAWSBedrockInstructionsWrapper,
     [SDKKey.GOOGLE_GEMINI]: LLMGoogleInstructionsWrapper,
+    [SDKKey.GOOGLE_ADK]: LLMGoogleADKInstructionsWrapper,
     [SDKKey.VERCEL_AI]: LLMVercelAIInstructionsWrapper,
     [SDKKey.EVE]: LLMEveInstructionsWrapper,
     [SDKKey.VERCEL_AI_GATEWAY]: LLMVercelAIGatewayInstructionsWrapper,

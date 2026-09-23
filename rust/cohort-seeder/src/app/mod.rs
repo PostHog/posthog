@@ -9,6 +9,7 @@ mod orchestrator;
 mod person_execute;
 mod person_plan;
 mod prepare;
+pub mod prime;
 pub mod reconcile_dispatch;
 pub mod settings;
 pub mod watch;
@@ -22,6 +23,7 @@ pub use orchestrator::{
     fail_exhausted_runs_of_kind, PersonComponents, SeederOrchestrator,
     ORCHESTRATOR_LIVENESS_DEADLINE,
 };
+pub use prime::prime_zero_series;
 pub use settings::{OrchestratorSettings, PersonSettings};
 pub use watch::{MarkerWatchTask, PgMarkerFlush, WatchDirectives, MARKER_WATCH_LIVENESS_DEADLINE};
 

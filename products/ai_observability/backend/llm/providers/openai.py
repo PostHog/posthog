@@ -24,11 +24,13 @@ from products.ai_observability.backend.llm.errors import (
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputTokenLimitError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
+    is_output_limit_error_message,
     stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
@@ -173,13 +175,19 @@ class OpenAIAdapter:
                 except openai.BadRequestError as e:
                     if is_context_window_error_message(str(e)):
                         raise ContextWindowExceededError(str(e)) from e
+                    if is_output_limit_error_message(str(e)):
+                        raise OutputTokenLimitError(str(e)) from e
                     # Fall back to manual JSON parsing for older models that don't support json_schema
                     if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
                         return self._complete_with_json_fallback(client, request, messages, analytics)
                     raise
-                except (ValidationError, openai.LengthFinishReasonError) as e:
-                    # json_schema does not enforce cross-field validators, while the SDK raises a separate
-                    # exception for length-limited output. Normalize both so callers skip invalid output.
+                except openai.LengthFinishReasonError as e:
+                    # The reply was cut off at the output limit, so the JSON it carries is truncated.
+                    # Report the limit rather than the unreadable JSON it produced.
+                    raise OutputTokenLimitError(str(e)) from e
+                except ValidationError as e:
+                    # json_schema does not enforce cross-field validators, so a schema-valid reply can
+                    # still fail our model. Normalize it so callers skip invalid output.
                     raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
             else:
                 create_response = client.chat.completions.create(
@@ -225,8 +233,11 @@ class OpenAIAdapter:
             # retryable error so the caller retries silently instead of spamming error tracking.
             return ProviderConnectionError(str(error))
         if isinstance(error, openai.APIStatusError):
-            if isinstance(error, openai.BadRequestError) and is_context_window_error_message(str(error)):
-                return ContextWindowExceededError(str(error))
+            if isinstance(error, openai.BadRequestError):
+                if is_context_window_error_message(str(error)):
+                    return ContextWindowExceededError(str(error))
+                if is_output_limit_error_message(str(error)):
+                    return OutputTokenLimitError(str(error))
             # OpenRouter returns 402 when the key can't afford the requested
             # max_tokens (or is out of credits). Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.
@@ -330,7 +341,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             if supports_reasoning:
                 selected_effort: ReasoningEffort | None = None
                 if request.reasoning_level in ("minimal", "low", "medium", "high"):
-                    selected_effort = request.reasoning_level  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+                    selected_effort = request.reasoning_level  # type: ignore[assignment]
                 elif reasoning_on:
                     selected_effort = OpenAIConfig.REASONING_EFFORT
                 stream = client.chat.completions.create(

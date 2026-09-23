@@ -13,6 +13,7 @@ from django.conf import settings
 import requests
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import github_request
 
 
 def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Optional[str]]]:
@@ -55,7 +56,15 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, O
                     parsed["tag"] or "",
                     parsed["path"] or "",
                 )
-                commits = requests.get(commits_url, headers=headers).json()
+                # Identity-blind: a plugin URL carries no GitHub App installation to meter the
+                # call against, so this records request volume only.
+                commits = github_request(
+                    "GET",
+                    commits_url,
+                    source="plugins",
+                    headers=headers,
+                    installation_id=None,
+                ).json()
 
                 if isinstance(commits, dict):
                     raise Exception(commits.get("message"))

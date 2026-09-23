@@ -22,6 +22,7 @@ import structlog
 from posthog.api.authentication import password_reset_token_generator
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
@@ -265,7 +266,7 @@ def handle_new_user(
             is_email_verified=False,
         )
     except IntegrityError:
-        existing = User.objects.filter(email=email).first()
+        existing = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if existing:
             capture_provisioning_event("account_request", "race_condition_existing_user", region=region)
             return handle_existing_user(

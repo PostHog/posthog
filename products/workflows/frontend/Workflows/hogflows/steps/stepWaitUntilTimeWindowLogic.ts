@@ -106,12 +106,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   }[]
               }
             | {
-                  reason?: string | undefined
-              }
-            | {
-                  type: 'schedule'
-              }
-            | {
                   conditions: {
                       filters: {
                           actions?: any[] | undefined
@@ -120,12 +114,18 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       }
                       name?: string | undefined
                   }[]
-                  delay_duration?: string | undefined
+              }
+            | {
+                  reason?: string | undefined
+              }
+            | {
+                  type: 'schedule'
               }
             | {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -143,15 +143,11 @@ export interface stepWaitUntilTimeWindowLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'github-event'
-              }
-            | {
-                  filters: {
-                      properties?: any[] | undefined
-                  }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   condition: {
@@ -261,10 +257,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -405,12 +403,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   }[]
               }
             | {
-                  reason?: string | undefined
-              }
-            | {
-                  type: 'schedule'
-              }
-            | {
                   conditions: {
                       filters: {
                           actions?: any[] | undefined
@@ -419,19 +411,20 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       }
                       name?: string | undefined
                   }[]
-                  delay_duration?: string | undefined
+              }
+            | {
+                  reason?: string | undefined
+              }
+            | {
+                  type: 'schedule'
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'github-event'
-              }
-            | {
-                  filters: {
-                      properties?: any[] | undefined
-                  }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   filters: {
@@ -446,6 +439,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -576,10 +570,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string

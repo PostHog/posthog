@@ -15,8 +15,8 @@ use tracing::{info, warn};
 
 use crate::clickhouse::scanner::ChunkScanner;
 use crate::domain::{
-    ChunkLease, ChunkSpec, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, PinnedRun,
-    ProducedChunk, RetryBackoffPolicy, ScannedChunk, StreamedChunk,
+    ChunkLease, ChunkSpec, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, ProducedChunk,
+    RetryBackoffPolicy, ScannedChunk, StreamedChunk,
 };
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
@@ -27,13 +27,15 @@ use crate::store::runs::RunKind;
 use crate::store::RenderedError;
 
 use super::deliver::{self, ProduceError};
+use super::person_execute::PersonChunkStats;
+use super::prepare::PreparedBehavioral;
 use super::settings::ProducerSettings;
 
 /// The owned inputs to one chunk's processing task, bundled so the spawn stays tidy.
 pub(super) struct ChunkTaskContext {
     pub(super) chunk: ClaimedChunk,
     pub(super) lease: LeaseHandle,
-    pub(super) run: Arc<PinnedRun>,
+    pub(super) prepared: Arc<PreparedBehavioral>,
     pub(super) store: PgChunkStore,
     pub(super) scanner: ChunkScanner,
     pub(super) producer: SeedTileProducer,
@@ -49,7 +51,7 @@ pub(super) async fn execute_chunk(
     let ChunkTaskContext {
         chunk,
         lease,
-        run,
+        prepared,
         store,
         scanner,
         producer,
@@ -60,7 +62,16 @@ pub(super) async fn execute_chunk(
     let lease_cancel = lease.cancellation_token();
 
     // PreMark: scan history into tiles.
-    let scanned = match scanner.scan(chunk, &run, &lease_cancel, &shutdown).await {
+    let scanned = match scanner
+        .scan(
+            chunk,
+            &prepared.run,
+            &prepared.analyses,
+            &lease_cancel,
+            &shutdown,
+        )
+        .await
+    {
         Ok(scanned) => scanned,
         Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     };
@@ -100,6 +111,7 @@ pub(super) async fn execute_chunk(
         Ok(_) => ChunkOutcome::Confirmed {
             lease,
             tiles_produced,
+            detail: ConfirmedDetail::Behavioral,
         },
         Err(halt) => resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     }
@@ -235,11 +247,20 @@ fn render_reason<E: std::error::Error>(reason: &HaltReason<E>) -> RenderedError 
     }
 }
 
+/// What a confirmed chunk's log line says beyond its tile count. The behavioral path's counters
+/// already read per day and band, so only the person path carries a payload.
+#[derive(Debug)]
+pub(super) enum ConfirmedDetail {
+    Behavioral,
+    Person(PersonChunkStats),
+}
+
 #[derive(Debug)]
 pub(super) enum ChunkOutcome {
     Confirmed {
         lease: ChunkLease,
         tiles_produced: u64,
+        detail: ConfirmedDetail,
     },
     Failed {
         lease: ChunkLease,
@@ -264,9 +285,21 @@ pub(super) fn record_task_result(
         Ok(ChunkOutcome::Confirmed {
             lease,
             tiles_produced,
+            detail,
         }) => {
             counter!(CHUNKS_CONFIRMED, "kind" => kind.as_str()).increment(1);
-            info!(?lease, tiles_produced, "chunk confirmed");
+            match detail {
+                ConfirmedDetail::Behavioral => info!(?lease, tiles_produced, "chunk confirmed"),
+                ConfirmedDetail::Person(stats) => info!(
+                    ?lease,
+                    tiles_produced,
+                    persons_scanned = stats.persons_scanned,
+                    nonmatchers = stats.nonmatchers,
+                    pruned = stats.pruned,
+                    shortcut_evaluations = stats.shortcut_evaluations,
+                    "chunk confirmed",
+                ),
+            }
         }
         Ok(ChunkOutcome::Failed {
             lease,

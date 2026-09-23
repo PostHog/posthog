@@ -19,8 +19,10 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../../schema/schema-general'
+import type { TraceSpansTreeQueryResponse } from '../../../schema/schema-general'
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { Column } from '../dataVisualizationLogic'
+import { humanizeEventColumnValue } from '../eventColumnLabels'
 
 /**
  * Sentinel used to key result customizations for null / undefined breakdown values.
@@ -121,6 +123,7 @@ export interface seriesBreakdownLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataVisualizationLogic
     selectedXAxis: string | null // dataVisualizationLogic
     selectedYAxis: (SelectedYAxis | null)[] | null // dataVisualizationLogic
@@ -154,6 +157,7 @@ export interface seriesBreakdownLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
     }
     deleteSeriesBreakdown: () => {}
@@ -181,6 +185,7 @@ export interface seriesBreakdownLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             columns: Column[]
         ) => string[]
@@ -203,6 +208,7 @@ export interface seriesBreakdownLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             columns: Column[],
             chartSettings: ChartSettings,
@@ -395,9 +401,8 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     }
 
                     return visibleBreakdownValues.map<AxisBreakdownSeries<number | null>>((value) => {
-                        const seriesName = multipleYSeries
-                            ? `${selectedYAxis.name} - ${value || '[No value]'}`
-                            : value || '[No value]'
+                        const valueLabel = humanizeEventColumnValue(breakdownColumn.name, value) || '[No value]'
+                        const seriesName = multipleYSeries ? `${selectedYAxis.name} - ${valueLabel}` : valueLabel
                         const breakdownValue = getBreakdownValueKey(value)
                         const customColorToken = resultCustomizations[breakdownValue]?.color
                         const customColor =
@@ -463,7 +468,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 return {
                     xData: {
                         column: xColumn,
-                        data: xData,
+                        data: xData.map((value) => humanizeEventColumnValue(xColumn.name, value)),
                     },
                     seriesData,
                     isUnaggregated,

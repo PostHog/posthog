@@ -1,6 +1,8 @@
 import json
+import time
 import shlex
 import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -20,8 +22,16 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
+from products.tasks.backend.exceptions import (
+    OAuthTokenError,
+    ProcessTaskError,
+    ProcessTaskFatalError,
+    SandboxControlPlaneError,
+    SandboxExecutionError,
+    SandboxMissingRepositoryError,
+)
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
+from products.tasks.backend.logic.services.launch_preparation_metrics import launch_preparation_metric_context
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
     SNAPSHOT_KIND_DIRECTORY,
@@ -33,13 +43,16 @@ from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_agent_server_readiness_retry,
+    record_agent_server_boot_phases_ms,
     record_agent_server_session_init_ms,
+    record_agent_server_step_ms,
     record_boot_total_ms,
     record_network_enforcement,
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+from products.tasks.backend.temporal.process_task.organization import guard_organization_execution
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     format_allowed_domains_for_log,
@@ -50,6 +63,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_user_mcp_server_configs,
     loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
+    mcp_exclude_tools_from_state,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -57,6 +71,8 @@ from .get_task_processing_context import TaskProcessingContext
 logger = get_logger(__name__)
 
 AGENT_SERVER_SHADOW_FEATURE_FLAG = "agent-server-shadow-observer"
+
+PROTECTED_BASE_BRANCH_JOIN_TIMEOUT_SECONDS = 30.0
 
 
 def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
@@ -81,6 +97,12 @@ def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase
     log_tail = result.stdout.strip()
     if log_tail:
         emit_agent_log(ctx.run_id, "debug", f"agent-server log tail:\n{log_tail}")
+    else:
+        emit_agent_log(
+            ctx.run_id,
+            "debug",
+            "agent-server log tail: empty. The agent-server wrote nothing to /tmp/agent-server.log.",
+        )
 
 
 def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
@@ -379,7 +401,46 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     return not task.internal
 
 
+def _start_protected_base_branch_lookup(
+    ctx: TaskProcessingContext,
+) -> tuple[ThreadPoolExecutor, Future[str | None]] | None:
+    if not ctx.branch or not ctx.repository or not ctx.has_github_credentials:
+        return None
+
+    def _resolve() -> str | None:
+        try:
+            return _resolve_protected_base_branch(ctx)
+        finally:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"protected-base-branch-{ctx.run_id}")
+    return executor, executor.submit(_resolve)
+
+
+def _join_protected_base_branch_lookup(
+    ctx: TaskProcessingContext, lookup: tuple[ThreadPoolExecutor, Future[str | None]] | None
+) -> str | None:
+    if lookup is None:
+        return _resolve_protected_base_branch(ctx)
+
+    executor, future = lookup
+    try:
+        return future.result(timeout=PROTECTED_BASE_BRANCH_JOIN_TIMEOUT_SECONDS)
+    except TimeoutError:
+        logger.warning("resolve_protected_base_branch_timed_out", task_id=ctx.task_id, run_id=ctx.run_id)
+        return ctx.branch
+    except Exception:
+        logger.warning("resolve_protected_base_branch_failed", task_id=ctx.task_id, run_id=ctx.run_id, exc_info=True)
+        return ctx.branch
+    finally:
+        executor.shutdown(wait=False)
+
+
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
+    protected_base_branch_lookup = _start_protected_base_branch_lookup(ctx)
     task = retry_on_db_connection_drop(lambda: Task.objects.select_related("created_by", "team").get(id=ctx.task_id))
     try:
         actor_user = get_task_run_credential_user(task, ctx.state)
@@ -429,8 +490,10 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         project_id=ctx.team_id,
         scopes=scopes,
         interaction_origin=ctx.interaction_origin,
+        slack_reply_context=ctx.slack_reply_context,
         task_id=str(ctx.task_id),
         origin_product=task.origin_product,
+        exclude_tools=mcp_exclude_tools_from_state(ctx.state),
     )
     include_personal = _include_personal_mcp_for_task(task)
     user_mcp_configs = get_user_mcp_server_configs(
@@ -439,6 +502,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         user_id=actor_user.id if actor_user else None,
         include_personal=include_personal,
         interaction_origin=ctx.interaction_origin,
+        slack_reply_context=ctx.slack_reply_context,
         allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
         origin_product=task.origin_product,
         task_agent_key=task.mcp_builtin_agent_key,
@@ -496,7 +560,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
             f"Sandbox environment '{environment_name}' grants full network access; starting without agentsh restrictions",
         )
 
-    protected_base_branch = _resolve_protected_base_branch(ctx)
+    protected_base_branch = _join_protected_base_branch_lookup(ctx, protected_base_branch_lookup)
 
     return _LaunchParams(
         mcp_configs=mcp_configs,
@@ -517,9 +581,11 @@ def _invoke_start_agent_server(
     params: _LaunchParams,
     *,
     repo_ready_file: str | None,
-) -> None:
+    wait_for_health: bool = False,
+) -> int | None:
     try:
-        sandbox.start_agent_server(
+        _enforce_claude_subscription_support(sandbox, ctx)
+        health_duration_ms = sandbox.start_agent_server(
             repository=ctx.repository if len(ctx.repositories) <= 1 else None,
             task_id=ctx.task_id,
             run_id=ctx.run_id,
@@ -533,6 +599,7 @@ def _invoke_start_agent_server(
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            service_tier=ctx.service_tier,
             context_window=ctx.context_window,
             fast_mode=ctx.fast_mode,
             initial_permission_mode=ctx.initial_permission_mode,
@@ -544,11 +611,21 @@ def _invoke_start_agent_server(
             event_ingest_url=params.event_ingest_url,
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
-            wait_for_health=False,
+            wait_for_health=wait_for_health,
             rtk_enabled=ctx.rtk_enabled,
+            benjamin_enabled=ctx.benjamin_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
+            claude_model_access=ctx.claude_model_access,
         )
+        return health_duration_ms if isinstance(health_duration_ms, int) else None
 
+    except SandboxControlPlaneError:
+        raise
+    except ProcessTaskError:
+        if params.agentsh_domains is not None:
+            _emit_agentsh_log_tail(ctx, sandbox)
+        _emit_agent_server_log_tail(ctx, sandbox)
+        raise
     except Exception as e:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)
@@ -565,13 +642,33 @@ def _invoke_start_agent_server(
         )
 
 
+def _enforce_claude_subscription_support(sandbox: SandboxBase, ctx: TaskProcessingContext) -> None:
+    if ctx.claude_model_access != "own-subscription":
+        return
+    result = sandbox.execute(
+        "grep -q -- --claudeSubscription /scripts/node_modules/.bin/agent-server",
+        timeout_seconds=10,
+    )
+    if result.exit_code != 0:
+        raise ProcessTaskFatalError(
+            "This sandbox build cannot use your Claude plan yet. Start a new task. "
+            'To use PostHog credits instead, turn off "Use your Claude plan for cloud tasks".',
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            cause=RuntimeError("agent-server lacks --claudeSubscription"),
+            capture=False,
+        )
+
+
 def _record_agent_server_launch(sandbox: SandboxBase, ctx: TaskProcessingContext, params: _LaunchParams) -> None:
     if params.mcp_configs and params.actor_user_id is not None:
         mark_sandbox_mcp_session(sandbox.id, params.actor_user_id)
     try:
-        TaskRun.update_state_atomic(ctx.run_id, updates={"rtk_effective": ctx.rtk_enabled})
+        TaskRun.update_state_atomic(
+            ctx.run_id,
+            updates={"rtk_effective": ctx.rtk_enabled, "benjamin_effective": ctx.benjamin_enabled},
+        )
     except Exception:
-        logger.warning("persist_rtk_effective_failed", run_id=ctx.run_id, exc_info=True)
+        logger.warning("persist_effective_toggles_failed", run_id=ctx.run_id, exc_info=True)
 
 
 def _spawn_post_ready_diagnostics(
@@ -629,10 +726,15 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     """
     ctx = input.context
 
-    with log_activity_execution(
-        "start_agent_server",
-        sandbox_id=input.sandbox_id,
-        **ctx.to_log_context(),
+    with (
+        log_activity_execution("start_agent_server", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        launch_preparation_metric_context(
+            boot_path=input.boot_path,
+            runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            origin_product=ctx.origin_product,
+            used_snapshot=input.used_snapshot,
+        ),
+        guard_organization_execution(ctx.team_id),
     ):
         emit_agent_log(ctx.run_id, "debug", "Starting agent server")
 
@@ -651,14 +753,81 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
         ) as ready_timer:
             shadow_launched = _launch_agent_shadow(ctx, sandbox)
-            with StepTimer(
-                "agent_server_invoke", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
-            ) as invoke_timer:
-                _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None)
-            with StepTimer(
-                "agent_server_health", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
-            ) as health_timer:
-                sandbox.wait_for_agent_server_ready(params.agentsh_domains)
+            invoke_ms: int | None
+            health_poll_ms: int | None
+            if sandbox.supports_combined_agent_server_start_and_health():
+                start_time = time.perf_counter()
+                health_poll_ms = None
+                invoke_status = "COMPLETED"
+                health_status = "COMPLETED"
+                start_and_health_ms = None
+                try:
+                    health_poll_ms = _invoke_start_agent_server(
+                        sandbox, ctx, params, repo_ready_file=None, wait_for_health=True
+                    )
+                except ProcessTaskError as error:
+                    failed_health_ms = error.context.get("health_poll_ms")
+                    health_poll_ms = failed_health_ms if isinstance(failed_health_ms, int) else None
+                    failed_start_and_health_ms = error.context.get("start_and_health_ms")
+                    start_and_health_ms = (
+                        failed_start_and_health_ms if isinstance(failed_start_and_health_ms, int) else None
+                    )
+                    invoke_status = "COMPLETED" if health_poll_ms is not None else "FAILED"
+                    health_status = "FAILED"
+                    raise
+                finally:
+                    if start_and_health_ms is None:
+                        start_and_health_ms = int((time.perf_counter() - start_time) * 1000)
+                    invoke_ms = (
+                        max(0, start_and_health_ms - health_poll_ms)
+                        if health_poll_ms is not None
+                        else start_and_health_ms
+                    )
+                    record_agent_server_step_ms(
+                        "agent_server_invoke",
+                        invoke_ms,
+                        input.boot_path,
+                        status=invoke_status,
+                        used_snapshot=input.used_snapshot,
+                        origin_product=ctx.origin_product,
+                        runtime=runtime,
+                    )
+                    if health_poll_ms is not None:
+                        record_agent_server_step_ms(
+                            "agent_server_health",
+                            health_poll_ms,
+                            input.boot_path,
+                            status=health_status,
+                            used_snapshot=input.used_snapshot,
+                            origin_product=ctx.origin_product,
+                            runtime=runtime,
+                        )
+            else:
+                with StepTimer(
+                    "agent_server_invoke",
+                    used_snapshot=input.used_snapshot,
+                    boot_path=input.boot_path,
+                    origin_product=ctx.origin_product,
+                    runtime=runtime,
+                ) as invoke_timer:
+                    _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None)
+                with StepTimer(
+                    "agent_server_health",
+                    used_snapshot=input.used_snapshot,
+                    boot_path=input.boot_path,
+                    origin_product=ctx.origin_product,
+                    runtime=runtime,
+                ) as health_timer:
+                    sandbox.wait_for_agent_server_ready(
+                        params.agentsh_domains,
+                        **(
+                            {"claude_model_access": ctx.claude_model_access}
+                            if ctx.claude_model_access == "own-subscription"
+                            else {}
+                        ),
+                    )
+                invoke_ms = invoke_timer.elapsed_ms
+                health_poll_ms = health_timer.elapsed_ms
             _record_agent_server_launch(sandbox, ctx, params)
 
         _record_network_enforcement_observation(ctx)
@@ -671,6 +840,13 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             record_agent_server_session_init_ms(
                 session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
             )
+        record_agent_server_boot_phases_ms(
+            boot_phases_ms,
+            input.boot_path,
+            used_snapshot=input.used_snapshot,
+            origin_product=ctx.origin_product,
+            runtime=runtime,
+        )
 
         boot_total_ms = _record_boot_total(input)
 
@@ -680,8 +856,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             sandbox_url=input.sandbox_url,
             connect_token=input.sandbox_connect_token,
             prepare_ms=prepare_timer.elapsed_ms,
-            invoke_ms=invoke_timer.elapsed_ms,
-            health_poll_ms=health_timer.elapsed_ms,
+            invoke_ms=invoke_ms,
+            health_poll_ms=health_poll_ms,
             ready_wait_ms=ready_timer.elapsed_ms,
             session_init_ms=session_init_ms,
             boot_phases_ms=boot_phases_ms,
@@ -695,10 +871,15 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 
-    with log_activity_execution(
-        "launch_agent_server",
-        sandbox_id=input.sandbox_id,
-        **ctx.to_log_context(),
+    with (
+        log_activity_execution("launch_agent_server", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        launch_preparation_metric_context(
+            boot_path=input.boot_path,
+            runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            origin_product=ctx.origin_product,
+            used_snapshot=input.used_snapshot,
+        ),
+        guard_organization_execution(ctx.team_id),
     ):
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
@@ -758,10 +939,15 @@ def mark_repo_ready(input: MarkRepoReadyInput) -> None:
 def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 
-    with log_activity_execution(
-        "await_agent_server_ready",
-        sandbox_id=input.sandbox_id,
-        **ctx.to_log_context(),
+    with (
+        log_activity_execution("await_agent_server_ready", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        launch_preparation_metric_context(
+            boot_path=input.boot_path,
+            runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            origin_product=ctx.origin_product,
+            used_snapshot=input.used_snapshot,
+        ),
+        guard_organization_execution(ctx.team_id),
     ):
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         agentsh_domains = _agentsh_domains_for(ctx)
@@ -781,7 +967,14 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                         origin_product=ctx.origin_product,
                         runtime=runtime,
                     ) as health_timer:
-                        sandbox.wait_for_agent_server_ready(agentsh_domains)
+                        sandbox.wait_for_agent_server_ready(
+                            agentsh_domains,
+                            **(
+                                {"claude_model_access": ctx.claude_model_access}
+                                if ctx.claude_model_access == "own-subscription"
+                                else {}
+                            ),
+                        )
                 else:
                     logger.warning(
                         "agent_server_readiness_retry_recovery",
@@ -813,9 +1006,16 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                         origin_product=ctx.origin_product,
                         runtime=runtime,
                     ) as health_timer:
-                        sandbox.wait_for_agent_server_ready(agentsh_domains)
+                        sandbox.wait_for_agent_server_ready(
+                            agentsh_domains,
+                            **(
+                                {"claude_model_access": ctx.claude_model_access}
+                                if ctx.claude_model_access == "own-subscription"
+                                else {}
+                            ),
+                        )
                     _record_agent_server_launch(sandbox, ctx, params)
-        except Exception:
+        except Exception as error:
             if attempt > 1:
                 increment_agent_server_readiness_retry(
                     attempt,
@@ -824,9 +1024,10 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                     origin_product=ctx.origin_product,
                     runtime=runtime,
                 )
-            if agentsh_domains is not None:
-                _emit_agentsh_log_tail(ctx, sandbox)
-            _emit_agent_server_log_tail(ctx, sandbox)
+            if not isinstance(error, SandboxControlPlaneError):
+                if agentsh_domains is not None:
+                    _emit_agentsh_log_tail(ctx, sandbox)
+                _emit_agent_server_log_tail(ctx, sandbox)
             raise
 
         if attempt > 1:
@@ -848,6 +1049,13 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
             record_agent_server_session_init_ms(
                 session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
             )
+        record_agent_server_boot_phases_ms(
+            boot_phases_ms,
+            input.boot_path,
+            used_snapshot=input.used_snapshot,
+            origin_product=ctx.origin_product,
+            runtime=runtime,
+        )
 
         boot_total_ms = _record_boot_total(input)
 

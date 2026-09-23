@@ -60,6 +60,15 @@ export function placeTasksInCommandCenter(
     liveTaskIds,
   });
 
+  if (state.composer) {
+    navigateToCommandCenter();
+    return {
+      placed: 0,
+      overflow: plan.placed.length + plan.overflow.length,
+      alreadyPresent: plan.alreadyPresent.length,
+    };
+  }
+
   if (plan.placed.length > 0) {
     state.applyPlacement({ layout: plan.layout, cells: plan.cells });
   }
@@ -115,6 +124,7 @@ export function expandCanvasInCommandCenterInto(
   canvasId: string,
 ): void {
   const state = useCommandCenterStore.getState();
+  if (state.composer) return;
   const expanded = getExpandedLayout(state.layout, direction);
   if (!expanded) return;
 
@@ -137,6 +147,7 @@ export function expandTasksInCommandCenterInto(
   if (!firstTaskId) return;
 
   const state = useCommandCenterStore.getState();
+  if (state.composer) return;
   const expanded = getExpandedLayout(state.layout, direction);
   if (!expanded) return;
 

@@ -743,6 +743,24 @@ export interface EvaluationRunRequestApi {
     distinct_id?: string | null
 }
 
+export interface EvaluationRunEvaluationApi {
+    /** UUID of the evaluation being run. */
+    id: string
+    /** Display name of the evaluation being run. */
+    name: string
+}
+
+export interface EvaluationRunResponseApi {
+    /** Temporal workflow ID of the enqueued run. */
+    workflow_id: string
+    /** Workflow status at the time of the response. */
+    status: string
+    /** Evaluation selected for this run. */
+    evaluation: EvaluationRunEvaluationApi
+    /** UUID of the event being evaluated. */
+    target_event_id: string
+}
+
 /**
  * * `active` - Active
  * * `paused` - Paused
@@ -767,9 +785,10 @@ export const EvaluationStatusEnumApi = {
  * * `model_not_found` - Model not found
  * * `hog_error` - Hog evaluation code failed
  */
-export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
+export type EvaluationStatusReasonEnumApi =
+    (typeof EvaluationStatusReasonEnumApi)[keyof typeof EvaluationStatusReasonEnumApi]
 
-export const StatusReasonEnumApi = {
+export const EvaluationStatusReasonEnumApi = {
     ProviderKeyRequired: 'provider_key_required',
     ProviderKeyDeleted: 'provider_key_deleted',
     NoDefaultModel: 'no_default_model',
@@ -893,7 +912,7 @@ export type EvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
@@ -904,11 +923,13 @@ export type EvaluationApiEvaluationConfig =
       }
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
  */
 export type EvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
 }
 
 /**
@@ -962,7 +983,7 @@ export interface EvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
-    readonly status_reason: StatusReasonEnumApi | null
+    readonly status_reason: EvaluationStatusReasonEnumApi | null
     /**
      * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
      * @nullable
@@ -981,7 +1002,7 @@ export interface EvaluationApi {
      * * `boolean` - Boolean (Pass/Fail)
      * * `sentiment` - Sentiment */
     output_type: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -1018,6 +1039,107 @@ export interface PaginatedEvaluationListApi {
 }
 
 /**
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `cancelled` - Cancelled
+ */
+export type EvaluationBackfillStatusEnumApi =
+    (typeof EvaluationBackfillStatusEnumApi)[keyof typeof EvaluationBackfillStatusEnumApi]
+
+export const EvaluationBackfillStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Cancelled: 'cancelled',
+} as const
+
+export type EvaluationBackfillConditionApiPropertiesItem = { [key: string]: unknown }
+
+/**
+ * One condition set as it was frozen onto the backfill: no id, no compiled bytecode.
+ */
+export interface EvaluationBackfillConditionApi {
+    /** Property filters (event or person) that scope which units match this condition set. */
+    properties?: EvaluationBackfillConditionApiPropertiesItem[]
+    /** Percentage (0-100) of matching units sampled for this condition set. */
+    rollout_percentage?: number
+}
+
+export interface EvaluationBackfillApi {
+    /** Backfill identifier. */
+    readonly id: string
+    /** running while the walk is dispatching, then completed or cancelled.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `cancelled` - Cancelled */
+    readonly status: EvaluationBackfillStatusEnumApi
+    /** What one unit is, frozen at creation: a generation, a trace, or a session.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    readonly target: EvaluationTargetEnumApi
+    /** Inclusive start of the window, by unit timestamp. */
+    readonly window_start: string
+    /** Exclusive end of the window. */
+    readonly window_end: string
+    /** Condition sets frozen at creation, so an edit to the evaluation does not change this run. */
+    readonly conditions: readonly EvaluationBackfillConditionApi[]
+    /** Whether units with an existing result are evaluated again. */
+    readonly rerun_existing: boolean
+    /** Units matched at creation; the ceiling on dispatched_count. */
+    readonly total_count: number
+    /** Units the backfill has started an evaluation for so far. */
+    readonly dispatched_count: number
+    /** Units the live path had already covered, so nothing was dispatched. */
+    readonly skipped_count: number
+    /** User who started the backfill. */
+    readonly created_by: UserBasicApi | null
+    /** When the backfill was created. */
+    readonly created_at: string
+    /**
+     * When the backfill reached a terminal status; null while it runs.
+     * @nullable
+     */
+    readonly finished_at: string | null
+}
+
+export interface PaginatedEvaluationBackfillListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EvaluationBackfillApi[]
+}
+
+export interface EvaluationBackfillRequestApi {
+    /** Inclusive start of the window, by unit timestamp. */
+    window_start: string
+    /** Exclusive end of the window. Values in the future are clamped to now. */
+    window_end: string
+    /** Condition sets to match. Defaults to the evaluation's own condition sets. */
+    conditions?: EvaluationConditionApi[]
+    /** Evaluate units again even when this evaluation already has a result for them. */
+    rerun_existing?: boolean
+}
+
+export interface EvaluationBackfillEstimateApi {
+    /** Units that would be evaluated. */
+    total_units: number
+    /** What one unit is: a generation, a trace, or a session.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    unit: EvaluationTargetEnumApi
+    /** Window start after clamping. */
+    window_start: string
+    /** Window end after clamping. */
+    window_end: string
+}
+
+/**
  * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
  */
 export type PatchedEvaluationApiEvaluationConfig =
@@ -1030,7 +1152,7 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
@@ -1041,11 +1163,13 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
  */
 export type PatchedEvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
 }
 
 /**
@@ -1099,7 +1223,7 @@ export interface PatchedEvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
-    readonly status_reason?: StatusReasonEnumApi | null
+    readonly status_reason?: EvaluationStatusReasonEnumApi | null
     /**
      * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
      * @nullable
@@ -1118,7 +1242,7 @@ export interface PatchedEvaluationApi {
      * * `boolean` - Boolean (Pass/Fail)
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -1164,7 +1288,7 @@ export interface TestHogTargetConfigApi {
 
 export interface TestHogRequestApi {
     /**
-     * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
+     * Hog source code to test. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
      * @minLength 1
      */
     source: string
@@ -1212,7 +1336,7 @@ export interface TestHogResultItemApi {
     /** First 200 characters of output from the sampled unit. */
     output_preview: string
     /**
-     * True = pass, False = fail, null = N/A or error.
+     * Raw boolean result, or null when the evaluation returns N/A or raises an error.
      * @nullable
      */
     result: boolean | null
@@ -1263,12 +1387,15 @@ export const AnalysisLevelEnumApi = {
     Evaluation: 'evaluation',
 } as const
 
+export type ClusteringJobApiEventFiltersItem = { [key: string]: unknown }
+
 export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
     analysis_level: AnalysisLevelEnumApi
-    event_filters?: unknown
+    /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+    event_filters?: ClusteringJobApiEventFiltersItem[]
     enabled?: boolean
     readonly created_at: string
     readonly updated_at: string
@@ -1283,12 +1410,15 @@ export interface PaginatedClusteringJobListApi {
     results: ClusteringJobApi[]
 }
 
+export type PatchedClusteringJobApiEventFiltersItem = { [key: string]: unknown }
+
 export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
     analysis_level?: AnalysisLevelEnumApi
-    event_filters?: unknown
+    /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+    event_filters?: PatchedClusteringJobApiEventFiltersItem[]
     enabled?: boolean
     readonly created_at?: string
     readonly updated_at?: string
@@ -1833,9 +1963,10 @@ export interface EvaluationReportRunContentApi {
  * * `partial_failure` - Partial Failure
  * * `failed` - Failed
  */
-export type DeliveryStatusEnumApi = (typeof DeliveryStatusEnumApi)[keyof typeof DeliveryStatusEnumApi]
+export type EvaluationReportRunDeliveryStatusEnumApi =
+    (typeof EvaluationReportRunDeliveryStatusEnumApi)[keyof typeof EvaluationReportRunDeliveryStatusEnumApi]
 
-export const DeliveryStatusEnumApi = {
+export const EvaluationReportRunDeliveryStatusEnumApi = {
     Pending: 'pending',
     Generated: 'generated',
     Delivered: 'delivered',
@@ -1863,7 +1994,7 @@ export interface EvaluationReportRunApi {
      * * `delivered` - Delivered
      * * `partial_failure` - Partial Failure
      * * `failed` - Failed */
-    readonly delivery_status: DeliveryStatusEnumApi
+    readonly delivery_status: EvaluationReportRunDeliveryStatusEnumApi
     /** Delivery error messages. Empty when all configured deliveries succeeded. */
     readonly delivery_errors: readonly string[]
     /** When this report run was created. */
@@ -2096,9 +2227,9 @@ export interface PatchedReviewQueueUpdateApi {
  * * `numeric` - numeric
  * * `boolean` - boolean
  */
-export type ExperimentMetricKindEnumApi = (typeof ExperimentMetricKindEnumApi)[keyof typeof ExperimentMetricKindEnumApi]
+export type ScoreDefinitionKindEnumApi = (typeof ScoreDefinitionKindEnumApi)[keyof typeof ScoreDefinitionKindEnumApi]
 
-export const ExperimentMetricKindEnumApi = {
+export const ScoreDefinitionKindEnumApi = {
     Categorical: 'categorical',
     Numeric: 'numeric',
     Boolean: 'boolean',
@@ -2184,7 +2315,7 @@ export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
     readonly description: string
-    readonly kind: ExperimentMetricKindEnumApi
+    readonly kind: ScoreDefinitionKindEnumApi
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -2228,7 +2359,7 @@ export interface ScoreDefinitionCreateApi {
      * * `categorical` - categorical
      * * `numeric` - numeric
      * * `boolean` - boolean */
-    kind: ExperimentMetricKindEnumApi
+    kind: ScoreDefinitionKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
     /** Initial immutable scorer configuration. */
@@ -2608,6 +2739,18 @@ export interface LLMPromptLabelSummaryApi {
     version: number
 }
 
+export interface LLMPromptResolvedReferenceApi {
+    /** Name of the referenced prompt that was spliced in. */
+    name: string
+    /** Exact version whose content was spliced in. */
+    version: number
+    /**
+     * Label the reference used, or null when it pinned a version directly.
+     * @nullable
+     */
+    label: string | null
+}
+
 /**
  * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
  * @nullable
@@ -2647,6 +2790,8 @@ export interface LLMPromptListApi {
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
     readonly all_labels: readonly LLMPromptLabelSummaryApi[]
+    /** @nullable */
+    readonly resolved_references: readonly LLMPromptResolvedReferenceApi[] | null
 }
 
 export interface PaginatedLLMPromptListListApi {
@@ -2723,6 +2868,8 @@ export interface LLMPromptPublicApi {
     version: number
     /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
     label?: string
+    /** The exact prompt versions spliced into the returned content, in order of first appearance. Empty when the prompt has no references. Only present when references were resolved. */
+    resolved_references?: LLMPromptResolvedReferenceApi[]
     created_at: string
     updated_at: string
     deleted: boolean
@@ -2767,6 +2914,13 @@ export interface PatchedLLMPromptPublishApi {
     version_description?: string
 }
 
+export interface LLMPromptReferencedConflictApi {
+    /** What is still referenced and what to do next. */
+    detail: string
+    /** Names of the prompts whose latest or labeled version holds the reference. */
+    referencing_prompts: string[]
+}
+
 export interface LLMPromptDuplicateApi {
     /**
      * Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.
@@ -2807,12 +2961,29 @@ export interface LLMPromptVersionSummaryApi {
     readonly labels: readonly string[]
 }
 
+export interface LLMPromptReferencedByApi {
+    /** Prompt whose latest or labeled version references this prompt. */
+    name: string
+    /**
+     * Label of this prompt the reference follows, or null when it pins a version.
+     * @nullable
+     */
+    label: string | null
+    /**
+     * Version of this prompt the reference pins, or null when it follows a label.
+     * @nullable
+     */
+    version: number | null
+}
+
 export interface LLMPromptResolveResponseApi {
     prompt: LLMPromptApi
     versions: LLMPromptVersionSummaryApi[]
     has_more: boolean
     /** All labels on this prompt with the version each one currently points to, across all versions (not just the returned page). */
     labels: LLMPromptLabelApi[]
+    /** Prompts whose latest or labeled version references this prompt, with the label or version each reference uses. Empty when nothing references this prompt. At most 100 entries, ordered by prompt name. */
+    referenced_by: LLMPromptReferencedByApi[]
 }
 
 /**
@@ -3122,6 +3293,13 @@ export const LlmAnalyticsPersonalSpendListBucketMinutes = {
     Number60: 60,
 } as const
 
+export type AiObservabilityInstrumentationChecklistRetrieveParams = {
+    /**
+     * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
+     */
+    refresh?: boolean
+}
+
 export type DatasetItemsListParams = {
     /**
      * Return archived items instead of active items.
@@ -3247,8 +3425,6 @@ export type DatasetsRevisionsListParams = {
     offset?: number
 }
 
-export type EvaluationRunsCreate200 = { [key: string]: unknown }
-
 export type EvaluationsListParams = {
     /**
      * Filter evaluations by directory UUID.
@@ -3307,6 +3483,17 @@ export const EvaluationsListEvaluationType = {
     LlmJudge: 'llm_judge',
     Sentiment: 'sentiment',
 } as const
+
+export type EvaluationsBackfillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type LlmAnalyticsClusteringJobsListParams = {
     /**
@@ -3545,6 +3732,12 @@ export type LlmPromptsListParams = {
      */
     created_by_id?: number
     /**
+     * Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -3575,6 +3768,10 @@ export type LlmPromptsListParams = {
      */
     order_by?: string
     /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled results with full content. Set to false to get the raw text with the reference tags.
+     */
+    resolve?: boolean
+    /**
      * Optional substring filter applied to prompt names and prompt content.
      */
     search?: string
@@ -3604,6 +3801,10 @@ export type LlmPromptsNameRetrieveParams = {
      * @maxLength 128
      */
     label?: string
+    /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content before returning. Set to false to get the raw text with the reference tags, e.g. for editing or export. Only applies when content is 'full'.
+     */
+    resolve?: boolean
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1

@@ -19,10 +19,14 @@ from rest_framework import serializers, status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, Team, User
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
+from products.mcp_store.backend.catalog import MCP_SERVER_CATALOG
+from products.mcp_store.backend.catalog_sync import sync_mcp_catalog
 from products.mcp_store.backend.models import (
     MCPAuditEvent,
     MCPGatewayServer,
@@ -44,7 +48,8 @@ from products.mcp_store.backend.presentation.gateway_views import (
 )
 from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
 
-ALLOW_URL = patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(True, None))
+ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
+ALLOW_URL = patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
 
 POLICY_REQUEST_SERIALIZER_CASES = [
     ("policy_upsert", GatewayPoliciesUpsertSerializer, {}),
@@ -193,6 +198,32 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Inactive templates must not be in the listing (check by name not presence of hidden)
         inactive_names = set(MCPServerTemplate.objects.filter(is_active=False).values_list("name", flat=True))
         assert inactive_names.isdisjoint(names)
+
+    @parameterized.expand(
+        [
+            ("allowed_and_flagged", True, True, True),
+            ("allowed_without_flag", True, False, False),
+            ("flagged_outside_allowed_project", False, True, False),
+        ]
+    )
+    def test_slack_dev_template_visibility(self, _name: str, allowed: bool, flag_enabled: bool, expected: bool) -> None:
+        template = self._create_active_template(oauth_credentials_source="slack_dev_app")
+        with (
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)] if allowed else []),
+            patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=flag_enabled) as feature_enabled,
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
+        assert response.status_code == status.HTTP_200_OK
+        assert (str(template.id) in {entry["id"] for entry in response.json()["results"]}) is expected
+        if allowed:
+            assert feature_enabled.call_args.kwargs["person_properties"] == {"email": self.user.email}
+            assert feature_enabled.call_args.kwargs["only_evaluate_locally"] is True
+            assert feature_enabled.call_args.kwargs["groups"] == {
+                "organization": str(self.organization.id),
+                "project": str(self.team.id),
+            }
+        else:
+            feature_enabled.assert_not_called()
 
     def test_list_servers_entries_match_serializer_schema(self):
         self._create_active_template()
@@ -360,7 +391,42 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         assert [result["id"] for result in response.json()["results"]] == [str(registered.id)]
         assert not MCPGatewayServer.objects.for_team(self.team.id).filter(url=untouched.url).exists()
 
-    def test_list_exposes_template_auth_type_and_leaves_custom_auth_choice_open(self) -> None:
+    def test_slack_dev_registered_server_follows_ui_flag(self) -> None:
+        self._make_admin()
+        template = self._template("Slack dev")
+        template.oauth_credentials_source = "slack_dev_app"
+        template.save(update_fields=["oauth_credentials_source", "updated_at"])
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Slack via PostHog (dev)",
+            url=template.url,
+            template=template,
+            created_by=self.user,
+        )
+
+        with (
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
+            patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=False),
+        ):
+            hidden_response = self.client.get(self._api_url())
+        with (
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
+            patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True),
+        ):
+            visible_response = self.client.get(self._api_url())
+        with (
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]),
+            patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True),
+        ):
+            blocked_response = self.client.get(self._api_url())
+
+        assert hidden_response.status_code == status.HTTP_200_OK
+        assert str(server.id) not in {result["id"] for result in hidden_response.json()["results"]}
+        assert str(server.id) in {result["id"] for result in visible_response.json()["results"]}
+        blocked_server = next(result for result in blocked_response.json()["results"] if result["id"] == str(server.id))
+        assert blocked_server["is_team_enabled"] is False
+
+    def test_list_exposes_the_auth_type_members_connect_with(self) -> None:
         self._make_admin()
         template = self._template("API key", auth_type="api_key")
         template_server = MCPGatewayServer.objects.for_team(self.team.id).create(
@@ -374,6 +440,13 @@ class TestMCPGatewayServerAPI(APIBaseTest):
             team=self.team,
             name="Custom",
             url="https://mcp.custom-auth.gateway-test.example.com/mcp",
+            auth_type="api_key",
+            created_by=self.user,
+        )
+        legacy_custom = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Legacy custom",
+            url="https://mcp.legacy-auth.gateway-test.example.com/mcp",
             created_by=self.user,
         )
 
@@ -382,7 +455,10 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         by_id = {result["id"]: result for result in response.json()["results"]}
         assert by_id[str(template_server.id)]["template_auth_type"] == "api_key"
+        assert by_id[str(template_server.id)]["auth_type"] == "api_key"
         assert by_id[str(custom.id)]["template_auth_type"] is None
+        assert by_id[str(custom.id)]["auth_type"] == "api_key"
+        assert by_id[str(legacy_custom.id)]["auth_type"] is None
 
     def test_disabled_catalog_server_is_hidden_from_members_but_visible_to_admins(self) -> None:
         self._make_admin()
@@ -1207,10 +1283,10 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        assert [agent["agent_key"] for agent in results] == ["support", "scout"]
-        assert [agent["handle"] for agent in results] == ["posthog-support", "posthog-scout"]
+        assert [agent["agent_key"] for agent in results] == ["support", "scout", "workflow"]
+        assert [agent["handle"] for agent in results] == ["posthog-support", "posthog-scout", "posthog-workflow"]
         assert all(agent["status"] == "active" for agent in results)
-        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 2
+        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 3
 
     def test_list_reconciles_legacy_built_in_agent_handles(self) -> None:
         self._make_admin()
@@ -1227,7 +1303,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert response.json()["results"][0]["id"] == str(support_account.id)
         # Reconciliation renames the legacy row in place (keyed on token_hash),
         # so the catalog stays at exactly one row per built-in agent.
-        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 2
+        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 3
 
     def test_agents_cannot_be_created_or_deleted(self) -> None:
         self._make_admin()
@@ -1424,10 +1500,12 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "id": str(server.id),
                 "name": "Personal Notion",
                 "description": "",
+                "url": "https://mcp.personal-notion.example.com/mcp",
                 "icon_key": "",
                 "icon_domain": "",
                 "connection_state": "ready",
                 "scope": "personal",
+                "reachable": True,
             }
         ]
 
@@ -1867,10 +1945,12 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "id": str(server.id),
                 "name": "Notion",
                 "description": "Notion workspace",
+                "url": "https://mcp.notion-agent-summary.example.com/mcp",
                 "icon_key": "notion",
                 "icon_domain": "notion.so",
                 "connection_state": "missing_credential",
                 "scope": "personal",
+                "reachable": True,
             }
         ]
 
@@ -2141,8 +2221,8 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_proxy.assert_not_called()
 
-    @patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
+    @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_agent_grant_enforces_agent_scope_policy(self, mock_http_client, _mock_is_url_allowed) -> None:
         account = self._active_scout_account()
         server = MCPGatewayServer.objects.for_team(self.team.id).create(
@@ -2263,10 +2343,12 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "id": str(granted_server.id),
                 "name": "Agent only",
                 "description": "",
+                "url": "https://mcp.agent-only.example.com/mcp",
                 "icon_key": "",
                 "icon_domain": "",
                 "connection_state": "ready",
                 "scope": "personal",
+                "reachable": False,
             }
         ]
 
@@ -2297,6 +2379,72 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert str(granted_server.id) not in revoke_response.json()["server_ids"]
         assert revoked_catalog_response.status_code == status.HTTP_200_OK
         assert revoked_catalog_response.json()["results"] == []
+
+    def test_revoked_grant_owner_serializes_reachable_false_for_their_grant_only(self) -> None:
+        account = self._active_scout_account()
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Team Notion",
+            url="https://mcp.revoked-grant-owner.example.com/mcp",
+        )
+        revoked_member = self._create_user("revoked-gateway-member@posthog.com")
+        for grant_user in (self.user, revoked_member):
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+                team=self.team,
+                user=grant_user,
+                service_account=account,
+                gateway_server=server,
+                scope="team",
+                granted_by=grant_user,
+            )
+        MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            user=revoked_member,
+            revoked_by=self.user,
+        )
+
+        response = self.client.get(self._api_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        scout = next(row for row in response.json()["results"] if row["agent_key"] == "scout")
+        reachable_by_owner = {row["shared_by"]["id"]: row["reachable"] for row in scout["servers"]}
+        assert reachable_by_owner == {self.user.id: True, revoked_member.id: False}
+
+    def test_removed_slack_dev_project_serializes_agent_grant_unreachable(self) -> None:
+        account = self._active_scout_account()
+        template = MCPServerTemplate.objects.create(
+            name="Slack via PostHog (dev)",
+            url="https://mcp.slack.com/mcp",
+            oauth_credentials_source="slack_dev_app",
+            is_active=True,
+        )
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            template=template,
+            name=template.name,
+            url=template.url,
+        )
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team=self.team,
+            user=self.user,
+            service_account=account,
+            gateway_server=server,
+            scope="team",
+            granted_by=self.user,
+        )
+
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]):
+            allowed_response = self.client.get(self._api_url())
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]):
+            removed_response = self.client.get(self._api_url())
+
+        assert allowed_response.status_code == status.HTTP_200_OK
+        assert removed_response.status_code == status.HTTP_200_OK
+        allowed_scout = next(row for row in allowed_response.json()["results"] if row["agent_key"] == "scout")
+        removed_scout = next(row for row in removed_response.json()["results"] if row["agent_key"] == "scout")
+        assert allowed_scout["servers"][0]["reachable"] is True
+        assert removed_scout["servers"][0]["reachable"] is False
 
     def test_agent_catalog_query_count_does_not_grow_with_accessible_servers(self) -> None:
         account = self._active_scout_account()
@@ -2666,6 +2814,40 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["auth_type"] == "api_key"
 
     @ALLOW_URL
+    def test_teammate_connects_to_registered_api_key_server_with_own_key(self, _mock):
+        url = "https://mcp.team-key.com"
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Team key server", "url": url, "auth_type": "api_key", "api_key": "sk-owner"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        server = MCPGatewayServer.objects.for_team(self.team.id).get(url=url)
+        assert server.auth_type == "api_key"
+
+        TeamMCPGatewayConfig.objects.for_team(self.team.id).create(team=self.team, allow_custom_servers=False)
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        self.client.force_login(teammate)
+
+        blocked = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "New server", "url": "https://mcp.new-server.com", "auth_type": "api_key"},
+            format="json",
+        )
+        assert blocked.status_code == status.HTTP_403_FORBIDDEN
+
+        connected = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Team key server", "url": url, "auth_type": "api_key", "api_key": "sk-teammate"},
+            format="json",
+        )
+        assert connected.status_code == status.HTTP_201_CREATED
+        installation = MCPServerInstallation.objects.get(id=connected.json()["id"])
+        assert installation.user_id == teammate.id
+        assert installation.gateway_server_id == server.id
+        assert installation.sensitive_configuration["api_key"] == "sk-teammate"
+
+    @ALLOW_URL
     def test_install_custom_api_key_server_without_key(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -2697,7 +2879,10 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(False, "Private IP"))
+    @patch(
+        "products.mcp_store.backend.url_policy.validate_url_and_pin_ips",
+        return_value=PinnedUrlVerdict(allowed=False, reason="Private IP", pinned_ips=set()),
+    )
     def test_install_custom_ssrf_blocked(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -2706,7 +2891,10 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(False, "Local/metadata host"))
+    @patch(
+        "products.mcp_store.backend.url_policy.validate_url_and_pin_ips",
+        return_value=PinnedUrlVerdict(allowed=False, reason="Local/metadata host", pinned_ips=set()),
+    )
     def test_install_custom_oauth_ssrf_blocked(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -3768,6 +3956,38 @@ class TestMCPAuthorizePosthogCodeResponse(APIBaseTest):
 
 
 class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    @parameterized.expand(["slack_app", "slack_dev_app"])
+    def test_catalog_preserves_oauth_app_for_existing_installations(self, source: str) -> None:
+        entry = next(entry for entry in MCP_SERVER_CATALOG if entry.oauth_credentials_source == "slack_app")
+        template = self._template(url=entry.url, oauth_credentials_source=source)
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            url=template.url,
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "existing-token"},
+        )
+        allowed_teams = [str(self.team.id)] if source == "slack_app" else []
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=allowed_teams):
+            counts = sync_mcp_catalog(entries=[entry])
+        template.refresh_from_db()
+        installation.refresh_from_db()
+        assert template.oauth_credentials_source == source
+        assert installation.sensitive_configuration == {"access_token": "existing-token"}
+        if source == "slack_app":
+            assert counts.failed == 1
+            assert template.is_active
+        else:
+            assert counts.failed == 0
+            assert not template.is_active
+            installation.delete()
+            with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]):
+                sync_mcp_catalog(entries=[entry])
+            template.refresh_from_db()
+            assert template.oauth_credentials_source == "slack_app"
+            assert not template.is_active
+
     def _template(self, **overrides) -> MCPServerTemplate:
         import uuid as _uuid
 
@@ -3786,7 +4006,14 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         return MCPServerTemplate.objects.create(**defaults)
 
     def test_install_template_oauth_returns_redirect_url(self):
-        template = self._template()
+        template = self._template(
+            oauth_scope_allowlist=["read"],
+            oauth_metadata={
+                "authorization_endpoint": "https://auth.test.example.com/authorize",
+                "token_endpoint": "https://auth.test.example.com/token",
+                "scopes_supported": ["read", "write"],
+            },
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
@@ -3799,9 +4026,103 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         assert urlparse(redirect_url).netloc == "auth.test.example.com"
         params = parse_qs(urlparse(redirect_url).query)
         assert params["client_id"][0] == "template-client-id"
+        assert params["scope"] == ["read"]
 
         installation = MCPServerInstallation.objects.get(url=template.url, user=self.user)
         assert installation.template_id == template.id
+
+    @parameterized.expand([("slack_app", "SLACK_APP"), ("slack_dev_app", "SLACK_DEV_APP")])
+    def test_install_template_oauth_uses_instance_credential_source(self, source: str, prefix: str) -> None:
+        template = self._template(
+            oauth_credentials_source=source,
+            oauth_credentials={},
+            oauth_metadata={
+                "issuer": "https://mcp.slack.com",
+                "authorization_endpoint": "https://slack.com/oauth/v2_user/authorize",
+                "token_endpoint": "https://slack.com/api/oauth.v2.user.access",
+                "token_endpoint_auth_methods_supported": ["client_secret_post"],
+            },
+        )
+
+        with (
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
+            override_instance_config(f"{prefix}_CLIENT_ID", "slack-client"),
+            override_instance_config(f"{prefix}_CLIENT_SECRET", "slack-secret"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+                data={"template_id": str(template.id)},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        params = parse_qs(urlparse(response.json()["redirect_url"]).query)
+        assert params["client_id"] == ["slack-client"]
+        assert MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+
+    @parameterized.expand(["install", "authorize", "gateway"])
+    def test_slack_dev_template_cannot_be_used_by_another_project(self, action: str) -> None:
+        template = self._template(oauth_credentials_source="slack_dev_app")
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id + 1)]):
+            if action == "install":
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+                    data={"template_id": str(template.id)},
+                    format="json",
+                )
+            elif action == "authorize":
+                response = self.client.get(
+                    f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+                    data={"template_id": str(template.id)},
+                )
+            else:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/mcp_gateway_servers/set_template_enabled/",
+                    data={"template_id": str(template.id), "enabled": True},
+                    format="json",
+                )
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert not MCPServerInstallation.objects.filter(template=template).exists()
+
+    def test_install_template_oauth_fails_closed_when_instance_credentials_are_missing(self):
+        template = self._template(
+            oauth_credentials_source="slack_app",
+            oauth_credentials={"client_id": "stale-template-client"},
+        )
+
+        with (
+            override_instance_config("SLACK_APP_CLIENT_ID", ""),
+            override_instance_config("SLACK_APP_CLIENT_SECRET", ""),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+                data={"template_id": str(template.id)},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Template OAuth client is not configured"
+        assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+
+    def test_install_template_rejects_nonmatching_oauth_scope_allowlist(self):
+        template = self._template(
+            oauth_scope_allowlist=["read"],
+            oauth_metadata={
+                "authorization_endpoint": "https://auth.test.example.com/authorize",
+                "token_endpoint": "https://auth.test.example.com/token",
+                "scopes_supported": ["write"],
+            },
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Could not build OAuth authorize URL"
+        assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
 
     def test_install_template_api_key_stores_key_and_returns_installation(self):
         template = self._template(auth_type="api_key", oauth_credentials={}, oauth_metadata={})
@@ -4485,8 +4806,8 @@ class TestMCPInstallationScopeAccess(ClickhouseTestMixin, APIBaseTest, QueryMatc
         other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         shared = self._create_installation(user=other, scope="shared", sensitive_configuration={"api_key": "k"})
 
-        with mock_patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None)):
-            with mock_patch("products.mcp_store.backend.proxy.httpx.Client") as mock_client_cls:
+        with mock_patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT):
+            with mock_patch("products.mcp_store.backend.proxy.pinned_client") as mock_client_cls:
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200
                 mock_resp.headers = {"content-type": "application/json"}

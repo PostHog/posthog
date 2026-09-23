@@ -7,6 +7,7 @@ export const DISMISSAL_REASON_OPTIONS = [
     { value: 'already_fixed', label: 'Already fixed' },
     { value: 'report_unclear', label: 'Report is unclear to me' },
     { value: 'analysis_wrong', label: "Agent's analysis is wrong" },
+    { value: 'wrong_repo', label: 'Agent picked the wrong repository' },
     { value: 'wontfix_intentional', label: "Won't fix - intentional behavior" },
     { value: 'wontfix_irrelevant', label: "Won't fix - issue is real but insignificant" },
     { value: 'other', label: 'Something else…' },
@@ -15,7 +16,9 @@ export const DISMISSAL_REASON_OPTIONS = [
 /**
  * Reasons offered when a person resolves a report. `already_fixed` is also a dismiss reason on
  * purpose: as a dismissal it tells the agent the report was stale when filed, and as a resolve it
- * records the report as done. The person picks by which of those they want.
+ * records the report as done. The person picks by which of those they want. Recurrence works the
+ * same on both paths — a later signal about the same issue starts a fresh report rather than
+ * joining this one — so the choice no longer decides whether the issue can come back.
  */
 export const RESOLVE_REASON_OPTIONS = [
     { value: 'fixed_outside_posthog', label: 'Fixed outside PostHog' },
@@ -39,11 +42,43 @@ export function isResolveReason(value: string | null | undefined): boolean {
     return value === 'fixed_outside_posthog' || value === 'pr_merged' || value === 'already_fixed'
 }
 
+/** Feedback captured by the dismiss dialog and forwarded to the report state API. */
+export interface DismissalFeedback {
+    reason: DismissalReasonValue
+    note: string
+    /** 'owner/repo' the reports should have targeted; only set when reason is 'wrong_repo'. */
+    correctedRepository: string | null
+}
+
+/**
+ * The dismissal fields of a `state`/`bulk-state` request body, so every surface maps
+ * {@link DismissalFeedback} to the API the same way. Spread into `{ state: 'suppressed', ... }`.
+ * The note is clamped to the API's 4000-character cap.
+ */
+export function suppressDismissalPayload(dismissal: DismissalFeedback): {
+    dismissal_reason: DismissalReasonValue
+    dismissal_note?: string
+    corrected_repository?: string
+} {
+    const note = dismissal.note.trim().slice(0, 4000)
+    return {
+        dismissal_reason: dismissal.reason,
+        ...(note ? { dismissal_note: note } : {}),
+        // The API rejects corrected_repository with any other reason, so the gate lives here
+        // rather than in every dialog that builds a DismissalFeedback.
+        ...(dismissal.reason === 'wrong_repo' && dismissal.correctedRepository
+            ? { corrected_repository: dismissal.correctedRepository }
+            : {}),
+    }
+}
+
 // Reason codes persisted by flows outside the two dialogs (never user-selectable there), so the
 // reason chip still renders a label instead of the raw code. `refunded` is written by the PR
-// refund action, which dismisses the report as part of the refund.
+// refund action, which dismisses the report as part of the refund. `merged` is written by the
+// report merge action, which archives each duplicate it folds into the surviving report.
 const EXTRA_DISMISSAL_REASON_LABELS: Record<string, string> = {
     refunded: 'Refunded',
+    merged: 'Merged into another report',
 }
 
 /** Human label for a persisted reason code, or the raw code if it's not a known option. */

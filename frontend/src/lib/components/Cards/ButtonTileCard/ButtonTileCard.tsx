@@ -11,10 +11,10 @@ import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightC
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 
-import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile } from '~/types'
 
 interface ButtonTileCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
-    buttonTile: DashboardTile<QueryBasedInsightModel>
+    buttonTile: DashboardTile
     placement: DashboardPlacement
     children?: JSX.Element
     canEnterEditModeFromEdge?: boolean
@@ -93,7 +93,7 @@ function ButtonTileCardInternal(
 
             <div
                 className={clsx(
-                    'ButtonTileCard__body flex w-full flex-1 p-4 items-center',
+                    'DashboardTileCard__body ButtonTileCard__body flex w-full flex-1 p-4 items-center',
                     !shouldHideMoreButton && 'pr-14',
                     button_tile.placement === 'right' ? 'md:justify-end' : 'justify-start',
                     onDragHandleMouseDown && 'cursor-grab'

@@ -1,10 +1,12 @@
 """Cyclomatic complexity lint, scoped to changed files.
 
-Findings above a threshold of 10 are warnings; the check never fails a build
+Findings above a file's limit are warnings; the check never fails a build
 (advisory while the pre-existing violation backlog settles). Python goes
 through ruff's C901 (repo-wide C901 stays off in pyproject.toml for the same
 reason; this surfaces it for files a branch actually touches). TypeScript goes
 through ``bin/lint-complexity.mjs`` because oxlint has no complexity rule.
+Both sides read their limits from ``bin/lint-complexity.limits.json`` so the
+two implementations cannot drift.
 
     hogli lint:complexity                     # changed files vs origin/master
     hogli lint:complexity path/to/file.py     # explicit files
@@ -25,8 +27,12 @@ from hogli.manifest import REPO_ROOT
 
 from hogli_commands.change_detection import changed_files, matches_globs
 
-# bin/lint-complexity.mjs declares the same threshold; a test binds the two.
-WARN_AT = 10
+_LIMITS: dict[str, int] = json.loads((REPO_ROOT / "bin" / "lint-complexity.limits.json").read_text())
+WARN_AT: int = _LIMITS["production"]
+# NIST SP 500-235 permits relaxing the usual limit of 10 up to 15. Tests get the
+# relaxed bound because table-driven tests concentrate branching in one function
+# without hurting maintainability.
+TEST_WARN_AT: int = _LIMITS["test"]
 
 # The complexity-linted trees: the posthog, ee, products, and frontend folders.
 # Python exclusions (products/desktop, generated grammar) come from pyproject's
@@ -37,6 +43,17 @@ TYPESCRIPT_SCOPE = ("frontend/*.ts", "frontend/*.tsx", "ee/*.ts", "ee/*.tsx", "p
 
 _C901_MESSAGE = re.compile(r"`(?P<name>.+)` is too complex \((?P<complexity>\d+) > \d+\)")
 
+# A test file: named test_*.py or *_test.py (pytest's python_files default),
+# conftest.py, or inside a test/tests package. The suffix rule also classifies
+# clickhouse-migration and user_scripts *_test.py modules as tests — same as
+# pytest, and harmless for an advisory lint. bin/lint-complexity.mjs carries
+# the TypeScript equivalent; keep the two in step.
+_TEST_FILE = re.compile(r"(?:^|/)(?:test|tests)/|(?:^|/)[^/]*_test\.py$|(?:^|/)test_[^/]*\.py$|(?:^|/)conftest\.py$")
+
+
+def is_test_file(path: str) -> bool:
+    return bool(_TEST_FILE.search(path))
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class Finding:
@@ -45,9 +62,11 @@ class Finding:
     column: int
     name: str
     complexity: int
+    # The limit the finding exceeded: WARN_AT for production files, TEST_WARN_AT for tests.
+    limit: int
 
 
-def _python_findings(files: list[str]) -> list[Finding]:
+def _python_findings(files: list[str], *, max_complexity: int = WARN_AT) -> list[Finding]:
     cmd = [
         "ruff",
         "check",
@@ -58,7 +77,7 @@ def _python_findings(files: list[str]) -> list[Finding]:
         "--config",
         "lint.ignore=[]",
         "--config",
-        f"lint.mccabe.max-complexity={WARN_AT}",
+        f"lint.mccabe.max-complexity={max_complexity}",
         "--output-format",
         "json",
         *files,
@@ -78,6 +97,7 @@ def _python_findings(files: list[str]) -> list[Finding]:
                 column=violation["location"]["column"],
                 name=match["name"],
                 complexity=int(match["complexity"]),
+                limit=max_complexity,
             )
         )
     return findings
@@ -92,7 +112,7 @@ def _ts_findings(files: list[str]) -> list[Finding]:
 
 
 def _report(finding: Finding) -> None:
-    message = f"`{finding.name}` has cyclomatic complexity {finding.complexity} (warn >{WARN_AT})"
+    message = f"`{finding.name}` has cyclomatic complexity {finding.complexity} (warn >{finding.limit})"
     click.echo(f"{finding.file}:{finding.line}:{finding.column}: warning: {message}")
     if os.environ.get("GITHUB_ACTIONS") == "true":
         click.echo(
@@ -128,7 +148,13 @@ def cmd_lint_complexity(files: tuple[str, ...], against: str | None, report_path
             click.echo("complexity: ruff not found — skipping Python files")
             degraded = True
         else:
-            findings += _python_findings(python_files)
+            # One ruff run per limit: ruff's mccabe takes a single max-complexity per invocation.
+            prod_files = [f for f in python_files if not is_test_file(f)]
+            test_files = [f for f in python_files if is_test_file(f)]
+            if prod_files:
+                findings += _python_findings(prod_files, max_complexity=WARN_AT)
+            if test_files:
+                findings += _python_findings(test_files, max_complexity=TEST_WARN_AT)
             checked += len(python_files)
 
     if ts_files:

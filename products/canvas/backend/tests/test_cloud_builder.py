@@ -1,4 +1,5 @@
 import os
+import re
 import hashlib
 import tempfile
 import subprocess
@@ -12,15 +13,31 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
-from products.canvas.backend.contract import allowed_import_specifiers, platform_dependencies
+from products.canvas.backend.contract import allowed_import_specifiers, canvas_sdk_version, platform_dependencies
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
-from products.canvas.backend.source import synthetic_source_project, validate_source_project
+from products.canvas.backend.source import _PLATFORM_ELEMENT_TOKENS, synthetic_source_project, validate_source_project
 
 
 class TestCanvasCloudBuilder(SimpleTestCase):
-    def test_legacy_canvas_build_mounts_react_and_injects_the_runtime_bridge(self) -> None:
+    @parameterized.expand(
+        [
+            ("double_quotes", 'src="/src/canvas.tsx"'),
+            ("single_quotes", "src='/src/canvas.tsx'"),
+            ("attribute_whitespace", "src = '/src/canvas.tsx'"),
+            ("data_src_before_src", 'data-src="/src/canvas.tsx" src="/src/canvas.tsx"'),
+            ("quoted_src_before_src", 'data-config="mode src=\'/src/canvas.tsx\'" src="/src/canvas.tsx"'),
+            ("quoted_generated_entry", 'data-config="mode src=\'/src/canvas-entry.tsx\'" src="/src/canvas.tsx"'),
+            ("quoted_greater_than", 'data-config="> src=\'/src/canvas.tsx\'" src="/src/canvas.tsx"'),
+        ]
+    )
+    def test_legacy_canvas_build_mounts_react_and_injects_the_runtime_bridge(
+        self, _name: str, source_attribute: str
+    ) -> None:
         payload = synthetic_source_project(
             'import React from "react"; export default function Canvas() { return <div>Hello</div> }'
+        )
+        payload["files"]["index.html"] = payload["files"]["index.html"].replace(
+            'src="/src/canvas.tsx"', source_attribute
         )
 
         result = run_cloud_builder(payload)
@@ -31,6 +48,11 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         html = next(file["content"] for file in result["files"] if file["path"] == "index.html")
         self.assertIn("createRoot", javascript)
         self.assertIn("canvas-runtime", html)
+        if config_attribute := re.search(r'data-config="[^"]*"', source_attribute):
+            self.assertIn(config_attribute.group(0), html)
+        meta_csp = html.split('content="', 1)[1].split('"', 1)[0]
+        self.assertNotIn("sandbox", meta_csp.split(";")[0])
+        self.assertIn("default-src 'none'", meta_csp)
 
     def test_legacy_canvas_build_compiles_tailwind_and_quill_styles(self) -> None:
         payload = synthetic_source_project(
@@ -55,6 +77,13 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn(".md\\:grid-cols-2", stylesheet["content"])
         self.assertIn(".quill-button", stylesheet["content"])
         self.assertIn("--background", stylesheet["content"])
+        # Source validation rejects author declarations of the tokens Quill sets
+        # on every element; that list must follow the pinned Quill version.
+        universal_rule = re.search(r"^\* \{\n(.*?)^\}", stylesheet["content"], re.MULTILINE | re.DOTALL)
+        assert universal_rule is not None
+        self.assertEqual(
+            set(re.findall(r"^\s*--([\w-]+):", universal_rule.group(1), re.MULTILINE)), _PLATFORM_ELEMENT_TOKENS
+        )
 
     def test_publication_validation_allows_relative_worker_and_asset_imports(self) -> None:
         payload = synthetic_source_project(
@@ -78,17 +107,122 @@ class TestCanvasCloudBuilder(SimpleTestCase):
             },
             "entryHtml": "index.html",
             "dependencies": {},
-            "canvasSdkVersion": "0.1.0",
+            "canvasSdkVersion": canvas_sdk_version(),
         }
 
+    def _notebook_project(self, source: str, frame_names: list[str] | None = None) -> dict[str, Any]:
+        project = self._project(source)
+        project["capabilities"] = {
+            "posthog": {
+                "insights": [],
+                "inlineQueries": False,
+                "captureEvents": [],
+                "state": ["user"],
+                "notebookFrames": frame_names or [],
+            },
+            "network": {"origins": []},
+        }
+        return project
+
+    def test_notebook_runtime_is_isolated_from_generated_source(self) -> None:
+        result = run_cloud_builder(self._notebook_project("void ph.readFrame"))
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        generated = "\n".join(
+            file["content"]
+            for file in result["files"]
+            if file["path"].endswith(".js") and file["path"] != "assets/canvas-runtime.js"
+        )
+        self.assertIn('type:"notebook-connect"', runtime)
+        self.assertIn("__posthog_notebook_frame__:", runtime)
+        self.assertIn("blockNavigation", runtime)
+        self.assertNotIn("notebook-connect", generated)
+
+    def test_notebook_runtime_keeps_navigation_blocked_after_source_mutates_event_prototype(self) -> None:
+        result = run_cloud_builder(self._notebook_project("void ph.readFrame"))
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = { postMessage: () => {} };",
+                'globalThis.document = { readyState: "complete", body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.Element = class {};",
+                "globalThis.Event = class { preventDefault() { this.defaultPrevented = true; } };",
+                "globalThis.MessageEvent = class { constructor(_type, init) { Object.assign(this, init); } };",
+                "globalThis.navigation = { addEventListener: (type, fn) => { (listeners[type] ||= []).push(fn); } };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.dispatchEvent = () => {};",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
+                runtime,
+                "Event.prototype.preventDefault = () => {};",
+                "const event = new Event();",
+                "for (const listener of listeners.navigate) listener(event);",
+                'if (!event.defaultPrevented) { console.error("navigation was not prevented"); process.exit(1); }',
+                'if (open("https://example.com") !== null) { console.error("open did not return null"); process.exit(1); }',
+                "process.exit(0);",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
+
+    def test_notebook_runtime_hides_state_and_enforces_allowed_frame_names(self) -> None:
+        result = run_cloud_builder(self._notebook_project("void ph.readFrame", ["public_df"]))
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = { postMessage: () => {} };",
+                'globalThis.document = { readyState: "complete", documentElement: { classList: { toggle: () => {} }, style: {} }, body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.Element = class {};",
+                "globalThis.Event = class { preventDefault() {} };",
+                "globalThis.MessageEvent = class { constructor(_type, init) { Object.assign(this, init); } };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.dispatchEvent = () => {};",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
+                runtime,
+                'if ("state" in ph) { console.error("state remained public"); process.exit(1); }',
+                'try { ph.readFrame("private_df"); console.error("private frame was allowed"); process.exit(1); } catch {}',
+                'try { ph.readFrame("public_" + "df"); } catch { console.error("allowed frame was blocked"); process.exit(1); }',
+                "process.exit(0);",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
+
     def test_builds_vanilla_typescript_with_the_shared_contract(self) -> None:
-        result = run_cloud_builder(self._project('document.querySelector("#root")!.textContent = "Hello"'))
+        project = self._project('document.querySelector("#root")!.textContent = "Hello"')
+        project["files"]["src/canvas.tsx"] = "export default function Canvas() { return null }"
+        config_attribute = "data-config=\"mode src='/src/canvas.tsx'; module='/src/main.ts'\""
+        project["files"]["index.html"] = project["files"]["index.html"].replace(
+            "<script ", f"<script {config_attribute} "
+        )
+        result = run_cloud_builder(project)
 
         files, manifest, diagnostics = validate_builder_output(result)
         self.assertEqual(diagnostics, [])
         self.assertEqual(manifest["entryHtml"], "index.html")
         self.assertFalse(manifest["capabilities"]["posthog"]["inlineQueries"])
         self.assertTrue(any(file["path"].endswith(".js") for file in files))
+        self.assertNotIn("legacyComponentPath", manifest)
+        html = next(file["content"] for file in files if file["path"] == "index.html")
+        self.assertIn(config_attribute, html)
 
     def test_bundles_every_allowlisted_platform_library(self) -> None:
         # Transitive versions are not pinned, so a caret range can drift onto a
@@ -107,6 +241,40 @@ class TestCanvasCloudBuilder(SimpleTestCase):
 
         self.assertEqual(result["status"], "ready", result["diagnostics"])
         validate_builder_output(result)
+
+    def test_bundles_the_canvas_sdk_import_inline(self) -> None:
+        payload = synthetic_source_project(
+            'import React from "react"; import { ph } from "@posthog/canvas-sdk"; '
+            "export default function Canvas() { return <div>{typeof ph}</div> }"
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+        javascript = "\n".join(file["content"] for file in result["files"] if file["path"].endswith(".js"))
+        self.assertIn("globalThis.ph", javascript)
+
+    @parameterized.expand(
+        [
+            ("persisted_before_the_bump", "0.1.0", "ready", []),
+            ("never_issued", "0.0.1", "failed", ["unsupported_sdk"]),
+        ]
+    )
+    def test_sdk_version_admission(
+        self, _name: str, version: str, expected_status: str, expected_codes: list[str]
+    ) -> None:
+        # Stored sources keep the canvasSdkVersion they were scaffolded with, so
+        # every version the platform ever issued must keep building.
+        payload = {
+            **synthetic_source_project('import React from "react"; export default () => <div/>'),
+            "canvasSdkVersion": version,
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], expected_status, result["diagnostics"])
+        self.assertEqual([entry["code"] for entry in result["diagnostics"]], expected_codes)
 
     def test_runtime_uses_the_document_bound_message_port(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
@@ -163,6 +331,12 @@ class TestCanvasCloudBuilder(SimpleTestCase):
                 'if (!requests.some((m) => m.payload.hogql === "SELECT 1")) { console.error("pre-connect request was dropped"); process.exit(1); }',
                 'if (requests.some((m) => m.payload.hogql === "SELECT expired")) { console.error("expired request was still delivered"); process.exit(1); }',
                 'if (!received.some((m) => m.type === "ready")) { console.error("ready was not posted"); process.exit(1); }',
+                'Object.defineProperty(globalThis, "navigator", { value: { userActivation: { isActive: false } }, configurable: true });',
+                'try { window.ph.connectors.connect("github"); throw new Error("connector navigation did not require activation"); } catch (error) { if (!error.message.includes("user action")) throw error; }',
+                'if (received.some((message) => message.type === "navigate")) throw new Error("connector navigation escaped without activation");',
+                "navigator.userActivation.isActive = true;",
+                'window.ph.connectors.connect("github");',
+                'if (!received.some((message) => message.type === "navigate" && message.nav.provider === "github")) throw new Error("connector navigation was not delivered");',
                 "process.exit(0);",
             ]
         )

@@ -1,9 +1,17 @@
 import { Server, createServer } from 'node:http'
 import { AddressInfo } from 'node:net'
 
-import { POISON_MAX_REJECTED_MS, ScrubAborted, ScrubClient, ScrubContractError, ScrubPoisoned } from './scrub-client'
+import { ImageScrubConsumerMetrics } from './metrics'
+import {
+    POISON_MAX_REJECTED_MS,
+    ScrubAborted,
+    ScrubClient,
+    ScrubContractError,
+    ScrubPoisoned,
+    socketWaitReason,
+} from './scrub-client'
 
-type Reply = { status: number; body?: string; durationMs?: number }
+type Reply = { status: number; body?: string; durationMs?: number; destroySocket?: boolean; neverReply?: boolean }
 
 describe('ScrubClient', () => {
     let server: Server
@@ -11,6 +19,7 @@ describe('ScrubClient', () => {
     let requests: number
     let replyFor: ((body: string) => Reply | undefined) | undefined
     let nowMs: number
+    let port: number
 
     // A real loopback server rather than a mocked `request`: the retry loop only matters in terms of
     // what it does with actual responses, and the 503 shed path in particular is a status the sidecar
@@ -31,29 +40,42 @@ describe('ScrubClient', () => {
                 const reply = replyFor?.(Buffer.concat(chunks).toString()) ??
                     replies.shift() ?? { status: 200, body: 'scrubbed' }
                 nowMs += reply.durationMs ?? 0
+                if (reply.neverReply) {
+                    return
+                }
+                if (reply.destroySocket) {
+                    req.socket.destroy()
+                    return
+                }
                 res.writeHead(reply.status).end(reply.body ?? '')
             })
         })
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        port = (server.address() as AddressInfo).port
     })
 
     afterEach(async () => {
         await new Promise((resolve) => server.close(resolve))
     })
 
-    const client = (deadLetters = false): ScrubClient =>
+    const client = (deadLetters = false, timeoutMs = 1000, onSleep?: () => Promise<void>): ScrubClient =>
         new ScrubClient(
-            `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-            1000,
+            `http://127.0.0.1:${port}`,
+            timeoutMs,
             deadLetters,
             // Backoff is asserted separately; sleeping for real would only make this slow and flaky.
-            (ms) => {
+            async (ms) => {
                 nowMs += ms
-                return Promise.resolve()
+                await onSleep?.()
             },
             () => 1,
             () => nowMs
         )
+
+    const closeServer = (): Promise<void> =>
+        new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
+    const listenAgain = (): Promise<void> =>
+        server.listening ? Promise.resolve() : new Promise((resolve) => server.listen(port, '127.0.0.1', resolve))
 
     it.each([
         ['shed with 503', 503],
@@ -98,30 +120,61 @@ describe('ScrubClient', () => {
     })
 
     it('retries until the sidecar listener accepts connections', async () => {
-        const address = server.address() as AddressInfo
-        const baseUrl = `http://127.0.0.1:${address.port}`
-        await new Promise<void>((resolve, reject) =>
-            server.close((error) => {
-                if (error) {
-                    reject(error)
-                } else {
-                    resolve()
-                }
-            })
-        )
+        await closeServer()
         let retries = 0
         const failedProbesBeforeListen = 3
-        const scrubClient = new ScrubClient(baseUrl, 1000)
+        const scrubClient = new ScrubClient(`http://127.0.0.1:${port}`, 1000)
 
         await scrubClient.waitUntilReachable(async () => {
             retries += 1
             if (retries === failedProbesBeforeListen) {
-                await new Promise<void>((resolve) => server.listen(address.port, '127.0.0.1', resolve))
+                await listenAgain()
             }
         })
 
         expect(retries).toBe(failedProbesBeforeListen)
         expect(requests).toBe(1)
+    })
+
+    it.each([
+        ['nothing listening on the sidecar port', 'refused', { listening: false }],
+        ['a connection the sidecar dropped before replying', 'reset', { reply: { status: 0, destroySocket: true } }],
+        ['a request the sidecar never answered', 'timeout', { neverReplyToFirst: true, timeoutMs: 100 }],
+    ] as const)('labels %s as "%s" and keeps waiting', async (_label, reason, setup) => {
+        // A dropped socket is what every pod sees when the sidecar closes its idle connections on
+        // shutdown, and a timeout is a sidecar that is slow rather than absent, so either of those
+        // landing on "refused" would page for a rollout.
+        const incScrubWait = jest.spyOn(ImageScrubConsumerMetrics, 'incScrubWait')
+        if ('reply' in setup) {
+            replies = [setup.reply]
+        }
+        // Keyed on the request count, not queued: a reply left unconsumed by a socket the client already destroyed would be served to the retry.
+        if ('neverReplyToFirst' in setup) {
+            replyFor = () => (requests === 1 ? { status: 0, neverReply: true } : undefined)
+        }
+        const scrubClient = client(false, 'timeoutMs' in setup ? setup.timeoutMs : 1000, listenAgain)
+        if ('listening' in setup) {
+            await closeServer()
+        }
+
+        await expect(scrubClient.scrub(Buffer.from('image'))).resolves.toEqual(Buffer.from('scrubbed'))
+
+        expect(incScrubWait.mock.calls).toEqual([[reason]])
+        incScrubWait.mockRestore()
+    })
+
+    it.each([
+        ['ECONNREFUSED', 'refused'],
+        ['ECONNRESET', 'reset'],
+        ['EPIPE', 'reset'],
+        ['ECONNABORTED', 'reset'],
+        ['ENOTFOUND', 'transport'],
+        ['ETIMEDOUT', 'transport'],
+        ['EMFILE', 'transport'],
+        [undefined, 'transport'],
+    ])('maps socket error code %s to "%s"', (code, reason) => {
+        // Only a peer closing an accepted connection may read as "reset"; anything else, or no code, must stay on a label the alert selects.
+        expect(socketWaitReason(Object.assign(new Error('boom'), code ? { code } : {}))).toBe(reason)
     })
 
     it('never dead-letters on saturation alone, however long the sidecar sheds', async () => {

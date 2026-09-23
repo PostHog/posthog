@@ -4,21 +4,26 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { CountedPaginatedResponse, HogFlowListType } from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import type { HogFlow } from './hogflows/types'
+import { prepareWorkflowDuplicate } from './workflowDuplication'
 
 export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
 
 const WORKFLOW_STATUS_FILTERS: WorkflowStatusFilter[] = ['all', 'active', 'draft', 'archived']
 
-export type WorkflowTypeFilter = 'all' | 'messaging' | 'automation'
+export type WorkflowTypeFilter = 'all' | 'messaging' | 'automation' | 'loop'
 
-const WORKFLOW_TYPE_FILTERS: WorkflowTypeFilter[] = ['all', 'messaging', 'automation']
+// What this page covers. A surface that grows its own page drops out of this list, rather than every
+// other list learning to exclude it.
+const WORKFLOWS_PAGE_TYPES: HogFlowListType[] = ['messaging', 'automation', 'loop']
+
+const WORKFLOW_TYPE_FILTERS: WorkflowTypeFilter[] = ['all', 'messaging', 'automation', 'loop']
 
 export type WorkflowTriggerTypeFilter = 'all' | (NonNullable<HogFlow['trigger']> extends { type: infer T } ? T : never)
 
@@ -33,7 +38,7 @@ export const WORKFLOW_TRIGGER_TYPE_OPTIONS: { value: WorkflowTriggerTypeFilter; 
     { value: 'tracking_pixel', label: 'Tracking pixel' },
     { value: 'data-warehouse-table', label: 'Data warehouse table' },
     { value: 'data-warehouse-view', label: 'Data warehouse view' },
-    { value: 'slack-message', label: 'Slack message' },
+    { value: 'internal-event', label: 'Internal event' },
 ]
 
 const WORKFLOW_TRIGGER_TYPE_FILTERS = WORKFLOW_TRIGGER_TYPE_OPTIONS.map((option) => option.value)
@@ -64,7 +69,7 @@ interface WorkflowsListParams {
     search?: string
     status?: HogFlow['status']
     created_by?: string
-    type?: Exclude<WorkflowTypeFilter, 'all'>
+    type?: HogFlowListType[]
     trigger?: string
     limit: number
     offset: number
@@ -320,11 +325,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     return values.workflows
                 },
                 duplicateWorkflow: async ({ workflow }) => {
-                    await api.hogFlows.createHogFlow({
-                        ...workflow,
-                        status: 'draft',
-                        name: `${workflow.name} (copy)`,
-                    })
+                    await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
                     // The copy is a draft; reload so it only shows when it matches the current filter
                     // and lands in the right spot under the server-side sort and pagination.
                     actions.loadWorkflows()
@@ -420,7 +421,10 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 search: filters.search || undefined,
                 status: filters.status !== 'all' ? filters.status : undefined,
                 created_by: filters.createdBy || undefined,
-                type: filters.type !== 'all' ? filters.type : undefined,
+                // Name the types this page covers rather than the one it hides, so a surface that
+                // grows its own page drops out here instead of every list learning to exclude it.
+                // Server-side keeps `count` honest, which dropping rows from the page did not.
+                type: filters.type !== 'all' ? [filters.type] : WORKFLOWS_PAGE_TYPES,
                 // The API filters triggers by JSON containment, so the type goes over as a JSON object.
                 trigger: filters.triggerType !== 'all' ? JSON.stringify({ type: filters.triggerType }) : undefined,
                 limit: WORKFLOWS_PER_PAGE,

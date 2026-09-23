@@ -9,6 +9,7 @@ import { FileSystemImport } from '~/queries/schema/schema-general'
 export const SIDEBAR_TOOLS_WITHOUT_DOCS = new Set<string>([
     'AI gateway',
     'Apps',
+    'Broadcasts',
     'Business knowledge',
     'Engineering analytics',
     'Identity matching',
@@ -18,6 +19,7 @@ export const SIDEBAR_TOOLS_WITHOUT_DOCS = new Set<string>([
     'Pulse',
     'User research',
     'Visual review',
+    'Wizard',
 ])
 
 export interface SidebarToolMeta {

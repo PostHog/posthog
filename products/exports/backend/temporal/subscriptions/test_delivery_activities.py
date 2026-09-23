@@ -1,13 +1,16 @@
 import uuid
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import sync_to_async
+from slack_sdk.errors import SlackApiError
+from slack_sdk.web.async_slack_response import AsyncSlackResponse
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.email import EmailDeliveryError
+from posthog.models.integration import Integration
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportAssetResult
@@ -23,6 +26,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     validate_subscription_for_delivery,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
+from products.exports.backend.temporal.subscriptions.delivery_common import deliver_slack
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsResult,
@@ -42,6 +46,40 @@ from products.product_analytics.backend.facade.models import Insight
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
+
+
+async def test_deliver_slack_explains_missing_file_upload_scope(team, user) -> None:
+    integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack", config={})
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        created_by=user,
+        target_type="slack",
+        target_value="C123|#general",
+        integration=integration,
+    )
+    response = AsyncSlackResponse(
+        client=None,
+        http_verb="POST",
+        api_url="https://slack.com/api/files.completeUploadExternal",
+        req_args={},
+        data={"ok": False, "error": "missing_scope", "needed": "files:write"},
+        headers={},
+        status_code=200,
+    )
+
+    with (
+        patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"),
+        patch("ee.tasks.subscriptions.auto_disable.create_subscription_auto_disabled_notification"),
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+    ):
+        result = await deliver_slack(subscription, [], AsyncMock(side_effect=SlackApiError("Error", response)))
+
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is False
+    assert result.recipient_results[0].error == {
+        "message": "PostHog can no longer upload files to Slack",
+        "type": "slack_file_upload_permission_revoked",
+    }
 
 
 # v1 only exists as a Temporal history-compat shim for pre-patch workflows. Both

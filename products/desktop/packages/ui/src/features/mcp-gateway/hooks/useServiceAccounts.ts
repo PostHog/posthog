@@ -16,6 +16,10 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /** Project the current-user shape onto the UserBasic fields the gateway serves. */
 function toGatewayUser(user: {
   id: number;
@@ -25,7 +29,7 @@ function toGatewayUser(user: {
   last_name?: string;
   email: string;
   is_email_verified: boolean | null;
-  hedgehog_config?: McpGatewayUser["hedgehog_config"];
+  hedgehog_config?: unknown;
   role_at_organization?: McpGatewayUser["role_at_organization"];
 }): McpGatewayUser {
   return {
@@ -36,7 +40,9 @@ function toGatewayUser(user: {
     last_name: user.last_name,
     email: user.email,
     is_email_verified: user.is_email_verified,
-    hedgehog_config: user.hedgehog_config ?? null,
+    hedgehog_config: isRecord(user.hedgehog_config)
+      ? user.hedgehog_config
+      : null,
     role_at_organization: user.role_at_organization,
   };
 }

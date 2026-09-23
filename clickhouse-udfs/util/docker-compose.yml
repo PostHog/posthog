@@ -1,0 +1,15 @@
+services:
+    clickhouse:
+        image: clickhouse/clickhouse-server:26.6.2.158
+        ulimits:
+            nofile:
+                soft: 262144
+                hard: 262144
+        volumes:
+            - ../../docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml:ro
+            - ../../posthog/user_scripts:/var/lib/clickhouse/user_scripts:ro
+        healthcheck:
+            test: ['CMD', 'clickhouse-client', '--query', 'SELECT 1']
+            interval: 2s
+            timeout: 5s
+            retries: 15

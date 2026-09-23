@@ -37,12 +37,12 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.person.util import create_person
 from posthog.uuidt import UUIDT
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import recalculate_cohortpeople
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))  # for persons-inner-where-optimization
@@ -108,6 +108,80 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         assert response.clickhouse
         self.assertIn("where_optimization", response.clickhouse)
         self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
+        self.assertIn("multiSearchAny(where_optimization.properties, [%(hogql_val_1)s])", response.clickhouse)
+
+    PREFILTER_PERSONS = [
+        ("escaped", {"$some_prop": 'some"thing'}),
+        ("non_ascii", {"$some_prop": "sömething"}),
+        ("other_key", {"$some_prop": "chrome", "$another_prop": "something"}),
+    ]
+
+    def _create_prefilter_persons(self) -> dict[str, str]:
+        uuids = {}
+        for name, properties in self.PREFILTER_PERSONS:
+            person = _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[name],
+                properties=properties,
+                created_at=datetime(2024, 1, 1, 15),
+            )
+            uuids[name] = str(person.uuid)
+        return uuids
+
+    @parameterized.expand(
+        [
+            ("eq", "properties.$some_prop = 'something'", "[%(hogql_val_1)s]", ["first", "second"]),
+            (
+                "in_list",
+                "properties.$some_prop in ('something', 'other')",
+                "[%(hogql_val_1)s, %(hogql_val_2)s]",
+                ["first", "second"],
+            ),
+            # The unbacked read strips the outer quotes off JSONExtractRaw without unescaping, so the stored value
+            # compares as `some\"thing` and matches nothing. Pre-existing, and the same with or without the pre-check.
+            ("quoted_value", """properties.$some_prop = 'some"thing'""", None, []),
+            ("non_ascii_value", "properties.$some_prop = 'sömething'", None, ["non_ascii"]),
+            (
+                "is_not",
+                "properties.$some_prop != 'something'",
+                None,
+                ["third", "escaped", "non_ascii", "other_key"],
+            ),
+        ]
+    )
+    def test_json_substring_prefilter(
+        self, _name: str, where: str, expected_values: str | None, expected_persons: list[str]
+    ):
+        person_uuids = {
+            "first": str(self.first_person.uuid),
+            "second": str(self.second_person.uuid),
+            "third": str(self.third_person.uuid),
+            **self._create_prefilter_persons(),
+        }
+        response = execute_hogql_query(
+            parse_select(f"select id from persons where {where}"),
+            self.team,
+            modifiers=self.modifiers,
+        )
+        assert response.clickhouse
+        if expected_values is None:
+            self.assertNotIn("multiSearchAny", response.clickhouse)
+        else:
+            self.assertIn(f"multiSearchAny(where_optimization.properties, {expected_values})", response.clickhouse)
+        assert {str(row[0]) for row in response.results} == {person_uuids[name] for name in expected_persons}
+
+    # ClickHouse rejects a multiSearchAny call with more than 255 needles against a nonconstant haystack
+    # ("passed 256, should be at most 255"), which failed the whole query rather than only the pre-check.
+    @parameterized.expand([("at_needle_limit", 255, True), ("past_needle_limit", 256, False)])
+    def test_json_substring_prefilter_needle_limit(self, _name: str, value_count: int, prefiltered: bool):
+        values = ", ".join(f"'needle_{i}'" for i in range(value_count))
+        response = execute_hogql_query(
+            parse_select(f"select id from persons where properties.$some_prop in ({values})"),
+            self.team,
+            modifiers=self.modifiers,
+        )
+        assert response.clickhouse
+        assert ("multiSearchAny" in response.clickhouse) is prefiltered
 
     @snapshot_clickhouse_queries
     def test_joins_are_left_alone_for_now(self):

@@ -7,7 +7,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
 from posthog.dataclasses import frozen
-from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, has_breakdown_filter
+from posthog.hogql_queries.utils.breakdowns import ALL_USERS_COHORT_ID, has_breakdown_filter
 
 from products.product_analytics.backend.hogql_queries.retention.retention_base_query_builder import (
     RetentionBaseQueryBuilder,
