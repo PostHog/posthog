@@ -160,6 +160,23 @@ describe('tracingSceneLogic', () => {
         expect(logic.values.displayMode).toBe('spans')
     })
 
+    it.each([
+        ['already loaded', () => mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })],
+        [
+            'arriving after the URL parse',
+            () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
+                mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })
+                featureFlagLogic.actions.setFeatureFlags([], {})
+            },
+        ],
+    ])('drops a tab=sql deep link when the scene tabs flag is off, with flags %s', (_, mount) => {
+        mount()
+        expect(logic.values.sceneTab).toBe('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+        expect(router.values.searchParams.serviceNames).toEqual(['checkout'])
+    })
+
     it('restores the SQL tab from a deep link without dropping the filter params', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
         mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })
