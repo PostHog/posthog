@@ -1045,7 +1045,7 @@ class TestSignalReportListAPI(APIBaseTest):
             extra_data={"login": "suggestedgh"},
         )
         report = self._create_report()
-        # No actionability artefact — latest_actionability_value is NULL
+        # No actionability artefact, so the cached actionability is NULL
         SignalReportArtefact.objects.create(
             team=self.team,
             report=report,
@@ -1591,6 +1591,31 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(self._list_url())
         ids = {r["id"] for r in response.json()["results"]}
         assert {str(a.id), str(b.id)} <= ids
+
+    @parameterized.expand(
+        [
+            ("default_list", {}),
+            ("actionable_view", {"view": "actionable"}),
+            ("status_sort", {"ordering": "status"}),
+        ]
+    )
+    def test_list_reads_actionability_from_the_report_row(self, _name: str, params: dict[str, str]) -> None:
+        # Deriving actionability in SQL cast one artefact's `content` TEXT column to jsonb per
+        # report, and the default ordering sorts on the status rank that reads it, so Postgres
+        # computed it for every report in the team before the page limit applied. Both values now
+        # live on the report row. The Actionable view is the request that filters on both.
+        report = self._create_report()
+        self._actionability_artefact(report, actionability="immediately_actionable")
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(self._list_url(**params))
+
+        assert response.status_code == status.HTTP_200_OK
+        report_queries = [q["sql"] for q in ctx.captured_queries if 'FROM "signals_signalreport"' in q["sql"]]
+        assert report_queries
+        for sql in report_queries:
+            assert "jsonb_extract_path_text" not in sql
+            assert "actionability_judgment" not in sql
 
     def test_filter_actionability_invalid_value_returns_400(self):
         response = self.client.get(self._list_url(actionability="maybe_later"))
