@@ -67,12 +67,12 @@ pub fn resolve(args: &ResolveArgs) -> Result<()> {
         );
         if args.json {
             // Empty stdout is not valid JSON, so emit `null` for a --json consumer to parse.
-            println!("null");
+            crate::safe_println!("null");
         }
         return Ok(());
     };
 
-    println!("{}", render_release(&release, args.json)?);
+    crate::safe_println!("{}", render_release(&release, args.json)?);
     Ok(())
 }
 

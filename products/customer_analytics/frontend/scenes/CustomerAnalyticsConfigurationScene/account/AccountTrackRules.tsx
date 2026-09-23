@@ -8,6 +8,7 @@ import {
     LemonColorGlyph,
     LemonDivider,
     LemonSegmentedButton,
+    Link,
     LemonSwitch,
     LemonTable,
     LemonTableColumns,
@@ -22,6 +23,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { humanFriendlyDiff } from 'lib/utils/durations'
 
 import { PropertyFilterType, PropertyOperator, type AnyPropertyFilter } from '~/types'
 
@@ -50,6 +52,26 @@ const TRACK_RULE_ACCOUNT_FIELDS = ACCOUNT_FIELD_TAXONOMIC_OPTIONS.filter(
 )
 const ACCOUNT_FIELD_LABELS = Object.fromEntries(ACCOUNT_FIELD_TAXONOMIC_OPTIONS.map(({ id, name }) => [id, name]))
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'stale'])
+
+export function getTrackRuleRunTriggerLabel(trigger: string): string {
+    if (trigger === 'manual') {
+        return 'Manual'
+    }
+    if (trigger === 'scheduled') {
+        return 'Scheduled'
+    }
+    return trigger
+}
+
+export function getTrackRuleRunDuration(run: AccountTrackRuleRunViewApi): string {
+    if (!run.started_at) {
+        return 'Not started'
+    }
+    if (!run.finished_at) {
+        return 'In progress'
+    }
+    return humanFriendlyDiff(run.started_at, run.finished_at)
+}
 
 function primitiveValues(value: AccountFilter['value']): (string | number | boolean)[] {
     const values = Array.isArray(value) ? value : value == null ? [] : [value]
@@ -116,6 +138,9 @@ export function AccountTrackRules(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const trackRulePropertyDefinitions = [...TRACK_RULE_ACCOUNT_FIELDS, ...customPropertyTaxonomicOptions].map(
+        ({ id, property_type }) => ({ id, name: id, property_type })
+    )
 
     const confirmRun = (): void => {
         if (!config?.enabled || hasUnsavedChanges || !canRun) {
@@ -200,6 +225,8 @@ export function AccountTrackRules(): JSX.Element {
                             [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
                         }}
                         operatorAllowlist={ACCOUNT_FILTER_OPERATOR_ALLOWLIST}
+                        propertyDefinitionsOverride={trackRulePropertyDefinitions}
+                        allowRelativeDateOptions
                         staticValueOptions={accountFilterStaticValueOptions}
                         editable={!restrictionReason}
                         disabledReason={restrictionReason ?? undefined}
@@ -382,6 +409,13 @@ function PreviewRuleValue({
     if (definition?.display_type === 'boolean') {
         return stringValue === 'true' || stringValue === '1' ? <IconCheck /> : <IconX className="text-muted" />
     }
+    if (definition?.display_type === 'link') {
+        return (
+            <Link to={stringValue} target="_blank" targetBlankIcon={false}>
+                {stringValue}
+            </Link>
+        )
+    }
     if (definition?.display_type === 'select') {
         const option = definition.options?.find((candidate) => candidate.label === stringValue)
         return (
@@ -485,6 +519,10 @@ function RunHistory({ runs, loading }: { runs: AccountTrackRuleRunViewApi[]; loa
             render: (_, run) => <TZLabel time={run.started_at ?? run.created_at} />,
         },
         {
+            title: 'Trigger',
+            render: (_, run) => getTrackRuleRunTriggerLabel(run.trigger),
+        },
+        {
             title: 'Version',
             dataIndex: 'config_version',
         },
@@ -516,6 +554,10 @@ function RunHistory({ runs, loading }: { runs: AccountTrackRuleRunViewApi[]; loa
             title: 'Changed',
             render: (_, run) =>
                 `${run.newly_ignored.toLocaleString()} ignored · ${run.restored.toLocaleString()} restored`,
+        },
+        {
+            title: 'Duration',
+            render: (_, run) => getTrackRuleRunDuration(run),
         },
         {
             title: 'Error',

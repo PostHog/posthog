@@ -1,3 +1,4 @@
+import { TIMESTAMP_REF_PREFIX } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
 // `uuid` is legacy (only old event-uuid citations carry it). Timestamp citations use `timestamp_ms` alone.
@@ -18,9 +19,8 @@ export function isSegment(value: unknown): value is Segment {
     return false
 }
 
-// Matches `(t 123)` and leaked comma-joined variants like `(t 123, 456)` / `(t 12, t 34)`.
-// Mirrors the backend's TIMESTAMP_CITATION_RE (backend/temporal/scanners/base.py).
-const TIMESTAMP_CITATION_RE = /\s*\(\s*t\s*(\d+(?:\s*,\s*t?\s*\d+)*)\s*\)/g
+// Wider than the backend's TIMESTAMP_CITATION_RE (scanners/base.py), which only parses comma-joined lists.
+const TIMESTAMP_CITATION_RE = /\s*\(\s*t\s*(\d+(?:\s*(?:[,\u2013-]|to|and)\s*t?\s*\d+)*)\s*\)/g
 
 /** Split leaked `(t <sec>)` markers in plain text into chip segments, one chip per cited second. */
 function splitLeakedCitations(text: string): Segment[] {
@@ -31,8 +31,12 @@ function splitLeakedCitations(text: string): Segment[] {
         if (chunk) {
             segments.push({ kind: 'text', value: chunk })
         }
-        for (const seconds of match[1].match(/\d+/g) ?? []) {
-            segments.push({ kind: 'chip', timestamp_ms: parseInt(seconds, 10) * 1000 })
+        // Each comma-separated item is one cited moment. A range has a duration, so only its start seeks.
+        for (const item of match[1].split(/,|\band\b/)) {
+            const seconds = item.match(/\d+/)
+            if (seconds) {
+                segments.push({ kind: 'chip', timestamp_ms: parseInt(seconds[0], 10) * 1000 })
+            }
         }
         lastEnd = match.index + match[0].length
     }
@@ -56,6 +60,30 @@ export function parseCitedSegments(text: string, segments: unknown): Segment[] {
     return persisted.flatMap((segment) => (segment.kind === 'text' ? splitLeakedCitations(segment.value) : [segment]))
 }
 
+/**
+ * Markdown source for a cited field, each chip written back as a `t:<ms>` target. One string rather than
+ * a segment list, or a bullet spanning a citation parses as two documents. The renderer sanitizes.
+ */
+export function citedMarkdown(text: string, segments: unknown): string {
+    const list = parseCitedSegments(text, segments)
+    if (list.length === 0) {
+        return text
+    }
+    let out = ''
+    for (const segment of list) {
+        if (segment.kind === 'text') {
+            out += segment.value
+            continue
+        }
+        // Glued to the preceding word, except after a `!`, where that would make the pair an image.
+        // Whole non-negative digits only: LemonMarkdown reads nothing else, and would leave a dead label.
+        const timestampMs = Math.max(0, Math.round(segment.timestamp_ms))
+        const label = colonDelimitedDuration(Math.floor(timestampMs / 1000), null)
+        out += `${out.endsWith('!') ? ' ' : ''}[${label}](${TIMESTAMP_REF_PREFIX}${timestampMs})`
+    }
+    return out
+}
+
 /** Plain-text rendering of a cited field for the clipboard: citation chips become readable `(mm:ss)` timestamps. */
 export function citedTextToPlainText(text: string, segments: unknown): string {
     const list = parseCitedSegments(text, segments)
@@ -72,4 +100,22 @@ export function citedTextToPlainText(text: string, segments: unknown): string {
         out += `${out && !/\s$/.test(out) ? ' ' : ''}(${label})`
     }
     return out
+}
+
+/** The moment span a cited field points at: min to max cited timestamp, or null when nothing is cited. */
+export function citedTimestampRange(text: string, segments: unknown): { startMs: number; endMs: number } | null {
+    const chips = parseCitedSegments(text, segments).filter((segment) => segment.kind === 'chip')
+    if (chips.length === 0) {
+        return null
+    }
+    const timestamps = chips.map((chip) => Math.max(0, chip.timestamp_ms))
+    return { startMs: Math.min(...timestamps), endMs: Math.max(...timestamps) }
+}
+
+export function stripCitations(text: string, segments?: unknown): string {
+    return parseCitedSegments(text, segments)
+        .map((segment) => (segment.kind === 'text' ? segment.value : ' '))
+        .join('')
+        .replace(/\s+/g, ' ')
+        .trim()
 }

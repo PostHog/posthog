@@ -4,8 +4,9 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { DEFAULT_MDE } from '~/scenes/experiments/constants'
 import { teamLogic } from '~/scenes/teamLogic'
+
+import { DEFAULT_MDE } from 'products/experiments/frontend/constants'
 
 export interface ExperimentsConfig {
     experiment_recalculation_time: string | null
@@ -76,7 +77,7 @@ export const experimentsConfigLogic = kea<experimentsConfigLogicType>([
             null as ExperimentsConfig | null,
             {
                 loadExperimentsConfig: async (): Promise<ExperimentsConfig> => {
-                    return await api.get(`api/environments/${values.currentTeamId}/experiments_config/`)
+                    return await api.get(`api/projects/${values.currentTeamId}/experiments_config/`)
                 },
             },
         ],
@@ -103,7 +104,7 @@ export const experimentsConfigLogic = kea<experimentsConfigLogicType>([
     listeners(({ actions, values }) => ({
         updateExperimentsConfig: async ({ payload }) => {
             try {
-                await api.update(`api/environments/${values.currentTeamId}/experiments_config/`, payload)
+                await api.update(`api/projects/${values.currentTeamId}/experiments_config/`, payload)
             } catch (error: any) {
                 lemonToast.error(error.data?.detail || 'Failed to update experiment settings. Please try again.')
             } finally {

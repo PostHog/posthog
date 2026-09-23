@@ -123,6 +123,7 @@ class TestBedrockSpecific:
             pytest.param("claude-opus-4-7", "bedrock/us.anthropic.claude-opus-4-7", id="opus_4_7_inference_profile"),
             pytest.param("claude-opus-4-8", "bedrock/us.anthropic.claude-opus-4-8", id="opus_4_8_inference_profile"),
             pytest.param("claude-fable-5", "bedrock/us.anthropic.claude-fable-5", id="fable_5_inference_profile"),
+            pytest.param("claude-fable-5-1", "bedrock/us.anthropic.claude-fable-5-1", id="fable_5_1_inference_profile"),
             pytest.param("claude-sonnet-5", "bedrock/us.anthropic.claude-sonnet-5", id="sonnet_5_inference_profile"),
             pytest.param("claude-opus-5", "bedrock/us.anthropic.claude-opus-5", id="opus_5_inference_profile"),
             pytest.param(
@@ -665,7 +666,7 @@ class TestBedrockCountTokensViaProvider:
         mock_count_tokens.return_value = 42
 
         response = authenticated_client.post(
-            "/wizard/v1/messages/count_tokens",
+            "/ci/v1/messages/count_tokens",
             json=valid_request_body,
             headers=valid_request_headers,
         )

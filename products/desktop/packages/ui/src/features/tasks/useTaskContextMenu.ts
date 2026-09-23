@@ -52,7 +52,7 @@ export function useTaskContextMenu() {
         showArchivePrior?: boolean;
         canHandoff?: boolean;
         onTogglePin?: () => void;
-        onHandoff?: () => void;
+        onHandoff?: () => Promise<void> | void;
         onStop?: (taskId: string, taskTitle: string, runId?: string) => void;
         onArchive?: (taskId: string) => void;
         onArchivePrior?: (taskId: string) => void;
@@ -146,7 +146,7 @@ export function useTaskContextMenu() {
             break;
           case "handoff":
             // The dialog lives with the caller; the hook can't own a modal.
-            onHandoff?.();
+            await onHandoff?.();
             break;
           case "file-to-channel":
             try {

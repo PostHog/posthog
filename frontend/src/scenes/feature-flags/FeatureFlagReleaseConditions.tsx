@@ -15,7 +15,7 @@ import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconErrorOutline, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -44,14 +44,18 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { CohortConditionLink } from 'products/feature_flags/frontend/CohortConditionLink'
+import { ConditionSetSummary } from 'products/feature_flags/frontend/ConditionSetSummary'
 import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
+import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
 import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
+    isBlastRadiusErrorRetryable,
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
@@ -66,11 +70,7 @@ function PropertyValueComponent({
     getDistinctIdName: (distinctId: string) => string
 }): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
-        return (
-            <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
-                {property.cohort_name || `ID ${property.value}`}
-            </LemonButton>
-        )
+        return <CohortConditionLink property={property} />
     }
 
     if (property.value === PropertyOperator.IsNotSet || property.value === PropertyOperator.IsSet) {
@@ -203,27 +203,11 @@ export function FeatureFlagReleaseConditions({
                         <div className="flex items-center">
                             <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
                             <div>
-                                {group.properties?.length ? (
-                                    <>
-                                        {readOnly ? (
-                                            <>
-                                                Match <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>{' '}
-                                                against <b>all</b> criteria
-                                            </>
-                                        ) : (
-                                            <>
-                                                Matching{' '}
-                                                <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>{' '}
-                                                against the criteria
-                                            </>
-                                        )}
-                                    </>
-                                ) : (
-                                    <>
-                                        Condition set will match{' '}
-                                        <b>all {aggregationTargetName(group.aggregation_group_type_index)}</b>
-                                    </>
-                                )}
+                                <ConditionSetSummary
+                                    group={group}
+                                    aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
+                                    readOnly={readOnly}
+                                />
                             </div>
                         </div>
                         {!readOnly && (
@@ -390,6 +374,7 @@ export function FeatureFlagReleaseConditions({
                                 }
                                 errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
+                                showCohortFlagTargeting
                             />
                         </div>
                     )}
@@ -460,27 +445,33 @@ export function FeatureFlagReleaseConditions({
                                     const sortKey = group.sort_key
                                     const affected = sortKey ? affectedCounts[sortKey] : undefined
                                     const total = sortKey ? totalCounts[sortKey] : undefined
-                                    if (sortKey && blastRadiusErrors[sortKey]) {
+                                    const blastRadiusError = sortKey ? blastRadiusErrors[sortKey] : undefined
+                                    if (sortKey && blastRadiusError) {
                                         return (
                                             <div
                                                 role="status"
-                                                className="basis-full flex items-center gap-2 mt-1 text-secondary"
+                                                className="basis-full flex items-start gap-2 mt-1 text-secondary"
                                             >
-                                                <IconErrorOutline className="text-danger text-base shrink-0" />
-                                                <span>Couldn't estimate how many {pluralName} match.</span>
-                                                <LemonButton
-                                                    type="secondary"
-                                                    size="xsmall"
-                                                    onClick={() =>
-                                                        calculateBlastRadiusForCondition(
-                                                            sortKey,
-                                                            group.properties,
-                                                            resolvedGroupTypeIndex
-                                                        )
-                                                    }
-                                                >
-                                                    Retry
-                                                </LemonButton>
+                                                <IconErrorOutline className="text-danger text-base shrink-0 mt-0.5" />
+                                                <BlastRadiusErrorMessage
+                                                    error={blastRadiusError}
+                                                    pluralName={pluralName}
+                                                />
+                                                {isBlastRadiusErrorRetryable(blastRadiusError) && (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="xsmall"
+                                                        onClick={() =>
+                                                            calculateBlastRadiusForCondition(
+                                                                sortKey,
+                                                                group.properties,
+                                                                resolvedGroupTypeIndex
+                                                            )
+                                                        }
+                                                    >
+                                                        Retry
+                                                    </LemonButton>
+                                                )}
                                             </div>
                                         )
                                     }

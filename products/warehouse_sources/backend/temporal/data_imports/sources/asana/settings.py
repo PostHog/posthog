@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -8,15 +10,24 @@ from products.warehouse_sources.backend.types import IncrementalField
 #   "workspace"     -> one request per workspace the token can see
 #   "organization"  -> one request per workspace that is an organization
 #   "project"       -> one request per project across all visible workspaces
-FanOut = Literal["none", "workspace", "organization", "project"]
+#   "task"          -> one request per task across all visible projects
+#   "goal"          -> one request per goal across all visible workspaces
+#   "user"          -> one request per user the token can see
+#   "team"          -> one request per team across all visible organizations
+#   "portfolio"     -> one request per portfolio across all visible workspaces
+FanOut = Literal["none", "workspace", "organization", "project", "task", "goal", "user", "team", "portfolio"]
+
+# Every Asana resource is identified by its global id ``gid``.
+PRIMARY_KEY = "gid"
 
 
-@dataclass
+@frozen
 class AsanaEndpointConfig:
     name: str
     fan_out: FanOut
-    # Relative path appended to the API base. Fan-out endpoints carry a single ``{workspace_gid}``
-    # or ``{project_gid}`` placeholder that the framework binds from the parent row per request;
+    # Relative path appended to the API base. Fan-out endpoints carry a single ``{workspace_gid}``,
+    # ``{project_gid}``, ``{task_gid}``, ``{goal_gid}``, ``{user_gid}``, ``{team_gid}`` or
+    # ``{portfolio_gid}`` placeholder that the framework binds from the parent row per request;
     # top-level endpoints carry no placeholder.
     path: str
     # Asana list endpoints return compact records ({gid, name, resource_type}) by default.
@@ -25,10 +36,32 @@ class AsanaEndpointConfig:
     # Stable creation-time field used for datetime partitioning. Must be present in opt_fields.
     # Never a ``modified_at``-style field — partitions would rewrite on every sync.
     partition_key: Optional[str] = None
+    # Fan-out parent fields to copy onto every row, mapped to the column they land in. Needed when
+    # the row's own gid is not unique table-wide because the same object is returned under several
+    # parents.
+    parent_fields: dict[str, str] = field(default_factory=dict)
+    primary_keys: list[str] = field(default_factory=lambda: [PRIMARY_KEY])
+    # A few endpoints return the whole collection in one response — they take no limit/offset and
+    # carry no `next_page`. Sending `limit` to those is rejected.
+    paginated: bool = True
 
 
-# Every Asana resource is identified by its global id ``gid``.
-PRIMARY_KEY = "gid"
+# Every /status_updates fan-out returns the same object, so the opted-in fields are shared.
+STATUS_UPDATE_OPT_FIELDS = [
+    "title",
+    "text",
+    "html_text",
+    "status_type",
+    "resource_subtype",
+    "author",
+    "created_at",
+    "created_by",
+    "modified_at",
+    "parent",
+    "num_likes",
+    "resource_type",
+]
+
 
 ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
     "workspaces": AsanaEndpointConfig(
@@ -37,10 +70,13 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
         path="/workspaces",
         opt_fields=["name", "email_domains", "is_organization", "resource_type"],
     ),
+    # Asana rejects an unscoped /users when the token's user belongs to more than one workspace, so
+    # the walk is scoped per workspace. A user in several workspaces comes back once per workspace;
+    # the `gid` primary key collapses those repeats into one row.
     "users": AsanaEndpointConfig(
         name="users",
-        fan_out="none",
-        path="/users",
+        fan_out="workspace",
+        path="/users?workspace={workspace_gid}",
         opt_fields=["name", "email", "photo", "workspaces", "resource_type"],
     ),
     "projects": AsanaEndpointConfig(
@@ -72,6 +108,12 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
         ],
         partition_key="created_at",
     ),
+    "project_memberships": AsanaEndpointConfig(
+        name="project_memberships",
+        fan_out="project",
+        path="/projects/{project_gid}/project_memberships",
+        opt_fields=["member", "access_level", "parent", "resource_type"],
+    ),
     "tasks": AsanaEndpointConfig(
         name="tasks",
         fan_out="project",
@@ -97,6 +139,57 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
             "num_likes",
             "permalink_url",
             "custom_fields",
+        ],
+        partition_key="created_at",
+    ),
+    "stories": AsanaEndpointConfig(
+        name="stories",
+        fan_out="task",
+        path="/tasks/{task_gid}/stories",
+        opt_fields=[
+            "created_at",
+            "created_by",
+            "resource_subtype",
+            "resource_type",
+            "text",
+            "type",
+            "source",
+            "target",
+            "task",
+            "project",
+            "tag",
+            "assignee",
+            "follower",
+            "dependency",
+            "duplicate_of",
+            "duplicated_from",
+            "custom_field",
+            "is_pinned",
+            "is_edited",
+            "num_likes",
+            "sticker_name",
+            "old_name",
+            "new_name",
+            "old_section",
+            "new_section",
+            "old_dates",
+            "new_dates",
+            "old_resource_subtype",
+            "new_resource_subtype",
+            "old_approval_status",
+            "new_approval_status",
+            "old_text_value",
+            "new_text_value",
+            "old_number_value",
+            "new_number_value",
+            "old_date_value",
+            "new_date_value",
+            "old_enum_value",
+            "new_enum_value",
+            "old_multi_enum_values",
+            "new_multi_enum_values",
+            "old_people_value",
+            "new_people_value",
         ],
         partition_key="created_at",
     ),
@@ -137,14 +230,186 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
             "resource_type",
         ],
     ),
+    "goals": AsanaEndpointConfig(
+        name="goals",
+        fan_out="workspace",
+        path="/goals?workspace={workspace_gid}",
+        opt_fields=[
+            "name",
+            "notes",
+            "owner",
+            "status",
+            "due_on",
+            "start_on",
+            "is_workspace_level",
+            "team",
+            "workspace",
+            "time_period",
+            "metric",
+            "current_status_update",
+            "privacy_setting",
+            "default_access_level",
+            "followers",
+            "num_likes",
+            "custom_fields",
+            "resource_type",
+        ],
+    ),
+    # One row per goal-to-parent-goal edge. The row is the parent goal, so its gid repeats across
+    # every child goal that points at it — `goal_gid` (the child) completes the primary key.
+    "parent_goals": AsanaEndpointConfig(
+        name="parent_goals",
+        fan_out="goal",
+        path="/goals/{goal_gid}/parentGoals",
+        opt_fields=["name", "owner", "resource_type"],
+        parent_fields={"gid": "goal_gid"},
+        primary_keys=["goal_gid", PRIMARY_KEY],
+        paginated=False,
+    ),
+    # User fan-out: /time_tracking_entries needs one of its filters, and `user` is the only one that
+    # covers every entry without a date window (filtering by workspace requires an entered-on range).
+    "time_tracking_entries": AsanaEndpointConfig(
+        name="time_tracking_entries",
+        fan_out="user",
+        path="/time_tracking_entries?user={user_gid}",
+        opt_fields=[
+            "duration_minutes",
+            "entered_on",
+            "created_at",
+            "created_by",
+            "task",
+            "attributable_to",
+            "approval_status",
+            "billable_status",
+            "description",
+            "resource_type",
+        ],
+        partition_key="created_at",
+    ),
+    "custom_field_settings": AsanaEndpointConfig(
+        name="custom_field_settings",
+        fan_out="project",
+        path="/projects/{project_gid}/custom_field_settings",
+        opt_fields=["custom_field", "parent", "project", "is_important", "resource_type"],
+    ),
+    "team_memberships": AsanaEndpointConfig(
+        name="team_memberships",
+        fan_out="team",
+        path="/teams/{team_gid}/team_memberships",
+        opt_fields=["user", "team", "is_admin", "is_guest", "is_limited_access", "resource_type"],
+    ),
+    # A personal access token only sees portfolios the token's own user owns; a service account sees
+    # every portfolio in the workspace. Nothing in the response marks which case applied.
+    "portfolios": AsanaEndpointConfig(
+        name="portfolios",
+        fan_out="workspace",
+        path="/portfolios?workspace={workspace_gid}",
+        opt_fields=[
+            "name",
+            "created_at",
+            "created_by",
+            "owner",
+            "color",
+            "public",
+            "archived",
+            "workspace",
+            "due_on",
+            "start_on",
+            "members",
+            "current_status_update",
+            "privacy_setting",
+            "default_access_level",
+            "permalink_url",
+            "resource_type",
+        ],
+        partition_key="created_at",
+    ),
+    # One row per portfolio-to-item edge. The row is the contained project (or sub-portfolio), so its
+    # gid repeats across every portfolio holding it — `portfolio_gid` completes the primary key.
+    # The compact item shape is all this endpoint returns; its opt_fields only cover paging metadata.
+    "portfolio_items": AsanaEndpointConfig(
+        name="portfolio_items",
+        fan_out="portfolio",
+        path="/portfolios/{portfolio_gid}/items",
+        parent_fields={"gid": "portfolio_gid"},
+        primary_keys=["portfolio_gid", PRIMARY_KEY],
+    ),
+    # /status_updates takes one `parent` gid that must be a project, goal or portfolio, so each
+    # parent type needs its own fan-out. `resource_subtype` on the row records which kind it was.
+    "project_status_updates": AsanaEndpointConfig(
+        name="project_status_updates",
+        fan_out="project",
+        path="/status_updates?parent={project_gid}",
+        opt_fields=STATUS_UPDATE_OPT_FIELDS,
+        partition_key="created_at",
+    ),
+    "goal_status_updates": AsanaEndpointConfig(
+        name="goal_status_updates",
+        fan_out="goal",
+        path="/status_updates?parent={goal_gid}",
+        opt_fields=STATUS_UPDATE_OPT_FIELDS,
+        partition_key="created_at",
+    ),
+    "portfolio_status_updates": AsanaEndpointConfig(
+        name="portfolio_status_updates",
+        fan_out="portfolio",
+        path="/status_updates?parent={portfolio_gid}",
+        opt_fields=STATUS_UPDATE_OPT_FIELDS,
+        partition_key="created_at",
+    ),
+    # AI Studio usage endpoints (organization fan-out — AI Studio is an org/division feature, so
+    # non-organization workspaces are skipped to avoid invalid requests). Both require the
+    # `admin.ai_studio_usage:read` scope on an AI Studio-licensed org; unlicensed orgs return 403.
+    "ai_studio_runs": AsanaEndpointConfig(
+        name="ai_studio_runs",
+        fan_out="organization",
+        path="/workspaces/{workspace_gid}/ai_studio/runs",
+        opt_fields=[
+            "rule.name",
+            "rule_owner.name",
+            "rule_owner.email",
+            "triggered_by.name",
+            "triggered_by.email",
+            "triggering_container.resource_type",
+            "division.name",
+            "run_started_at",
+            "run_completed_at",
+            "status",
+            "model",
+            "credits_used",
+            "credit_source",
+            "resource_type",
+        ],
+        partition_key="run_started_at",
+    ),
+    "ai_studio_seats": AsanaEndpointConfig(
+        name="ai_studio_seats",
+        fan_out="organization",
+        path="/workspaces/{workspace_gid}/ai_studio/seats",
+        opt_fields=[
+            "user.name",
+            "user.email",
+            "license",
+            "state",
+            "assigned_at",
+            "revoked_at",
+            "assigned_by.name",
+            "resource_type",
+        ],
+    ),
 }
 
 ENDPOINTS = tuple(ASANA_ENDPOINTS.keys())
 
-# Asana exposes a server-side `modified_since` filter only on /tasks (and the premium-only
-# task search endpoint). The other endpoints have no usable server-side timestamp filter, so
-# the whole source ships full-refresh-only for now — declaring incremental support without a
-# real server filter would make every "incremental" run cost the same as a full refresh.
-# Incremental tasks (via `modified_since`) and the Events API are tracked as follow-ups; they
-# need a live token to smoke-test the filter behaviour before we can rely on it.
+# Asana exposes a server-side timestamp filter on only two of the endpoints here: `modified_since`
+# on /tasks (and the premium-only task search endpoint), and `created_since` on /status_updates.
+# The rest have no usable server-side filter, so the whole source ships full-refresh-only for now —
+# declaring incremental support without a real server filter would make every "incremental" run cost
+# the same as a full refresh.
+# Incremental tasks (via `modified_since`), incremental status updates (via `created_since`) and the
+# Events API are tracked as follow-ups; they need a live token to smoke-test the filter behaviour and
+# the result ordering `sort_mode` has to match before we can rely on them.
+# `ai_studio/runs` does take a `start_at`/`end_at` window, but it filters by an internal metering
+# timestamp that the row shape does not expose — so no synced column maps cleanly onto the cursor,
+# and the arrival order can't be verified without a live token. It stays full-refresh with the rest.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

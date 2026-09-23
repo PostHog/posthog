@@ -18,7 +18,6 @@ import pytest_asyncio
 from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
@@ -34,16 +33,11 @@ from posthog.temporal.tests.utils.events import (
     insert_sessions_in_clickhouse,
 )
 
-from products.batch_exports.backend.models.batch_export import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportOnDemand,
-    BatchExportRun,
-)
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, afetch_last_run_records_completed
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
-    DataIntervalEndInFutureError,
+    DataIntervalInFutureError,
     HogQLQueryResourceLimitExceededError,
     _execute_query,
     _raise_on_hogql_resource_limit_error,
@@ -77,6 +71,7 @@ def mock_clickhouse_client():
         yield mock_client
 
 
+@pytest.mark.parametrize("use_native_schema", [False, True])
 @pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize(
     "model",
@@ -97,6 +92,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     model: BatchExportModel,
     is_backfill: bool,
     backfill_within_last_6_days: bool,
+    use_native_schema: bool,
 ):
     """Test that the insert_into_internal_stage_activity executes the expected ClickHouse query when the model is an events model.
 
@@ -113,7 +109,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     if not is_backfill and interval == "every 5 minutes":
         expected_table = "events_recent"
     elif is_backfill and not backfill_within_last_6_days:
-        expected_table = "events"
+        expected_table = "events_json" if use_native_schema else "events"
 
     if backfill_within_last_6_days:
         backfill_start_at = (data_interval_end - dt.timedelta(days=3)).isoformat()
@@ -144,7 +140,8 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         destination_default_fields=None,
     )
 
-    await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
+        await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
     mock_clickhouse_client.expect_select_from_table(expected_table)
     mock_clickhouse_client.expect_properties_in_log_comment(
         {
@@ -212,7 +209,7 @@ async def test_write_batch_export_record_batches_to_internal_stage_rejects_futur
         patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_client") as mock_get_client,
         override_settings(DEBUG=False, TEST=False),
     ):
-        with pytest.raises(DataIntervalEndInFutureError, match="The provided 'data_interval_end'.*is in the future"):
+        with pytest.raises(DataIntervalInFutureError, match="The provided 'data_interval_end'.*is in the future"):
             await _write_batch_export_record_batches_to_internal_stage(
                 query_or_model="SELECT 1",
                 full_range=(data_interval_start, data_interval_end),
@@ -869,29 +866,27 @@ async def test_compute_num_partitions_db_error_falls_back_to_static_default():
     assert result == 10
 
 
-async def test_compute_num_partitions_disabled_uses_static_default():
+@pytest.mark.parametrize(
+    "settings_overrides, call_overrides",
+    [
+        ({"BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED": False}, {}),
+        ({}, {"data_interval_start": None}),
+        ({}, {"on_demand": True}),
+    ],
+    ids=["dynamic partitioning disabled", "unbounded interval", "on-demand export"],
+)
+async def test_compute_num_partitions_skips_the_estimate(settings_overrides, call_overrides):
     with (
-        override_settings(
-            BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED=False,
-            BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10,
-        ),
+        override_settings(BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10, **settings_overrides),
         patch(_FETCHER_PATH, new=AsyncMock(return_value=5_000_000)) as mock_fetch,
     ):
         result = await compute_num_partitions(
-            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
-        )
-    assert result == 10
-    mock_fetch.assert_not_called()
-
-
-async def test_compute_num_partitions_without_interval_start_falls_back_to_static_default():
-    """An unbounded interval (no start) gives no frequency to match, so we don't risk an estimate."""
-    with (
-        override_settings(BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10),
-        patch(_FETCHER_PATH, new=AsyncMock(return_value=5_000_000)) as mock_fetch,
-    ):
-        result = await compute_num_partitions(
-            batch_export_id=str(uuid.uuid4()), data_interval_start=None, data_interval_end=_INTERVAL_END
+            **{
+                "batch_export_id": str(uuid.uuid4()),
+                "data_interval_start": _INTERVAL_START,
+                "data_interval_end": _INTERVAL_END,
+                **call_overrides,
+            }
         )
     assert result == 10
     mock_fetch.assert_not_called()
@@ -985,26 +980,6 @@ async def test_afetch_last_run_records_completed_no_runs(ateam):
             batch_export.id, matching_interval_duration=batch_export.interval_time_delta
         )
         is None
-    )
-
-
-async def test_afetch_last_run_records_completed_for_on_demand_export(ateam):
-    destination = await BatchExportDestination.objects.acreate(
-        type="S3", config={"bucket_name": "test-bucket", "region": "us-east-1", "prefix": "test"}
-    )
-    with team_scope(team_id=ateam.pk, canonical=True):
-        on_demand = await BatchExportOnDemand.objects.acreate(team_id=ateam.pk, destination=destination, model="events")
-    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
-    await BatchExportRun.objects.acreate(
-        batch_export_on_demand_id=on_demand.id,
-        data_interval_start=base,
-        data_interval_end=base + dt.timedelta(hours=1),
-        status=BatchExportRun.Status.COMPLETED,
-        records_completed=321,
-    )
-
-    assert (
-        await afetch_last_run_records_completed(on_demand.id, matching_interval_duration=dt.timedelta(hours=1)) == 321
     )
 
 
@@ -1474,10 +1449,9 @@ class TestHogQLModel:
     ):
         """insert_into_internal_stage_activity stages correct data for a user-defined HogQL query.
 
-        The data interval has no meaning for the HogQL model currently: the query is executed as-is,
-        scoped to the team by the HogQL printer, and we don't wait for the interval end to pass.
-        Each case asserts exact rows and column names (aliases) read back from the staged Arrow
-        files.
+        These queries reference no interval placeholders, so each is executed as-is, scoped to
+        the team by the HogQL printer, and we don't wait for the interval end to pass. Each case
+        asserts exact rows and column names (aliases) read back from the staged Arrow files.
         """
         events, persons = hogql_model_test_data
 
@@ -1498,6 +1472,55 @@ class TestHogQLModel:
             build_expected_rows(events, persons)
         )
         mock_wait.assert_not_called()
+
+    async def test_stages_expected_data_bounded_by_interval_placeholders(
+        self,
+        hogql_model_test_data,
+        activity_environment,
+        object_storage_client,
+        ateam,
+        data_interval_start,
+        data_interval_end,
+    ):
+        """A query referencing the interval placeholders stages only rows within the run's interval.
+
+        The run covers the second half of the fixture's interval, so events stamped at the
+        interval start are excluded and those stamped later are kept. The wait for the interval
+        end is part of the contract too: a query bounded by the interval end must let
+        replication lag settle before reading, or the run misses rows that settle after it
+        queries.
+        """
+        events, _ = hogql_model_test_data
+        # Each person's events are stamped at either end of the fixture's interval, so halving
+        # it leaves exactly the later ones in range.
+        bounded_start = data_interval_start + (data_interval_end - data_interval_start) / 2
+
+        with patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage.wait_for_delta_past_data_interval_end"
+        ) as mock_wait:
+            exported_rows = await _run_activity(
+                activity_environment=activity_environment,
+                object_storage_client=object_storage_client,
+                team_id=ateam.pk,
+                data_interval_start=bounded_start,
+                data_interval_end=data_interval_end,
+                model=BatchExportModel(
+                    name="hogql",
+                    schema=None,
+                    hogql_query=(
+                        "SELECT uuid AS uuid, timestamp AS timestamp FROM events "
+                        "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
+                    ),
+                ),
+            )
+
+        expected_uuids = {
+            uuid.UUID(event["uuid"])
+            for event in events
+            if dt.datetime.fromisoformat(event["timestamp"]).replace(tzinfo=dt.UTC) >= bounded_start
+        }
+        assert {row["uuid"] for row in exported_rows} == expected_uuids
+        mock_wait.assert_called_once()
 
     async def test_stages_expected_data_for_warehouse_view(
         self,

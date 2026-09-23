@@ -1,6 +1,7 @@
 import { ResolutionError, SecureRequestError, StreamedResponse, fetchStreamed } from '~/common/utils/request'
 
 import { HttpImageFetcher, ImageFetchOptions, RedirectPolicy } from './image-fetcher'
+import { ImageFetchRequestMetrics } from './metrics'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 
 jest.mock('~/common/utils/request', () => ({
@@ -53,6 +54,18 @@ describe('HttpImageFetcher', () => {
     beforeEach(() => {
         fetchStreamedMock.mockReset()
     })
+    afterEach(() => jest.restoreAllMocks())
+
+    it('opts every image request into HTTP/2', async () => {
+        fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
+
+        await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(fetchStreamedMock).toHaveBeenCalledWith(
+            'https://cdn.example.com/a.png',
+            expect.objectContaining({ allowH2: true })
+        )
+    })
 
     it('identifies every request as PostHogImageFetcherBot', async () => {
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
@@ -68,6 +81,15 @@ describe('HttpImageFetcher', () => {
                 }),
             })
         )
+    })
+
+    it('attributes image requests to the source partition', async () => {
+        const observeRequest = jest.spyOn(ImageFetchRequestMetrics, 'observeRequest')
+        fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
+
+        await fetcher().fetch('https://cdn.example.com/a.png', { ...OPTIONS, sourcePartitions: [7, 42] })
+
+        expect(observeRequest).toHaveBeenCalledWith('2xx', expect.any(Number), [7, 42])
     })
 
     it('returns the bytes of an image whose payload matches its declared type', async () => {
@@ -129,6 +151,7 @@ describe('HttpImageFetcher', () => {
         ['a type that is not an image', 'text/html', PNG, 'not_image'],
         ['a type outside the raster set', 'image/svg+xml', PNG, 'not_image'],
         ['the BMP format', 'image/bmp', Buffer.from('BM'), 'not_image'],
+        ['the AVIF format', 'image/avif', Buffer.from('\x00\x00\x00\x18ftypavif', 'binary'), 'not_image'],
         ['a payload that is not the declared format', 'image/gif', PNG, 'ok'],
         ['a payload of the wrong raster format', 'image/png', GIF, 'ok'],
     ])('handles %s', async (_name, contentType, bytes, outcome) => {
@@ -339,7 +362,12 @@ describe('HttpImageFetcher', () => {
                 requestNumber += 1
                 return requestNumber === 1
                     ? { ran: true as const, value: await request() }
-                    : { ran: false as const, reason: 'backoff' as const, waitMs: 90_000 }
+                    : {
+                          ran: false as const,
+                          reason: 'backoff' as const,
+                          blockingReason: 'retry_after' as const,
+                          waitMs: 90_000,
+                      }
             },
         })
 
@@ -348,6 +376,7 @@ describe('HttpImageFetcher', () => {
             redirects: 1,
             currentUrl: 'https://cdn.example.net/a.png',
             schedulingReason: 'backoff',
+            schedulingBlockingReason: 'retry_after',
             schedulingWaitMs: 90_000,
         })
         expect(fetchStreamedMock).toHaveBeenCalledTimes(1)

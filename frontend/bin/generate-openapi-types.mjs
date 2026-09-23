@@ -22,6 +22,7 @@ const productsDir = path.resolve(repoRoot, 'products')
 
 const productAliases = {
     llm_analytics: 'ai_observability',
+    proxy_records: 'platform_features',
 }
 
 // Default to temp location (gitignored ephemeral artifact)

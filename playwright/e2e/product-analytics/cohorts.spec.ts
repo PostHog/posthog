@@ -16,7 +16,7 @@ test.describe('Cohorts', () => {
 
         await expect(page).toHaveTitle('Cohorts • PostHog')
         await expect(page.locator('[data-attr="create-cohort"]')).toBeVisible()
-        await expect(page.locator('[data-attr="product-introduction-docs-link"]')).toHaveText(/Learn more/)
+        await expect(page.locator('[data-attr="product-empty-state-docs"]')).toHaveText(/Read the docs/)
     })
 
     test('Can create a cohort', async ({ page }) => {

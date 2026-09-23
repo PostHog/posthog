@@ -1,10 +1,12 @@
+from typing import cast
 from uuid import UUID
 
 from django.http import JsonResponse
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
@@ -16,7 +18,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import load_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.models.user import User
 
 from products.error_tracking.backend.facade import (
     api as facade_api,
@@ -80,6 +83,55 @@ class ErrorTrackingIssueReadSerializer(serializers.Serializer):
     cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
 
 
+@extend_schema_field(
+    {"oneOf": [{"type": "integer"}, {"type": "string"}]},
+    component_name="ErrorTrackingIssueAssigneeId",
+)
+class ErrorTrackingIssueAssigneeIdField(serializers.Field):
+    def to_internal_value(self, data: object) -> int | str:
+        if isinstance(data, bool) or not isinstance(data, int | str):
+            raise serializers.ValidationError("Expected a user ID or role UUID.")
+        return data
+
+    def to_representation(self, value: object) -> int | str:
+        return value if isinstance(value, int | str) else str(value)
+
+
+class ErrorTrackingIssueAssigneeWriteSerializer(serializers.Serializer):
+    id = ErrorTrackingIssueAssigneeIdField(help_text="User ID or role UUID to assign the issue to.")
+    type = serializers.ChoiceField(
+        choices=["user", "role"],
+        help_text="Assignment target type: user or role.",
+    )
+
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        assignee_id = attrs["id"]
+        if attrs["type"] == "user":
+            try:
+                attrs["id"] = int(str(assignee_id))
+            except (TypeError, ValueError):
+                raise serializers.ValidationError({"id": "Provide a numeric user ID."})
+        else:
+            try:
+                attrs["id"] = str(UUID(str(assignee_id)))
+            except ValueError:
+                raise serializers.ValidationError({"id": "Provide a valid role UUID."})
+        return attrs
+
+
+class ErrorTrackingIssueAssignRequestSerializer(serializers.Serializer):
+    assignee = ErrorTrackingIssueAssigneeWriteSerializer(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Assignment target. Set to null or omit to remove the current assignment.",
+    )
+
+
+class ErrorTrackingIssueAssignResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the assignment update completed successfully.")
+
+
 class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=WRITABLE_ISSUE_STATUSES,
@@ -104,6 +156,53 @@ class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional issue description.",
     )
+
+
+class ErrorTrackingIssueBulkRequestSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(
+        choices=["set_status", "assign"],
+        help_text="Which mutation to apply to every listed issue.",
+    )
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="IDs of the issues to update.",
+    )
+    status = serializers.ChoiceField(
+        choices=WRITABLE_ISSUE_STATUSES,
+        required=False,
+        help_text="Status to set. Required when action is set_status.",
+    )
+    assignee = ErrorTrackingIssueAssigneeWriteSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Assignment target. Required when action is assign; null unassigns.",
+    )
+
+
+class ErrorTrackingIssueCohortRequestSerializer(serializers.Serializer):
+    cohortId = serializers.IntegerField(help_text="ID of the cohort to attach to the issue.")
+
+
+class ErrorTrackingIssueRedirectResponseSerializer(serializers.Serializer):
+    issue_id = serializers.UUIDField(help_text="Issue the requested fingerprint now belongs to.")
+
+
+class ErrorTrackingIssueSuccessResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the update completed successfully.")
+
+
+class ErrorTrackingIssueExistsResponseSerializer(serializers.Serializer):
+    exists = serializers.BooleanField(help_text="Whether the project has recorded any issue at all.")
+
+
+class ErrorTrackingIssueValueSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="One distinct value of the requested property.")
+
+
+class ErrorTrackingIssueValuesResponseSerializer(serializers.Serializer):
+    results = ErrorTrackingIssueValueSerializer(many=True, help_text="Distinct values, for the taxonomic filter.")
+    refreshing = serializers.BooleanField(help_text="Always false. Kept for the taxonomic filter's shared shape.")
 
 
 class ErrorTrackingIssueMergeRequestSerializer(serializers.Serializer):
@@ -173,6 +272,24 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             lambda limit, offset: facade_api.list_issues_detailed(self.team.id, limit=limit, offset=offset),
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="fingerprint",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Resolve the issue that currently owns this fingerprint first.",
+            )
+        ],
+        responses={
+            200: ErrorTrackingIssueReadSerializer,
+            308: OpenApiResponse(
+                response=ErrorTrackingIssueRedirectResponseSerializer,
+                description="The fingerprint belongs to a different issue now.",
+            ),
+        },
+    )
     def retrieve(self, request: request.Request, *args: object, **kwargs: object) -> Response | JsonResponse:
         issue_id = UUID(str(kwargs["pk"]))
         fingerprint = self.request.GET.get("fingerprint")
@@ -212,6 +329,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             raise NotFound("Issue not found")
         return Response(ErrorTrackingIssueReadSerializer(issue).data)
 
+    @extend_schema(responses={200: ErrorTrackingIssueExistsResponseSerializer})
     @action(methods=["GET"], detail=False)
     def exists(self, request: request.Request, **kwargs: object) -> Response:
         return Response({"exists": facade_api.issue_exists(self.team.id)})
@@ -224,7 +342,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def merge(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         ids = [str(issue_id) for issue_id in request.validated_data["ids"]]
         try:
-            merge_result = issues_facade.merge_issues(self.team.id, UUID(str(pk)), ids)
+            merge_result = issues_facade.merge_issues(
+                self.team.id,
+                UUID(str(pk)),
+                ids,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+            )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
         if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_ISSUES:
@@ -241,19 +365,28 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def split(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         fingerprints = request.validated_data["fingerprints"]
         try:
-            new_issue_ids = issues_facade.split_issue(self.team.id, UUID(str(pk)), fingerprints)
+            new_issue_ids = issues_facade.split_issue(
+                self.team.id,
+                UUID(str(pk)),
+                fingerprints,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+            )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
         return Response({"success": True, "new_issue_ids": [str(i) for i in new_issue_ids]})
 
+    @validated_request(
+        request_serializer=ErrorTrackingIssueAssignRequestSerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingIssueAssignResponseSerializer)},
+    )
     @action(methods=["PATCH"], detail=True)
-    def assign(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
-        assignee = request.data.get("assignee", None)
+    def assign(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         try:
             issues_facade.assign_issue(
                 self.team.id,
                 UUID(str(pk)),
-                assignee,
+                request.validated_data["assignee"],
                 user=request.user,
                 was_impersonated=is_impersonated(request),
             )
@@ -263,6 +396,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             raise ValidationError(str(err))
         return Response({"success": True})
 
+    @extend_schema(
+        request=ErrorTrackingIssueCohortRequestSerializer,
+        responses={200: ErrorTrackingIssueSuccessResponseSerializer},
+    )
     @action(methods=["PUT"], detail=True)
     def cohort(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
         cohort_id = request.data.get("cohortId", None)
@@ -283,6 +420,25 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         return Response({"success": True})
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="key",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Issue property to list values for.",
+            ),
+            OpenApiParameter(
+                name="value",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Substring the returned values must contain.",
+            ),
+        ],
+        responses={200: ErrorTrackingIssueValuesResponseSerializer},
+    )
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs: object) -> Response:
         value = request.GET.get("value", None)
@@ -290,6 +446,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue_values = facade_api.get_issue_values(self.team.id, key, value)
         return Response({"results": [{"name": value} for value in issue_values], "refreshing": False})
 
+    @extend_schema(
+        request=ErrorTrackingIssueBulkRequestSerializer,
+        responses={200: ErrorTrackingIssueSuccessResponseSerializer},
+    )
     @action(methods=["POST"], detail=False)
     def bulk(self, request: request.Request, **kwargs: object) -> Response:
         try:
@@ -311,16 +471,16 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs: object) -> Response:
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
-        activity_page = load_activity(scope="ErrorTrackingIssue", team_id=self.team_id, limit=limit, page=page)
-        return activity_page_response(activity_page, limit, page, request)
+        activity_page = load_activity(
+            scope="ErrorTrackingIssue", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+        )
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         if not facade_api.issue_exists_by_id(self.team_id, str(pk)):
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -329,7 +489,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             scope="ErrorTrackingIssue",
             team_id=self.team_id,
             item_ids=[str(pk)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)

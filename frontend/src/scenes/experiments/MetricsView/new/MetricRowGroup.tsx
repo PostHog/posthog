@@ -27,7 +27,6 @@ import {
 import { NodeKind } from '~/queries/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
-import { isLaunched } from '~/scenes/experiments/experimentsLogic'
 import { useColumnWidthSync } from '~/scenes/experiments/MetricsView/hooks/useColumnWidthSync'
 import { ChartEmptyState } from '~/scenes/experiments/MetricsView/shared/ChartEmptyState'
 import { SkeletonResultCells } from '~/scenes/experiments/MetricsView/shared/ChartLoadingSkeleton'
@@ -56,6 +55,10 @@ import {
 } from '~/scenes/experiments/MetricsView/shared/utils'
 import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { DetailsModal } from 'products/experiments/frontend/modals/DetailsModal/DetailsModal'
+import { TimeseriesModal } from 'products/experiments/frontend/modals/TimeseriesModal/TimeseriesModal'
+
 import { ChartCell } from './ChartCell'
 import {
     CELL_HEIGHT,
@@ -68,10 +71,8 @@ import {
     VIEW_BOX_WIDTH,
 } from './constants'
 import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
 import { GridLines } from './GridLines'
 import { renderTooltipContent } from './MetricRowGroupTooltip'
-import { TimeseriesModal } from './TimeseriesModal'
 import { useAxisScale } from './useAxisScale'
 
 interface CollapsibleBreakdownSectionProps {
@@ -537,6 +538,14 @@ interface MetricRowGroupProps {
     showDetailsModal: boolean
 }
 
+/**
+ * Tooltip state is per MetricRowGroup, and a tooltip can outlive the cursor on its
+ * close-grace timer. Without coordination, sweeping the cursor across groups shows
+ * several tooltips at once. The group that owns the open tooltip registers its close
+ * function here, and the next group to open a tooltip calls it first.
+ */
+let closeOpenTooltip: (() => void) | null = null
+
 export function MetricRowGroup({
     metric,
     result,
@@ -582,6 +591,7 @@ export function MetricRowGroup({
     })
     const tooltipRef = useRef<HTMLDivElement>(null)
     const tooltipCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const ownsOpenTooltipRef = useRef(false)
     const colors = useChartColors()
 
     const clearTooltipCloseTimer = (): void => {
@@ -592,6 +602,10 @@ export function MetricRowGroup({
     }
 
     const hideTooltipState = (): void => {
+        if (ownsOpenTooltipRef.current) {
+            ownsOpenTooltipRef.current = false
+            closeOpenTooltip = null
+        }
         setTooltipState((prev) => ({
             ...prev,
             isVisible: false,
@@ -616,8 +630,28 @@ export function MetricRowGroup({
     useEffect(() => {
         return () => {
             clearTooltipCloseTimer()
+            if (ownsOpenTooltipRef.current) {
+                ownsOpenTooltipRef.current = false
+                closeOpenTooltip = null
+            }
         }
     }, [])
+
+    // The tooltip is fixed-positioned from coordinates captured on hover, so it
+    // doesn't track the page on scroll — dismiss it instead, like native tooltips.
+    useEffect(() => {
+        if (!tooltipState.isVisible) {
+            return
+        }
+        const handleScroll = (): void => {
+            clearTooltipCloseTimer()
+            hideTooltipState()
+        }
+        // Capture phase so scrolls of any ancestor scroll container are caught, not just the window
+        window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
+        return () => window.removeEventListener('scroll', handleScroll, { capture: true })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tooltipState.isVisible])
 
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
@@ -693,6 +727,11 @@ export function MetricRowGroup({
         }
 
         clearTooltipCloseTimer()
+        if (!ownsOpenTooltipRef.current) {
+            closeOpenTooltip?.()
+        }
+        closeOpenTooltip = closeTooltipNow
+        ownsOpenTooltipRef.current = true
         const position = calculateTooltipPosition(chartCell, variantResult)
         setTooltipState({
             isVisible: true,

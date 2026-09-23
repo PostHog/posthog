@@ -9,7 +9,7 @@ const log = logger.scope("github-integration-callback-hook");
 const DEFAULT_ERROR_MESSAGE =
   "GitHub install failed. Please try connecting again.";
 
-export interface IntegrationCallbackError {
+interface IntegrationCallbackError {
   message: string;
   code: string | null;
 }

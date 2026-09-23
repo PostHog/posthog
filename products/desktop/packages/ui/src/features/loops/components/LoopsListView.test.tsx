@@ -1,9 +1,9 @@
 import type { LoopSchemas } from "@posthog/api-client/loops";
-import type { UserBasic } from "@posthog/shared/domain-types";
 import { Theme } from "@radix-ui/themes";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import type { LoopSpace } from "../loopScopes";
 import { LoopsListViewPresentation } from "./LoopsListView";
 
 vi.mock("./LoopBuilderComposer", () => ({
@@ -12,47 +12,86 @@ vi.mock("./LoopBuilderComposer", () => ({
 vi.mock("./LoopTemplatesSection", () => ({
   LoopTemplatesSection: () => null,
 }));
-vi.mock("./LoopRow", () => ({
-  LoopRow: ({
-    loop,
-    creator,
+vi.mock("../hooks/useLoopMutations", () => ({
+  useUpdateLoop: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    children,
+    params,
+    to,
   }: {
-    loop: LoopSchemas.Loop;
-    creator?: UserBasic;
+    children: React.ReactNode;
+    params?: { channelId?: string; loopId?: string };
+    to: string;
   }) => (
-    <div>
-      {loop.name}
-      {loop.visibility === "team" && creator ? ` by ${creator.email}` : null}
-    </div>
+    <a
+      href={to
+        .replace("$channelId", params?.channelId ?? "")
+        .replace("$loopId", params?.loopId ?? "")}
+    >
+      {children}
+    </a>
   ),
 }));
 
 function loop(
   id: string,
-  visibility: LoopSchemas.LoopVisibilityEnum,
-  createdById = 1,
+  name: string,
+  overrides: Partial<LoopSchemas.Loop> & {
+    space?: { channel_id: string; name: string } | null;
+  } = {},
 ): LoopSchemas.Loop {
+  const { space = null, ...rest } = overrides;
   return {
     id,
-    name: `${visibility} loop`,
-    visibility,
-    created_by_id: createdById,
+    name,
+    description: "",
+    visibility: "team",
+    enabled: true,
+    disabled_reason: null,
+    created_by_id: 1,
+    triggers: [],
+    consecutive_failures: 0,
+    last_run_at: null,
+    last_run_status: null,
+    context_target: space
+      ? {
+          ...space,
+          outputs: {
+            post_to_feed: true,
+            update_context: false,
+            canvas_id: null,
+          },
+        }
+      : null,
+    ...rest,
   } as LoopSchemas.Loop;
 }
 
-function controlledPanel(tab: HTMLElement): HTMLElement {
-  const panelId = tab.getAttribute("aria-controls");
-  const panel = document.getElementById(panelId ?? "");
-  if (!panel) throw new Error("Tab does not control a panel");
-  return panel;
+const GROWTH: LoopSpace = {
+  id: "space-growth",
+  name: "growth",
+  channelType: "public",
+};
+
+async function pick(filterLabel: string, option: RegExp): Promise<void> {
+  await userEvent.click(screen.getByRole("button", { name: filterLabel }));
+  await userEvent.click(
+    await screen.findByRole("menuitemradio", { name: option }),
+  );
+}
+
+function tableRows(): HTMLElement[] {
+  return within(screen.getByRole("table")).getAllByRole("row").slice(1);
 }
 
 describe("LoopsListViewPresentation", () => {
-  it("does not render visibility groups while loops are loading", () => {
+  it("renders no table while loops are loading", () => {
     render(
       <Theme>
         <LoopsListViewPresentation
-          loops={[loop("mine-team", "team")]}
+          loops={[loop("a", "Global one")]}
           isLoading
           onStartBlank={vi.fn()}
           onStartFromTemplate={vi.fn()}
@@ -60,68 +99,89 @@ describe("LoopsListViewPresentation", () => {
       </Theme>,
     );
 
-    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
-  // The triggers sit in the page header and the panels stay in the scrolling
-  // body — one Tabs root spanning both, so switching has to keep working
-  // across that split.
-  it("groups loops by visibility regardless of their creator", async () => {
-    const currentUser: UserBasic = {
-      id: 1,
-      uuid: "current-user",
-      email: "current@example.com",
-    };
+  it("lists every loop with its space", async () => {
     render(
       <Theme>
         <LoopsListViewPresentation
           loops={[
-            loop("personal", "personal"),
-            loop("mine-team", "team"),
-            loop("teammate-team", "team", 2),
+            loop("a", "Global one"),
+            loop("b", "Growth digest", {
+              space: { channel_id: GROWTH.id, name: "growth" },
+            }),
+            loop("c", "Orphan watch", {
+              space: { channel_id: "gone", name: "me" },
+            }),
           ]}
-          members={[currentUser]}
+          spaces={[GROWTH]}
           onStartBlank={vi.fn()}
           onStartFromTemplate={vi.fn()}
         />
       </Theme>,
     );
 
-    const personalTab = screen.getByRole("tab", { name: "My loops (1)" });
+    await pick("Filter by scope", /^All loops/);
+    expect(tableRows()).toHaveLength(3);
+    const growthRow = screen.getByRole("row", { name: /Growth digest/ });
     expect(
-      within(controlledPanel(personalTab)).getByText("personal loop"),
-    ).toBeVisible();
-
-    const teamTab = screen.getByRole("tab", { name: "Team loops (2)" });
-    await userEvent.click(teamTab);
-
-    expect(teamTab).toHaveAttribute("aria-selected", "true");
+      within(growthRow).getByRole("link", { name: /growth/ }),
+    ).toHaveAttribute("href", "/spaces/space-growth/loops");
+    const orphanRow = screen.getByRole("row", { name: /Orphan watch/ });
     expect(
-      within(controlledPanel(teamTab)).getByText(
-        "team loop by current@example.com",
-      ),
+      within(orphanRow).getByText("Teammate's personal space"),
     ).toBeVisible();
     expect(
-      within(controlledPanel(teamTab)).getAllByText(/team loop/),
-    ).toHaveLength(2);
-    // The deselected panel is inert, then unmounts when its transition ends.
-    await waitFor(() =>
-      expect(screen.queryByText("personal loop")).not.toBeInTheDocument(),
-    );
+      within(orphanRow).queryByRole("link", { name: /personal/ }),
+    ).toBeNull();
+
+    expect(
+      screen.getByText("3 active · 1 global · 2 in 2 spaces"),
+    ).toBeVisible();
+    expect(
+      screen.getByText("3 active · 1 global · 2 in 2 spaces"),
+    ).toBeVisible();
   });
 
-  it("hides the header trigger strip while loops are loading", () => {
+  it("narrows the table by scope, visibility, search and paused state", async () => {
     render(
       <Theme>
         <LoopsListViewPresentation
-          loops={[]}
-          isLoading
+          loops={[
+            loop("a", "Global one"),
+            loop("b", "Growth digest", {
+              space: { channel_id: GROWTH.id, name: "growth" },
+            }),
+            loop("c", "My reminder", {
+              visibility: "personal",
+              enabled: false,
+            }),
+          ]}
+          spaces={[GROWTH]}
           onStartBlank={vi.fn()}
           onStartFromTemplate={vi.fn()}
         />
       </Theme>,
     );
 
-    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(tableRows()).toHaveLength(2);
+    expect(screen.queryByText("Growth digest")).not.toBeInTheDocument();
+
+    await pick("Filter by visibility", /^Personal loops/);
+    expect(tableRows()).toHaveLength(1);
+    expect(screen.getByText("My reminder")).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "Hide paused" }));
+    expect(
+      screen.getByText("No loops match the current filters."),
+    ).toBeVisible();
+
+    await pick("Filter by scope", /^All loops/);
+    await pick("Filter by visibility", /^Team and personal/);
+    await userEvent.click(screen.getByRole("button", { name: /Hide paused/ }));
+    await userEvent.type(screen.getByPlaceholderText("Search loops"), "growth");
+    expect(tableRows()).toHaveLength(1);
+    expect(screen.getByText("Growth digest")).toBeVisible();
   });
 });

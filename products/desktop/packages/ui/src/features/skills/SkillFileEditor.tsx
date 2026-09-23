@@ -1,6 +1,6 @@
+import { Button } from "@posthog/quill";
 import type { SkillInfo } from "@posthog/shared";
 import { toast } from "@posthog/ui/primitives/toast";
-import { Box, Button, Flex } from "@radix-ui/themes";
 import { useRef, useState } from "react";
 import { SkillCodeEditor } from "./SkillCodeEditor";
 import { skillErrorDescription } from "./skillErrors";
@@ -43,8 +43,8 @@ export function SkillFileEditor({
   };
 
   return (
-    <Flex direction="column" height="100%">
-      <Box className="min-h-0 flex-1">
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1">
         <SkillCodeEditor
           initialContent={mountedContent}
           filePath={`${skill.path}/${filePath}`}
@@ -52,25 +52,22 @@ export function SkillFileEditor({
             contentRef.current = doc;
           }}
         />
-      </Box>
-      <Flex
-        justify="end"
-        gap="2"
-        p="2"
-        className="shrink-0 border-t border-t-(--gray-5)"
-      >
-        <Button size="1" variant="soft" color="gray" onClick={onCancel}>
+      </div>
+      <div className="flex shrink-0 justify-end gap-1.5 border-gray-5 border-t p-2">
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           Cancel
         </Button>
         <Button
-          size="1"
-          variant="solid"
-          onClick={handleSave}
+          type="button"
+          variant="primary"
+          size="sm"
+          loading={saveFile.isPending}
           disabled={saveFile.isPending}
+          onClick={() => void handleSave()}
         >
           Save
         </Button>
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   );
 }

@@ -26,10 +26,10 @@ from products.signals.backend.emission.fetchers.data_warehouse import data_wareh
 from products.signals.backend.emission.pipeline import (
     LLM_MAX_ATTEMPTS,
     TEMPORAL_PAYLOAD_MAX_BYTES,
-    _check_actionability,
     _emit_signals,
     _summarize_description,
     build_emitter_outputs,
+    check_actionability,
     filter_actionable,
     run_signal_pipeline,
     summarize_long_descriptions,
@@ -127,6 +127,71 @@ class TestQueryNewRecords:
         query_arg = mock_parse.call_args[0][0]
         assert "parseDateTimeBestEffort(updated_at) > {last_synced_at}" in query_arg
 
+    @pytest.mark.parametrize(
+        "source_config,expected_ids",
+        [
+            ({"linear_team_ids": ["team-1", "team-2"]}, ["team-1", "team-2"]),
+            ({"linear_team_ids": [" team-1 ", "team-2"]}, ["team-1", "team-2"]),
+            # Every one of these means "read everything": a malformed list must not apply even in part.
+            ({"linear_team_ids": []}, None),
+            ({}, None),
+            (None, None),
+            ({"linear_team_ids": "team-1"}, None),
+            ({"linear_team_ids": ["team-1", 1]}, None),
+            ({"linear_team_ids": ["team-1", " "]}, None),
+            ({"linear_team_ids": ["x" * 300]}, None),
+            ({"linear_team_ids": [f"team-{i}" for i in range(101)]}, None),
+        ],
+    )
+    def test_scope_filter_comes_from_source_config(self, source_config, expected_ids):
+        config = _make_config(scope_field="JSONExtractString(team, 'id')", scope_config_key="linear_team_ids")
+        mock_result = MagicMock()
+        mock_result.columns = []
+        mock_result.results = []
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                data_warehouse_record_fetcher(
+                    team=MagicMock(),
+                    config=config,
+                    context={
+                        "table_name": "test_table",
+                        "last_synced_at": "2025-01-01T00:00:00Z",
+                        "extra": {},
+                        "source_config": source_config,
+                    },
+                )
+
+        query_arg = mock_parse.call_args[0][0]
+        placeholders = mock_parse.call_args.kwargs["placeholders"]
+        if expected_ids is None:
+            assert "IN {scope_ids}" not in query_arg
+            assert "scope_ids" not in placeholders
+        else:
+            assert "JSONExtractString(team, 'id') IN {scope_ids}" in query_arg
+            assert placeholders["scope_ids"] == ast.Tuple(exprs=[ast.Constant(value=i) for i in expected_ids])
+
+    def test_source_without_scope_ignores_scope_keys_in_config(self):
+        config = _make_config()
+        mock_result = MagicMock()
+        mock_result.columns = []
+        mock_result.results = []
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                data_warehouse_record_fetcher(
+                    team=MagicMock(),
+                    config=config,
+                    context={
+                        "table_name": "test_table",
+                        "last_synced_at": "2025-01-01T00:00:00Z",
+                        "extra": {},
+                        "source_config": {"linear_team_ids": ["team-1"]},
+                    },
+                )
+
+        assert "scope_ids" not in mock_parse.call_args[0][0]
+
     def test_first_sync_uses_lookback_window(self):
         config = _make_config(partition_field="time", first_sync_lookback_days=14)
         mock_result = MagicMock()
@@ -164,6 +229,48 @@ class TestQueryNewRecords:
 
         query_arg = mock_parse.call_args[0][0]
         assert "parseDateTimeBestEffort(time) > now() - interval 14 day" in query_arg
+
+    @pytest.mark.parametrize(
+        "table_name,expected_chain",
+        [
+            ("test_table", ["test_table"]),
+            # A GitHub source keys its table on the repository name, so a hyphen reaches HogQL.
+            ("github.owner_my-repo__issues", ["github", "owner_my-repo__issues"]),
+            ("github.owner_my.repo__issues", ["github", "owner_my", "repo__issues"]),
+        ],
+    )
+    def test_query_parses_for_any_table_name(self, table_name, expected_chain):
+        config = _make_config()
+        mock_result = MagicMock()
+        mock_result.columns = []
+        mock_result.results = []
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result) as mock_execute:
+            data_warehouse_record_fetcher(
+                team=MagicMock(),
+                config=config,
+                context={"table_name": table_name, "last_synced_at": "2025-01-01T00:00:00Z", "extra": {}},
+            )
+
+        assert mock_execute.call_args.kwargs["query"].select_from.table.chain == expected_chain
+
+    def test_logs_and_reraises_when_the_query_cannot_be_parsed(self):
+        # A parse failure used to escape before the first log line, so a broken query looked like silence.
+        config = _make_config()
+
+        with (
+            patch(f"{FETCHER_MODULE_PATH}.parse_select", side_effect=Exception("cannot parse")),
+            patch(f"{FETCHER_MODULE_PATH}.logger") as mock_logger,
+        ):
+            with pytest.raises(Exception, match="cannot parse"):
+                data_warehouse_record_fetcher(
+                    team=MagicMock(),
+                    config=config,
+                    context={"table_name": "test_table", "last_synced_at": None, "extra": {"team_id": 7}},
+                )
+
+        assert "Error querying new records" in mock_logger.exception.call_args[0][0]
+        assert mock_logger.exception.call_args.kwargs["team_id"] == 7
 
     def test_reraises_on_query_error(self):
         # Must NOT swallow: silenced failures advance last_synced_at and permanently skip records.
@@ -273,7 +380,7 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response(llm_response))
 
         output = _make_output(description="test ticket")
-        is_actionable = await _check_actionability(mock_client, 1, output, "Is this actionable? {description}")
+        is_actionable = await check_actionability(mock_client, 1, output, "Is this actionable? {description}")
 
         assert is_actionable is expected
 
@@ -286,7 +393,7 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
         output = _make_output(extra={"author_login": "dependabot[bot]", "state": "open"})
 
-        await _check_actionability(mock_client, 1, output, "prompt {description}", context_fields=("author_login",))
+        await check_actionability(mock_client, 1, output, "prompt {description}", context_fields=("author_login",))
 
         prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
         assert '"author_login": "dependabot[bot]"' in prompt
@@ -301,7 +408,7 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
         output = _make_output(extra={"author_login": None, "author_association": None})
 
-        await _check_actionability(
+        await check_actionability(
             mock_client, 1, output, "prompt {description}", context_fields=("author_login", "author_association")
         )
 
@@ -316,7 +423,7 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
         output = _make_output(extra={"labels": ["x" * 100] * 40, "author_login": "octocat"})
 
-        await _check_actionability(
+        await check_actionability(
             mock_client,
             1,
             output,
@@ -334,7 +441,7 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))
 
         with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
-            is_actionable = await _check_actionability(mock_client, 1, _make_output(), "prompt {description}")
+            is_actionable = await check_actionability(mock_client, 1, _make_output(), "prompt {description}")
 
         assert is_actionable is True
         assert mock_client.messages.create.call_count == LLM_MAX_ATTEMPTS
@@ -344,7 +451,7 @@ class TestCheckActionability:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response(None))
 
-        is_actionable = await _check_actionability(mock_client, 1, _make_output(), "prompt {description}")
+        is_actionable = await check_actionability(mock_client, 1, _make_output(), "prompt {description}")
 
         assert is_actionable is True
 
@@ -354,7 +461,7 @@ class TestCheckActionability:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
         output = _make_output(source_id="42")
-        await _check_actionability(mock_client, 7, output, "Is this actionable? {description}")
+        await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
         assert call_kwargs["metadata"]["user_id"] == "team-7"
@@ -367,13 +474,28 @@ class TestCheckActionability:
         assert "x-posthog-property-$ai_billable" not in headers
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "model,expected_output_config",
+        [("claude-sonnet-5", {"effort": "medium"}), ("claude-sonnet-4-5", None)],
+    )
+    async def test_pins_effort_only_on_adaptive_models(self, model, expected_output_config):
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+
+        with patch(f"{PIPELINE_MODULE_PATH}.LLM_MODEL", model):
+            await check_actionability(mock_client, 7, _make_output(), "Is this actionable? {description}")
+
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs.get("output_config") == expected_output_config
+
+    @pytest.mark.asyncio
     @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
     async def test_gateway_mode_labels_ride_on_properties_blob(self):
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
         output = _make_output(source_id="42")
-        await _check_actionability(mock_client, 7, output, "Is this actionable? {description}")
+        await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
 
         headers = mock_client.messages.create.call_args.kwargs["extra_headers"]
         # The Go gateway reads labels only from X-PostHog-Properties; the per-key headers are gone.
@@ -903,7 +1025,13 @@ class TestEmitActivityTableNameResolution:
 class TestEmitActivitySourceConfigThreading:
     @pytest.mark.asyncio
     async def test_passes_team_source_config_to_pipeline(self):
-        config = _make_config(record_fetcher=lambda team, config, context: [])
+        captured_context: dict[str, Any] = {}
+
+        def capture_fetcher(team, config, context):
+            captured_context.update(context)
+            return []
+
+        config = _make_config(record_fetcher=capture_fetcher)
         team = MagicMock(id=7)
         schema = MagicMock()
         schema.table.name = "test_table"
@@ -934,3 +1062,5 @@ class TestEmitActivitySourceConfigThreading:
 
         fetch_mock.assert_awaited_once_with(team.id, config.source_product, config.source_type)
         assert run_mock.call_args.kwargs["source_config"] == {"steering": "skip chores"}
+        # The scope filter reads the blob from this context, so the handoff needs its own assertion.
+        assert captured_context["source_config"] == {"steering": "skip chores"}

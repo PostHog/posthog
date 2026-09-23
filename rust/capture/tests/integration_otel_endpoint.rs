@@ -10,11 +10,11 @@ use capture::event_restrictions::{
     RestrictionScope, RestrictionType,
 };
 use capture::global_rate_limiter::GlobalRateLimiter;
+use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::router;
-use capture::sinks::Event;
 use capture::time::TimeSource;
-use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
+use capture::v0_request::{AiLanePredicate, DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_ingestion_warnings::test_support::CollectingEmitter;
 use common_ingestion_warnings::{WarningEmitter, WarningType, CAPTURE_AI_OTEL};
@@ -69,13 +69,8 @@ impl CapturingSink {
 }
 
 #[async_trait]
-impl Event for CapturingSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().await.push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for CapturingSink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
     }
@@ -177,7 +172,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis,
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
@@ -193,6 +188,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         0.0_f32,                                       // verbose_sample_percent
         26_214_400,                                    // ai_max_sum_of_parts_bytes
         options.ai_max_event_bytes.unwrap_or(983_040), // ai_max_event_bytes
+        AiLanePredicate::Allowlist,                    // ai_lane_predicate
         None,                                          // body_chunk_read_timeout_ms
         256,                                           // body_read_chunk_size_kb
         10 * 1024 * 1024,                              // capture_v1_max_compressed_body_bytes

@@ -94,19 +94,19 @@ pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>)
         )
     };
 
-    println!();
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("  📱 Authorization Required");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!();
-    println!("To authenticate, visit this URL in your browser:");
-    println!("  {verification_url}");
-    println!();
-    println!("Your authorization code:");
-    println!("  ✨ {} ✨", device_data.user_code);
-    println!();
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!();
+    crate::safe_println!();
+    crate::safe_println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    crate::safe_println!("  📱 Authorization Required");
+    crate::safe_println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    crate::safe_println!();
+    crate::safe_println!("To authenticate, visit this URL in your browser:");
+    crate::safe_println!("  {verification_url}");
+    crate::safe_println!();
+    crate::safe_println!("Your authorization code:");
+    crate::safe_println!("  ✨ {} ✨", device_data.user_code);
+    crate::safe_println!();
+    crate::safe_println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    crate::safe_println!();
 
     // Step 2: Try to open browser
     if let Err(e) = open_browser(&verification_url) {
@@ -332,13 +332,13 @@ fn complete_login(
     context().capture_command_invoked(command_name);
     let next_command = recommended_next_command(scopes, use_cases);
 
-    println!();
-    println!("🎉 Authentication complete!");
-    println!("Credentials saved to: {}", provider.report_location());
-    println!();
-    println!("You can now use the CLI:");
-    println!("  {next_command}");
-    println!();
+    crate::safe_println!();
+    crate::safe_println!("🎉 Authentication complete!");
+    crate::safe_println!("Credentials saved to: {}", provider.report_location());
+    crate::safe_println!();
+    crate::safe_println!("You can now use the CLI:");
+    crate::safe_println!("  {next_command}");
+    crate::safe_println!();
 
     Ok(())
 }

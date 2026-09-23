@@ -1,5 +1,5 @@
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Box, Flex, Text } from "@radix-ui/themes";
+import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
 import { useQuery } from "@tanstack/react-query";
 
 function PermissionBadge({
@@ -25,32 +25,31 @@ function PermissionBadge({
 
 function PermissionList({
   title,
+  description,
   permissions,
   color,
   emptyMessage,
 }: {
   title: string;
+  description: string;
   permissions: string[];
   color: "green" | "red";
   emptyMessage: string;
 }) {
   return (
-    <Box className="rounded-lg border border-gray-6 bg-gray-2 p-3">
-      <Text className="mb-2 block font-medium text-[13px]">{title}</Text>
-      <Box className="min-h-[40px] rounded border border-gray-5 bg-gray-3 p-2.5">
-        {permissions.length > 0 ? (
-          <Flex wrap="wrap" gap="2">
-            {permissions.map((perm) => (
-              <PermissionBadge key={perm} permission={perm} color={color} />
-            ))}
-          </Flex>
-        ) : (
-          <Text color="gray" className="text-[13px]">
-            {emptyMessage}
-          </Text>
-        )}
-      </Box>
-    </Box>
+    <SettingsCardRow label={title} description={description} stacked>
+      {permissions.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {permissions.map((perm) => (
+            <PermissionBadge key={perm} permission={perm} color={color} />
+          ))}
+        </div>
+      ) : (
+        <span className="text-[12px] text-muted-foreground">
+          {emptyMessage}
+        </span>
+      )}
+    </SettingsCardRow>
   );
 }
 
@@ -59,20 +58,21 @@ export function PermissionsSettings() {
   const { data } = useQuery(trpc.os.getClaudePermissions.queryOptions());
 
   return (
-    <Flex direction="column" gap="3" mb="2">
+    <>
       <PermissionList
         title="Allowed"
+        description="Tools that run without asking"
         permissions={data?.allow ?? []}
         color="green"
         emptyMessage="No allowed permissions configured"
       />
-
       <PermissionList
         title="Denied"
+        description="Tools that are always blocked"
         permissions={data?.deny ?? []}
         color="red"
         emptyMessage="No denied permissions configured"
       />
-    </Flex>
+    </>
   );
 }

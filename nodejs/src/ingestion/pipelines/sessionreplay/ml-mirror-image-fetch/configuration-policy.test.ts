@@ -1,3 +1,5 @@
+import { register } from 'prom-client'
+
 import { StreamedResponse, fetchStreamed } from '~/common/utils/request'
 
 import {
@@ -90,8 +92,14 @@ describe('robots policy', () => {
             allowed: false,
             reason: 'robots_disallow',
         })
-        await expect(parseRobotsPolicy(body, `${ORIGIN}/private/public.png`)).resolves.toMatchObject({ allowed: true })
-        await expect(parseRobotsPolicy(body, `${ORIGIN}/wildcard/image.png`)).resolves.toMatchObject({ allowed: true })
+        await expect(parseRobotsPolicy(body, `${ORIGIN}/private/public.png`)).resolves.toMatchObject({
+            allowed: true,
+            crawlDelayMs: 0,
+        })
+        await expect(parseRobotsPolicy(body, `${ORIGIN}/wildcard/image.png`)).resolves.toMatchObject({
+            allowed: true,
+            crawlDelayMs: 0,
+        })
     })
 
     it('uses the greatest valid crawl delay in every selected field line', async () => {
@@ -194,6 +202,7 @@ describe('response opt-out policy', () => {
 })
 
 describe('ConfigurationPolicyService', () => {
+    beforeEach(() => register.resetMetrics())
     it('checks both files before it allows an image request', async () => {
         const { policy, fetch } = service()
 
@@ -213,6 +222,36 @@ describe('ConfigurationPolicyService', () => {
 
         await expect(policy.check(`${ORIGIN}/image.png`, cache, NOW_MS)).resolves.toMatchObject({ allowed: true })
         expect(fetch).not.toHaveBeenCalled()
+        const lookups = await register.getSingleMetric('ml_image_fetch_configuration_lookups_total')!.get()
+        expect(lookups.values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ labels: { file: 'robots', source: 'cache', outcome: 'absent' }, value: 1 }),
+                expect.objectContaining({ labels: { file: 'tdmrep', source: 'cache', outcome: 'absent' }, value: 1 }),
+            ])
+        )
+    })
+
+    it('counts shared configuration requests separately from new requests', async () => {
+        let resolve!: (result: ConfigurationFetchResult) => void
+        const pending = new Promise<ConfigurationFetchResult>((done) => {
+            resolve = done
+        })
+        const fetch = jest.fn(() => pending)
+        const policy = new ConfigurationPolicyService({ fetch } as unknown as HttpConfigurationFetcher)
+        const first = policy.check(`${ORIGIN}/first.png`, new Map(), NOW_MS)
+        const second = policy.check(`${ORIGIN}/second.png`, new Map(), NOW_MS)
+        expect(fetch).toHaveBeenCalledTimes(2)
+        resolve({ outcome: 'unreachable' })
+        await Promise.all([first, second])
+        const lookups = await register.getSingleMetric('ml_image_fetch_configuration_lookups_total')!.get()
+        for (const file of ['robots', 'tdmrep']) {
+            expect(lookups.values).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ labels: { file, source: 'network', outcome: 'unreachable' }, value: 1 }),
+                    expect.objectContaining({ labels: { file, source: 'shared', outcome: 'unreachable' }, value: 1 }),
+                ])
+            )
+        }
     })
 
     it('parses each cached policy revision once in a fetch pass', async () => {
@@ -334,20 +373,25 @@ describe('ConfigurationPolicyService', () => {
 describe('HttpConfigurationFetcher', () => {
     beforeEach(() => {
         fetchStreamedMock.mockReset()
+        register.resetMetrics()
     })
 
     it.each([
-        [404, 'absent'],
-        [410, 'absent'],
-        [401, 'refused'],
-        [403, 'refused'],
-        [429, 'unreachable'],
-        [500, 'unreachable'],
-        [204, 'unreachable'],
-    ])('maps HTTP %s to %s', async (status, outcome) => {
+        [404, 'absent', 'absent'],
+        [410, 'absent', 'absent'],
+        [401, 'refused', 'refused'],
+        [403, 'refused', 'refused'],
+        [429, 'unreachable', 'http_429'],
+        [500, 'unreachable', 'http_5xx'],
+        [204, 'unreachable', 'unexpected_status'],
+    ])('maps HTTP %s to %s', async (status, outcome, reason) => {
         fetchStreamedMock.mockResolvedValue(response(status))
 
         await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({ outcome })
+        const fetches = await register.getSingleMetric('ml_image_fetch_configuration_fetches_total')!.get()
+        expect(fetches.values).toEqual([
+            expect.objectContaining({ labels: { file: 'robots', outcome, reason }, value: 1 }),
+        ])
     })
 
     it('uses the retained prefix when robots.txt exceeds its byte limit', async () => {
@@ -382,6 +426,19 @@ describe('HttpConfigurationFetcher', () => {
 
         await expect(httpFetcher().fetch(ORIGIN, 'tdmrep')).resolves.toMatchObject({ outcome: 'unreachable' })
         await expect(httpFetcher().fetch(ORIGIN, 'tdmrep')).resolves.toMatchObject({ outcome: 'unreachable' })
+        const fetches = await register.getSingleMetric('ml_image_fetch_configuration_fetches_total')!.get()
+        expect(fetches.values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    labels: { file: 'tdmrep', outcome: 'unreachable', reason: 'body_limit' },
+                    value: 1,
+                }),
+                expect.objectContaining({
+                    labels: { file: 'tdmrep', outcome: 'unreachable', reason: 'invalid_document' },
+                    value: 1,
+                }),
+            ])
+        )
     })
 
     it('treats repeated Location field lines as unreachable', async () => {
@@ -414,6 +471,7 @@ describe('HttpConfigurationFetcher', () => {
             ['https://example.com/robots.txt'],
             ['https://cdn.example.com/robots'],
         ])
+        expect(fetchStreamedMock.mock.calls.map(([, options]) => options.allowH2)).toEqual([true, true])
     })
 
     it('does not follow a configuration redirect to another registrable domain', async () => {

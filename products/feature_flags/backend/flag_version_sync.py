@@ -28,10 +28,11 @@ pre-bump versions.
 """
 
 from collections import defaultdict
+from collections.abc import Collection
 from typing import Any
 
-from django.db import models, transaction
-from django.db.models import Value
+from django.db import transaction
+from django.db.models import QuerySet, Value
 from django.db.models.functions import Coalesce
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
@@ -43,6 +44,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, LogActi
 from posthog.models.activity_logging.utils import activity_storage
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.feature_flags.backend.field_snapshots import capture_fields_before_save, snapshot_if_changed
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
@@ -71,42 +73,6 @@ FLAG_DEFINITION_FIELDS = frozenset({"filters", "active", "deleted", "key"})
 _DEFINITION_BEFORE_SAVE_ATTR = "_definition_before_save"
 
 
-def _capture_definition_before_save(
-    instance: models.Model,
-    manager: models.Manager[Any],
-    definition_fields: frozenset[str],
-    update_fields: frozenset[str] | None,
-    raw: bool,
-) -> None:
-    """Snapshot the persisted definition fields this save may overwrite.
-
-    Always resets the snapshot first so a failed earlier save can never leak a stale
-    capture into a later save's comparison.
-    """
-    setattr(instance, _DEFINITION_BEFORE_SAVE_ATTR, None)
-    if raw or instance.pk is None:
-        return
-    # Only fields this save will actually persist: a definition field changed in
-    # memory but excluded from update_fields is not written, so it must not count.
-    fields = definition_fields if update_fields is None else definition_fields.intersection(update_fields)
-    if not fields:
-        return
-    # sorted(): set iteration order varies between processes, and it reaches the SELECT's
-    # column list — an unstable query string defeats plan reuse and makes the query
-    # snapshots that cover flag saves fail at random.
-    setattr(instance, _DEFINITION_BEFORE_SAVE_ATTR, manager.filter(pk=instance.pk).values(*sorted(fields)).first())
-
-
-def _changed_definition_fields(instance: models.Model) -> dict[str, Any] | None:
-    """Pop the pre_save snapshot and return it only if a snapshotted value changed."""
-    before = instance.__dict__.pop(_DEFINITION_BEFORE_SAVE_ATTR, None)
-    if before is None:
-        return None
-    if all(getattr(instance, field) == value for field, value in before.items()):
-        return None
-    return before
-
-
 @receiver(pre_save, sender=Cohort)
 def capture_cohort_definition_before_save(
     sender: type[Cohort],
@@ -115,7 +81,14 @@ def capture_cohort_definition_before_save(
     update_fields: frozenset[str] | None = None,
     **kwargs: Any,
 ) -> None:
-    _capture_definition_before_save(instance, Cohort.objects, COHORT_DEFINITION_FIELDS, update_fields, raw)
+    capture_fields_before_save(
+        instance,
+        Cohort.objects,
+        COHORT_DEFINITION_FIELDS,
+        attr=_DEFINITION_BEFORE_SAVE_ATTR,
+        update_fields=update_fields,
+        raw=raw,
+    )
 
 
 @receiver(pre_save, sender=FeatureFlag)
@@ -128,8 +101,13 @@ def capture_flag_definition_before_save(
 ) -> None:
     # objects_including_soft_deleted so restoring a soft-deleted flag reads as a
     # deleted True -> False change instead of snapshotting nothing.
-    _capture_definition_before_save(
-        instance, FeatureFlag.objects_including_soft_deleted, FLAG_DEFINITION_FIELDS, update_fields, raw
+    capture_fields_before_save(
+        instance,
+        FeatureFlag.objects_including_soft_deleted,
+        FLAG_DEFINITION_FIELDS,
+        attr=_DEFINITION_BEFORE_SAVE_ATTR,
+        update_fields=update_fields,
+        raw=raw,
     )
 
 
@@ -143,7 +121,7 @@ def bump_flag_versions_on_cohort_definition_change(
 ) -> None:
     if raw or created:
         return
-    if _changed_definition_fields(instance) is None:
+    if snapshot_if_changed(instance, attr=_DEFINITION_BEFORE_SAVE_ATTR) is None:
         return
 
     project_id = instance.team.project_id
@@ -171,7 +149,7 @@ def bump_dependent_flag_versions_on_flag_definition_change(
 ) -> None:
     if raw or created:
         return
-    before = _changed_definition_fields(instance)
+    before = snapshot_if_changed(instance, attr=_DEFINITION_BEFORE_SAVE_ATTR)
     if before is None:
         return
     # An already-deleted flag is in no payload, so edits to it (e.g. the tombstone rename
@@ -272,14 +250,15 @@ def _flag_version_bump_entry(flag: FeatureFlag, old_version: int | None, trigger
     )
 
 
-def _direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
+def direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
     """Flag ids this flag has a ``flag_evaluates_to`` release condition on.
 
     Same parse as ``flags_cache._extract_direct_dependency_ids`` (a dependency is keyed by
     the referenced flag's id in ``key``), minus its inactive/deleted short-circuit: a
     disabled flag still ships in the local-evaluation payload so dependencies can resolve
     it, so its dependents still need the bump. Tolerant of malformed values so one bad
-    sibling flag can't break the save that triggered this.
+    sibling flag can't break the save that triggered this. Read by the version-bump path
+    below and by the stale-flags health check.
     """
     dependency_ids: set[int] = set()
     try:
@@ -301,6 +280,19 @@ def _direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
     return dependency_ids
 
 
+def flags_with_flag_dependencies(project_ids: Collection[int]) -> QuerySet[FeatureFlag]:
+    """Non-deleted flags in these projects whose filters hold a flag-type release condition.
+
+    The jsonb predicate is the one assumption about how a flag dependency is stored in
+    ``filters``; the version-bump path and the stale-flags health check both build on it,
+    so it lives here once.
+    """
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static predicate, no user input)
+    return FeatureFlag.objects.filter(team__project_id__in=project_ids, deleted=False).extra(
+        where=["""jsonb_path_exists(filters, '$.** ? (@.type == "flag")')"""]
+    )
+
+
 def _dependent_flags(sources: list[FeatureFlag], project_id: int) -> list[tuple[FeatureFlag, FeatureFlag]]:
     """Non-deleted flags in the project that transitively depend on any source flag.
 
@@ -316,18 +308,15 @@ def _dependent_flags(sources: list[FeatureFlag], project_id: int) -> list[tuple[
     walk below needs no further round trips.
     """
     candidate_flags = list(
-        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static predicate, no user input)
-        FeatureFlag.objects.filter(team__project_id=project_id, deleted=False)
-        .extra(where=["""jsonb_path_exists(filters, '$.** ? (@.type == "flag")')"""])
         # select_related: the activity entry per bumped flag reads flag.team.organization_id.
-        .select_related("team")
+        flags_with_flag_dependencies([project_id]).select_related("team")
     )
     if not candidate_flags:
         return []
 
     dependents_of: dict[int, list[FeatureFlag]] = defaultdict(list)
     for flag in candidate_flags:
-        for dependency_id in _direct_flag_dependency_ids(flag):
+        for dependency_id in direct_flag_dependency_ids(flag):
             dependents_of[dependency_id].append(flag)
 
     dependents: list[tuple[FeatureFlag, FeatureFlag]] = []

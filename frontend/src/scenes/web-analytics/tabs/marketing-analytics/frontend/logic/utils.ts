@@ -4,7 +4,7 @@ import {
     AttributionMode,
     ConversionGoalFilter,
     DataWarehouseNode,
-    ExternalDataSourceType,
+    IntegrationFilter,
     MARKETING_INTEGRATION_CONFIGS,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants,
@@ -16,9 +16,11 @@ import {
 } from '~/queries/schema/schema-general'
 import { HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
 
+import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+
 import { NativeSource } from './marketingAnalyticsLogic'
 
-export type NonNativeMarketingSource = Extract<ExternalDataSourceType, 'BigQuery'>
+export type NonNativeMarketingSource = Extract<ExternalDataSourceTypeEnumApi, 'BigQuery'>
 
 export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
 export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
@@ -826,4 +828,11 @@ export function rowMatchesSearch(record: unknown, searchTerm: string): boolean {
         }
         return false
     })
+}
+
+/** The stored filter is whatever an older build of this page wrote, so keep only the field we still read.
+ * A key the query schema no longer accepts makes the backend reject every request the dashboard sends. */
+export function sanitizeIntegrationFilter(stored: unknown): IntegrationFilter {
+    const ids = (stored as IntegrationFilter | null | undefined)?.integrationSourceIds
+    return { integrationSourceIds: Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [] }
 }

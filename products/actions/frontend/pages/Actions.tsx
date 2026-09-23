@@ -3,14 +3,18 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ActionsTable } from '../components/ActionsTable'
 import { NewActionButton } from '../components/NewActionButton'
+import { actionsEmptyState } from '../emptyState/actionsEmptyState'
 import { actionsLogic } from '../logics/actionsLogic'
 
 export const scene: SceneExport = {
     component: Actions,
     logic: actionsLogic,
+    productKey: ProductKey.ACTIONS,
+    emptyState: actionsEmptyState,
 }
 
 export function Actions(): JSX.Element {

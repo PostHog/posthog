@@ -853,13 +853,20 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                                 },
                             } satisfies ExecResult
                         } else if (Object.hasOwn(STL, name)) {
+                            const stlFn = STL[name]
+                            if (stlFn.minArgs !== undefined && temp < stlFn.minArgs) {
+                                throw new HogVMException(`Function ${name} requires at least ${stlFn.minArgs} arguments`)
+                            }
+                            if (stlFn.maxArgs !== undefined && temp > stlFn.maxArgs) {
+                                throw new HogVMException(`Function ${name} requires at most ${stlFn.maxArgs} arguments`)
+                            }
                             const args =
                                 version === 0
                                     ? Array(temp)
                                           .fill(null)
                                           .map(() => popStack())
                                     : stackKeepFirstElements(stack.length - temp)
-                            pushStack(STL[name].fn(args, name, options))
+                            pushStack(stlFn.fn(args, name, options))
                         } else if (Object.hasOwn(BYTECODE_STL, name)) {
                             const argNames = BYTECODE_STL[name][0]
                             if (argNames.length !== temp) {

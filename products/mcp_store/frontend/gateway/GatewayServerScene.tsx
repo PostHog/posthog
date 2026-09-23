@@ -22,8 +22,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import { MCPToolApprovalStateEnumApi, ResolvedToolPolicyApi } from '../generated/api.schemas'
+import { MCPAuthTypeEnumApi, MCPToolApprovalStateEnumApi, ResolvedToolPolicyApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
+import { GatewayConnectionModal } from './GatewayConnectionModal'
 import { isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { GatewayRouteGuard } from './GatewayRouteGuard'
 import { GatewayAccessSection } from './GatewayServerAccess'
@@ -32,6 +33,11 @@ import { getGatewayServerRemovalAction } from './gatewayServerRemoval'
 import { GatewayServersLoadError } from './GatewayServersHome'
 import { POLICY_OPTIONS, PolicySummary } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
+
+const AUTH_TYPE_LABELS: Record<MCPAuthTypeEnumApi, string> = {
+    api_key: 'API key',
+    oauth: 'OAuth',
+}
 
 export const scene: SceneExport<(typeof gatewayServerLogic)['props']> = {
     component: GatewayServerRouteScene,
@@ -86,6 +92,7 @@ export function GatewayServerScene({
         removingServerIds.has(server.id) ||
         Boolean(connection && disconnectingInstallationIds.has(connection.installation_id))
     const needsReconnect = Boolean(connection?.pending_oauth || connection?.needs_reauth)
+    const canReconnect = Boolean(connection && (server.auth_type === 'oauth' || needsReconnect))
     const confirmRemoval = (): void => {
         if (!connection && removalAction !== 'delete_for_everyone') {
             return
@@ -115,6 +122,8 @@ export function GatewayServerScene({
 
     return (
         <SceneContent className="mx-auto w-full max-w-[1200px]">
+            <GatewayConnectionModal />
+
             <LemonButton size="small" type="tertiary" icon={<IconArrowLeft />} onClick={goBack}>
                 Back to servers
             </LemonButton>
@@ -130,9 +139,16 @@ export function GatewayServerScene({
                     </div>
                     {server.description && <div className="text-secondary mt-1">{server.description}</div>}
                     <div className="flex items-center gap-3 mt-2 text-xs text-secondary">
-                        {server.created_by && (
-                            <span>Added by {server.created_by.first_name || server.created_by.email}</span>
-                        )}
+                        <span className="min-w-0 truncate">
+                            {[
+                                server.created_by &&
+                                    `Added by ${server.created_by.first_name || server.created_by.email}`,
+                                server.template_auth_type && AUTH_TYPE_LABELS[server.template_auth_type],
+                                server.url,
+                            ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                        </span>
                         {server.docs_url && (
                             <LemonButton
                                 size="xsmall"
@@ -168,7 +184,7 @@ export function GatewayServerScene({
                                     }
                                 />
                             </div>
-                            {needsReconnect && (
+                            {canReconnect && (
                                 <LemonButton
                                     type="primary"
                                     size="small"
@@ -180,6 +196,7 @@ export function GatewayServerScene({
                                               : undefined
                                     }
                                     onClick={() => reconnectServer(connection.installation_id)}
+                                    data-attr="mcp-server-reconnect"
                                 >
                                     Reconnect your account
                                 </LemonButton>

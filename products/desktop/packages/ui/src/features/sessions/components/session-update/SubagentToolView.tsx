@@ -15,6 +15,7 @@ import { useState } from "react";
 import type { ConversationItem, TurnContext } from "../buildConversationItems";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 import { SessionUpdateView } from "./SessionUpdateView";
+import { isShowActionsItem } from "./showActionsItem";
 import { ToolRow } from "./ToolRow";
 
 interface SubagentToolViewProps extends ToolViewProps {
@@ -43,21 +44,21 @@ export function SubagentToolView({
   const chatChrome = useChatThreadChrome();
   const [isExpanded, setIsExpanded] = useState(false);
 
+  const renderItems = (items: ConversationItem[]) =>
+    items.map((child) =>
+      child.type === "session_update" ? (
+        <SessionUpdateView
+          key={child.id}
+          item={child.update}
+          toolCalls={turnContext.toolCalls}
+          childItems={turnContext.childItems}
+          turnCancelled={turnContext.turnCancelled}
+          turnComplete={turnContext.turnComplete}
+        />
+      ) : null,
+    );
   const hasChildren = childItems.length > 0;
-  const childContent = hasChildren
-    ? childItems.map((child) =>
-        child.type === "session_update" ? (
-          <SessionUpdateView
-            key={child.id}
-            item={child.update}
-            toolCalls={turnContext.toolCalls}
-            childItems={turnContext.childItems}
-            turnCancelled={turnContext.turnCancelled}
-            turnComplete={turnContext.turnComplete}
-          />
-        ) : null,
-      )
-    : undefined;
+  const childContent = hasChildren ? renderItems(childItems) : undefined;
 
   // Legacy thread: bespoke bordered box with an expand toggle.
   if (!chatChrome) {
@@ -114,6 +115,18 @@ export function SubagentToolView({
     );
   }
 
+  const nestedItems: ConversationItem[] = [];
+  const actionItems: ConversationItem[] = [];
+  for (const child of childItems) {
+    (isShowActionsItem(child, turnContext.toolCalls)
+      ? actionItems
+      : nestedItems
+    ).push(child);
+  }
+  const nestedContent =
+    nestedItems.length > 0 ? renderItems(nestedItems) : undefined;
+  const actionContent = renderItems(actionItems);
+
   // New thread: same minimal shape as ThoughtView — a single ToolRow whose collapsible body holds the
   // subagent's child tool calls. ToolRow supplies the ChatMarker chrome, so no bespoke box here.
   return (
@@ -134,13 +147,14 @@ export function SubagentToolView({
         isLoading={isLoading}
         isFailed={isFailed}
         wasCancelled={wasCancelled}
-        content={childContent}
+        content={nestedContent}
       >
         <span>
           <span className="font-medium text-gray-12">Subagent</span>
           {title && title !== "Subagent" ? ` · ${title}` : ""}
         </span>
       </ToolRow>
+      {actionContent}
     </div>
   );
 }

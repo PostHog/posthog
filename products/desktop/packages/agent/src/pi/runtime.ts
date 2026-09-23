@@ -33,14 +33,21 @@ export class PiRuntime {
   }> = [];
   private directBashActive = false;
 
-  constructor(client: PiRpcClient) {
+  constructor(
+    client: PiRpcClient,
+    getContextWindow?: () => number | undefined,
+  ) {
     this.client = client;
-    this.translator = createPiConversationTranslator();
+    this.translator = createPiConversationTranslator(getContextWindow);
     client.onEvent((event) => this.handleEvent(event));
   }
 
   get process() {
     return getPiRpcClientProcess(this.client);
+  }
+
+  async abort(): Promise<void> {
+    await this.sendCommand({ type: "abort" });
   }
 
   onRuntimeEvent(listener: (event: JsonAgentSessionEvent) => void): () => void {
@@ -73,6 +80,13 @@ export class PiRuntime {
       });
     }
     if (command.type !== "bash") {
+      const isInterrupt =
+        command.type === "abort" ||
+        command.type === "steer" ||
+        command.type === "compact";
+      if (isInterrupt) {
+        this.translator.markTurnInterrupted();
+      }
       try {
         const response = await sendPiRpcCommand(this.client, command);
         if (!response.success && isUserMessage && command.id) {
@@ -84,6 +98,10 @@ export class PiRuntime {
           this.removePendingUserMessageId(command.id);
         }
         throw error;
+      } finally {
+        if (isInterrupt) {
+          this.translator.clearTurnInterrupted();
+        }
       }
     }
 

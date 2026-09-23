@@ -24,7 +24,7 @@ jest.mock('../notebookNodeLogic', () => ({
 }))
 
 jest.mock('~/queries/utils', () => ({
-    isHogQLQuery: jest.fn(() => false),
+    isHogQLQuery: jest.fn((query: unknown) => (query as { kind?: string } | undefined)?.kind === 'HogQLQuery'),
 }))
 
 jest.mock('@posthog/lemon-ui', () => ({
@@ -73,10 +73,7 @@ function isNotebookNodeLogicRef(logic: unknown): boolean {
 
 const defaultNotebookLogicValues = {
     isEditable: true,
-    pythonNodeIndices: new Map<string, number>(),
     sqlNodeIndices: new Map<string, number>(),
-    duckSqlNodeIndices: new Map<string, number>(),
-    hogqlSqlNodeIndices: new Map<string, number>(),
 }
 
 const mockUpdateAttributes = jest.fn()
@@ -106,14 +103,11 @@ function setupMocks(nodeLogicValues: Record<string, unknown>, notebookValues: Re
 
 describe('getCellLabel', () => {
     test.each([
-        { nodeIndex: undefined, nodeType: NotebookNodeType.Python, expected: null },
-        { nodeIndex: 0, nodeType: NotebookNodeType.Python, expected: null },
-        { nodeIndex: 1, nodeType: NotebookNodeType.Python, expected: 'Python 1' },
-        { nodeIndex: 3, nodeType: NotebookNodeType.DuckSQL, expected: 'SQL (DuckDB) 3' },
-        { nodeIndex: 2, nodeType: NotebookNodeType.HogQLSQL, expected: 'SQL (HogQL) 2' },
-        { nodeIndex: 5, nodeType: NotebookNodeType.Query, expected: 'SQL 5' },
-    ])('returns $expected for index=$nodeIndex type=$nodeType', ({ nodeIndex, nodeType, expected }) => {
-        expect(getCellLabel(nodeIndex, nodeType)).toBe(expected)
+        { nodeIndex: undefined, expected: null },
+        { nodeIndex: 0, expected: null },
+        { nodeIndex: 5, expected: 'SQL 5' },
+    ])('returns $expected for index=$nodeIndex', ({ nodeIndex, expected }) => {
+        expect(getCellLabel(nodeIndex)).toBe(expected)
     })
 })
 
@@ -139,30 +133,30 @@ describe('NotebookNodeTitle', () => {
             {
                 scenario: 'indexed cell without custom title displays cell label',
                 nodeValues: {
-                    nodeAttributes: { nodeId: 'py1', title: undefined },
-                    title: 'Python',
-                    titlePlaceholder: 'Python',
+                    nodeAttributes: { nodeId: 'sql1', title: undefined, query: { kind: 'HogQLQuery' } },
+                    title: 'SQL',
+                    titlePlaceholder: 'SQL',
                     isEditingTitle: false,
-                    nodeType: NotebookNodeType.Python,
+                    nodeType: NotebookNodeType.Query,
                 },
                 notebookValues: {
-                    pythonNodeIndices: new Map([['py1', 1]]),
+                    sqlNodeIndices: new Map([['sql1', 1]]),
                 },
-                expectedText: 'Python 1',
+                expectedText: 'SQL 1',
             },
             {
                 scenario: 'indexed cell with custom title displays both',
                 nodeValues: {
-                    nodeAttributes: { nodeId: 'py1', title: 'Data cleanup' },
-                    title: 'Python',
-                    titlePlaceholder: 'Python',
+                    nodeAttributes: { nodeId: 'sql1', title: 'Data cleanup', query: { kind: 'HogQLQuery' } },
+                    title: 'SQL',
+                    titlePlaceholder: 'SQL',
                     isEditingTitle: false,
-                    nodeType: NotebookNodeType.Python,
+                    nodeType: NotebookNodeType.Query,
                 },
                 notebookValues: {
-                    pythonNodeIndices: new Map([['py1', 1]]),
+                    sqlNodeIndices: new Map([['sql1', 1]]),
                 },
-                expectedText: 'Python 1',
+                expectedText: 'SQL 1',
                 alsoExpected: 'Data cleanup',
             },
         ])(
@@ -217,28 +211,28 @@ describe('NotebookNodeTitle', () => {
             {
                 scenario: 'indexed cell without custom title pre-fills empty',
                 nodeValues: {
-                    nodeAttributes: { nodeId: 'py1', title: undefined },
-                    title: 'Python',
-                    titlePlaceholder: 'Python',
+                    nodeAttributes: { nodeId: 'sql1', title: undefined, query: { kind: 'HogQLQuery' } },
+                    title: 'SQL',
+                    titlePlaceholder: 'SQL',
                     isEditingTitle: true,
-                    nodeType: NotebookNodeType.Python,
+                    nodeType: NotebookNodeType.Query,
                 },
                 notebookValues: {
-                    pythonNodeIndices: new Map([['py1', 1]]),
+                    sqlNodeIndices: new Map([['sql1', 1]]),
                 },
                 expectedValue: '',
             },
             {
                 scenario: 'indexed cell with custom title pre-fills with custom title',
                 nodeValues: {
-                    nodeAttributes: { nodeId: 'py1', title: 'My Script' },
-                    title: 'Python',
-                    titlePlaceholder: 'Python',
+                    nodeAttributes: { nodeId: 'sql1', title: 'My Script', query: { kind: 'HogQLQuery' } },
+                    title: 'SQL',
+                    titlePlaceholder: 'SQL',
                     isEditingTitle: true,
-                    nodeType: NotebookNodeType.Python,
+                    nodeType: NotebookNodeType.Query,
                 },
                 notebookValues: {
-                    pythonNodeIndices: new Map([['py1', 1]]),
+                    sqlNodeIndices: new Map([['sql1', 1]]),
                 },
                 expectedValue: 'My Script',
             },
@@ -268,14 +262,14 @@ describe('NotebookNodeTitle', () => {
             {
                 scenario: 'indexed cell blur without editing does not save',
                 nodeValues: {
-                    nodeAttributes: { nodeId: 'py1', title: undefined },
-                    title: 'Python',
-                    titlePlaceholder: 'Python',
+                    nodeAttributes: { nodeId: 'sql1', title: undefined, query: { kind: 'HogQLQuery' } },
+                    title: 'SQL',
+                    titlePlaceholder: 'SQL',
                     isEditingTitle: true,
-                    nodeType: NotebookNodeType.Python,
+                    nodeType: NotebookNodeType.Query,
                 },
                 notebookValues: {
-                    pythonNodeIndices: new Map([['py1', 1]]),
+                    sqlNodeIndices: new Map([['sql1', 1]]),
                 },
             },
             {
@@ -367,14 +361,14 @@ describe('NotebookNodeTitle', () => {
         it('clearing the title saves undefined', () => {
             setupMocks(
                 {
-                    nodeAttributes: { nodeId: 'py1', title: 'My Script' },
-                    title: 'Python',
-                    titlePlaceholder: 'Python',
+                    nodeAttributes: { nodeId: 'sql1', title: 'My Script', query: { kind: 'HogQLQuery' } },
+                    title: 'SQL',
+                    titlePlaceholder: 'SQL',
                     isEditingTitle: true,
-                    nodeType: NotebookNodeType.Python,
+                    nodeType: NotebookNodeType.Query,
                 },
                 {
-                    pythonNodeIndices: new Map([['py1', 1]]),
+                    sqlNodeIndices: new Map([['sql1', 1]]),
                 }
             )
             render(<NotebookNodeTitle />)

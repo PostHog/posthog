@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isAnthropicModelId } from "./cloud-task-models";
 import { defaultEligibleModel } from "./models";
 
 describe("defaultEligibleModel", () => {
@@ -18,5 +19,21 @@ describe("defaultEligibleModel", () => {
     [undefined, undefined],
   ] as const)("%s -> %s", (modelId, expected) => {
     expect(defaultEligibleModel(modelId)).toBe(expected);
+  });
+});
+
+describe("isAnthropicModelId", () => {
+  it.each([
+    ["claude-sonnet-5", true],
+    ["anthropic/claude-opus-4", true],
+    ["@cf/zai-org/glm-5.2", false],
+    ["modal/claude-3", false],
+    ["deepseek/deepseek-chat", false],
+    ["glm-4", false],
+    ["baseten/claude-3", false],
+    ["gpt-5", false],
+    ["", false],
+  ] as const)("%s -> %s", (modelId, expected) => {
+    expect(isAnthropicModelId(modelId)).toBe(expected);
   });
 });

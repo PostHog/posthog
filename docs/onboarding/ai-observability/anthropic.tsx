@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { GO_OTEL_TAB } from './_snippets/go-otel-tab'
 
 export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -40,6 +41,7 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                     npm install @posthog/ai posthog-node @anthropic-ai/sdk
                                 `,
                             },
+                            GO_OTEL_TAB,
                         ]}
                     />
                 </>

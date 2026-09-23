@@ -11,7 +11,7 @@ import {
     sharedListeners,
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
-import { urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -20,8 +20,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
-import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
+import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import {
+    SEARCH_PARAM_FILTERS_KEY,
+    dashboardSearchParamsFromOverrides,
+    parseURLFilters,
+} from 'scenes/dashboard/dashboardUtils'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import type { insightLogicType } from 'scenes/insights/insightLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
@@ -61,7 +66,7 @@ import {
     InsightType,
     ItemMode,
     ProjectTreeRef,
-    QueryBasedInsightModel,
+    InsightModel,
     SidePanelTab,
 } from '~/types'
 
@@ -77,18 +82,11 @@ import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
-
-function normalizeItemId(itemId: string | undefined): string | number | null {
-    if (itemId === undefined) {
+function normalizeItemId(itemId: string | undefined): number | null {
+    if (!itemId) {
         return null
     }
-    if (itemId === 'new' || itemId.startsWith('new-')) {
-        return 'new'
-    }
-    if (Number.isInteger(+itemId)) {
-        return parseInt(itemId, 10)
-    }
-    return itemId
+    return Number(itemId) || null
 }
 
 // Tag a new insight's query with the product_analytics productKey (on the executed source query) so
@@ -125,12 +123,13 @@ export interface insightSceneLogicValues {
     currentTeamId: number | null // teamLogic
     alertId: AlertType['id'] | null
     breadcrumbs: Breadcrumb[]
+    dashboardBackPath: string | null
     dashboardId: DashboardType['id'] | null
     dashboardName: DashboardType['name'] | null
     filtersOverride: DashboardFilter | null
     freshQuery: boolean
     hasOverrides: boolean
-    insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
+    insight: Partial<InsightModel<Node<Record<string, any>>>> | null | undefined
     insightData: Record<string, any> | null | undefined
     insightDataLogicRef: {
         logic: BuiltLogic<insightDataLogicType>
@@ -140,6 +139,7 @@ export interface insightSceneLogicValues {
         | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Record<string, any>)
         | undefined
     insightId: InsightId | null
+    insightLoading: boolean
     insightLogicRef: {
         logic: BuiltLogic<insightLogicType>
         unmount: () => void
@@ -153,9 +153,10 @@ export interface insightSceneLogicValues {
         | ((
               state: any,
               props?: InsightLogicProps<QuerySchema> | undefined
-          ) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>>)
+          ) => Partial<InsightModel<Node<Record<string, any>>>>)
         | undefined
-    itemId: number | string | null
+    isNewSubscription: boolean
+    itemId: number | null
     maxContext: MaxContextInput[]
     projectTreeRef: ProjectTreeRef
     sceneSource: InsightSceneSource | null
@@ -256,6 +257,7 @@ export interface insightSceneLogicMeta {
             } | null
         ) => ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Record<string, any>) | undefined
         insightData: (arg: Record<string, any> | null | undefined) => Record<string, any> | null | undefined
+        insightLoading: (arg: boolean) => boolean
         insightSelector: (
             insightLogicRef: {
                 logic: BuiltLogic<insightLogicType>
@@ -265,28 +267,35 @@ export interface insightSceneLogicMeta {
             | ((
                   state: any,
                   props?: InsightLogicProps<QuerySchema> | undefined
-              ) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>>)
+              ) => Partial<InsightModel<Node<Record<string, any>>>>)
             | undefined
         insight: (
-            arg: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
-        ) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
+            arg: Partial<InsightModel<Node<Record<string, any>>>> | null | undefined
+        ) => Partial<InsightModel<Node<Record<string, any>>>> | null | undefined
+        dashboardBackPath: (
+            dashboardId: number | null,
+            variablesOverride: Record<string, HogQLVariable> | null,
+            searchParams: Record<string, any>
+        ) => string | null
         breadcrumbs: (
             insightLogicRef: {
                 logic: BuiltLogic<insightLogicType>
                 unmount: () => void
             } | null,
-            insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined,
+            insight: Partial<InsightModel<Node<Record<string, any>>>> | null | undefined,
             insightQuery: Node<Record<string, any>> | null | undefined,
             dashboardId: number | null,
             dashboardName: string | null,
-            sceneSource: InsightSceneSource | null
+            sceneSource: InsightSceneSource | null,
+            dashboardBackPath: string | null,
+            arg: string | undefined
         ) => Breadcrumb[]
         projectTreeRef: (insightId: InsightId) => ProjectTreeRef
         sidePanelContext: (
-            insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
+            insight: Partial<InsightModel<Node<Record<string, any>>>> | null | undefined
         ) => SidePanelSceneContext | null
         maxContext: (
-            insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined,
+            insight: Partial<InsightModel<Node<Record<string, any>>>> | null | undefined,
             filtersOverride: DashboardFilter | null,
             variablesOverride: Record<string, HogQLVariable> | null
         ) => MaxContextInput[]
@@ -382,9 +391,16 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         itemId: [
-            null as null | string | number,
+            null as number | null,
             {
                 setSceneState: (_, { itemId }) => normalizeItemId(itemId),
+            },
+        ],
+        isNewSubscription: [
+            false,
+            {
+                setSceneState: (_, { insightMode, itemId }) =>
+                    insightMode === ItemMode.Subscriptions && itemId === 'new',
             },
         ],
         alertId: [
@@ -488,6 +504,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             ],
             (insightData: Record<string, any> | null | undefined) => insightData,
         ],
+        insightLoading: [
+            (s) => [
+                (state, props) =>
+                    s.insightLogicRef(state, props)?.logic.selectors.insightLoading(state, props) ?? false,
+            ],
+            (insightLoading: boolean): boolean => insightLoading,
+        ],
         insightSelector: [
             (s) => [s.insightLogicRef],
             (
@@ -508,20 +531,52 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     }
                 },
             ],
-            (insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined) => insight,
+            (insight: Partial<InsightModel<Node<Record<string, any>>>> | null | undefined) => insight,
+        ],
+        // The insight and the dashboard name the same overrides differently, so a link back to the dashboard
+        // has to translate them. Take the filters from the url instead of from `filtersOverride`, because an
+        // override that clears a saved dashboard filter reads as empty and normalizes to null on the way into
+        // scene state. The dashboard needs that explicit empty value, or it restores the saved filter.
+        dashboardBackPath: [
+            (s) => [s.dashboardId, s.variablesOverride, router.selectors.searchParams],
+            (
+                dashboardId: DashboardType['id'] | null,
+                variablesOverride: Record<string, HogQLVariable> | null,
+                searchParams: Record<string, any>
+            ): string | null =>
+                dashboardId === null
+                    ? null
+                    : combineUrl(
+                          urls.dashboard(dashboardId),
+                          dashboardSearchParamsFromOverrides(
+                              variablesOverride,
+                              parseURLFilters({ [SEARCH_PARAM_FILTERS_KEY]: searchParams['filters_override'] })
+                          )
+                      ).url,
         ],
         breadcrumbs: [
-            (s) => [s.insightLogicRef, s.insight, s.insightQuery, s.dashboardId, s.dashboardName, s.sceneSource],
+            (s) => [
+                s.insightLogicRef,
+                s.insight,
+                s.insightQuery,
+                s.dashboardId,
+                s.dashboardName,
+                s.sceneSource,
+                s.dashboardBackPath,
+                (state, props) => s.insightLogicRef(state, props)?.logic.selectors.insightName(state, props),
+            ],
             (
                 insightLogicRef: {
                     logic: BuiltLogic<insightLogicType>
                     unmount: () => void
                 } | null,
-                insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined,
+                insight: Partial<InsightModel<Node<Record<string, any>>>> | null | undefined,
                 insightQuery: Node<Record<string, any>> | null | undefined,
                 dashboardId: DashboardType['id'] | null,
                 dashboardName: DashboardType['name'] | null,
-                sceneSource: InsightSceneSource | null
+                sceneSource: InsightSceneSource | null,
+                dashboardBackPath: string | null,
+                insightName: string | undefined
             ): Breadcrumb[] => {
                 const dashboardLabel = dashboardName ?? 'Dashboard'
                 return [
@@ -536,7 +591,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                               {
                                   key: Scene.Dashboard,
                                   name: dashboardLabel,
-                                  path: urls.dashboard(dashboardId),
+                                  // Going back must land on the dashboard as the user left it, not on its saved state
+                                  path: dashboardBackPath ?? urls.dashboard(dashboardId),
                                   iconType: 'dashboard' as FileSystemIconType,
                               },
                           ]
@@ -571,7 +627,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           ]),
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
-                        name: insightLogicRef?.logic.values.insightName,
+                        name: insightName,
                         forceEditMode: insightLogicRef?.logic.values.canEditInsight,
                         iconType: getInsightIconTypeFromQuery(insightQuery),
                     },
@@ -588,7 +644,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.insight],
             (
-                insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
+                insight: Partial<InsightModel<Node<Record<string, any>>>> | null | undefined
             ): SidePanelSceneContext | null => {
                 if (!insight?.id) {
                     // An unsaved insight has no numeric id yet. Still declare the Insight scope so
@@ -616,7 +672,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         maxContext: [
             (s) => [s.insight, s.filtersOverride, s.variablesOverride],
             (
-                insight: Partial<QueryBasedInsightModel>,
+                insight: Partial<InsightModel>,
                 filtersOverride: DashboardFilter | null,
                 variablesOverride: Record<string, HogQLVariable> | null
             ): MaxContextInput[] => {
@@ -638,9 +694,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 variablesOverride: Record<string, HogQLVariable> | null,
                 tileFiltersOverride: TileFilters | null
             ) =>
-                !isDashboardFilterEmpty(filtersOverride) ||
+                !isDashboardFilterOverrideEmpty(filtersOverride) ||
                 (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
-                !isDashboardFilterEmpty(tileFiltersOverride),
+                !isDashboardFilterOverrideEmpty(tileFiltersOverride),
         ],
     }),
     sharedListeners(({ actions, values }) => ({
@@ -835,7 +891,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 method === 'PUSH' ||
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
-                (itemId ?? null) !== values.itemId ||
+                normalizeItemId(itemId) !== values.itemId ||
                 (sceneSource ?? null) !== values.sceneSource ||
                 alertChanged ||
                 !objectsEqual(variablesOverride ?? null, values.variablesOverride) ||
@@ -850,9 +906,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     itemId,
                     alert_id,
                     // Only pass filters/variables if overrides exist
-                    filtersOverride && isDashboardFilterEmpty(filtersOverride) ? undefined : filtersOverride,
+                    filtersOverride && isDashboardFilterOverrideEmpty(filtersOverride) ? undefined : filtersOverride,
                     variablesOverride && !isEmptyObject(variablesOverride) ? variablesOverride : undefined,
-                    tileFiltersOverride && isDashboardFilterEmpty(tileFiltersOverride)
+                    tileFiltersOverride && isDashboardFilterOverrideEmpty(tileFiltersOverride)
                         ? undefined
                         : tileFiltersOverride,
                     dashboard,

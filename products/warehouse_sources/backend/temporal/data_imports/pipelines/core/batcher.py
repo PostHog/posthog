@@ -8,6 +8,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BinaryColumnReporter,
+    hex_encode_id_binary_columns,
     table_from_py_list,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import (
@@ -113,10 +114,9 @@ class Batcher:
         self._team_id = team_id
         self._schema_name = schema_name
         # Off by default because coalescing delays when a yielded table becomes a durable batch:
-        # sources that checkpoint resume state or delete upstream staging right after yielding
-        # (ResumableSource implementations, the webhook S3 path) rely on yield => persisted and
-        # would lose data across a crash if their tables sat in this buffer. Only enable for
-        # sources with no such dependency.
+        # the webhook S3 path deletes its staged files right after yielding, and the pipeline
+        # commits the resume cursor after a write on the assumption that the write drained every
+        # table yielded so far. Only enable for sources with no such dependency.
         self._coalesce_tables = coalesce_tables
 
         self._buffer = []
@@ -313,6 +313,9 @@ class Batcher:
             # losing data. (In practice sources emit only one item type, never a mix.)
             if self._buffer:
                 raise Exception("Cannot batch a pa.Table while list/dict rows are buffered; call get_table() first")
+            # Arrow-native sources skip `_rows_to_table`, so their binary keys are converted here
+            # instead.
+            item = hex_encode_id_binary_columns(item, self._primary_keys, self._binary_reporter)
             if self._coalesce_tables:
                 self._batch_table(item)
                 return

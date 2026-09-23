@@ -4,8 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inngest import (
     InngestSourceConfig,
@@ -134,7 +133,7 @@ class TestInngestSource:
         self, _name: str, pin: Optional[str], expected: str
     ) -> None:
         # A pinned source must sync under its own version, not the default — dropping the resolve
-        # would silently read version-mobile tables (webhooks) from the wrong API version.
+        # would leave every source reading the default version's paths.
         config = InngestSourceConfig(signing_key="signkey-prod-test")
         inputs = _source_inputs("webhooks")
         inputs.api_version = pin

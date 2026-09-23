@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     import requests
 
 from posthog.egress.limiter.outbound import get_outbound_rate_limiter
-from posthog.egress.limiter.policies import Priority, RatePolicy, register_policy
+from posthog.egress.limiter.policies import DEFAULT_RESERVE, Priority, RatePolicy, register_policy
 
 GITHUB_DOMAIN = "github"
 GITHUB_SEARCH_DOMAIN = "github_search"
@@ -68,14 +68,8 @@ _RESOURCE_DOMAINS: dict[GitHubRateResource, str] = {
     GitHubRateResource.CODE_SEARCH: GITHUB_CODE_SEARCH_DOMAIN,
 }
 
-# Reserved-floor ladder: BATCH calls are denied once 70% of a window is consumed, NORMAL at 90%,
-# CRITICAL can use the full budget. Active now that deferrable callers declare their lane
-# (code-workstreams polling and the job-logs worker at BATCH) — shedding them first is what keeps
-# headroom for user-facing traffic as an installation's budget fills.
-_RESERVE: dict[Priority, float] = {Priority.BATCH: 0.30, Priority.NORMAL: 0.10}
-
-# Applied instead when an installation has served no recent interactive traffic. The BATCH floor
-# above keeps headroom for user-facing calls; on an installation whose only consumer is a bulk one
+# Applied instead of DEFAULT_RESERVE when an installation has served no recent interactive traffic.
+# The default BATCH floor keeps headroom for user-facing calls; on an installation whose only consumer is a bulk one
 # — a warehouse backfill of a repository nothing else touches — it holds that headroom against
 # contention which never arrives, and forfeits a third of the budget for the whole run. The hourly
 # budget is what decides whether a large backfill finishes, so that third is the difference between
@@ -87,7 +81,7 @@ _RESERVE: dict[Priority, float] = {Priority.BATCH: 0.30, Priority.NORMAL: 0.10}
 # point where that first interactive call would be admitted at all, regardless of the marker it
 # just wrote. NORMAL's floor itself stays unchanged, because CRITICAL traffic arrives with no
 # warning.
-_IDLE_RESERVE: dict[Priority, float] = {Priority.BATCH: 0.10, Priority.NORMAL: 0.10}
+_IDLE_RESERVE: dict[Priority, float] = {**DEFAULT_RESERVE, Priority.BATCH: DEFAULT_RESERVE[Priority.NORMAL]}
 
 # How long one interactive call holds the full reserve in place. Longer than a quiet gap in genuine
 # interactive use, so the budget does not flap part-way through a backfill, and far shorter than a
@@ -281,7 +275,7 @@ def _github_policy(key: str) -> RatePolicy:
     return RatePolicy(
         limits=((per_minute, 60.0), (hourly, 3600.0)),
         in_memory_divider=4,
-        reserve=_RESERVE if has_interactive_demand(installation_id) else _IDLE_RESERVE,
+        reserve=DEFAULT_RESERVE if has_interactive_demand(installation_id) else _IDLE_RESERVE,
     )
 
 
@@ -290,15 +284,9 @@ register_policy(GITHUB_DOMAIN, _github_policy)
 # Static budgets, no observed-limit persistence: GitHub's search rate limits are fixed regardless
 # of the account's plan tier (unlike core), so there is no tier to observe. Both sit just under
 # GitHub's real per-installation ceilings (10/min and 30/min) so our reactive backoff absorbs
-# drift. Same reserve ladder as core so BATCH/NORMAL callers still shed first as the window fills.
-register_policy(
-    GITHUB_CODE_SEARCH_DOMAIN,
-    RatePolicy(limits=((8, 60.0),), in_memory_divider=4, reserve=_RESERVE),
-)
-register_policy(
-    GITHUB_SEARCH_DOMAIN,
-    RatePolicy(limits=((27, 60.0),), in_memory_divider=4, reserve=_RESERVE),
-)
+# drift. The default reserve ladder applies, so BATCH/NORMAL callers still shed first as the window fills.
+register_policy(GITHUB_CODE_SEARCH_DOMAIN, RatePolicy(limits=((8, 60.0),), in_memory_divider=4))
+register_policy(GITHUB_SEARCH_DOMAIN, RatePolicy(limits=((27, 60.0),), in_memory_divider=4))
 
 
 def github_installation_key(
@@ -350,4 +338,21 @@ def consume_github_installation_sync(
     _note_demand_if_interactive(installation_id, priority, resource)
     return get_outbound_rate_limiter().consume_sync(
         github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
+    )
+
+
+def github_installation_pace_seconds(
+    installation_id: str | int,
+    *,
+    priority: Priority = Priority.NORMAL,
+    resource: GitHubRateResource = GitHubRateResource.CORE,
+) -> float:
+    """Seconds to wait before the next call on this installation's budget for ``resource``.
+
+    For a caller that can wait rather than be shed, such as a bulk import walking pages. Zero means
+    the budget has room to spare. See ``OutboundRateLimiter.pace_seconds`` for what the wait means
+    and why it is not a wait for a reset.
+    """
+    return get_outbound_rate_limiter().pace_seconds(
+        github_installation_key(installation_id, resource=resource), priority=priority
     )

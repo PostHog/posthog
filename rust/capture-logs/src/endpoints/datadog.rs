@@ -258,6 +258,8 @@ pub fn datadog_log_to_kafka_row(
         attributes,
         bytes_uncompressed: None,
         retention_days: None,
+        pattern: None,
+        pattern_version: None,
     }
     .with_computed_bytes();
     (row, was_overridden)

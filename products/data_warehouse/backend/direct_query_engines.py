@@ -29,6 +29,7 @@ from products.data_warehouse.backend.direct_mysql import hide_direct_mysql_table
 from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table, upsert_direct_postgres_table
 from products.data_warehouse.backend.direct_redshift import hide_direct_redshift_table, upsert_direct_redshift_table
 from products.data_warehouse.backend.direct_snowflake import hide_direct_snowflake_table, upsert_direct_snowflake_table
+from products.data_warehouse.backend.direct_trino import hide_direct_trino_table, upsert_direct_trino_table
 from products.data_warehouse.backend.motherduck_helpers import (
     get_motherduck_source_location,
     reconcile_motherduck_schemas,
@@ -54,12 +55,18 @@ from products.data_warehouse.backend.snowflake_helpers import (
     reconcile_snowflake_schemas,
     reproject_direct_snowflake_table,
 )
+from products.data_warehouse.backend.trino_helpers import (
+    get_trino_source_location,
+    reconcile_trino_schemas,
+    reproject_direct_trino_table,
+)
 from products.warehouse_sources.backend.facade.api import (
     clickhouse_columns_to_dwh_columns,
     motherduck_columns_to_dwh_columns,
     mysql_columns_to_dwh_columns,
     postgres_columns_to_dwh_columns,
     snowflake_columns_to_dwh_columns,
+    trino_columns_to_dwh_columns,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
@@ -373,6 +380,43 @@ class _MotherDuckEngine(DirectQueryEngine):
         return reconcile_motherduck_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
 
+class _TrinoEngine(DirectQueryEngine):
+    engine = "trino"
+
+    def source_table_location(self, *, schema_name, source_schema, default_schema, default_catalog=None):
+        return get_trino_source_location(
+            schema_name=schema_name,
+            schema_metadata=_location_metadata(source_schema),
+            default_catalog=default_catalog,
+            default_schema=default_schema,
+        )
+
+    def columns_to_dwh_columns(self, source_columns):
+        return trino_columns_to_dwh_columns(source_columns)
+
+    def upsert_table(
+        self, existing_table, *, schema_name, source, columns, source_catalog, source_schema, source_table_name
+    ):
+        return upsert_direct_trino_table(
+            existing_table,
+            schema_name=schema_name,
+            source=source,
+            columns=columns,
+            source_catalog=source_catalog,
+            source_schema=source_schema,
+            source_table_name=source_table_name,
+        )
+
+    def reproject_table(self, schema_row, *, source, enabled_columns):
+        return reproject_direct_trino_table(schema_row, source=source, enabled_columns=enabled_columns)
+
+    def hide_table(self, table):
+        hide_direct_trino_table(table)
+
+    def reconcile_schemas(self, *, source, source_schemas, team_id):
+        return reconcile_trino_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+
 _ENGINES: dict[str, DirectQueryEngine] = {
     engine.engine: engine
     for engine in (
@@ -382,6 +426,7 @@ _ENGINES: dict[str, DirectQueryEngine] = {
         _RedshiftEngine(),
         _ClickHouseEngine(),
         _MotherDuckEngine(),
+        _TrinoEngine(),
     )
 }
 

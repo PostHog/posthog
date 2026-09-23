@@ -1,14 +1,16 @@
 import { compress, decompress } from '@mongodb-js/zstd'
 import avro from 'avsc'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import { Readable } from 'stream'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { parseJSON } from '~/common/utils/json-parse'
 import type { LogsSettings } from '~/types'
 
-import { recordLogProcessingDuration } from './ingestion-otel-metrics'
+import { recordJsonEnrichmentSkipped, recordLogProcessingDuration } from './ingestion-otel-metrics'
 import { type LogBodyParseResult, parseLogBodyForIngestion } from './log-body-parse'
 import { EMPTY_PII, type PiiScrubStats, scrubLogRecord } from './log-pii-scrub'
+import { MAX_LOG_RECORD_BYTES, logRecordSizeBytes } from './log-record-size'
 import {
     type DropStats,
     EMPTY_DROP_STATS,
@@ -17,6 +19,8 @@ import {
 } from './pipeline/log-processing-pipeline'
 
 const MAX_JSON_ATTRIBUTES = 50
+const MAX_JSON_NODES = 10_000
+const MAX_JSON_DEPTH = 128
 
 const SPAN_LOGS_DECODE = 'logsIngestionConsumer.handleEachBatch.decodeLogRecords'
 const SPAN_LOGS_PARSE_BODIES = 'logsIngestionConsumer.handleEachBatch.parseLogBodies'
@@ -27,12 +31,50 @@ const SPAN_LOGS_PROCESS_BUFFER = 'logsIngestionConsumer.handleEachBatch.processL
 
 const logRecordProcessInstrumentOpts = { measureTime: false, sendException: false } as const
 
-const logProcessingDurationHistogram = new Histogram({
+export const logProcessingDurationHistogram = new Histogram({
     name: 'logs_ingestion_processing_duration_seconds',
     help: 'Time spent processing log messages (AVRO decode/encode cycle)',
-    labelNames: ['json_parse_enabled', 'pii_scrub_enabled', 'compression_codec'],
+    labelNames: ['json_parse_enabled', 'pii_scrub_enabled', 'attribute_extraction_enabled', 'compression_codec'],
     buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1],
 })
+
+export const logsJsonAttributeSniffCounter = new Counter({
+    name: 'logs_ingestion_json_attribute_sniff_total',
+    help: 'Log records inspected for a configured JSON attribute prefix, without parsing or extracting fields',
+    labelNames: ['team_id', 'outcome'],
+})
+
+export const logsJsonEnrichmentSkippedCounter = new Counter({
+    name: 'logs_ingestion_json_enrichment_skipped_total',
+    help: 'Log JSON enrichment skipped because a size or traversal budget was exceeded',
+    labelNames: ['reason', 'source'],
+})
+
+/** Which enrichment path hit the budget: the log body, or the configured JSON attribute. */
+type JsonEnrichmentSource = 'body' | 'selected_attribute'
+
+function recordJsonEnrichmentSkip(
+    reason: 'input_size' | 'flatten_budget' | 'output_size',
+    source: JsonEnrichmentSource
+): void {
+    logsJsonEnrichmentSkippedCounter.inc({ reason, source })
+    recordJsonEnrichmentSkipped(reason, source)
+}
+
+export function sniffJsonLogAttributes(
+    records: readonly Pick<LogRecord, 'attributes'>[],
+    attributeKey: string,
+    teamId: number
+): void {
+    for (const record of records) {
+        let outcome: 'missing_key' | 'looks_like_json' | 'other' = 'missing_key'
+        if (record.attributes && Object.hasOwn(record.attributes, attributeKey)) {
+            const value = record.attributes[attributeKey]
+            outcome = /^[ \t\r\n]*"?(?:[ \t\r\n]|\\[nrt])*[{\[]/.test(value.slice(0, 64)) ? 'looks_like_json' : 'other'
+        }
+        logsJsonAttributeSniffCounter.inc({ team_id: String(teamId), outcome })
+    }
+}
 
 export interface LogRecord {
     uuid: string | null
@@ -53,6 +95,12 @@ export interface LogRecord {
     /** Per-row retention in days, stamped by the retention stage from team retention rules. Null/undefined
      * leaves ClickHouse to fall back to the batch `retention-days` header (the team default). */
     retention_days?: number | null
+    /** Masked body, stamped by the pattern masking stage. Identifiers become placeholders, so two
+     * lines differing only by a request id share one pattern. */
+    pattern?: string | null
+    /** Masking rule set that produced `pattern`. Null reads as 0 in ClickHouse, marking a row
+     * written before masking. */
+    pattern_version?: number | null
 }
 
 export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | undefined, string, LogRecord[]]> {
@@ -157,7 +205,13 @@ const parseLogBodiesForIngestion = instrumented({
     ...logRecordProcessInstrumentOpts,
 })(
     (records: LogRecord[]): Promise<LogBodyParseResult[]> =>
-        Promise.resolve(records.map((r) => parseLogBodyForIngestion(r.body)))
+        Promise.resolve(
+            records.map((record) =>
+                parseLogBodyForIngestion(
+                    record.body && Buffer.byteLength(record.body) > MAX_LOG_RECORD_BYTES ? null : record.body
+                )
+            )
+        )
 )
 
 const encodeLogRecordsInstrumented = instrumented({
@@ -165,38 +219,141 @@ const encodeLogRecordsInstrumented = instrumented({
     ...logRecordProcessInstrumentOpts,
 })(encodeLogRecords)
 
+function isArrayIndex(key: string): boolean {
+    const index = Number(key)
+    return Number.isInteger(index) && index >= 0 && index < 2 ** 32 - 1 && String(index) === key
+}
+
+function countJsonNodesWithinBudget(value: unknown, depth: number, budget: number): number | null {
+    const stack = [{ value, depth }]
+    let nodes = 1
+    while (stack.length > 0) {
+        const entry = stack.pop()!
+        if (nodes > budget || entry.depth > MAX_JSON_DEPTH) {
+            return null
+        }
+        if (entry.value !== null && typeof entry.value === 'object') {
+            for (const key in entry.value) {
+                if (!Object.hasOwn(entry.value, key)) {
+                    continue
+                }
+                if (++nodes > budget) {
+                    return null
+                }
+                stack.push({ value: (entry.value as Record<string, unknown>)[key], depth: entry.depth + 1 })
+            }
+        }
+    }
+    return nodes
+}
+
 /**
  * Flattens a JSON object into a flat key-value map with dot-notation keys.
- * Arrays are indexed with numeric keys (e.g., "items.0.name").
+ * Body arrays use indexed paths; selected-attribute arrays are stored as JSON strings.
  */
-export function flattenJson(obj: unknown, prefix = '', result: Record<string, any> = {}): Record<string, any> {
-    if (obj === null || obj === undefined) {
-        if (prefix) {
-            result[prefix] = String(obj)
+function flattenJsonWithBudget(
+    obj: unknown,
+    prefix = '',
+    maxAttributes = MAX_JSON_ATTRIBUTES,
+    maxBytes = MAX_LOG_RECORD_BYTES,
+    arrayMode: 'indexed' | 'string' = 'indexed'
+): { values: Record<string, unknown>; attributes: Record<string, string> } | null {
+    const result: Record<string, unknown> = {}
+    const attributes: Record<string, string> = {}
+    const stack = [{ value: obj, prefix, depth: 0 }]
+    let nodes = 1
+    let pathBytes = Buffer.byteLength(prefix)
+    let attributeBytes = 0
+    let attributeCount = 0
+    let lastRetainedKey = ''
+
+    while (stack.length > 0) {
+        const entry = stack.pop()!
+        if (entry.depth > MAX_JSON_DEPTH || pathBytes > maxBytes) {
+            return null
         }
-        return result
-    }
-
-    if (typeof obj !== 'object') {
-        if (prefix) {
-            result[prefix] = obj
+        if (arrayMode === 'string' && Array.isArray(entry.value)) {
+            const arrayNodes = countJsonNodesWithinBudget(entry.value, entry.depth, MAX_JSON_NODES - nodes + 1)
+            if (arrayNodes === null) {
+                return null
+            }
+            nodes += arrayNodes - 1
+            entry.value = JSON.stringify(entry.value)
         }
-        return result
-    }
-
-    if (Array.isArray(obj)) {
-        for (let i = 0; i < obj.length; i++) {
-            flattenJson(obj[i], prefix ? `${prefix}.${i}` : String(i), result)
+        if (entry.value !== null && typeof entry.value === 'object') {
+            const value = entry.value as Record<string, unknown>
+            if (Array.isArray(value) && value.length + nodes > MAX_JSON_NODES) {
+                return null
+            }
+            const keys = Array.isArray(value) ? Array.from({ length: value.length }, (_, index) => String(index)) : []
+            if (!Array.isArray(value)) {
+                for (const key in value) {
+                    if (!Object.hasOwn(value, key)) {
+                        continue
+                    }
+                    if (nodes + keys.length >= MAX_JSON_NODES) {
+                        return null
+                    }
+                    keys.push(key)
+                }
+            }
+            nodes += keys.length
+            for (let index = keys.length - 1; index >= 0; index--) {
+                const key = keys[index]
+                const childPrefix = entry.prefix ? `${entry.prefix}.${key}` : key
+                pathBytes += Buffer.byteLength(childPrefix)
+                if (pathBytes > maxBytes) {
+                    return null
+                }
+                stack.push({ value: value[key], prefix: childPrefix, depth: entry.depth + 1 })
+            }
+            continue
         }
-        return result
-    }
 
-    for (const [key, value] of Object.entries(obj)) {
-        const newKey = prefix ? `${prefix}.${key}` : key
-        flattenJson(value, newKey, result)
+        const key = entry.prefix
+        if (!key || key === '__proto__' || maxAttributes <= 0) {
+            continue
+        }
+        const exists = Object.hasOwn(result, key)
+        if (!exists && attributeCount >= maxAttributes) {
+            if (!isArrayIndex(key)) {
+                continue
+            }
+            const lastKey = lastRetainedKey
+            if (isArrayIndex(lastKey) && Number(lastKey) <= Number(key)) {
+                continue
+            }
+            attributeBytes -= Buffer.byteLength(lastKey) + Buffer.byteLength(attributes[lastKey])
+            delete result[lastKey]
+            delete attributes[lastKey]
+            attributeCount--
+        }
+        const value = entry.value === null || entry.value === undefined ? String(entry.value) : entry.value
+        const serialized = JSON.stringify(value)
+        const valueBytes = Buffer.byteLength(serialized)
+        attributeBytes += exists ? valueBytes - Buffer.byteLength(attributes[key]) : Buffer.byteLength(key) + valueBytes
+        if (attributeBytes > maxBytes) {
+            return null
+        }
+        result[key] = value
+        attributes[key] = serialized
+        if (!exists) {
+            attributeCount++
+            if (attributeCount === maxAttributes) {
+                lastRetainedKey = Object.keys(result)[attributeCount - 1]
+            }
+        }
     }
+    return { values: result, attributes }
+}
 
-    return result
+export function flattenJson(
+    obj: unknown,
+    prefix = '',
+    maxAttributes = MAX_JSON_ATTRIBUTES,
+    maxBytes = MAX_LOG_RECORD_BYTES
+): Record<string, unknown> | null {
+    return flattenJsonWithBudget(obj, prefix, maxAttributes, maxBytes)?.values ?? null
 }
 
 function jsonAttributesFromBodyParse(bodyParse: LogBodyParseResult): Record<string, string> {
@@ -204,19 +361,12 @@ function jsonAttributesFromBodyParse(bodyParse: LogBodyParseResult): Record<stri
         return {}
     }
 
-    const flattened = flattenJson(bodyParse.value)
-    const newAttributes: Record<string, string> = {}
-    let count = 0
-
-    for (const [key, value] of Object.entries(flattened)) {
-        if (count >= MAX_JSON_ATTRIBUTES) {
-            break
-        }
-        count++
-        newAttributes[key] = JSON.stringify(value)
+    const flattened = flattenJsonWithBudget(bodyParse.value)
+    if (flattened === null) {
+        recordJsonEnrichmentSkip('flatten_budget', 'body')
+        return {}
     }
-
-    return newAttributes
+    return flattened.attributes
 }
 
 /**
@@ -224,7 +374,35 @@ function jsonAttributesFromBodyParse(bodyParse: LogBodyParseResult): Record<stri
  * Returns up to MAX_JSON_ATTRIBUTES attributes, without overwriting existing attributes.
  */
 export function extractJsonAttributesFromBody(body: string | null): Record<string, string> {
+    if (body && Buffer.byteLength(body) > MAX_LOG_RECORD_BYTES) {
+        recordJsonEnrichmentSkip('input_size', 'body')
+        return {}
+    }
     return jsonAttributesFromBodyParse(parseLogBodyForIngestion(body))
+}
+
+function addJsonAttributes(
+    record: LogRecord,
+    jsonAttributes: Record<string, string>,
+    recordBytes: number,
+    source: JsonEnrichmentSource
+): void {
+    if (Object.keys(jsonAttributes).length === 0) {
+        return
+    }
+    for (const [key, value] of Object.entries(jsonAttributes)) {
+        if (!record.attributes || !Object.hasOwn(record.attributes, key)) {
+            recordBytes += Buffer.byteLength(key) + Buffer.byteLength(value)
+            if (recordBytes > MAX_LOG_RECORD_BYTES) {
+                recordJsonEnrichmentSkip('output_size', source)
+                return
+            }
+        }
+    }
+    record.attributes = {
+        ...jsonAttributes,
+        ...record.attributes, // existing attributes take precedence
+    }
 }
 
 /**
@@ -239,18 +417,53 @@ export function enrichLogRecordWithJsonAttributes(record: LogRecord, bodyParse?:
         return record
     }
 
-    const parse = bodyParse ?? parseLogBodyForIngestion(record.body)
-    const existingAttributes = record.attributes || {}
-    const jsonAttributes = jsonAttributesFromBodyParse(parse)
-
-    if (Object.keys(jsonAttributes).length > 0) {
-        record.attributes = {
-            ...jsonAttributes,
-            ...existingAttributes, // existing attributes take precedence
-        }
+    if (Buffer.byteLength(record.body) > MAX_LOG_RECORD_BYTES) {
+        recordJsonEnrichmentSkip('input_size', 'body')
+        return record
     }
 
+    const parse = bodyParse ?? parseLogBodyForIngestion(record.body)
+    if (parse.kind !== 'json_object_or_array') {
+        return record
+    }
+    const recordBytes = logRecordSizeBytes(record)
+    if (recordBytes > MAX_LOG_RECORD_BYTES) {
+        recordJsonEnrichmentSkip('input_size', 'body')
+        return record
+    }
+    const jsonAttributes = jsonAttributesFromBodyParse(parse)
+    addJsonAttributes(record, jsonAttributes, recordBytes, 'body')
+
     return record
+}
+
+export function enrichLogRecordFromJsonAttribute(record: LogRecord, key: string): void {
+    if (!record.attributes || !Object.hasOwn(record.attributes, key)) {
+        return
+    }
+    const recordBytes = logRecordSizeBytes(record)
+    if (recordBytes > MAX_LOG_RECORD_BYTES) {
+        recordJsonEnrichmentSkip('input_size', 'selected_attribute')
+        return
+    }
+    let parsed: unknown
+    try {
+        parsed = parseJSON(record.attributes[key])
+        if (typeof parsed === 'string') {
+            parsed = parseJSON(parsed)
+        }
+    } catch {
+        return
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return
+    }
+    const flattened = flattenJsonWithBudget(parsed, key, MAX_JSON_ATTRIBUTES, MAX_LOG_RECORD_BYTES, 'string')
+    if (flattened === null) {
+        recordJsonEnrichmentSkip('flatten_budget', 'selected_attribute')
+        return
+    }
+    addJsonAttributes(record, flattened.attributes, recordBytes, 'selected_attribute')
 }
 
 const enrichBatchJsonAttributes = instrumented({
@@ -275,9 +488,8 @@ const scrubBatch = instrumented({
 })
 
 /**
- * Applies PII scrub and optional JSON parse + attribute enrichment to decoded records in place.
- * Used by the main buffer processor and by the sampling path (which must decode even when
- * json_parse / pii_scrub are off, then optionally runs this when either flag is on).
+ * Scrub before extracting fields, then enrich from the selected attribute before the body so
+ * sender attributes win over selected-attribute fields, which win over body-derived fields.
  */
 export async function transformDecodedLogRecordsInPlace(
     records: LogRecord[],
@@ -286,15 +498,17 @@ export async function transformDecodedLogRecordsInPlace(
     const jsonParse = settings.json_parse_logs ?? false
     const piiScrub = settings.pii_scrub_logs ?? false
     let pii: PiiScrubStats = EMPTY_PII
-    if (jsonParse && piiScrub) {
+    if (piiScrub) {
         pii = await scrubBatch(records)
+    }
+    if (settings.json_parse_logs_attribute_key) {
+        for (const record of records) {
+            enrichLogRecordFromJsonAttribute(record, settings.json_parse_logs_attribute_key)
+        }
+    }
+    if (jsonParse) {
         const bodyParses = await parseLogBodiesForIngestion(records)
         await enrichBatchJsonAttributes(records, bodyParses)
-    } else if (jsonParse) {
-        const bodyParses = await parseLogBodiesForIngestion(records)
-        await enrichBatchJsonAttributes(records, bodyParses)
-    } else if (piiScrub) {
-        pii = await scrubBatch(records)
     }
     return pii
 }
@@ -333,7 +547,10 @@ export function bufferProcessingMode(
     stageCount: number,
     hasVisitor: boolean
 ): BufferProcessingMode {
-    const normalizeActive = (settings.json_parse_logs ?? false) || (settings.pii_scrub_logs ?? false)
+    const normalizeActive =
+        (settings.json_parse_logs ?? false) ||
+        (settings.pii_scrub_logs ?? false) ||
+        Boolean(settings.json_parse_logs_attribute_key)
     if (normalizeActive || stageCount > 0) {
         return 'decode_and_reencode'
     }
@@ -342,9 +559,9 @@ export function bufferProcessingMode(
 
 /**
  * The single decode → transform → encode path for a log message buffer.
- * Passthrough (no decode) when json_parse_logs and pii_scrub_logs are off, there are no `stages`, and
- * no `onRecordsDecoded` visitor.
- * Otherwise: decode → normalize (optional PII scrub on `body`, then optional JSON parse + enrich) →
+ * Passthrough (no decode) when body parsing, attribute extraction and PII scrubbing are off,
+ * there are no `stages`, and no `onRecordsDecoded` visitor.
+ * Otherwise: decode → normalize (PII scrub, selected-attribute extraction, body enrichment) →
  * `onRecordsDecoded` visitor → run `stages` in order → encode.
  *
  * When both `json_parse_logs` and `pii_scrub_logs` are on, scrub runs **before** parse/enrich so flattened JSON
@@ -372,6 +589,7 @@ export const processLogMessageBuffer = instrumented({
     // Read only by the duration labels in the `finally`, which the passthrough return never reaches.
     const jsonParse = settings.json_parse_logs ?? false
     const piiScrub = settings.pii_scrub_logs ?? false
+    const attributeExtraction = Boolean(settings.json_parse_logs_attribute_key)
     const startTime = Date.now()
     let codec = 'unknown'
 
@@ -409,6 +627,7 @@ export const processLogMessageBuffer = instrumented({
         const durationLabels = {
             json_parse_enabled: String(jsonParse),
             pii_scrub_enabled: String(piiScrub),
+            attribute_extraction_enabled: String(attributeExtraction),
             compression_codec: codec,
         }
         logProcessingDurationHistogram.observe(durationLabels, durationSeconds)

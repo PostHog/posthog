@@ -6,9 +6,14 @@ import {
   type ScoutRunOutcome,
   scoutRunOutcomeLabel,
 } from "@posthog/core/scouts/scoutPresentation";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@posthog/quill";
 import { formatRelativeTimeLong } from "@posthog/shared";
 import { getPostHogUrl } from "@posthog/ui/utils/urls";
-import { Flex, Text, Tooltip } from "@radix-ui/themes";
 
 // Quiet is the common, healthy baseline so it recedes to gray; saturated
 // color only means something happened – iris payoff, red/amber trouble.
@@ -27,7 +32,7 @@ const MAX_BOXES = 24;
 const BOX_CLASS =
   "block h-3 w-2 rounded-[2px] transition-transform duration-100 hover:scale-y-125 hover:ring-(--gray-8) hover:ring-1";
 
-function runTooltip(run: ScoutRun, now: Date): string {
+function runTitle(run: ScoutRun, now: Date): string {
   const parts = [scoutRunOutcomeLabel(run, now)];
   const duration = formatRunDuration(runDurationSeconds(run, now));
   if (duration) parts.push(duration);
@@ -39,50 +44,65 @@ function runTooltip(run: ScoutRun, now: Date): string {
 
 /**
  * One small box per run in the visible window, oldest on the left. Each box
- * opens the backing task run in PostHog cloud; runs without a task link are
- * tooltip-only.
+ * opens the backing task run in PostHog cloud; runs without a task link carry
+ * their label only.
  */
-export function ScoutRunBoxes({ runs }: { runs: ScoutRun[] }) {
+export function ScoutRunBoxes({
+  runs,
+  max = MAX_BOXES,
+}: {
+  runs: ScoutRun[];
+  max?: number;
+}) {
   if (runs.length === 0) return null;
-  const visible = runs.slice(-MAX_BOXES);
+  const visible = runs.slice(-max);
   const hidden = runs.length - visible.length;
   const now = new Date();
 
   return (
-    <Flex align="center" gap="2" className="shrink-0">
-      {hidden > 0 ? (
-        <Text className="text-[10px] text-gray-9">+{hidden}</Text>
-      ) : null}
-      <Flex align="center" gap="1">
-        {visible.map((run) => {
-          const outcome = deriveRunOutcome(run, now);
-          const boxClass = `${BOX_CLASS} ${OUTCOME_BOX_CLASS[outcome]}`;
-          const taskRunUrl = run.task_url ? getPostHogUrl(run.task_url) : null;
-          if (taskRunUrl) {
-            const tooltip = `${runTooltip(run, now)} · open task run in PostHog`;
+    <TooltipProvider>
+      <span className="flex shrink-0 items-center gap-2">
+        {hidden > 0 ? (
+          <span className="text-[10px] text-gray-9">+{hidden}</span>
+        ) : null}
+        <span className="flex items-center gap-1">
+          {visible.map((run) => {
+            const outcome = deriveRunOutcome(run, now);
+            const boxClass = `${BOX_CLASS} ${OUTCOME_BOX_CLASS[outcome]}`;
+            const taskRunUrl = run.task_url
+              ? getPostHogUrl(run.task_url)
+              : null;
+            const label = runTitle(run, now);
+            if (taskRunUrl) {
+              return (
+                <Tooltip key={run.run_id}>
+                  <TooltipTrigger
+                    render={
+                      <a
+                        href={taskRunUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={boxClass}
+                        title={`${label} · open task run in PostHog`}
+                      >
+                        <span className="sr-only">Run {label}</span>
+                      </a>
+                    }
+                  />
+                  <TooltipContent>
+                    {label} · open task run in PostHog
+                  </TooltipContent>
+                </Tooltip>
+              );
+            }
             return (
-              <Tooltip key={run.run_id} content={tooltip}>
-                <a
-                  href={taskRunUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={boxClass}
-                >
-                  <span className="sr-only">Run {tooltip}</span>
-                </a>
-              </Tooltip>
-            );
-          }
-          const tooltip = runTooltip(run, now);
-          return (
-            <Tooltip key={run.run_id} content={tooltip}>
-              <span className={boxClass}>
-                <span className="sr-only">Run {tooltip}</span>
+              <span key={run.run_id} className={boxClass} title={label}>
+                <span className="sr-only">Run {label}</span>
               </span>
-            </Tooltip>
-          );
-        })}
-      </Flex>
-    </Flex>
+            );
+          })}
+        </span>
+      </span>
+    </TooltipProvider>
   );
 }

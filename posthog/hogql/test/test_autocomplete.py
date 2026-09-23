@@ -1,6 +1,7 @@
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -85,6 +86,21 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             globals={"event": "$pageview"},
             startPosition=start,
             endPosition=end,
+        )
+        return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
+
+    def _at_cursor(
+        self, language: HogLanguage, query_with_cursor: str, database: Optional[Database] = None
+    ) -> HogQLAutocompleteResponse:
+        # "|" marks where the cursor sits, and is stripped before the query is sent
+        position = query_with_cursor.index("|")
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query=query_with_cursor.replace("|", "", 1),
+            language=language,
+            globals={"event": "$pageview", "person": {"properties": {"email": "tim@posthog.com", "name": "Tim"}}},
+            startPosition=position,
+            endPosition=position,
         )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
@@ -182,6 +198,42 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=18, end=18)
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "some_event_value"
+
+    def test_autocomplete_events_properties_omits_person_property_setters(self):
+        self._create_properties()
+        for name in ("$set", "$set_once"):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name=name,
+                property_type="String",
+                type=PropertyDefinition.Type.EVENT,
+            )
+
+        query = "select properties. from events"
+        results = self._select(query=query, start=18, end=18)
+        assert [suggestion.label for suggestion in results.suggestions] == ["some_event_value"]
+
+    @parameterized.expand(
+        [
+            ("event_properties", "event", 23, ["$browser"]),
+            ("other_properties_bag", "inputs", 24, ["$browser", "$set", "$set_once"]),
+        ]
+    )
+    def test_autocomplete_hog_globals_omit_person_property_setters(
+        self, _name: str, root: str, cursor: int, expected: list[str]
+    ):
+        database = Database.create_for(team=self.team)
+
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query=f"print({root}.properties.)",
+            language=HogLanguage.HOG,
+            globals={root: {"properties": {"$browser": "Chrome", "$set": {}, "$set_once": {}}}},
+            startPosition=cursor,
+            endPosition=cursor,
+        )
+        results = get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
+        assert [suggestion.label for suggestion in results.suggestions] == expected
 
     def test_autocomplete_persons_properties(self):
         self._create_properties()
@@ -492,6 +544,15 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._template(query=query, start=5, end=6, database=database)
         assert len(results.suggestions) == 0
 
+    def test_autocomplete_template_strings_skip_the_schema_build(self):
+        query = "this isn't a string {concat(eve)} <- this is"
+
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            results = self._template(query=query, start=28, end=31)
+
+        create_for.assert_not_called()
+        assert "event" in [suggestion.label for suggestion in results.suggestions]
+
     def test_autocomplete_template_json(self):
         database = Database.create_for(team=self.team)
 
@@ -511,6 +572,91 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
         results = self._json(query=query, start=5, end=6, database=database)
         assert len(results.suggestions) == 0
+
+    @parameterized.expand(
+        [
+            ("hog_template", HogLanguage.HOG_TEMPLATE, "Hi {person.|} bye", ["properties"]),
+            ("hog_template_nested", HogLanguage.HOG_TEMPLATE, "Hi {person.properties.|} bye", ["email", "name"]),
+            ("liquid", HogLanguage.LIQUID, "Hi {{ person.| }} bye", ["properties"]),
+            ("liquid_nested", HogLanguage.LIQUID, "Hi {{ person.properties.| }} bye", ["email", "name"]),
+            ("hog_json", HogLanguage.HOG_JSON, '{"message": "Hi {person.|} bye"}', ["properties"]),
+            ("hog_json_nested", HogLanguage.HOG_JSON, '{"message": "Hi {person.properties.|} bye"}', ["email", "name"]),
+        ]
+    )
+    def test_autocomplete_template_drills_into_globals(
+        self, _name: str, language: HogLanguage, query: str, expected_labels: list[str]
+    ):
+        results = self._at_cursor(language, query, database=Database.create_for(team=self.team))
+
+        assert [suggestion.label for suggestion in results.suggestions] == expected_labels
+
+    @parameterized.expand(
+        [
+            ("hog_template_first", HogLanguage.HOG_TEMPLATE, "Hi {pe|rson.properties.email}", ["event", "person"]),
+            ("hog_template_middle", HogLanguage.HOG_TEMPLATE, "Hi {person.pro|perties.email}", ["properties"]),
+            ("hog_template_last", HogLanguage.HOG_TEMPLATE, "Hi {person.properties.em|ail}", ["email", "name"]),
+            ("liquid_first", HogLanguage.LIQUID, "Hi {{ pe|rson.properties.email }}", ["event", "person"]),
+            ("liquid_middle", HogLanguage.LIQUID, "Hi {{ person.pro|perties.email }}", ["properties"]),
+            ("liquid_last", HogLanguage.LIQUID, "Hi {{ person.properties.em|ail }}", ["email", "name"]),
+            (
+                "hog_json_first",
+                HogLanguage.HOG_JSON,
+                '{"message": "Hi {pe|rson.properties.email}"}',
+                ["event", "person"],
+            ),
+            ("hog_json_middle", HogLanguage.HOG_JSON, '{"message": "Hi {person.pro|perties.email}"}', ["properties"]),
+            ("hog_json_last", HogLanguage.HOG_JSON, '{"message": "Hi {person.properties.em|ail}"}', ["email", "name"]),
+            # Dots outside the extracted JSON string value must not count as chain levels
+            (
+                "hog_json_after_dotted_rows",
+                HogLanguage.HOG_JSON,
+                '{\n  "url": "https://example.com/a.b",\n  "message": "Hi {person.pro|perties.email}"\n}',
+                ["properties"],
+            ),
+        ]
+    )
+    def test_autocomplete_template_suggests_the_level_of_the_chain_element_under_the_cursor(
+        self, _name: str, language: HogLanguage, query: str, expected_labels: list[str]
+    ):
+        results = self._at_cursor(language, query, database=Database.create_for(team=self.team))
+
+        # Hog templates also offer every Hog function, which is not what this pins down
+        assert [
+            suggestion.label
+            for suggestion in results.suggestions
+            if suggestion.kind == AutocompleteCompletionItemKind.VARIABLE
+        ] == expected_labels
+
+    @parameterized.expand(
+        [
+            ("hog_template_empty", HogLanguage.HOG_TEMPLATE, "Hi there {|}"),
+            ("hog_template_start", HogLanguage.HOG_TEMPLATE, "Hi {| person.properties.email} bye"),
+            ("liquid_empty", HogLanguage.LIQUID, "Hi there {{ |}}"),
+            ("liquid_start", HogLanguage.LIQUID, "Hi {{| person.properties.email }} bye"),
+            ("hog_json_empty", HogLanguage.HOG_JSON, '{"message": "Hi {|}"}'),
+        ]
+    )
+    def test_autocomplete_template_suggests_top_level_globals_at_the_start_of_an_expression(
+        self, _name: str, language: HogLanguage, query: str
+    ):
+        results = self._at_cursor(language, query, database=Database.create_for(team=self.team))
+
+        assert {"event", "person"} <= {suggestion.label for suggestion in results.suggestions}
+
+    @parameterized.expand(
+        [
+            ("hog_template_before", HogLanguage.HOG_TEMPLATE, "H|i {person.properties.email} bye"),
+            ("hog_template_after", HogLanguage.HOG_TEMPLATE, "Hi {person.properties.email}| bye"),
+            ("liquid_before", HogLanguage.LIQUID, "H|i {{ person.properties.email }} bye"),
+            ("liquid_after", HogLanguage.LIQUID, "Hi {{ person.properties.email }}| bye"),
+        ]
+    )
+    def test_autocomplete_template_has_no_suggestions_outside_braces(
+        self, _name: str, language: HogLanguage, query: str
+    ):
+        results = self._at_cursor(language, query, database=Database.create_for(team=self.team))
+
+        assert results.suggestions == []
 
     def test_autocomplete_hog(self):
         database = Database.create_for(team=self.team)

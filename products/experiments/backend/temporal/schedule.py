@@ -13,9 +13,15 @@ from temporalio.client import (
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
-from products.experiments.backend.temporal.models import CANARY_WORKFLOW_NAME, ExperimentPrecomputeCanaryInputs
+from products.experiments.backend.temporal.models import (
+    CANARY_WORKFLOW_NAME,
+    ENROLLMENT_CENSUS_WORKFLOW_NAME,
+    ExperimentPrecomputeCanaryInputs,
+    ExperimentPrecomputeEnrollmentCensusInputs,
+)
 
 CANARY_SCHEDULE_ID = "experiment-precompute-canary-schedule"
+ENROLLMENT_CENSUS_SCHEDULE_ID = "experiment-precompute-enrollment-census-schedule"
 
 
 async def create_experiment_precompute_canary_schedule(client: Client) -> None:
@@ -43,3 +49,29 @@ async def create_experiment_precompute_canary_schedule(client: Client) -> None:
         await a_update_schedule(client, CANARY_SCHEDULE_ID, schedule)
     else:
         await a_create_schedule(client, CANARY_SCHEDULE_ID, schedule, trigger_immediately=False)
+
+
+async def create_experiment_precompute_enrollment_census_schedule(client: Client) -> None:
+    """Daily report of teams that would qualify for precomputation enrollment. Report-only."""
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            ENROLLMENT_CENSUS_WORKFLOW_NAME,
+            ExperimentPrecomputeEnrollmentCensusInputs(),
+            id=f'{ENROLLMENT_CENSUS_SCHEDULE_ID}-{{{{.ScheduledTime.Format "2006-01-02"}}}}',
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 6 AM UTC",
+                    hour=[ScheduleRange(start=6, end=6)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, ENROLLMENT_CENSUS_SCHEDULE_ID):
+        await a_update_schedule(client, ENROLLMENT_CENSUS_SCHEDULE_ID, schedule)
+    else:
+        await a_create_schedule(client, ENROLLMENT_CENSUS_SCHEDULE_ID, schedule, trigger_immediately=False)

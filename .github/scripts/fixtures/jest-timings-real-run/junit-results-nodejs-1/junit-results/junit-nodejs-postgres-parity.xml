@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="29" failures="0" errors="0" time="25.531">
+  <testsuite name="src/common/personhog/personhog-postgres-parity.test.ts" errors="0" failures="0" skipped="0" timestamp="2026-08-25T16:05:29" time="7.001" tests="25">
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroup single group produces identical output" name="PersonHog ↔ Postgres parity groups fetchGroup single group produces identical output" time="0.288" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroup group not found produces identical output" name="PersonHog ↔ Postgres parity groups fetchGroup group not found produces identical output" time="0.231" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroup group with complex nested properties produces identical output" name="PersonHog ↔ Postgres parity groups fetchGroup group with complex nested properties produces identical output" time="0.246" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroup group with unicode properties produces identical output" name="PersonHog ↔ Postgres parity groups fetchGroup group with unicode properties produces identical output" time="0.238" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroupsByKeys batch fetch produces identical output" name="PersonHog ↔ Postgres parity groups fetchGroupsByKeys batch fetch produces identical output" time="0.238" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroupsByKeys missing groups in batch produce identical output" name="PersonHog ↔ Postgres parity groups fetchGroupsByKeys missing groups in batch produce identical output" time="0.234" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroupsByKeys empty input produces identical output" name="PersonHog ↔ Postgres parity groups fetchGroupsByKeys empty input produces identical output" time="0.229" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroupTypesByTeamIds team with multiple group types produces identical output" name="PersonHog ↔ Postgres parity groups fetchGroupTypesByTeamIds team with multiple group types produces identical output" time="0.236" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroupTypesByTeamIds team with no group types — known shape divergence" name="PersonHog ↔ Postgres parity groups fetchGroupTypesByTeamIds team with no group types — known shape divergence" time="0.234" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroupTypesByTeamIds multiple teams with mixed data produces identical output for present keys" name="PersonHog ↔ Postgres parity groups fetchGroupTypesByTeamIds multiple teams with mixed data produces identical output for present keys" time="0.243" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroupTypesByTeamIds empty input produces identical output" name="PersonHog ↔ Postgres parity groups fetchGroupTypesByTeamIds empty input produces identical output" time="0.24" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroupTypesByProjectIds project with group types produces identical output" name="PersonHog ↔ Postgres parity groups fetchGroupTypesByProjectIds project with group types produces identical output" time="0.237" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroupTypesByProjectIds project with no group types — known shape divergence" name="PersonHog ↔ Postgres parity groups fetchGroupTypesByProjectIds project with no group types — known shape divergence" time="0.238" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity groups fetchGroupTypesByProjectIds empty input produces identical output" name="PersonHog ↔ Postgres parity groups fetchGroupTypesByProjectIds empty input produces identical output" time="0.242" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity persons fetchPerson (via fetchPersonsByDistinctIds) single person produces identical output" name="PersonHog ↔ Postgres parity persons fetchPerson (via fetchPersonsByDistinctIds) single person produces identical output" time="0.24" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity persons fetchPerson (via fetchPersonsByDistinctIds) person not found produces identical output" name="PersonHog ↔ Postgres parity persons fetchPerson (via fetchPersonsByDistinctIds) person not found produces identical output" time="0.233" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity persons fetchPerson (via fetchPersonsByDistinctIds) person with complex nested properties produces identical output" name="PersonHog ↔ Postgres parity persons fetchPerson (via fetchPersonsByDistinctIds) person with complex nested properties produces identical output" time="0.238" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity persons fetchPerson (via fetchPersonsByDistinctIds) person with unicode properties produces identical output" name="PersonHog ↔ Postgres parity persons fetchPerson (via fetchPersonsByDistinctIds) person with unicode properties produces identical output" time="0.245" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity persons fetchPerson (via fetchPersonsByDistinctIds) is_identified field is preserved" name="PersonHog ↔ Postgres parity persons fetchPerson (via fetchPersonsByDistinctIds) is_identified field is preserved" time="0.243" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity persons fetchPersonsByDistinctIds batch fetch produces identical output" name="PersonHog ↔ Postgres parity persons fetchPersonsByDistinctIds batch fetch produces identical output" time="0.265" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity persons fetchPersonsByDistinctIds missing persons in batch produce identical output" name="PersonHog ↔ Postgres parity persons fetchPersonsByDistinctIds missing persons in batch produce identical output" time="0.257" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity persons fetchPersonsByDistinctIds empty input produces identical output" name="PersonHog ↔ Postgres parity persons fetchPersonsByDistinctIds empty input produces identical output" time="0.225" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity persons fetchPersonsByPersonIds batch fetch by UUID produces identical output" name="PersonHog ↔ Postgres parity persons fetchPersonsByPersonIds batch fetch by UUID produces identical output" time="0.255" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity persons fetchPersonsByPersonIds missing person UUID produces identical output" name="PersonHog ↔ Postgres parity persons fetchPersonsByPersonIds missing person UUID produces identical output" time="0.248" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="PersonHog ↔ Postgres parity persons fetchPersonsByPersonIds empty input produces identical output" name="PersonHog ↔ Postgres parity persons fetchPersonsByPersonIds empty input produces identical output" time="0.22" file="src/common/personhog/personhog-postgres-parity.test.ts">
+    </testcase>
+  </testsuite>
+  <testsuite name="tests/ingestion/postgres-parity.test.ts" errors="0" failures="0" skipped="0" timestamp="2026-08-25T16:05:36" time="18.338" tests="4">
+    <testcase classname="postgres parity createPerson" name="postgres parity createPerson" time="1.785" file="tests/ingestion/postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="postgres parity updatePerson" name="postgres parity updatePerson" time="3.726" file="tests/ingestion/postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="postgres parity addDistinctId" name="postgres parity addDistinctId" time="2.217" file="tests/ingestion/postgres-parity.test.ts">
+    </testcase>
+    <testcase classname="postgres parity moveDistinctIds &amp; deletePerson" name="postgres parity moveDistinctIds &amp; deletePerson" time="3.803" file="tests/ingestion/postgres-parity.test.ts">
+    </testcase>
+  </testsuite>
+</testsuites>

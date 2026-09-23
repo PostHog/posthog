@@ -3,6 +3,7 @@ use reqwest::blocking::Response;
 use tracing::error;
 
 pub mod auth;
+pub mod broken_pipe;
 pub mod dotenv;
 pub mod files;
 pub mod git;

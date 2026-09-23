@@ -1,15 +1,18 @@
 import { Text } from "@components/text";
+import { partitionInboxReports } from "@posthog/core/inbox/reportInboxSections";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import { Tray } from "phosphor-react-native";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   View,
 } from "react-native";
 import { useThemeColors } from "@/lib/theme";
-import { useInboxReports } from "../hooks/useInboxReports";
+import { useArchivedReports, useInboxReports } from "../hooks/useInboxReports";
+import { InboxReportSection } from "./InboxReportSection";
 import { ReportListRow } from "./ReportListRow";
 
 interface ReportListProps {
@@ -32,9 +35,25 @@ export function ReportList({
   } = useInboxReports();
   const themeColors = useThemeColors();
 
+  const { reviewAndMerge, needsPr } = useMemo(
+    () => partitionInboxReports(reports),
+    [reports],
+  );
+
+  // Resolved (terminal) reports are loaded only when the section is opened.
+  const isEmpty = reviewAndMerge.length === 0 && needsPr.length === 0;
+  const [resolvedOpen, setResolvedOpen] = useState(false);
+  const resolved = useArchivedReports({
+    enabled: !isEmpty && resolvedOpen,
+  });
+
   const handlePress = (report: SignalReport) => {
     onReportPress?.(report);
   };
+
+  const renderReport = (report: SignalReport) => (
+    <ReportListRow key={report.id} report={report} onPress={handlePress} />
+  );
 
   if (error) {
     return (
@@ -59,29 +78,18 @@ export function ReportList({
     );
   }
 
-  if (reports.length === 0) {
-    return (
-      <View className="flex-1 items-center justify-center p-6">
-        <View className="mb-6 h-16 w-16 items-center justify-center rounded-full bg-gray-3">
-          <Tray size={28} color={themeColors.gray[10]} />
-        </View>
-        <Text className="mb-2 text-center font-semibold text-[16px] text-gray-12">
-          Inbox is empty
-        </Text>
-        <Text className="text-center text-[13px] text-gray-11">
-          Reports will appear here as signals come in.
-        </Text>
-      </View>
-    );
-  }
-
   return (
-    <FlatList
-      data={reports}
-      keyExtractor={(item) => item.id}
-      renderItem={({ item }) => (
-        <ReportListRow report={item} onPress={handlePress} />
-      )}
+    <ScrollView
+      onScrollEndDrag={({ nativeEvent }) => {
+        const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+        const nearBottom =
+          layoutMeasurement.height + contentOffset.y >=
+          contentSize.height - 200;
+        if (nearBottom && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      }}
+      scrollEventThrottle={200}
       refreshControl={
         <RefreshControl
           refreshing={isLoading}
@@ -90,23 +98,54 @@ export function ReportList({
           progressViewOffset={contentInsetTop}
         />
       }
-      onEndReachedThreshold={0.5}
-      onEndReached={() => {
-        if (hasNextPage && !isFetchingNextPage) {
-          fetchNextPage();
-        }
-      }}
-      ListFooterComponent={
-        isFetchingNextPage ? (
-          <View className="py-4">
-            <ActivityIndicator color={themeColors.accent[9]} />
-          </View>
-        ) : null
-      }
       contentContainerStyle={{
         paddingTop: contentInsetTop,
         paddingBottom: 100,
+        flexGrow: 1,
       }}
-    />
+    >
+      {isEmpty ? (
+        <View className="flex-1 items-center justify-center px-6 py-16">
+          <Tray size={28} color={themeColors.gray[10]} />
+          <Text className="mt-3 text-center font-semibold text-[16px] text-gray-12">
+            Nothing to review
+          </Text>
+          <Text className="mt-1 text-center text-[13px] text-gray-11">
+            Reports show up here as your agents find things worth acting on.
+          </Text>
+        </View>
+      ) : (
+        <>
+          <InboxReportSection
+            title="Review and merge"
+            reports={reviewAndMerge}
+            count={reviewAndMerge.length}
+            emptyNote="No pull requests open yet. Start one from a report below."
+            renderReport={renderReport}
+          />
+          <InboxReportSection
+            title="Needs a PR"
+            reports={needsPr}
+            count={needsPr.length}
+            emptyNote="No reports are waiting for a pull request."
+            renderReport={renderReport}
+          />
+          {isFetchingNextPage ? (
+            <View className="py-4">
+              <ActivityIndicator color={themeColors.accent[9]} />
+            </View>
+          ) : null}
+          <InboxReportSection
+            title="Resolved"
+            reports={resolved.reports}
+            count={resolved.totalCount}
+            defaultOpen={false}
+            emptyNote="Nothing resolved or archived yet."
+            onOpenChange={setResolvedOpen}
+            renderReport={renderReport}
+          />
+        </>
+      )}
+    </ScrollView>
   );
 }

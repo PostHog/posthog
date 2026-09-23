@@ -1,8 +1,5 @@
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
@@ -294,7 +291,7 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
         const mountWith = (
             hasPageview: boolean,
             hasPersonEmail: boolean,
-            { flagEnabled = true, freshStorage = true }: { flagEnabled?: boolean; freshStorage?: boolean } = {}
+            { freshStorage = true }: { freshStorage?: boolean } = {}
         ): void => {
             logic.unmount()
             if (freshStorage) {
@@ -305,11 +302,6 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
                 has_person_email: hasPersonEmail,
             } as unknown as AppContext
             initKeaTests()
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags(
-                [],
-                flagEnabled ? { [FEATURE_FLAGS.TAXONOMIC_FILTER_DEFAULT_PINS]: true } : {}
-            )
             logic = taxonomicFilterPinnedPropertiesLogic.build()
             logic.mount()
         }
@@ -357,13 +349,6 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
             )
         })
 
-        it('seeds nothing when the feature flag is disabled', () => {
-            mountWith(true, true, { flagEnabled: false })
-
-            expect(logic.values.pinnedFilters).toEqual([])
-            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBeNull()
-        })
-
         it('tops up a default that becomes available on a later mount', () => {
             const captureSpy = jest.spyOn(posthog, 'capture')
             mountWith(true, false)
@@ -408,8 +393,6 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
             window.POSTHOG_APP_CONTEXT = { has_pageview: true, has_person_email: true } as unknown as AppContext
 
             initKeaTests()
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_DEFAULT_PINS]: true })
             logic = taxonomicFilterPinnedPropertiesLogic.build()
             logic.mount()
 

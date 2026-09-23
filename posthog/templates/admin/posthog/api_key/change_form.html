@@ -1,10 +1,8 @@
 {% extends "admin/change_form.html" %}
 {% load i18n %}
-
 {% block extrahead %}
-  {{ block.super }}
-
-  <script nonce="{{ request.csp_nonce }}">
+    {{ block.super }}
+    <script nonce="{{ request.csp_nonce }}">
     window.addEventListener("DOMContentLoaded", () => {
         document.getElementById("roll_key_button")?.addEventListener("click", (event) => {
             const url = window.prompt("Enter the URL where the key was exposed (optional). This will be included in the notification email.");
@@ -19,5 +17,5 @@
             urlField.value = url;
         });
     });
-  </script>
+    </script>
 {% endblock %}

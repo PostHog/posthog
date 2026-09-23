@@ -428,7 +428,7 @@ def generate_change_summary(
         posthog_properties["team_id"] = team.id
         extra_capture_kwargs["posthog_groups"] = {"project": str(team.id), **groups()}
 
-    result = client.chat.completions.create(  # type: ignore[call-overload]
+    result = client.chat.completions.create(
         model="gpt-4.1-mini",
         temperature=0.3,
         max_tokens=500,

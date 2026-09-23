@@ -13,9 +13,7 @@ from products.access_control.backend.models.access_control import AccessControl
 class TestUserProductListDefaults(BaseTest):
     def _default_paths_for(self, user: User, team: Team) -> set[str]:
         return set(
-            UserProductList.objects.filter(
-                user=user, team=team, enabled=True, reason=UserProductList.Reason.DEFAULT
-            ).values_list("product_path", flat=True)
+            UserProductList.objects.filter(user=user, team=team, enabled=True).values_list("product_path", flat=True)
         )
 
     def _make_team_private(self, team: Team) -> None:

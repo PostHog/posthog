@@ -52,6 +52,38 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updatedAt": "When the question was last updated.",
         },
     },
+    "folders": {
+        "description": "A folder used to organize a workspace's forms. Folders can nest under a parent folder.",
+        "docs_url": "https://developers.tally.so/api-reference/endpoint/workspaces/folders/list",
+        "columns": {
+            "id": "Unique identifier for the folder within its workspace.",
+            "name": "Name of the folder.",
+            "workspaceId": "Identifier of the workspace the folder belongs to.",
+            "parentId": "Identifier of the parent folder, or null for a top-level folder.",
+            "createdByUserId": "Identifier of the user who created the folder.",
+            "createdAt": "When the folder was created.",
+            "updatedAt": "When the folder was last updated.",
+        },
+    },
+    "form_analytics_metrics": {
+        "description": (
+            "Aggregate performance metrics for a form over its whole history. One row per form, "
+            "recomputed on every sync."
+        ),
+        "docs_url": "https://developers.tally.so/api-reference/endpoint/forms/analytics/metrics",
+        "columns": {
+            "formId": "Identifier of the form the metrics are for.",
+            "visits": "Number of visits to the form.",
+            "visitDuration": "Average time spent on the form, in seconds.",
+            "submissions": "Number of submissions the form received.",
+            "uniqueRespondents": "Number of distinct respondents who submitted the form.",
+            "totalViews": "Total number of times the form was viewed.",
+            "starts": "Number of respondents who began filling in the form.",
+            "completions": "Number of respondents who completed the form.",
+            "completionDuration": "Average time to complete the form, in seconds.",
+            "completionRate": "Share of starts that resulted in a completion.",
+        },
+    },
     "submissions": {
         "description": (
             "A single submission of a form, with every answer nested under `responses`. Answers are "

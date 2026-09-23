@@ -65,6 +65,14 @@ ENDPOINTS: dict[str, BeehiivEndpointConfig] = {
         partition_key="created_at",
         params={"direction": "asc"},
     ),
+    "Podcasts": BeehiivEndpointConfig(
+        name="Podcasts",
+        path=f"/publications/{PUBLICATION_PATH_PLACEHOLDER}/podcasts",
+        pagination="cursor",
+        partition_key="created",
+        # beehiiv documents no ordering and only an optional `status` filter (draft/live/archived)
+        # with no "all" value, so request the default set unfiltered rather than narrowing it.
+    ),
     "Polls": BeehiivEndpointConfig(
         name="Polls",
         path=f"/publications/{PUBLICATION_PATH_PLACEHOLDER}/polls",

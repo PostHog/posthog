@@ -1,0 +1,375 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.ReplayPreview {
+    --replay-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden playing state. A direct child of .ReplayPreview so `:checked ~` reaches both cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__list,
+    &__player {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Playing/paused pairs are stacked on one grid cell and crossfaded, so playback
+    // never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-playing {
+        @include preview-swap-hidden;
+    }
+
+    &__when-paused {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__rec-dot {
+        width: 7px;
+        height: 7px;
+        background: var(--danger);
+        border-radius: 50%;
+        animation: ReplayPreview__pulse 2s ease-in-out infinite;
+    }
+
+    // Recordings list
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: 6.5rem minmax(0, 1fr) auto;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.375rem 0.5rem;
+        border-radius: var(--radius);
+        transition: background-color 250ms ease;
+    }
+
+    &__row--hero {
+        cursor: pointer;
+        user-select: none;
+    }
+
+    &__row--hero:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    &__person {
+        overflow: hidden;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__meta {
+        overflow: hidden;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__duration {
+        font-size: 0.625rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--color-text-secondary);
+        text-align: right;
+    }
+
+    &__now-playing {
+        font-size: 0.5625rem;
+        font-weight: 600;
+        text-align: right;
+
+        @include preview-accent-text(var(--replay-preview-accent));
+    }
+
+    &__hint {
+        padding: 0.25rem 0.75rem 0.5rem;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    // Player
+
+    &__screen {
+        position: relative;
+        height: 7.5rem;
+        overflow: hidden;
+        background: var(--color-bg-fill-tertiary);
+    }
+
+    &__wire {
+        position: absolute;
+        inset: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.4375rem;
+    }
+
+    &__wire-nav {
+        height: 0.75rem;
+        background: var(--color-bg-surface-primary);
+        border-radius: var(--radius);
+    }
+
+    &__wire-line {
+        height: 0.5rem;
+        background: var(--color-bg-surface-primary);
+        border-radius: 999px;
+        opacity: 0.7;
+    }
+
+    &__wire-line--short {
+        width: 60%;
+    }
+
+    &__wire-button {
+        width: 5.5rem;
+        height: 1.125rem;
+        margin-top: auto;
+        background: color-mix(in oklab, var(--replay-preview-accent) 55%, var(--color-bg-surface-primary));
+        border-radius: var(--radius);
+    }
+
+    // The replayed cursor: travels the wireframe and "clicks" the button while playing.
+    &__cursor {
+        position: absolute;
+        top: 20%;
+        left: 30%;
+        width: 10px;
+        height: 10px;
+        background: var(--color-text-primary);
+        border: 2px solid var(--color-bg-surface-primary);
+        border-radius: 50% 50% 50% 0;
+        box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+        transform: rotate(-90deg);
+    }
+
+    &__overlay {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: color-mix(in oklab, var(--color-bg-surface-primary) 45%, transparent);
+    }
+
+    &__overlay-play {
+        display: grid;
+        place-items: center;
+        width: 2rem;
+        height: 2rem;
+        font-size: 0.75rem;
+        color: var(--color-bg-surface-primary);
+        background: var(--replay-preview-accent);
+        border-radius: 50%;
+    }
+
+    &__controls {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+        border-top: 1px solid var(--color-border-primary);
+    }
+
+    &__play-glyph {
+        font-size: 0.625rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__timeline {
+        position: relative;
+        flex: 1;
+        height: 6px;
+        overflow: hidden;
+        background: var(--color-bg-fill-tertiary);
+        border-radius: 999px;
+    }
+
+    // Bursts of user activity along the timeline, like the real player's bar.
+    &__timeline-activity {
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(
+            90deg,
+            transparent 0 12%,
+            color-mix(in oklab, var(--replay-preview-accent) 30%, transparent) 12% 16%,
+            transparent 16% 34%,
+            color-mix(in oklab, var(--replay-preview-accent) 30%, transparent) 34% 42%,
+            transparent 42% 70%,
+            color-mix(in oklab, var(--replay-preview-accent) 30%, transparent) 70% 78%,
+            transparent 78% 100%
+        );
+    }
+
+    &__timeline-progress {
+        position: absolute;
+        inset: 0 100% 0 0;
+        background: var(--replay-preview-accent);
+        border-radius: 999px;
+    }
+
+    &__time {
+        font-size: 0.625rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--color-text-tertiary);
+    }
+}
+
+// Playing state (user clicked the recording)
+
+.ReplayPreview__checkbox:checked ~ * .ReplayPreview__when-playing {
+    @include preview-swap-visible;
+}
+
+.ReplayPreview__checkbox:checked ~ * .ReplayPreview__when-paused {
+    @include preview-swap-hidden;
+}
+
+.ReplayPreview__checkbox:checked ~ .ReplayPreview__list .ReplayPreview__row--hero {
+    background: color-mix(in oklab, var(--replay-preview-accent) 8%, transparent);
+}
+
+// Playback motion runs only while playing - the user opted in, so this is not
+// an auto-toggling demo.
+.ReplayPreview__checkbox:checked ~ .ReplayPreview__player .ReplayPreview__cursor {
+    animation: ReplayPreview__cursor-path 8s ease-in-out infinite;
+}
+
+.ReplayPreview__checkbox:checked ~ .ReplayPreview__player .ReplayPreview__timeline-progress {
+    animation: ReplayPreview__progress 8s linear infinite;
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the row it labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.ReplayPreview__checkbox:focus-visible ~ .ReplayPreview__list .ReplayPreview__row--hero {
+    outline: 2px solid var(--replay-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the hero recording until it's played.
+.ReplayPreview:not(.ReplayPreview--static)
+    .ReplayPreview__checkbox:not(:checked)
+    ~ .ReplayPreview__player
+    .ReplayPreview__overlay-play {
+    animation: ReplayPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes ReplayPreview__nudge {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--replay-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 5px color-mix(in oklab, var(--replay-preview-accent) 20%, transparent);
+    }
+}
+
+@keyframes ReplayPreview__pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.35;
+    }
+}
+
+// The cursor tours the page and ends on the call-to-action, bottom left.
+@keyframes ReplayPreview__cursor-path {
+    0% {
+        top: 20%;
+        left: 30%;
+    }
+
+    25% {
+        top: 35%;
+        left: 70%;
+    }
+
+    50% {
+        top: 55%;
+        left: 45%;
+    }
+
+    75% {
+        top: 75%;
+        left: 22%;
+        transform: rotate(-90deg) scale(1);
+    }
+
+    82% {
+        top: 78%;
+        left: 20%;
+        transform: rotate(-90deg) scale(0.8);
+    }
+
+    90% {
+        top: 78%;
+        left: 20%;
+        transform: rotate(-90deg) scale(1);
+    }
+
+    100% {
+        top: 20%;
+        left: 30%;
+    }
+}
+
+@keyframes ReplayPreview__progress {
+    from {
+        inset: 0 100% 0 0;
+    }
+
+    to {
+        inset: 0 0% 0 0;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all motion; clicking the recording
+// still flips the state (transitions only).
+@include preview-motion-guards('ReplayPreview');

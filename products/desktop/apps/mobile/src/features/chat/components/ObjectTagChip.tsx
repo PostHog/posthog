@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   Sparkle,
   SquaresFour,
+  Tray,
   User,
   UsersThree,
 } from "phosphor-react-native";
@@ -42,6 +43,7 @@ const KIND_ICONS: Record<string, Icon> = {
   experiment: Flask,
   survey: ClipboardText,
   ticket: ChatCircleText,
+  report: Tray,
   trace: Sparkle,
   eval: ShieldCheck,
   event: Lightning,

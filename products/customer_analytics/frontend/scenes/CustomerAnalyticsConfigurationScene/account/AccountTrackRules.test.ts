@@ -2,12 +2,19 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type {
     AccountTrackRuleGroupApi,
+    AccountTrackRuleRunViewApi,
     CustomPropertyDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { accountFiltersToRuleGroup, getPreviewRuleColumns, ruleGroupToAccountFilters } from './AccountTrackRules'
+import {
+    accountFiltersToRuleGroup,
+    getPreviewRuleColumns,
+    getTrackRuleRunDuration,
+    getTrackRuleRunTriggerLabel,
+    ruleGroupToAccountFilters,
+} from './AccountTrackRules'
 
-describe('AccountTrackRules filter translation', () => {
+describe('AccountTrackRules', () => {
     const definition = {
         id: '01980d7c-0000-7000-8000-000000000001',
         name: 'MRR',
@@ -102,5 +109,23 @@ describe('AccountTrackRules filter translation', () => {
                 values: [],
             },
         ])
+    })
+
+    it('labels mixed run triggers and shows duration', () => {
+        const scheduledRun = {
+            trigger: 'scheduled',
+            started_at: '2026-08-20T06:00:00Z',
+            finished_at: '2026-08-20T06:01:30Z',
+        } as AccountTrackRuleRunViewApi
+        const manualRun = {
+            trigger: 'manual',
+            started_at: null,
+            finished_at: null,
+        } as AccountTrackRuleRunViewApi
+
+        expect(getTrackRuleRunTriggerLabel(scheduledRun.trigger)).toBe('Scheduled')
+        expect(getTrackRuleRunTriggerLabel(manualRun.trigger)).toBe('Manual')
+        expect(getTrackRuleRunDuration(scheduledRun)).toBe('1m 30s')
+        expect(getTrackRuleRunDuration(manualRun)).toBe('Not started')
     })
 })

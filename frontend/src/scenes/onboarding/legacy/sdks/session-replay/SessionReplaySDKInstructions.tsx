@@ -15,6 +15,7 @@ import {
     RemixInstallation,
     SessionReplayFinalSteps,
     SvelteInstallation,
+    UnityInstallation,
     VueInstallation,
     WebflowInstallation,
     WebInstallation,
@@ -22,7 +23,7 @@ import {
 
 import { JS_WEB_SNIPPETS } from 'scenes/onboarding/shared/jsWebSnippets'
 
-import { SDKInstructionsMap, SDKKey } from '~/types'
+import { SDKDocsLinkOverrides, SDKInstructionsMap, SDKKey } from '~/types'
 
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
@@ -32,6 +33,10 @@ export { AdvertiseMobileReplay, type AdvertiseMobileReplayContext } from './Adve
 const SNIPPETS = {
     ...JS_WEB_SNIPPETS,
     SessionReplayFinalSteps,
+}
+
+export const SessionReplaySDKDocsLinkOverrides: SDKDocsLinkOverrides = {
+    [SDKKey.UNITY]: 'https://posthog.com/docs/session-replay/installation/unity',
 }
 
 // JS Web SDKs
@@ -125,6 +130,10 @@ const SessionReplayRNInstructionsWrapper = withOnboardingDocsWrapper({
     snippets: SNIPPETS,
     wizardIntegrationName: 'React Native',
 })
+const SessionReplayUnityInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: UnityInstallation,
+    snippets: SNIPPETS,
+})
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: SessionReplayWebInstructionsWrapper,
@@ -147,4 +156,5 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.REACT_NATIVE]: SessionReplayRNInstructionsWrapper,
     [SDKKey.FLUTTER]: SessionReplayFlutterInstructionsWrapper,
     [SDKKey.KMP]: SessionReplayKMPInstructionsWrapper,
+    [SDKKey.UNITY]: SessionReplayUnityInstructionsWrapper,
 }

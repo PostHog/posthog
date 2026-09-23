@@ -8,7 +8,7 @@ import type { ComponentPropsWithRef } from "react";
 
 export const INDENT_SIZE = 8;
 
-export function getSidebarItemPaddingLeft(depth: number): string {
+function getSidebarItemPaddingLeft(depth: number): string {
   return `${depth * INDENT_SIZE + 8 + (depth > 0 ? 4 : 0)}px`;
 }
 

@@ -18,7 +18,7 @@ jobs:
     # See .github/actions/paths-filter/README.md for filter semantics
     # Pushes and PRs above GitHub's 3000-file API limit run every scan.
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run Semgrep checks
@@ -40,6 +40,8 @@ jobs:
               with:
                   clean: false
                   persist-credentials: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
             - name: Force all scans for oversized pull requests
               id: oversized
               if: github.event_name == 'pull_request' && github.event.pull_request.changed_files > 3000
@@ -49,7 +51,7 @@ jobs:
               # forks can't read org secrets — fall back to github.token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
                   # paths-filter only calls pulls.listFiles
                   permission-pull-requests: read
@@ -74,6 +76,7 @@ jobs:
                         - '.github/workflows/ci-security.yaml'
                       go:
                         - 'livestream/**'
+                        - 'services/hogql-language-service/**'
                         - '.github/workflows/ci-security.yaml'
                       rust:
                         - 'cli/**'
@@ -82,6 +85,7 @@ jobs:
                       js:
                         - 'frontend/**'
                         - 'nodejs/**'
+                        - 'packages/**'
                         - 'services/agent-proxy/**'
                         - 'services/integration-service/**'
                         - 'services/mcp/**'
@@ -103,6 +107,7 @@ jobs:
                         - '!frontend/**'
                         - '!livestream/**'
                         - '!nodejs/**'
+                        - '!packages/**'
                         - '!posthog/**'
                         - '!products/**'
                         - '!rust/**'
@@ -137,7 +142,7 @@ jobs:
     semgrep-python:
         needs: changes
         if: needs.changes.outputs.python == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
 
         env:
@@ -145,7 +150,10 @@ jobs:
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            # The login only lifts the Docker Hub pull rate limit, and anonymous pulls still
+            # work, so every Docker Hub login in CI is best-effort.
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -182,7 +190,7 @@ jobs:
     semgrep-go:
         needs: changes
         if: needs.changes.outputs.go == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
 
         env:
@@ -191,6 +199,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -212,11 +221,12 @@ jobs:
                       --config r/go.lang.security
                       --exclude-rule go.lang.security.audit.xss.no-fprintf-to-responsewriter.no-fprintf-to-responsewriter
                       --include /livestream
+                      --include /services/hogql-language-service
 
     semgrep-rust:
         needs: changes
         if: needs.changes.outputs.rust == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
 
         env:
@@ -225,6 +235,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -253,7 +264,7 @@ jobs:
     semgrep-js:
         needs: changes
         if: needs.changes.outputs.js == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -262,6 +273,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -283,6 +295,7 @@ jobs:
                       --config p/trailofbits
                       --include /frontend
                       --include /nodejs
+                      --include /packages
                       --include /services/agent-proxy
                       --include /services/integration-service
                       --include /services/mcp
@@ -292,7 +305,7 @@ jobs:
     semgrep-products-frontend:
         needs: changes
         if: needs.changes.outputs.products-frontend == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -301,6 +314,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -326,7 +340,7 @@ jobs:
     semgrep-general:
         needs: changes
         if: needs.changes.outputs.general == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # The scan itself sits around 12 minutes, so 20 left too little headroom
         # for a slow runner and the job was tripping the timeout.
         timeout-minutes: 30
@@ -337,6 +351,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -366,6 +381,7 @@ jobs:
                       --exclude /frontend
                       --exclude /livestream
                       --exclude /nodejs
+                      --exclude /packages
                       --exclude /posthog
                       --exclude /products
                       --exclude /rust
@@ -382,7 +398,7 @@ jobs:
     semgrep-devex:
         needs: changes
         if: needs.changes.outputs.devex == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -391,6 +407,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -461,7 +478,7 @@ jobs:
     semgrep-test-rules:
         needs: changes
         if: needs.changes.outputs.test-rules == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
 
         env:
@@ -470,6 +487,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -495,7 +513,7 @@ jobs:
     semgrep-desktop:
         needs: changes
         if: needs.changes.outputs.desktop == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 20
 
         env:
@@ -504,6 +522,7 @@ jobs:
 
         steps:
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -546,9 +565,9 @@ jobs:
             - semgrep-test-rules
             - semgrep-desktop
         name: Semgrep Checks Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check matrix outcome
               run: |

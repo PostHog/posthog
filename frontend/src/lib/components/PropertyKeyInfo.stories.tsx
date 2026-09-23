@@ -22,6 +22,9 @@ const meta: Meta<PropertyKeyInfoProps> = {
                     <PropertyKeyInfo {...args} value="langfuse trace" />
                 </div>
                 <div>
+                    <PropertyKeyInfo {...args} value="eas/build_id" />
+                </div>
+                <div>
                     <PropertyKeyInfo {...args} value="$country" />
                 </div>
                 <div>

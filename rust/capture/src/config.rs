@@ -4,6 +4,8 @@ use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use tracing::Level;
 
+use crate::v0_request::AiLanePredicate;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum CaptureMode {
     Events,
@@ -359,6 +361,12 @@ pub struct Config {
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 
+    /// AI lane membership: `allowlist` (exact `AI_EVENT_NAMES`) or `prefix` (any `$ai_*`).
+    /// Set `prefix` only once the environment's AI ingestion pipeline admits by prefix,
+    /// or it DLQs every unlisted `$ai_*` name capture diverts.
+    #[envconfig(from = "CAPTURE_AI_LANE_PREDICATE", default = "allowlist")]
+    pub ai_lane_predicate: AiLanePredicate,
+
     // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
     // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and
     // exempted from the llm_events quota limiter. Unset disables verification
@@ -469,6 +477,15 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub ai_byte_limit_dry_run: bool,
 
+    /// Window the AI byte budget is enforced over. Falls back to
+    /// `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS` when unset.
+    ///
+    /// The AI byte budget is shared across capture deployments through one
+    /// Redis counter, and the epoch key derives from this window, so every
+    /// deployment must set the same value or the shared budget splits. Kept
+    /// separate so the token+distinct_id window can be tuned per deployment.
+    pub ai_byte_limit_window_interval_secs: Option<u64>,
+
     /// Max local cache entries for the AI byte limiter. Keyed per token, so this
     /// is bounded by the number of projects sending AI traffic — far smaller
     /// than the per-(token, distinct_id) limiter's key space.
@@ -494,7 +511,7 @@ pub struct KafkaConfig {
     #[envconfig(default = "none")]
     pub kafka_replay_envelope_compression: EnvelopeCompression,
     /// Refuse to boot when a registered output resolves to an empty topic
-    /// name (see `OutputRegistry::check_complete`). Config-only — the broker
+    /// name (see `TopicTable::check_complete`). Config-only — the broker
     /// is never probed, so topic autocreation on first publish is unaffected.
     /// Opt-in (default off) so deployments that deliberately blank a topic
     /// they never produce to keep booting; arm it per deployment once its
@@ -612,6 +629,7 @@ pub struct KafkaConfig {
 #[cfg(test)]
 mod tests {
     use super::{CaptureMode, Config};
+    use crate::v0_request::AiLanePredicate;
     use std::collections::HashMap;
     use std::str::FromStr;
 
@@ -648,6 +666,26 @@ mod tests {
         );
         let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
         assert_eq!(config.kafka.capture_analytics_ai_events_topic, "ai_events");
+    }
+
+    #[test]
+    fn ai_lane_predicate_binds_to_its_env_var_and_defaults_to_allowlist() {
+        // Unset must mean `allowlist` so the toggle is a no-op until an env opts in.
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
+        assert_eq!(config.ai_lane_predicate, AiLanePredicate::Allowlist);
+
+        let mut env = required_config_env();
+        env.insert("CAPTURE_AI_LANE_PREDICATE".into(), "prefix".into());
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.ai_lane_predicate, AiLanePredicate::Prefix);
+
+        env.insert("CAPTURE_AI_LANE_PREDICATE".into(), "everything".into());
+        let bad: Result<Config, _> = envconfig::Envconfig::init_from_hashmap(&env);
+        assert!(
+            bad.is_err(),
+            "an unknown predicate must fail startup, not silently fall back"
+        );
     }
 
     #[test]

@@ -27,9 +27,23 @@ export const DISMISSAL_REASON_OPTIONS = [
   { value: "other", label: "Something else…" },
 ] as const;
 
+export const RESOLVE_REASON_OPTIONS = [
+  { value: "fixed_outside_posthog", label: "Fixed outside PostHog" },
+  { value: "pr_merged", label: "PR was merged" },
+  { value: "already_fixed", label: "Was already fixed before this report" },
+  { value: "other", label: "Something else…" },
+] as const;
+
 /** Persisted dismissal / suppress reason (values match {@link DISMISSAL_REASON_OPTIONS}). */
 export type DismissalReasonOptionValue =
   (typeof DISMISSAL_REASON_OPTIONS)[number]["value"];
+
+export type ResolveReasonOptionValue =
+  (typeof RESOLVE_REASON_OPTIONS)[number]["value"];
+
+export type ReportStateReason =
+  | DismissalReasonOptionValue
+  | ResolveReasonOptionValue;
 
 /** Whether the given reason snoozes the report (temporarily) instead of permanently dismissing it. */
 export function isDismissalReasonSnooze(
@@ -50,6 +64,8 @@ export function isDismissalReasonSnooze(
  */
 export function dismissalReasonLabel(value: string): string {
   return (
-    DISMISSAL_REASON_OPTIONS.find((o) => o.value === value)?.label ?? value
+    DISMISSAL_REASON_OPTIONS.find((o) => o.value === value)?.label ??
+    RESOLVE_REASON_OPTIONS.find((o) => o.value === value)?.label ??
+    value
   );
 }

@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import { notebookNodeSQLV2Logic } from '../Nodes/notebookNodeSQLV2Logic'
 import { NotebookNodeType } from '../types'
+import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from './markdownNotebookV2'
 import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
 
 describe('notebookNodeStalenessLogic', () => {
@@ -78,7 +79,7 @@ describe('notebookNodeStalenessLogic', () => {
         stalenessLogic.actions.nodeRunFinished('a', 'done', content)
         await expectLogic(stalenessLogic).toFinishAllListeners()
         // b reads a directly; c reads b, so staleness must propagate transitively.
-        expect(stalenessLogic.values.staleNodeIds).toEqual({ b: true, c: true })
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ b: 'upstream', c: 'upstream' })
         // The finished cell is remembered as the last run with its still-stale downstream,
         // which is what surfaces the "run downstream cells" button on it.
         expect(stalenessLogic.values.lastRunNodeId).toEqual('a')
@@ -97,7 +98,7 @@ describe('notebookNodeStalenessLogic', () => {
         await expectLogic(stalenessLogic).toFinishAllListeners()
 
         expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['b', 'c'])
-        expect(stalenessLogic.values.staleNodeIds).toEqual({ x: true })
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ x: 'upstream' })
         expect(stalenessLogic.values.chainQueue).toEqual([])
     })
 
@@ -121,6 +122,82 @@ describe('notebookNodeStalenessLogic', () => {
         expect(runSpy.mock.calls[1][1]).toMatchObject({ node_id: 'c' })
         expect(stalenessLogic.values.staleNodeIds).toEqual({})
         expect(stalenessLogic.values.chainQueue).toEqual([])
+    })
+
+    it('runs only the requested widget data chain in dependency order', async () => {
+        mountNode('a')
+        mountNode('b')
+        mountNode('c')
+        mountNode('x')
+
+        stalenessLogic.actions.runWidgetDataChain(content, ['a', 'b'])
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a', 'b'])
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ c: 'upstream' })
+        expect(stalenessLogic.values.widgetDataChainNodeIds).toEqual([])
+    })
+
+    it('preserves mixed SQL and Python order for widget data in markdown notebooks', async () => {
+        const markdown = [
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'a',
+                returnVariable: 'sql_df',
+                code: 'select 1',
+            }),
+            serializeMarkdownNotebookComponent('PythonV2', {
+                nodeId: 'b',
+                returnVariable: 'new_events',
+                code: 'new_events = sql_df.head()',
+            }),
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'c',
+                returnVariable: 'joined',
+                code: 'select * from new_events',
+            }),
+        ].join('\n\n')
+        const markdownContent = buildMarkdownNotebookContent(markdown)
+        mountNode('a')
+        mountNode('b')
+        mountNode('c')
+
+        stalenessLogic.actions.runWidgetDataChain(markdownContent, ['a', 'b', 'c'])
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a', 'b', 'c'])
+    })
+
+    it('does not run a partial widget data chain when a requested cell is unmounted', async () => {
+        mountNode('a')
+
+        stalenessLogic.actions.runWidgetDataChain(content, ['a', 'b'])
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy).not.toHaveBeenCalled()
+        expect(stalenessLogic.values.chainQueue).toEqual([])
+        expect(stalenessLogic.values.widgetDataChainNodeIds).toEqual([])
+    })
+
+    it('does not report success when a requested widget cell disappears during the chain', async () => {
+        let finishFirstRun: (value: { status: 'done'; result: null; error: null }) => void = () => undefined
+        resultSpy.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finishFirstRun = resolve
+                })
+        )
+        mountNode('a')
+        const secondNode = mountNode('b')
+
+        stalenessLogic.actions.runWidgetDataChain(content, ['a', 'b'])
+        await expectLogic(stalenessLogic).toDispatchActions(['dispatchChainRun'])
+        secondNode.unmount()
+        finishFirstRun({ status: 'done', result: null, error: null })
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a'])
+        expect(stalenessLogic.values.chainQueue).toEqual([])
+        expect(stalenessLogic.values.widgetDataChainNodeIds).toEqual([])
     })
 
     it('a chain run picks up cells its own completion marked stale', async () => {
@@ -151,7 +228,7 @@ describe('notebookNodeStalenessLogic', () => {
         expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['b'])
         expect(stalenessLogic.values.chainQueue).toEqual([])
         // The unmounted cell keeps its flag — it was never re-run.
-        expect(stalenessLogic.values.staleNodeIds).toEqual({ c: true })
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ c: 'upstream' })
     })
 
     it('the chain stops when a cell does not finish successfully', async () => {
@@ -167,7 +244,41 @@ describe('notebookNodeStalenessLogic', () => {
         expect(runSpy).toHaveBeenCalledTimes(1)
         expect(stalenessLogic.values.chainQueue).toEqual([])
         // The failed cell stays stale so the user can see what still needs a successful run.
-        expect(stalenessLogic.values.staleNodeIds).toEqual({ b: true, c: true })
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ b: 'upstream', c: 'upstream' })
+    })
+
+    it('changing a variable marks the cells that read it, and their downstream, stale', async () => {
+        // Without this the cell keeps showing a result computed from the old value, with
+        // nothing on screen saying so. `b` reads {threshold}; `c` reads b's frame.
+        const variableContent: JSONContent = {
+            type: 'doc',
+            content: [
+                { type: NotebookNodeType.SQLV2, attrs: { nodeId: 'a', returnVariable: 'sql_df', code: 'select 1' } },
+                {
+                    type: NotebookNodeType.PythonV2,
+                    attrs: { nodeId: 'b', returnVariable: 'new_events', code: 'new_events = sql_df.head(threshold)' },
+                },
+                {
+                    type: NotebookNodeType.SQLV2,
+                    attrs: { nodeId: 'c', returnVariable: 'joined', code: 'select * from new_events' },
+                },
+                { type: NotebookNodeType.SQLV2, attrs: { nodeId: 'x', returnVariable: 'other_df', code: 'select 2' } },
+            ],
+        }
+
+        stalenessLogic.actions.variablesChanged(['threshold'], variableContent)
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        // `a` does not read it and `x` is unrelated, so neither is disturbed. The reason rides
+        // along so the cell's banner names the variable rather than an upstream re-run.
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ b: 'variable', c: 'variable' })
+    })
+
+    it('changing a variable no cell reads marks nothing stale', async () => {
+        stalenessLogic.actions.variablesChanged(['unused'], content)
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(stalenessLogic.values.staleNodeIds).toEqual({})
     })
 
     it('a second runStaleChain while one is active is refused', async () => {

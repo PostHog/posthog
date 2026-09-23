@@ -6,11 +6,10 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -23,14 +22,16 @@ import {
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
-import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
+import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
+import { alertsSimulateCreate } from 'products/alerts/frontend/generated/api'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import {
     AlertConfig,
@@ -66,6 +67,7 @@ export type AlertFormType = Pick<
     | 'config'
     | 'skip_weekend'
     | 'schedule_restriction'
+    | 'schedule_start_time'
     | 'detector_config'
     | 'investigation_agent_enabled'
     | 'investigation_gates_notifications'
@@ -73,7 +75,7 @@ export type AlertFormType = Pick<
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
-    insight?: QueryBasedInsightModel['id']
+    insight?: InsightModel['id']
 }
 
 export function canCheckOngoingInterval(
@@ -142,7 +144,7 @@ export function insightAlertKindForQuery(query?: Record<string, any> | null): In
 
 export interface AlertFormLogicProps {
     alert: AlertType | null
-    insightId: QueryBasedInsightModel['id']
+    insightId: InsightModel['id']
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
@@ -233,7 +235,7 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
     }
 }
 
-function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id']): AlertFormType {
+function alertToFormType(alert: AlertType, insightId: InsightModel['id']): AlertFormType {
     return {
         ...alert,
         insight: insightId,
@@ -293,6 +295,7 @@ export interface alertFormLogicValues {
     isAlertFormValid: boolean
     showAlertFormErrors: boolean
     simulationDateFrom: string | null
+    simulationRequestId: number
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
     thresholdBoundsFormError: string | undefined
@@ -487,6 +490,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
             },
         ],
+        // Counts every request and every clear, so a preview that resolves after the
+        // detector settings changed can be told apart from the one the user is waiting on.
+        simulationRequestId: [
+            0,
+            {
+                simulateAlert: (state) => state + 1,
+                clearSimulation: (state) => state + 1,
+            },
+        ],
         alertFormSubmitAttempted: [
             false,
             {
@@ -506,23 +518,39 @@ export const alertFormLogic = kea<alertFormLogicType>([
         simulationResult: [
             null as AlertSimulationResult | null,
             {
-                simulateAlert: async (): Promise<AlertSimulationResult | null> => {
+                simulateAlert: async (_, breakpoint): Promise<AlertSimulationResult | null> => {
                     const detectorConfig = values.alertForm.detector_config
                     if (!detectorConfig || !props.insightId) {
                         return null
                     }
+                    const requestId = values.simulationRequestId
                     const formConfig = values.alertForm.config
-                    return await api.alerts.simulate({
-                        insight: props.insightId,
-                        detector_config: detectorConfig,
-                        series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
-                        date_from:
-                            values.simulationDateFrom ??
-                            getDefaultSimulationRange(values.alertForm.calculation_interval),
-                        // SQL insights have no series_index; the config carries the evaluated column
-                        // and read direction so the preview matches what the alert will score.
-                        config: formConfig,
-                    })
+                    let result: AlertSimulationResult
+                    try {
+                        result = (await alertsSimulateCreate(String(ApiConfig.getCurrentProjectId()), {
+                            insight: props.insightId,
+                            detector_config: detectorConfig,
+                            series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
+                            date_from:
+                                values.simulationDateFrom ??
+                                getDefaultSimulationRange(values.alertForm.calculation_interval),
+                            // SQL insights have no series_index; the config carries the evaluated column
+                            // and read direction so the preview matches what the alert will score.
+                            config: formConfig,
+                        })) as AlertSimulationResult
+                    } catch (error) {
+                        if (values.simulationRequestId === requestId) {
+                            throw error
+                        }
+                        // The settings this request ran with are gone, so its failure is not one to report.
+                        breakpoint()
+                        return values.simulationResult
+                    }
+                    // A newer preview owns the loader now: the breakpoint stops this one from settling
+                    // it. After a clear there is nothing to show, because the model never saw the
+                    // current settings.
+                    breakpoint()
+                    return values.simulationRequestId === requestId ? result : values.simulationResult
                 },
                 clearSimulation: () => null,
             },
@@ -556,6 +584,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           calculation_interval: calculationInterval,
                           skip_weekend: false,
                           schedule_restriction: null,
+                          schedule_start_time: null,
                           detector_config: props.defaultToAnomalyDetection
                               ? getDefaultAnomalyDetectorConfig(calculationInterval)
                               : null,
@@ -851,6 +880,10 @@ export const alertFormLogic = kea<alertFormLogicType>([
     })),
 
     listeners(({ props, values, actions }) => {
+        const discardSimulation = (): void => {
+            actions.clearSimulation()
+            getParentLogic()?.actions.clearSimulationAnomalyPoints()
+        }
         const getParentLogic = (): ReturnType<typeof insightAlertsLogic.build> | undefined => {
             if (props.insightVizDataLogicProps) {
                 return insightAlertsLogic({
@@ -986,6 +1019,18 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
 
                 parent.actions.setSimulationAnomalyPoints(anomalyPoints)
+            },
+            setSimulationDateFrom: () => {
+                // A preview is only valid for the range it ran over, whether it has finished or not.
+                discardSimulation()
+            },
+            setAlertFormValue: ({ name }) => {
+                const field = Array.isArray(name) ? name[0] : name
+                // The evaluated series or column, and the detector settings, are inputs to the
+                // preview, so an edit to either leaves nothing the chart can honestly show.
+                if (field === 'config' || field === 'detector_config') {
+                    discardSimulation()
+                }
             },
             simulateAlertFailure: ({ error }) => {
                 const detectorConfig = values.alertForm.detector_config

@@ -60,7 +60,7 @@ from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor, goal_sums_a_property
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_config import MarketingAnalyticsConfig
-from .utils import build_source_normalization_expr, convert_team_conversion_goals_to_objects
+from .utils import build_source_normalization_expr, convert_team_conversion_goals_to_objects, test_account_conditions
 
 
 @dataclass(frozen=True)
@@ -173,6 +173,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         self._costs_precompute_used: bool = False
         self._costs_sources_materialized: int = 0
         self._costs_grain: Optional[str] = None
+        # Without this, a rollout where every query falls back to the live path looks identical to
+        # one that works.
+        self._sessions_precompute_used: bool = False
+        # The job set backing this query, resolved once and shared by the reach and credit sides.
+        # `resolved` separates "not looked up yet" from "looked up, cannot use the precompute".
+        self._sessions_precompute_resolved: bool = False
+        self._sessions_precompute_jobs: list[str] | None = None
         # Set when any read-path ensure (costs, touchpoints, conversions) was served from
         # expired-within-grace rows rather than rebuilt inline. Reset on each to_query.
         self._precompute_stale: bool = False
@@ -221,6 +228,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 "costs_precompute_used": self._costs_precompute_used,
                 "costs_sources_materialized": self._costs_sources_materialized,
                 "costs_grain": self._costs_grain,
+                "sessions_precompute_used": self._sessions_precompute_used,
             }
             if error is None:
                 props["timings"] = [{"k": t.k, "t": t.t} for t in self.timings.to_list()]
@@ -350,8 +358,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         mat_factory = MarketingSourceFactory(context=mat_context)
         with self.timings.measure("ma_precompute_adapters"):
             mat_adapters = mat_factory.get_valid_adapters(mat_factory.create_adapters())
-        # NonIntegratedConversionsTableQuery has no integrationFilter field — getattr keeps the
-        # precompute path working for it instead of raising AttributeError and falling back to S3.
+        # Not every query on this base declares integrationFilter — getattr keeps the precompute
+        # path working for those instead of raising AttributeError and falling back to S3.
         integration_filter = getattr(self.query, "integrationFilter", None)
         if integration_filter and integration_filter.integrationSourceIds:
             selected_ids = integration_filter.integrationSourceIds
@@ -883,9 +891,27 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                     # Goals are built in parallel and HogQLTimings is not thread safe, so hand each
                     # processor its own clone. Merged back in _build_complete_query_ast once joined.
                     timings=self.timings.clone_for_subquery(index),
+                    filter_test_accounts=self.filter_test_accounts,
                 )
                 processors.append(processor)
         return processors
+
+    @property
+    def filter_test_accounts(self) -> bool:
+        """The query decides, and the project's setting answers when it says nothing.
+
+        The setting is also what the Dagster warmer reads. A read that fell back to a different value
+        would ask for a job the warmer never builds, and pay the materialization inline.
+        """
+        requested = getattr(self.query, "filterTestAccounts", None)
+        if requested is None:
+            return self.team.marketing_analytics_config.filter_test_accounts
+        return bool(requested)
+
+    def _test_account_conditions(self) -> list[ast.Expr]:
+        """Applied at every `events` scan, never at a warehouse one. Test-account filters are written
+        against event and person properties, which a cost table does not have."""
+        return test_account_conditions(self.team, self.filter_test_accounts)
 
     def _get_where_conditions(
         self,
@@ -1223,6 +1249,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                     date_field="events.timestamp",
                     use_date_not_datetime=False,
                 )
+                where_conditions.extend(self._test_account_conditions())
 
                 # Add conversion goal specific conditions
                 if processor.goal.kind == "EventsNode":
