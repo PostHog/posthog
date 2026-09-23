@@ -225,6 +225,37 @@ class TestWorkflowProposals(APIBaseTest):
         assert response.json()["code"] == "proposal_out_of_date"
         assert HogFlow.objects.get(id=flow_id).draft is None
 
+    def test_a_step_sent_whole_leaves_the_fields_it_did_not_change(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        # The producer sends the step as it read it, changing only the name.
+        whole_step = _webhook_action()
+        whole_step["name"] = "renamed by the suggestion"
+        proposal = self._propose(flow_id, content={"actions": [whole_step]})
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"url": {"value": "https://moved.example.com"}}}},
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        approve = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {"overwrite": True}
+        )
+
+        assert approve.status_code == 200, approve.json()
+        draft = HogFlow.objects.get(id=flow_id).draft
+        assert draft is not None
+        assert draft["actions"][1]["name"] == "renamed by the suggestion"
+        assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://moved.example.com"
+
     def test_a_field_change_is_refused_once_that_field_moved(self, _mock_flag):
         flow_id = self._create_active_flow()
         proposal = self._propose(

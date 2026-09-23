@@ -5782,8 +5782,11 @@ class HogFlowViewSet(
                 raise StaleWorkflowUpdateError()
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
+            # Stage what the suggestion changes, not what it sent: a field it merely echoed would
+            # otherwise be written back over a later edit that the conflict check let through.
+            changes = proposal_changes(locked_proposal, base_content_of(locked, locked_proposal))
             # The draft is a full snapshot (live plus the proposal), so publish stays a plain copy.
-            merged = merge_proposal_content(snapshot_flow_content(locked), locked_proposal.content)
+            merged = merge_proposal_content(snapshot_flow_content(locked), changes)
             try:
                 # Create validated the merge against the graph as it was then; it can have moved since.
                 validate_graph(merged.get("actions") or [], merged.get("edges") or [], merged.get("abort_action"))
