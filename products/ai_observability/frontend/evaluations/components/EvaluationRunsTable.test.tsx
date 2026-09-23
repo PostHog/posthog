@@ -83,7 +83,7 @@ describe('EvaluationRunsTable', () => {
 
         expect(screen.getByText('Could not load evaluation runs')).toBeInTheDocument()
         expect(screen.getByText('Retry')).toBeInTheDocument()
-        expect(screen.queryByText('No evaluation runs yet')).not.toBeInTheDocument()
+        expect(screen.queryByText('No evaluation runs found')).not.toBeInTheDocument()
     })
 
     it('warns that rows are stale when a refresh fails with runs already on screen', () => {
@@ -104,13 +104,13 @@ describe('EvaluationRunsTable', () => {
         renderTable()
 
         expect(screen.getByText('No runs match this filter')).toBeInTheDocument()
-        expect(screen.queryByText('No evaluation runs yet')).not.toBeInTheDocument()
+        expect(screen.queryByText('No evaluation runs found')).not.toBeInTheDocument()
     })
 
-    it('shows the never-ran empty state when the evaluation truly has no runs', () => {
+    it('shows the empty state when no runs are found in the selected date range', () => {
         logic.actions.loadEvaluationRunsSuccess([])
         renderTable()
 
-        expect(screen.getByText('No evaluation runs yet')).toBeInTheDocument()
+        expect(screen.getByText('No evaluation runs found')).toBeInTheDocument()
     })
 })
