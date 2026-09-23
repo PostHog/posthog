@@ -4471,7 +4471,9 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         rows = response.json()
         assert [row["email"] for row in rows] == ["boss@posthog.com", self.user.email]
-        assert rows[0]["teams"] == [{"slug": "team-desktop", "name": "Team Desktop", "is_maintainer": True}]
+        assert rows[0]["teams"] == [
+            {"provider": "github", "slug": "team-desktop", "name": "Team Desktop", "is_maintainer": True}
+        ]
 
     @parameterized.expand(
         [

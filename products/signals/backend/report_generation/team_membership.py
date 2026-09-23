@@ -27,10 +27,16 @@ from products.engineering_analytics.backend.facade.api import get_github_team_ro
 logger = structlog.get_logger(__name__)
 
 
+# The integration kind the membership came from, matching the vocabulary
+# ``RoleExternalReference.provider`` uses for the same external-group idea.
+GITHUB_PROVIDER = "github"
+
+
 @frozen
 class MemberTeam:
-    """One team a person belongs to."""
+    """One team a person belongs to, on one provider."""
 
+    provider: str
     slug: str
     name: str
     is_maintainer: bool
@@ -79,7 +85,12 @@ def resolve_membership_roster(team: Team) -> MembershipRoster:
         slug = membership.team_slug.lower()
         covered_slugs.add(slug)
         teams_by_login.setdefault(membership.member_handle.lower(), []).append(
-            MemberTeam(slug=slug, name=membership.team_name, is_maintainer=membership.is_maintainer)
+            MemberTeam(
+                provider=GITHUB_PROVIDER,
+                slug=slug,
+                name=membership.team_name,
+                is_maintainer=membership.is_maintainer,
+            )
         )
     return MembershipRoster(
         synced=True,

@@ -33,6 +33,9 @@ class TestGitHubTeamRoster(_WarehouseMixin, ClickhouseTestMixin, BaseTest):
             [
                 _member_row(1, "Boss", "team-desktop", "maintainer"),
                 _member_row(2, "plain", "team-desktop", "member"),
+                # The same membership landing twice, which a per-repo sync of an org-scoped endpoint
+                # produces. It must collapse to one row and must not demote the maintainer.
+                _member_row(5, "boss", "team-desktop", "member"),
                 # Rows GitHub can land that must not reach a reader: no login to match on, and no
                 # team to file the membership under.
                 _member_row(3, "", "team-desktop", "member"),

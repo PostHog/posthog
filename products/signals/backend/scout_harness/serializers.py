@@ -3979,6 +3979,9 @@ class ScoutMembersQuerySerializer(serializers.Serializer):
 class ScoutMemberTeamSerializer(serializers.Serializer):
     """One team a member belongs to, from the project's synced team roster."""
 
+    provider = serializers.CharField(
+        help_text="Where the team is defined, for example `github`. Today every team comes from GitHub."
+    )
     slug = serializers.CharField(help_text="The team's slug, lowercased. For example `team-desktop`.")
     name = serializers.CharField(help_text="The team's display name. For example `Team Desktop`.")
     is_maintainer = serializers.BooleanField(
