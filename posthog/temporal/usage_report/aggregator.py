@@ -34,6 +34,7 @@ from posthog.temporal.usage_report.storage import bucket, read_json
 from posthog.temporal.usage_report.types import Manifest, RunQueryToS3Result, WorkflowContext
 
 _SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
+_LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME = "teams_with_local_evaluation_not_modified_requests_count_in_period"
 _SANDBOX_COMPUTE_DESTINATION_KEYS = (
     "teams_with_sandbox_compute_credits_used_in_period",
     "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
@@ -68,6 +69,13 @@ def add_pre_sandbox_compute_patch_defaults(
     if not any(result.query_name == _SANDBOX_COMPUTE_QUERY_NAME for result in query_results):
         for key in _SANDBOX_COMPUTE_DESTINATION_KEYS:
             all_data[key] = {}
+
+
+def add_pre_local_evaluation_not_modified_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME for result in query_results):
+        all_data[_LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME] = {}
 
 
 def iter_chunk_lines(

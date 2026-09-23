@@ -328,6 +328,7 @@ struct Inner {
     /// instead of an `inc()` call that allocates label strings every time.
     record_count_decide: AtomicU64,
     record_count_flag_definitions: AtomicU64,
+    record_count_flag_definitions_not_modified: AtomicU64,
     shutdown_signal: Notify,
     usage_reporter: Option<Arc<UsageReporter>>,
 }
@@ -348,6 +349,7 @@ impl Inner {
             last_successful_flush_epoch_ms: AtomicU64::new(0),
             record_count_decide: AtomicU64::new(0),
             record_count_flag_definitions: AtomicU64::new(0),
+            record_count_flag_definitions_not_modified: AtomicU64::new(0),
             shutdown_signal: Notify::new(),
         })
     }
@@ -437,6 +439,9 @@ impl BillingAggregator {
         match request_type {
             FlagRequestType::Decide => &self.inner.record_count_decide,
             FlagRequestType::FlagDefinitions => &self.inner.record_count_flag_definitions,
+            FlagRequestType::FlagDefinitionsNotModified => {
+                &self.inner.record_count_flag_definitions_not_modified
+            }
         }
         .fetch_add(1, Ordering::Relaxed);
 
@@ -780,6 +785,16 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
             FLAGS_BILLING_RECORDS,
             &record_labels_for(FlagRequestType::FlagDefinitions),
             flag_def_records,
+        );
+    }
+    let flag_def_not_modified_records = inner
+        .record_count_flag_definitions_not_modified
+        .swap(0, Ordering::Relaxed);
+    if flag_def_not_modified_records > 0 {
+        inc(
+            FLAGS_BILLING_RECORDS,
+            &record_labels_for(FlagRequestType::FlagDefinitionsNotModified),
+            flag_def_not_modified_records,
         );
     }
 
@@ -1495,6 +1510,7 @@ mod tests {
             Some(Library::PosthogJs),
         );
         agg.record(7, FlagRequestType::Decide, None);
+        agg.record(9, FlagRequestType::FlagDefinitionsNotModified, None);
 
         let bucket = current_bucket();
         flush_once(&agg.inner, FlushPolicy::BailOnError).await;
@@ -1504,10 +1520,13 @@ mod tests {
         let expected_sdk_42_def =
             format!("posthog:local_evaluation_requests:sdk:42:posthog-js:{bucket}");
         let expected_team_7_decide = format!("posthog:decide_requests:7:{bucket}");
-        assert_eq!(calls.len(), 3);
+        let expected_team_9_not_modified =
+            format!("posthog:local_evaluation_not_modified_requests:9:{bucket}");
+        assert_eq!(calls.len(), 4);
         assert!(calls.contains(&(expected_team_42_def, 1)));
         assert!(calls.contains(&(expected_sdk_42_def, 1)));
         assert!(calls.contains(&(expected_team_7_decide, 1)));
+        assert!(calls.contains(&(expected_team_9_not_modified, 1)));
 
         // Belt-and-braces: the aggregator must never write `:shadow`-suffixed
         // keys. A regression here would mean we're writing into the

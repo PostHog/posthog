@@ -124,6 +124,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 10 requests in first bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
+                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
             for _ in range(7):
                 # 7 requests for other team
@@ -135,6 +136,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 5 requests in second bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
+                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
             for _ in range(3):
                 # 3 requests for other team
@@ -146,6 +148,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 5 requests in third bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
+                increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED)
                 increment_request_count(team_id, 1, FlagRequestType.REMOTE_CONFIG)
                 increment_request_count(other_team_id)
 
@@ -153,7 +156,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             # these other requests should not add duplicate counts
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
-            assert mock_capture.capture.call_count == 3
+            assert mock_capture.capture.call_count == 4
             mock_capture.capture.assert_any_call(
                 distinct_id=team_id,
                 event="decide usage",
@@ -169,6 +172,18 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             mock_capture.capture.assert_any_call(
                 distinct_id=team_id,
                 event="local evaluation usage",
+                properties={
+                    "count": 15,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "max_time": 1651926190,
+                    "min_time": 1651926180,
+                    "token": "token",
+                },
+            )
+            mock_capture.capture.assert_any_call(
+                distinct_id=team_id,
+                event="local evaluation not modified usage",
                 properties={
                     "count": 15,
                     "team_id": team_id,

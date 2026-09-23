@@ -2906,6 +2906,73 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
     }
 }
 
+/// A 304 lands on the not-modified counter and leaves the full local evaluation
+/// counter untouched.
+#[tokio::test]
+async fn test_flag_definitions_304_records_not_modified_billing_counter() {
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use feature_flags::utils::test_utils::{setup_redis_client, TestContext};
+
+    let config = feature_flags::config::Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let etag_value = "billed304etag0001";
+    context
+        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .await
+        .unwrap();
+
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let not_modified_key =
+        get_team_request_key(team.id, FlagRequestType::FlagDefinitionsNotModified);
+    let full_response_key = get_team_request_key(team.id, FlagRequestType::FlagDefinitions);
+    redis.del(not_modified_key.clone()).await.unwrap();
+    redis.del(full_response_key.clone()).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config).await;
+    let http = reqwest::Client::new();
+
+    let bucket_before = current_bucket();
+    let response = http
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", format!("W/\"{etag_value}\""))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 304);
+    let bucket_after = current_bucket();
+
+    let counter = common::poll_for_billing_counter_across_buckets(
+        &redis,
+        &not_modified_key,
+        bucket_before,
+        bucket_after,
+    )
+    .await;
+    assert_eq!(
+        counter, "1",
+        "304 should be recorded once on the not-modified billing counter"
+    );
+    for bucket in bucket_before..=bucket_after {
+        let full = redis
+            .hget(full_response_key.clone(), bucket.to_string())
+            .await;
+        assert!(
+            full.is_err(),
+            "304 must not increment the full local evaluation counter, got {full:?}"
+        );
+    }
+}
+
 /// Poll the self-heal rebuild-requests set until it contains `team_id`, or return
 /// false after ~2s. The enqueue runs in a background task, so a bounded retry is
 /// needed rather than a single read.

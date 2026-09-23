@@ -362,6 +362,12 @@ QUERIES: list[QuerySpec] = [
         name="teams_with_local_evaluation_requests_count_in_period",
         fn=lambda b, e: get_teams_with_feature_flag_requests_count_in_period(b, e, FlagRequestType.LOCAL_EVALUATION),
     ),
+    QuerySpec(
+        name="teams_with_local_evaluation_not_modified_requests_count_in_period",
+        fn=lambda b, e: get_teams_with_feature_flag_requests_count_in_period(
+            b, e, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED
+        ),
+    ),
     # ---- ClickHouse: query metrics -------------------------------------------
     QuerySpec(
         name="teams_with_query_app_bytes_read",

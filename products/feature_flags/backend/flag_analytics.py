@@ -56,17 +56,20 @@ SDK_LIBRARIES = [
 # locally. It's not included in CI because of tricky patching freeze time in thread issues.
 
 
-# Remote config requests are tracked for telemetry only; billing consumes just the decide and
+# Remote config requests are tracked for telemetry only; billing consumes the decide and
 # local evaluation events (see usage_report.py), so the remote config event never bills.
+# Local evaluation 304s get their own counter because they bill at the decide rate.
 _REQUEST_BUCKET_PREFIXES = {
     FlagRequestType.DECIDE: "decide_requests",
     FlagRequestType.LOCAL_EVALUATION: "local_evaluation_requests",
+    FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED: "local_evaluation_not_modified_requests",
     FlagRequestType.REMOTE_CONFIG: "remote_config_requests",
 }
 
 USAGE_EVENT_NAMES = {
     FlagRequestType.DECIDE: "decide usage",
     FlagRequestType.LOCAL_EVALUATION: "local evaluation usage",
+    FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED: "local evaluation not modified usage",
     FlagRequestType.REMOTE_CONFIG: "remote config usage",
 }
 
@@ -221,6 +224,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
             for request_type in (
                 FlagRequestType.DECIDE,
                 FlagRequestType.LOCAL_EVALUATION,
+                FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED,
                 FlagRequestType.REMOTE_CONFIG,
             ):
                 _capture_team_usage_for_request_type(ph_client, client, team_id, team_uuid, request_type, billing_token)

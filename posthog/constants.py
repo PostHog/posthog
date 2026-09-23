@@ -325,6 +325,7 @@ class EventDefinitionType(StrEnum):
 class FlagRequestType(StrEnum):
     DECIDE = "decide"
     LOCAL_EVALUATION = "local-evaluation"
+    LOCAL_EVALUATION_NOT_MODIFIED = "local-evaluation-not-modified"
     REMOTE_CONFIG = "remote-config"
 
 

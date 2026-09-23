@@ -235,6 +235,14 @@ pub async fn flags_definitions(
                 &[("result".to_string(), "hit".to_string())],
                 1,
             );
+            // No billable-flag check here: it needs the payload this path never reads.
+            if !*state.config.skip_writes {
+                state.billing_aggregator.record(
+                    team.id,
+                    FlagRequestType::FlagDefinitionsNotModified,
+                    Some(Library::from_headers(&headers)),
+                );
+            }
             return Ok(not_modified_response(current_val));
         }
     }
@@ -254,8 +262,6 @@ pub async fn flags_definitions(
     let cached_response = get_from_cache(&state, &team_key, team.id).await?;
 
     // Record usage for billing, filtering out non-billable flags (surveys, product tours).
-    // Placed after the ETag/304 path intentionally: 304 responses skip billing,
-    // matching Django's /local_evaluation behavior.
     if !*state.config.skip_writes && has_billable_flags(&cached_response) {
         let library = Library::from_headers(&headers);
         state
