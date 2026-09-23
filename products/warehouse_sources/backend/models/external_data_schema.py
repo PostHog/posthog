@@ -213,6 +213,11 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
         return updated
 
 
+# In `sync_type_config`: set while the S3 change buffer carries this table's snapshot. Cleared by the
+# snapshot to streaming flip. See cdc/snapshot_lane.py.
+CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
+
+
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     # Kept on the model so the nested names and the `choices=` below stay unchanged.
     Status = ExternalDataSchemaStatus
@@ -1599,6 +1604,8 @@ def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None
         if schema.is_cdc and schema.cdc_mode == "snapshot":
             config = schema.sync_type_config or {}
             config["cdc_mode"] = "streaming"
+            # In the same lock as the flip, so a hand-over retried after a failed flip still finds it.
+            config.pop(CDC_SNAPSHOT_LANE_KEY, None)
             schema.sync_type_config = config
             update_fields.append("sync_type_config")
 

@@ -19,10 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import resnapshot_stays_in_buffer
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     COMPANION_WRITE_MODE,
     CONSOLIDATED_WRITE_MODE,
-    SNAPSHOT_STARTED_AT_KEY,
     CDCLane,
     CDCSourceManager,
     ReplayFilter,
@@ -30,7 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     captures_to_buffer,
     consumes_buffer,
     has_batches_in_flight,
-    record_snapshot_start,
     scheduled_sync_consumes_buffer,
     served_lanes,
     serves_buffered_lane,
@@ -299,43 +298,44 @@ class TestSnapshotCapture:
     @parameterized.expand(
         [
             ("streaming", {}, True),
-            ("snapshotting", {"cdc_mode": "snapshot", "initial_sync_complete": False}, True),
+            (
+                "snapshotting_in_the_buffer",
+                {"cdc_mode": "snapshot", "sync_type_config": {"cdc_snapshot_lane": "buffer"}},
+                True,
+            ),
+            ("snapshotting_on_deferred_runs", {"cdc_mode": "snapshot", "initial_sync_complete": False}, False),
             ("not_cdc", {"is_cdc": False}, False),
             ("unrecognized_table_mode", {"cdc_table_mode": "something_new"}, False),
         ]
     )
-    def test_a_table_taking_its_snapshot_is_still_captured(self, _name, overrides, captured):
+    def test_capture_follows_the_snapshot_lane(self, _name, overrides, captured):
         assert captures_to_buffer(_schema(**overrides)) is captured
 
     @parameterized.expand(
         [
-            ("first_start", {}, False, "now"),
-            ("retry_keeps_the_first_start", {SNAPSHOT_STARTED_AT_KEY: "earlier"}, False, "earlier"),
-            ("reset_restarts", {SNAPSHOT_STARTED_AT_KEY: "earlier"}, True, "now"),
+            ("streaming_on_a_buffered_source", {}, True, True),
+            ("flag_off", {}, False, False),
+            ("legacy_source", {"job_inputs": {}}, True, False),
+            ("deferred_runs_pending", {"sync_type_config": {"cdc_deferred_runs": [{"run": 1}]}}, True, False),
+            ("snapshotting_outside_the_buffer", {"cdc_mode": "snapshot", "initial_sync_complete": False}, True, False),
+            (
+                "already_in_the_buffer",
+                {"cdc_mode": "snapshot", "sync_type_config": {"cdc_snapshot_lane": "buffer"}},
+                False,
+                True,
+            ),
         ]
     )
-    def test_the_start_is_stamped_once_per_snapshot(self, _name, config, restart, expected):
-        schema = _schema(job_inputs={"cdc_ingest_mode": "buffered"})
-        stamped: dict = dict(config)
+    def test_a_resnapshot_stays_in_the_buffer_only_when_the_buffer_holds_every_change(
+        self, _name, overrides, flag, stays
+    ):
+        schema = _schema(**{"job_inputs": {"cdc_ingest_mode": "buffered"}, **overrides})
 
-        with (
-            patch(
-                "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
-                side_effect=lambda *_args, mutate, **_kw: mutate(stamped),
-            ),
-            patch(f"{_MODULE}.timezone.now", return_value=MagicMock(isoformat=lambda: "now")),
-        ):
-            record_snapshot_start(schema, restart=restart)
-
-        assert stamped[SNAPSHOT_STARTED_AT_KEY] == expected
-
-    def test_a_legacy_source_stamps_nothing(self):
         with patch(
-            "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys"
-        ) as update:
-            record_snapshot_start(_schema(job_inputs={}), restart=True)
-
-        update.assert_not_called()
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.is_buffered_snapshot_enabled",
+            return_value=flag,
+        ):
+            assert resnapshot_stays_in_buffer(schema, MagicMock()) is stays
 
 
 class TestBufferedGating:

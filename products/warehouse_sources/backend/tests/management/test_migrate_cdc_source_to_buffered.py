@@ -233,6 +233,32 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         mocks["pause_schema"].assert_not_called()
         mocks["unpause_schema"].assert_not_called()
 
+    @parameterized.expand([("before_the_rollback", False), ("by_the_run_it_waited_out", True)])
+    def test_rollback_refuses_while_the_buffer_carries_a_snapshot(self, _name, started_during_the_wait):
+        # Only the buffer holds that table's changes since its snapshot began, and legacy's hand-over
+        # would purge them.
+        source = self._source(ingest_mode="buffered")
+        self._schema(source, "users")
+        snapshotting = self._schema(source, "orders", cdc_mode="snapshot", initial_sync_complete=False)
+
+        def start_snapshot_in_buffer(*_args):
+            update_sync_type_config_keys(snapshotting.id, self.team.pk, updates={"cdc_snapshot_lane": "buffer"})
+
+        if not started_during_the_wait:
+            start_snapshot_in_buffer()
+        with (
+            _mocked_side_effects() as mocks,
+            patch(f"{_CMD}.Command._wait_for_extraction_idle", side_effect=start_snapshot_in_buffer),
+        ):
+            with pytest.raises(CommandError, match="orders"):
+                self._run(source, rollback=True, drain_timeout=0)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
+        mocks["pause_schema"].assert_not_called()
+        # Capture resumes, because the source stays buffered.
+        assert mocks["unpause"].called is started_during_the_wait
+
     def test_rollback_ignores_prefixes_the_buffered_lane_never_served(self):
         # A legacy schema's prefix holds shadow copies no consumer ever reads, so scanning it would
         # wedge every rollback of a hybrid source with capture left paused.

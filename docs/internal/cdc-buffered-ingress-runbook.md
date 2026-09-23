@@ -41,15 +41,22 @@ was: the base class is the single-table path with extract-method seams, and `Lan
 `SourceResponse.lanes`. The load queue, the producer and the loader carry nothing about lanes at
 all, so a single-table run finalizes exactly as before.
 
-With the `dwh-cdc-buffered-snapshot` flag on, a table still taking its snapshot is captured to the buffer too. Turn the flag on only after a deploy has fully rolled: an older worker would defer that table's changes or purge its whole buffer at hand-over. Its sync runs the snapshot, and the
-consumer starts reading the buffer once the snapshot completes, from the first change after the
-snapshot started. The snapshot run stamps `cdc_snapshot_started_at` in `sync_type_config`, and the
-hand-over to streaming deletes only the buffer files S3 modified before that stamp, less a
-five-minute margin for clock skew. Replaying every later change over the snapshot converges on the
-source's state, because the merge is an upsert by primary key. A TRUNCATE resets the table to
-snapshot, purges its buffer, and drops that run's pending changes for it, because a change from
-before a TRUNCATE would bring back rows. A table that still has legacy deferred runs keeps the
-legacy path until they flush.
+A table taking its snapshot keeps its changes on legacy deferred runs, as before, unless its snapshot runs in the buffer.
+A snapshot runs in the buffer when capture starts it there, which needs the `dwh-cdc-buffered-snapshot` flag and no deferred runs, or when a streaming table on a buffered source is reset to snapshot with the flag on.
+Either path records `cdc_snapshot_lane: "buffer"` in the schema's `sync_type_config`, and that marker, not the flag, routes the table until the snapshot hands over to streaming.
+So one snapshot never splits between the buffer and deferred runs, even when the flag changes or fails to evaluate.
+Turning the flag off only stops new snapshots from starting in the buffer.
+Turn the flag on only after a deploy has fully rolled, because an older worker ignores the marker.
+
+While the marker holds, the buffer carries an unbroken run of the table's changes, and the hand-over deletes none of them.
+The consumer replays all of them over the snapshot, including changes the snapshot already contains.
+Replaying an unbroken run in order converges on the source's state, because the merge is an upsert by primary key.
+A gap would break that, so capture empties the table's buffer when it starts a snapshot there, which drops files left from before a re-enable.
+A TRUNCATE resets the table, empties its buffer, and drops that run's pending changes for it.
+Capture handles a TRUNCATE only after every change of its transaction has been read, so no pre-TRUNCATE change can land in the buffer after the purge.
+Without the marker, the hand-over purges the whole buffer, as legacy always did.
+A source with a mix runs hybrid, some schemas buffered and the rest unchanged, and keeps its backpressure guard for the legacy ones.
+The rollback command refuses while any table's snapshot runs in the buffer, because only the buffer holds those changes.
 
 **Buffer files are deleted at the start of the next run**, before they are read, so the run that
 proves a file consumed is never the run that deletes it. A file goes when it is strictly below the

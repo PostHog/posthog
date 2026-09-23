@@ -24,6 +24,8 @@ _LAZY = {
     "repair_cdc_source": "cdc.repair",
     "purge_buffer_prefix": "cdc.buffer",
     "CDC_SEQ_COLUMN": "cdc.batcher",
+    "BUFFER_LANE": "cdc.snapshot_lane",
+    "resnapshot_stays_in_buffer": "cdc.snapshot_lane",
     "ClickHouseConnectionError": "sources.clickhouse.clickhouse",
     "ClickHouseSource": "sources.clickhouse.source",
     "AnySource": "sources.common.base",

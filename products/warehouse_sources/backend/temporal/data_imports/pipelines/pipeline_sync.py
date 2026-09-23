@@ -151,16 +151,16 @@ def _purge_stale_buffer_then_mark_initial_sync_complete(
     # cdc.source_manager pulls in pipeline_v3, whose package __init__ imports common.load, which
     # imports this module back — a true cycle only a deferred import breaks.
     from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (  # noqa: PLC0415
-        purge_buffer_predating_snapshot,
+        purge_buffer_before_handover,
     )
 
-    schema = (
-        ExternalDataSchema.objects.exclude(deleted=True).select_related("source").get(id=schema_id, team_id=team_id)
-    )
-    # About to flip a CDC schema snapshot→streaming: buffer files from before the snapshot started
-    # (a leftover from before a TRUNCATE or a re-enable) would resurrect rows the snapshot wiped.
+    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
+    # About to flip a CDC schema snapshot→streaming, after which the consumer merges the buffer, so
+    # what it must not replay goes first. A table the buffer does not carry gets no ingress writes
+    # until the flip commits; the shadow lane writes on its flag alone, so a concurrent capture tick
+    # is the one remaining writer, and the consumer's position guard covers what it leaves.
     if schema.is_cdc and not schema.initial_sync_complete and schema.cdc_mode == "snapshot":
-        purge_buffer_predating_snapshot(schema, logger)
+        purge_buffer_before_handover(schema, logger)
     mark_initial_sync_complete(schema_id=schema_id, team_id=team_id)
 
 

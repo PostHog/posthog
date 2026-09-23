@@ -1,5 +1,4 @@
 import uuid
-import datetime as dt
 
 import pytest
 from posthog.test.base import BaseTest
@@ -595,32 +594,25 @@ class TestSetInitialSyncComplete(BaseTest):
         assert (calls == [str(schema.id)]) is expects_purge
         assert schema.sync_type_config.get("cdc_mode") == expected_cdc_mode
 
-    @parameterized.expand([("stamped", True), ("unstamped", False)])
-    def test_a_buffered_source_purges_only_the_files_from_before_the_snapshot(self, _name: str, stamped: bool) -> None:
+    def test_a_snapshot_the_buffer_carried_keeps_its_files_and_the_flip_clears_the_marker(self) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
             _purge_stale_buffer_then_mark_initial_sync_complete,
         )
 
-        config = {"cdc_mode": "snapshot"}
-        if stamped:
-            config["cdc_snapshot_started_at"] = "2026-01-01T00:10:00+00:00"
         schema = self._schema(
             sync_type="cdc",
-            config=config,
+            config={"cdc_mode": "snapshot", "cdc_snapshot_lane": "buffer"},
             initial_sync_complete=False,
             job_inputs={"cdc_ingest_mode": "buffered"},
         )
-        module = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager"
 
-        with (
-            patch(f"{module}.purge_buffer_files_before") as purge_before,
-            patch(f"{module}.purge_buffer_prefix") as purge_all,
-        ):
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.purge_buffer_prefix"
+        ) as purge:
             _purge_stale_buffer_then_mark_initial_sync_complete(str(schema.id), self.team.pk, MagicMock())
 
-        purge_all.assert_not_called()
-        cutoffs = [call.args[2] for call in purge_before.call_args_list]
-        assert cutoffs == ([dt.datetime(2026, 1, 1, 0, 5, tzinfo=dt.UTC)] if stamped else [])
+        purge.assert_not_called()
         schema.refresh_from_db()
         assert schema.initial_sync_complete is True
-        assert "cdc_snapshot_started_at" not in schema.sync_type_config
+        assert schema.sync_type_config.get("cdc_mode") == "streaming"
+        assert "cdc_snapshot_lane" not in schema.sync_type_config

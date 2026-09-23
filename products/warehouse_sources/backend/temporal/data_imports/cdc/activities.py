@@ -35,6 +35,7 @@ from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
+    CDC_SNAPSHOT_LANE_KEY,
     ExternalDataSchema,
     complete_schema_run,
     mark_schema_running_unless_halted,
@@ -63,7 +64,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import 
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
     CDCBufferWriter,
-    is_buffered_snapshot_enabled,
     is_shadow_write_enabled,
     purge_buffer_prefix,
 )
@@ -78,11 +78,15 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    BUFFER_LANE,
+    is_buffered_snapshot_enabled,
+    snapshot_in_buffer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-    SNAPSHOT_STARTED_AT_KEY,
     captures_to_buffer,
     consolidated_resource_name,
-    serves_buffered_lane,
+    snapshot_can_start_in_buffer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
@@ -266,6 +270,8 @@ class CDCExtractActivity:
         # Table names whose changes this run delivers by buffer alone — no transforms, no
         # sourcebatch dispatch. Resolved once in _setup.
         self._buffered_table_names: set[str] = set()
+        self._source_buffered = False
+        self._buffered_snapshot_flag: bool | None = None
         self._truncated_tables: list[str] = []
 
     # ------------------------------------------------------------------
@@ -970,16 +976,12 @@ class CDCExtractActivity:
             # events travel one lane. Deferred batches carry no position column, so nothing orders
             # them against buffered writes — mixing lanes lets an older deferred row land after a
             # newer buffered one. The consumer holds off too (has_batches_in_flight).
-            lane_predicate = (
-                captures_to_buffer
-                if is_buffered_snapshot_enabled(self.inputs.team_id, self.log)
-                else serves_buffered_lane
-            )
-            self._buffered_table_names = {
-                s.name
-                for s in self.cdc_schemas
-                if lane_predicate(s) and not s.sync_type_config.get("cdc_deferred_runs")
-            }
+            self._source_buffered = True
+            for schema in self.cdc_schemas:
+                if schema.sync_type_config.get("cdc_deferred_runs"):
+                    continue
+                if captures_to_buffer(schema) or self._start_snapshot_in_buffer(schema):
+                    self._buffered_table_names.add(schema.name)
             if self._buffered_table_names:
                 self.log.info(
                     "cdc_buffered_ingress_active",
@@ -993,6 +995,25 @@ class CDCExtractActivity:
         if attempt > 1:
             metrics.get_extract_retry_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
             self.log.info("cdc_extract_retry_attempt", attempt=attempt)
+        return True
+
+    def _buffered_snapshot_enabled(self) -> bool:
+        if self._buffered_snapshot_flag is None:
+            self._buffered_snapshot_flag = is_buffered_snapshot_enabled(self.inputs.team_id, self.log)
+        return self._buffered_snapshot_flag
+
+    def _start_snapshot_in_buffer(self, schema: ExternalDataSchema) -> bool:
+        """Route a snapshotting table the buffer does not carry yet to the buffer, if the flag allows.
+
+        Only a table with no deferred runs gets here, so none of its changes since the snapshot began
+        went to the legacy lane. Its buffer is emptied first: files left from before a gap in capture,
+        such as a re-enable, must not be replayed over the snapshot.
+        """
+        if not (snapshot_can_start_in_buffer(schema) and self._buffered_snapshot_enabled()):
+            return False
+        purge_buffer_prefix(schema.team_id, str(schema.id), self._schema_log(schema), strict=True)
+        self._update_schema_sync_type_config(schema, updates={CDC_SNAPSHOT_LANE_KEY: BUFFER_LANE})
+        self._schema_log(schema).info("cdc_snapshot_started_in_buffer", schema_id=str(schema.id))
         return True
 
     def _delete_own_schedule(self) -> None:
@@ -1451,14 +1472,23 @@ class CDCExtractActivity:
 
     def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False) -> None:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
-        removes = ["cdc_last_log_position", SNAPSHOT_STARTED_AT_KEY]
+        removes = ["cdc_last_log_position"]
         if clear_deferred_runs:
             removes.append("cdc_deferred_runs")
+        updates: dict[str, typing.Any] = {"cdc_mode": "snapshot", "reset_pipeline": True}
+        # The rest of this run keeps writing the table's changes to the buffer, which the purge below
+        # leaves as an unbroken run from here, so the next snapshot stays in the buffer with them.
+        if schema.name in self._buffered_table_names and (
+            snapshot_in_buffer(schema) or self._buffered_snapshot_enabled()
+        ):
+            updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
+        else:
+            removes.append(CDC_SNAPSHOT_LANE_KEY)
         # reset_pipeline forces the batch import to wipe the table first (handle_reset_or_full_refresh),
         # preventing pre-truncate rows from surviving a TRUNCATE or lost-slot re-snapshot.
         self._update_schema_sync_type_config(
             schema,
-            updates={"cdc_mode": "snapshot", "reset_pipeline": True},
+            updates=updates,
             removes=removes,
             extra_model_fields={"initial_sync_complete": False},
         )
@@ -1470,7 +1500,9 @@ class CDCExtractActivity:
             schema.team_id,
             str(schema.id),
             self._schema_log(schema),
-            strict=schema.name in self._buffered_table_names,
+            # On a buffered source a stale file can outlive the run and be replayed, so a failed purge
+            # fails the run while the slot still holds the TRUNCATE.
+            strict=self._source_buffered,
         )
         if clear_deferred_runs:
             self._emit_deferred_runs_depth()

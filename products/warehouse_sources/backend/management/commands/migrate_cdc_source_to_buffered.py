@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     purge_buffer_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import retire_orphaned_companions
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import snapshot_in_buffer
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     BUFFERED_BEFORE_KEY,
     serves_buffered_lane,
@@ -118,6 +119,8 @@ class Command(BaseCommand):
             # schemas that consume the buffer (scheduled_sync_consumes_buffer), so the flip does
             # not depend on the team's general rollout flag.
             self._require_no_reserved_columns(eligible)
+        if rollback:
+            self._refuse_snapshots_in_buffer(source)
         if dry_run:
             self.stdout.write(self.style.WARNING("Dry run — no changes made."))
             return
@@ -126,6 +129,24 @@ class Command(BaseCommand):
             self._roll_back(source, eligible, cdc_schemas, options["drain_timeout"])
         else:
             self._flip_to_buffered(source, eligible, cdc_schemas, options["drain_timeout"])
+
+    def _refuse_snapshots_in_buffer(self, source: ExternalDataSource) -> None:
+        """Refuse a rollback while the buffer carries a table's snapshot.
+
+        Only the buffer holds that table's changes since its snapshot began. The drain below covers
+        streaming tables only, and legacy's hand-over purges the whole buffer, so rolling back would
+        lose them.
+        """
+        snapshotting = sorted(
+            s.name
+            for s in ExternalDataSchema.objects.filter(source_id=source.id, deleted=False)
+            if s.is_cdc and snapshot_in_buffer(s)
+        )
+        if snapshotting:
+            raise CommandError(
+                f"Tables still taking a snapshot in the buffer: {', '.join(snapshotting)}. "
+                "Wait for their snapshots to finish, then roll back."
+            )
 
     def _require_no_reserved_columns(self, eligible: list[ExternalDataSchema]) -> None:
         """Refuse to flip a schema whose source table has a column named `_ph_cdc_seq`.
@@ -302,6 +323,12 @@ class Command(BaseCommand):
         pause_cdc_extraction_schedule(source_id)
         self.stdout.write("2/6 waiting for the in-flight extraction run to finish")
         self._wait_for_extraction_idle(source_id, drain_timeout)
+        # Again now that capture is idle: the run that just finished may have started one.
+        try:
+            self._refuse_snapshots_in_buffer(source)
+        except CommandError:
+            unpause_cdc_extraction_schedule(source_id)
+            raise
 
         # The buffer's tail holds WAL the slot has already advanced past — it exists nowhere else.
         # The consumer must apply it BEFORE legacy delivery resumes, or it is lost for good. Capture

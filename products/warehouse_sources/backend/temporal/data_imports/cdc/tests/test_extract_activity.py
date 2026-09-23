@@ -15,7 +15,7 @@ from parameterized import parameterized
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY, ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
     CDC_BACKPRESSURE_STUCK_AGE,
@@ -3750,23 +3750,38 @@ class TestBufferedIngressCapture:
         # The point of the whole design: durable buffer releases the customer's WAL immediately.
         mock_reader.confirm_position.assert_called_once_with("0/200")
 
-    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    @parameterized.expand(
+        [
+            ("flag_on_starts_it_in_the_buffer", True, {}, True),
+            ("flag_off_keeps_it_on_deferred_runs", False, {}, False),
+            (
+                "a_snapshot_already_in_the_buffer_stays_there_when_the_flag_is_off",
+                False,
+                {CDC_SNAPSHOT_LANE_KEY: "buffer"},
+                True,
+            ),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
-    def test_a_schema_taking_its_snapshot_is_captured_to_the_buffer_only_behind_the_flag(
-        self, _name, snapshot_flag, MockBufferWriter
+    def test_a_snapshotting_tables_changes_follow_its_snapshot_lane(
+        self, _name, snapshot_flag, config, buffered, MockBufferWriter, mock_purge
     ):
         source = _make_source()
         seeding = _make_schema("events", cdc_mode="snapshot", source=source)
         seeding.initial_sync_complete = False
+        seeding.sync_type_config.update(config)
         events = [_make_event(op="I", position="0/100", table="events", columns={"id": 1})]
 
         _reader, mock_s3, _producer = self._run(
             MockBufferWriter, events, [seeding], source, snapshot_flag=snapshot_flag
         )
 
-        assert MockBufferWriter.return_value.write_batch.called is snapshot_flag
-        assert mock_s3.write_batch.called is not snapshot_flag
-        assert ("cdc_deferred_runs" in seeding.sync_type_config) is not snapshot_flag
+        assert MockBufferWriter.return_value.write_batch.called is buffered
+        assert mock_s3.write_batch.called is not buffered
+        assert (seeding.sync_type_config.get(CDC_SNAPSHOT_LANE_KEY) == "buffer") is buffered
+        # Only a snapshot starting in the buffer empties it: files from before a gap must not replay.
+        assert [c.kwargs["strict"] for c in mock_purge.call_args_list] == ([True] if buffered and not config else [])
 
     def test_a_truncate_is_handled_before_the_slot_advances_past_it(self):
         source = _make_source()
@@ -3803,6 +3818,7 @@ class TestBufferedIngressCapture:
         MockBufferWriter.return_value.write_batch.assert_not_called()
         assert mock_purge.call_args.kwargs["strict"] is True
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert schema.sync_type_config[CDC_SNAPSHOT_LANE_KEY] == "buffer"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_a_buffer_write_failure_fails_the_run_and_leaves_the_slot(self, MockBufferWriter):

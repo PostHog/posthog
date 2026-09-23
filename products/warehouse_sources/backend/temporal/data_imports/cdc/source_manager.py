@@ -41,7 +41,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     BufferFileSpan,
     get_buffer_prefix,
     parse_buffer_file_name,
-    purge_buffer_files_before,
     purge_buffer_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_JOB_IDS_KEY
@@ -56,6 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     drop_superseded_rows,
     has_engine_seq,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import snapshot_in_buffer
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     normalize_column_name,
@@ -130,57 +130,37 @@ def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
 def captures_to_buffer(schema: ExternalDataSchema) -> bool:
     """Schema-side condition for capture to write this schema's changes into the buffer.
 
-    Wider than `serves_buffered_lane`: a table still taking its snapshot is captured too, and the
-    consumer reads those changes once the snapshot completes. Replaying every change since the
-    snapshot started, in order, over the snapshot converges on the source's state, because the
-    merge is a plain upsert by primary key.
+    Wider than `serves_buffered_lane`: a table whose snapshot the buffer carries is captured too,
+    and the consumer reads those changes once the snapshot completes.
     """
-    return bool(schema.is_cdc and schema.cdc_table_mode in _LANE_WRITE_MODES)
+    return bool(
+        schema.is_cdc
+        and schema.cdc_table_mode in _LANE_WRITE_MODES
+        and (serves_buffered_lane(schema) or snapshot_in_buffer(schema))
+    )
 
 
-# In `sync_type_config`: when this snapshot first started reading, on a buffered source. Files S3
-# modified before it hold only changes the snapshot already saw; files after it are kept.
-SNAPSHOT_STARTED_AT_KEY = "cdc_snapshot_started_at"
-# Slack for skew between S3's clock and ours; a kept older file only replays changes the snapshot holds.
-_SNAPSHOT_START_MARGIN = dt.timedelta(minutes=5)
+def snapshot_can_start_in_buffer(schema: ExternalDataSchema) -> bool:
+    """Schema-side condition for routing a snapshotting table the buffer does not carry yet to it."""
+    return bool(
+        schema.is_cdc
+        and schema.cdc_mode == "snapshot"
+        and schema.cdc_table_mode in _LANE_WRITE_MODES
+        and not snapshot_in_buffer(schema)
+    )
 
 
-def record_snapshot_start(schema: ExternalDataSchema, *, restart: bool) -> None:
-    """Stamp when a buffered source's snapshot of this schema started reading.
+def purge_buffer_before_handover(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
+    """Before a snapshot hands over to streaming, drop the buffer files it must not replay.
 
-    Kept from the first attempt, because a retried snapshot re-reads a table that already holds
-    rows from the earlier read. A reset restarts the snapshot on a wiped table, so it re-stamps.
+    When the buffer carried the snapshot, it holds an unbroken run of changes, and replaying all of
+    them over the snapshot converges, so nothing goes. Otherwise the snapshot's changes went to
+    legacy deferred runs, and every file predates a gap: an old file replayed after them would bring
+    back rows. Strict, because a surviving stale file corrupts the table.
     """
-    from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
-
-    if parse_ingest_mode(schema.source.job_inputs) != "buffered":
+    if snapshot_in_buffer(schema):
         return
-    now = timezone.now().isoformat()
-
-    def _stamp(config: dict[str, Any]) -> None:
-        if restart or not config.get(SNAPSHOT_STARTED_AT_KEY):
-            config[SNAPSHOT_STARTED_AT_KEY] = now
-
-    update_sync_type_config_keys(schema.id, schema.team_id, mutate=_stamp)
-
-
-def purge_buffer_predating_snapshot(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
-    """Before a snapshot hands over to streaming, drop the buffer files the snapshot already covers.
-
-    On a buffered source the buffer holds the changes made while the snapshot ran, so only files
-    from before its start go. A legacy source's buffer holds only shadow copies, so all of it goes.
-    """
-    from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
-
-    if parse_ingest_mode(schema.source.job_inputs) != "buffered":
-        purge_buffer_prefix(schema.team_id, str(schema.id), logger, strict=True)
-        return
-    started_at = (schema.sync_type_config or {}).get(SNAPSHOT_STARTED_AT_KEY)
-    if started_at:
-        purge_buffer_files_before(
-            schema.team_id, str(schema.id), dt.datetime.fromisoformat(started_at) - _SNAPSHOT_START_MARGIN, logger
-        )
-    update_sync_type_config_keys(schema.id, schema.team_id, removes=[SNAPSHOT_STARTED_AT_KEY])
+    purge_buffer_prefix(schema.team_id, str(schema.id), logger, strict=True)
 
 
 def consumes_buffer(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:
