@@ -56,6 +56,16 @@ export interface ConvertProps {
     disableCategories?: boolean
 }
 
+export function getProjectFolderPath(item: TreeDataItem): string | undefined {
+    if (item.record?.type !== 'folder' || item.type === 'empty-folder' || item.disabledReason) {
+        return undefined
+    }
+    if (item.id.startsWith('shortcuts://')) {
+        return item.record.ref || undefined
+    }
+    return item.id.startsWith('project://') ? item.record.path : undefined
+}
+
 export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = 'project://'): string {
     const root = protocol.replace(/\/+/, '').replace(':', '')
     return item.type === 'folder' ? `${root}://${item.path}` : `${root}/${item.id || item.path}`

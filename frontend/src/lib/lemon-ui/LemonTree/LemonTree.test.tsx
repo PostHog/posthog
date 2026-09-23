@@ -20,6 +20,17 @@ const cancelAnimationFrameMock = (handle: number): void => {
 }
 
 describe('LemonTree', () => {
+    it('opens a folder on double-click after a single expansion', async () => {
+        const folder: TreeDataItem = { id: 'research', name: 'Research', children: [] }
+        const onFolderClick = jest.fn()
+        const onFolderDoubleClick = jest.fn()
+        render(<LemonTree data={[folder]} onFolderClick={onFolderClick} onFolderDoubleClick={onFolderDoubleClick} />)
+        await userEvent.dblClick(screen.getByLabelText('tree item: Research'))
+        expect(onFolderClick).toHaveBeenCalledTimes(1)
+        expect(onFolderDoubleClick).toHaveBeenCalledWith(folder)
+        expect(onFolderDoubleClick).toHaveBeenCalledTimes(1)
+    })
+
     let requestAnimationFrameSpy: jest.SpyInstance<number, [FrameRequestCallback]>
     let cancelAnimationFrameSpy: jest.SpyInstance<void, [number]>
 

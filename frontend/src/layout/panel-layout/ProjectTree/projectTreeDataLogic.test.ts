@@ -68,6 +68,25 @@ describe('projectTreeDataLogic', () => {
             )
         }
     )
+    it('opens a nested folder directly without cached parents and distinguishes loading, failure, and empty states', async () => {
+        const tree = projectTreeLogic({ key: 'direct-folder', root: 'project://Research/Ideas' })
+        tree.mount()
+        try {
+            await expectLogic(logic).toDispatchActions(['loadFolderSuccess'])
+            expect(api.fileSystem.list).toHaveBeenCalledWith(expect.objectContaining({ parent: 'Research/Ideas' }))
+            expect(tree.values.fullFileSystemFiltered).toMatchObject([{ name: 'Empty folder', type: 'empty-folder' }])
+            logic.actions.loadFolderStart('Research/Ideas')
+            expect(tree.values.fullFileSystemFiltered).toMatchObject([{ type: 'loading-indicator' }])
+            logic.actions.loadFolderFailure('Research/Ideas', 'Request failed')
+            expect(tree.values.fullFileSystemFiltered).toMatchObject([{ name: 'Retry loading folder' }])
+            await expectLogic(logic, () =>
+                tree.values.fullFileSystemFiltered[0].onClick?.(undefined)
+            ).toDispatchActions(['loadFolderSuccess'])
+            expect(tree.values.fullFileSystemFiltered).toMatchObject([{ type: 'empty-folder' }])
+        } finally {
+            tree.unmount()
+        }
+    })
 
     it('shows only the products the user added, with nothing injected alongside them', () => {
         customProductsLogic.actions.loadCustomProductsSuccess([

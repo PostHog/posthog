@@ -1,15 +1,17 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { Spinner } from '@posthog/lemon-ui'
 
 import { panelLayoutLogic } from '../../panelLayoutLogic'
+import { FolderNavigation } from '../../ProjectTree/FolderNavigation'
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { FlatNavRecents } from './flat-nav/FlatNavRecents'
 
 export function NavTabFiles(): JSX.Element {
-    const { navExperimentActiveTab } = useValues(panelLayoutLogic)
+    const { navExperimentActiveTab, filesFolder } = useValues(panelLayoutLogic)
+    const { openFolderInSidebar } = useActions(panelLayoutLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
     const { fullFileSystemFiltered: starredFiles } = useValues(
         projectTreeLogic({ key: 'navbar-files-starred', root: 'shortcuts://', shortcutScope: 'files' })
@@ -18,9 +20,11 @@ export function NavTabFiles(): JSX.Element {
         <div className="flex flex-col h-full min-h-0">
             <div className="flex-1 min-h-0">
                 <ProjectTree
+                    key={filesFolder}
                     panelName="files"
-                    root="project://"
-                    logicKey="navbar-files"
+                    root={`project://${filesFolder}`}
+                    logicKey={filesFolder ? `navbar-files:${filesFolder}` : 'navbar-files'}
+                    onFolderOpen={openFolderInSidebar}
                     searchPlaceholder="Search files"
                     showRecents
                     layout="inline"
@@ -38,6 +42,7 @@ export function NavTabFiles(): JSX.Element {
                                         shortcutScope="files"
                                         logicKey="navbar-files-starred"
                                         onlyTree
+                                        onFolderOpen={openFolderInSidebar}
                                         showShortcutHelp={false}
                                     />
                                 ) : (
@@ -46,7 +51,9 @@ export function NavTabFiles(): JSX.Element {
                                     </p>
                                 )}
                             </div>
-                            <h3 className="px-3 pt-1 pb-1 mb-0 text-xs font-semibold text-secondary">Files</h3>
+                            <div className="px-1 pb-1">
+                                <FolderNavigation folder={filesFolder} onOpen={openFolderInSidebar} />
+                            </div>
                         </>
                     }
                     isActiveInPanel={navExperimentActiveTab === 'files'}

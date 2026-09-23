@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import {
@@ -35,6 +36,7 @@ import {
 import { pluralize } from 'lib/utils/strings'
 import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
+import { urls } from 'scenes/urls'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -43,7 +45,7 @@ import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { customProductsLogic } from '../customProductsLogic'
 import { projectTreeDataLogic } from '../projectTreeDataLogic'
 import { projectTreeLogic } from '../projectTreeLogic'
-import { joinPath, splitPath } from '../utils'
+import { getProjectFolderPath, joinPath, splitPath } from '../utils'
 import { BrowserLikeMenuItems } from './BrowserLikeMenuItems'
 import { DashboardsMenuItems } from './DashboardsMenuItems'
 import { ProductAnalyticsMenuItems } from './ProductAnalyticsMenuItems'
@@ -97,7 +99,7 @@ export function MenuItems({
     const { openLinkToModal } = useActions(linkToLogic)
     const { setToolEnabled } = useActions(customProductsLogic)
 
-    const { resetPanelLayout } = useActions(panelLayoutLogic)
+    const { resetPanelLayout, openFolderInSidebar } = useActions(panelLayoutLogic)
 
     const shouldDeleteCheckedItems = checkedItemCountNumeric > 1 && checkedItems[item.id]
 
@@ -160,6 +162,7 @@ export function MenuItems({
     const isItemAFolder = item.record?.type === 'folder'
     const isStarredFolder = isItemAFolder && item.id.startsWith('shortcuts://') && !!item.record?.ref
     const newMenuItem = isStarredFolder ? { ...item, record: { ...item.record, path: item.record?.ref } } : item
+    const folderPath = getProjectFolderPath(item)
     const itemShortcutPath = joinPath([splitPath(item.record?.path).pop() ?? 'Unnamed'])
     const isItemAlreadyInShortcut = !isItemAFolder && shortcutNonFolderPaths.has(itemShortcutPath)
     const shortcutId =
@@ -176,6 +179,27 @@ export function MenuItems({
     return (
         <>
             {productMenu}
+            {folderPath !== undefined && (
+                <>
+                    {isSimpleSidepanelEnabled && (
+                        <MenuItem
+                            asChild
+                            onClick={() => openFolderInSidebar(folderPath)}
+                            data-attr="tree-item-open-in-sidebar"
+                        >
+                            <ButtonPrimitive menuItem>Open in sidebar</ButtonPrimitive>
+                        </MenuItem>
+                    )}
+                    <MenuItem
+                        asChild
+                        onClick={() => router.actions.push(urls.projectFiles(folderPath))}
+                        data-attr="tree-item-open-in-files"
+                    >
+                        <ButtonPrimitive menuItem>Open in Files</ButtonPrimitive>
+                    </MenuItem>
+                    <MenuSeparator />
+                </>
+            )}
             {showSelectMenuItems ? (
                 <>
                     <MenuItem

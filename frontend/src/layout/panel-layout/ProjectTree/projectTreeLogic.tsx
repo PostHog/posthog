@@ -450,7 +450,8 @@ export interface projectTreeLogicMeta {
             folderStates: Record<string, FolderState>,
             checkedItems: Record<string, boolean>,
             users: Record<string, UserBasicType>,
-            onlyFolders: boolean
+            onlyFolders: boolean,
+            arg: any
         ) => TreeDataItem[]
         recentTreeItems: (
             recentResults: RecentResults,
@@ -915,17 +916,25 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     })),
     selectors({
         projectTree: [
-            (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.onlyFolders],
+            (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users, s.onlyFolders, (_, props) => props.root],
             (
                 viableItems: FileSystemEntry[],
                 folderStates: Record<string, import('./types').FolderState>,
                 checkedItems: Record<string, boolean>,
                 users: Record<string, import('~/types').UserBasicType>,
-                onlyFolders: boolean
+                onlyFolders: boolean,
+                root: string | undefined
             ): TreeDataItem[] => {
+                const folder = root?.startsWith('project://') ? root.slice('project://'.length) : ''
+                const items =
+                    folder && !viableItems.some((item) => item.type === 'folder' && item.path === folder)
+                        ? [...viableItems, { path: folder, type: 'folder' }]
+                        : viableItems
                 const children = convertFileSystemEntryToTreeDataItem({
-                    imports: viableItems.map((i) => ({ ...i, protocol: 'project://' })),
-                    folderStates,
+                    imports: items.map((i) => ({ ...i, protocol: 'project://' })),
+                    folderStates: folder
+                        ? { ...folderStates, [folder]: folderStates[folder] ?? 'loading' }
+                        : folderStates,
                     checkedItems,
                     root: 'project://',
                     users,
@@ -933,6 +942,20 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         getEntryAccessDisabledReason(item) ??
                         (onlyFolders && item.type !== 'folder' ? 'Only folders can be selected' : undefined),
                 })
+                if (folder && folderStates[folder] === 'error') {
+                    const focusedFolder = findInProjectTree(`project://${folder}`, children)
+                    if (focusedFolder) {
+                        focusedFolder.children = [
+                            {
+                                id: `folder-retry/${folder}`,
+                                name: 'Retry loading folder',
+                                displayName: <>Retry loading folder</>,
+                                disableSelect: true,
+                                onClick: () => projectTreeDataLogic.actions.loadFolder(folder, true),
+                            },
+                        ]
+                    }
+                }
                 return children
             },
         ],

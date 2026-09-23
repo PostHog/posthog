@@ -11,6 +11,14 @@ const meta: Meta<typeof ProjectFilesScene> = {
     render: (args, { parameters }) => {
         const entries = [
             { id: 'research-folder', path: 'Research', type: 'folder', ref: '', href: '', user_access_level: 'editor' },
+            {
+                id: 'ideas-folder',
+                path: 'Research/Ideas',
+                type: 'folder',
+                ref: '',
+                href: '',
+                user_access_level: 'editor',
+            },
             ...Array.from({ length: parameters.fileCount ?? 1 }, (_, index) => ({
                 id: `notebook-${index}`,
                 path: `Research/${index ? `Notes ${index}` : 'Welcome'}`,
@@ -41,6 +49,7 @@ export default meta
 
 export const Folder: StoryObj<typeof ProjectFilesScene> = { args: { folder: 'Research' } }
 export const ProjectRoot: StoryObj<typeof ProjectFilesScene> = {}
+export const EmptyFolder: StoryObj<typeof ProjectFilesScene> = { args: { folder: 'Research/Ideas' } }
 export const LongFolder: StoryObj<typeof ProjectFilesScene> = {
     args: { folder: 'Research' },
     parameters: { fileCount: 80 },

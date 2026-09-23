@@ -37,6 +37,7 @@ export interface panelLayoutLogicValues {
     activePanelIdentifierFromUrl: PanelLayoutNavIdentifier | ''
     activePanelIdentifierFromUrlAiFirst: PanelLayoutNavIdentifier | ''
     expandedNavSections: Record<string, boolean>
+    filesFolder: string
     isLayoutNavCollapsed: boolean
     isLayoutNavCollapsedDesktop: boolean
     isLayoutNavbarVisible: boolean
@@ -65,6 +66,9 @@ export interface panelLayoutLogicActions {
     }
     closePanel: () => {
         value: true
+    }
+    openFolderInSidebar: (folder: string) => {
+        folder: string
     }
     resetPanelLayout: (keyboardAction: boolean) => {
         keyboardAction: boolean
@@ -162,9 +166,11 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setSidePanelWidth: (width: number) => ({ width }),
         toggleNavSection: (section: string) => ({ section }),
         setNavExperimentTab: (tab: NavExperimentTab) => ({ tab }),
+        openFolderInSidebar: (folder: string) => ({ folder }),
         setNavbarWidth: (width: number) => ({ width }),
     }),
     reducers({
+        filesFolder: ['', { openFolderInSidebar: (_, { folder }) => folder }],
         isLayoutNavbarVisibleForDesktop: [
             true,
             { persist: true },
@@ -306,6 +312,11 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        openFolderInSidebar: () => {
+            actions.setNavExperimentTab('files')
+            actions.toggleLayoutNavCollapsed(false)
+            actions.clearActivePanelIdentifier()
+        },
         closePanel: () => {
             actions.showLayoutPanel(false)
             actions.clearActivePanelIdentifier()

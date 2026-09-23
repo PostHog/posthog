@@ -38,7 +38,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
-import { calculateMovePath } from './utils'
+import { calculateMovePath, getProjectFolderPath } from './utils'
 
 interface ProjectTreeBaseProps {
     layout?: 'panel' | 'inline'
@@ -62,6 +62,7 @@ interface ProjectTreeBaseProps {
      * the tree inside a larger surface uses this to report the click in that surface's own terms.
      */
     onItemClicked?: (item: TreeDataItem | undefined) => void
+    onFolderOpen?: (folder: string) => void
     /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
     isActiveInPanel?: boolean
 }
@@ -125,6 +126,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         checkedItemsOverride,
         onItemCheckedOverride,
         onItemClicked,
+        onFolderOpen,
         isActiveInPanel,
     } = props
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
@@ -177,6 +179,8 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         false
     )
 
+    const isProjectFolder = root?.startsWith('project://') ?? false
+    const currentFolder = isProjectFolder ? (root?.slice('project://'.length) ?? '') : ''
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
@@ -306,6 +310,16 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     toggleFolderOpen(folder?.id || '', isExpanded)
                 }
             }}
+            onFolderDoubleClick={
+                onFolderOpen
+                    ? (item) => {
+                          const folder = getProjectFolderPath(item)
+                          if (folder !== undefined) {
+                              onFolderOpen(folder)
+                          }
+                      }
+                    : undefined
+            }
             isItemEditing={(item) => {
                 return editingItemId === item.id
             }}
@@ -473,7 +487,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                             asChild
                             onClick={(e) => {
                                 e.stopPropagation()
-                                createFolder('')
+                                createFolder(currentFolder)
                             }}
                         >
                             <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
@@ -653,21 +667,21 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
             }
             panelActionsNewSceneLayout={[
                 {
-                    ...(root === 'project://' &&
+                    ...(isProjectFolder &&
                         sortMethod !== 'recent' && {
-                            tooltip: 'New root folder',
+                            tooltip: currentFolder ? 'New folder' : 'New root folder',
                             'data-attr': 'tree-panel-new-root-folder-button',
-                            onClick: () => createFolder(''),
+                            onClick: () => createFolder(currentFolder),
                             children: (
                                 <>
                                     <IconFolderPlus className="text-tertiary size-3" />
-                                    New root folder
+                                    {currentFolder ? 'New folder' : 'New root folder'}
                                 </>
                             ),
                         }),
                 },
                 {
-                    ...(root === 'project://' &&
+                    ...(isProjectFolder &&
                         sortMethod !== 'recent' && {
                             tooltip: selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select',
                             'data-attr': 'tree-panel-enable-multi-select-button',

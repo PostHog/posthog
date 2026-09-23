@@ -26,6 +26,7 @@ const files: FileSystemEntry[] = [
     },
     { id: 'folder-2', path: 'Product research', type: 'folder' },
     { id: 'folder-3', path: 'Product research/Ideas', type: 'folder' },
+    { id: 'folder-4', path: 'Product research/Ideas/Interviews', type: 'folder' },
     {
         id: 'notebook-1',
         path: 'Product research/Onboarding notes',

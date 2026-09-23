@@ -170,6 +170,7 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     expandAllFolders?: boolean
     /** handler for folder clicks.*/
     onFolderClick?: (folder: TreeDataItem | undefined, isExpanded: boolean) => void
+    onFolderDoubleClick?: (folder: TreeDataItem) => void
     /** handler for node clicks. */
     onItemClick?: (
         node: TreeDataItem | undefined,
@@ -667,6 +668,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             data,
             defaultSelectedFolderOrNodeId,
             onFolderClick,
+            onFolderDoubleClick,
             onItemClick,
             expandAllFolders = false,
             defaultNodeIcon,
@@ -1032,6 +1034,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             ): void => {
                 const isFolder = (item?.children && item?.children?.length >= 0) || item?.record?.type === 'folder'
 
+                if (isFolder && item && !isKeyboardAction && event.detail === 2 && onFolderDoubleClick) {
+                    onFolderDoubleClick(item)
+                    return
+                }
+
                 // Handle click on a node
                 if (!isFolder) {
                     if (onItemClick) {
@@ -1063,7 +1070,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     setSelectedId(item?.id)
                 }
             },
-            [expandedItemIdsState, onFolderClick, onItemClick, focusContent, selectMode]
+            [expandedItemIdsState, onFolderClick, onFolderDoubleClick, onItemClick, focusContent, selectMode]
         )
 
         /** Focus the element from the tree item ID. */

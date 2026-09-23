@@ -51,6 +51,9 @@ The app-level Files scene lives in `src/scenes/project-files` and reuses the pro
 Open `/project/<project_id>/files` to browse the project, or add `?folder=Research` to start in a folder.
 Starred folders in the sidebar use the same "New..." menu and "Empty folder" state as project folders.
 Creating an item from a starred folder uses the original folder's full path, including its parent folders.
+Double-click a folder in the Files scene or the `simple-sidepanel` Files sidebar to browse its contents as the current folder.
+The up button returns to the parent, and the folder path menu jumps to any ancestor or the project root.
+Folder context menus offer "Open in sidebar" (with `simple-sidepanel` enabled) and "Open in Files", including for starred folders.
 
 ### `posthog`
 
