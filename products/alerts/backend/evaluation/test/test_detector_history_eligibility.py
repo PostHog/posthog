@@ -174,7 +174,7 @@ def test_narrowing_tightens_the_lower_bound_and_leaves_the_saved_query_alone() -
     assert "signup" in narrowed_sql
     # The clock is pinned, so the warehouse cannot evaluate the bounds at a different hour.
     assert "now()" not in narrowed_sql
-    assert "toDateTime('2026-09-22 12:44:11', 'UTC')" in narrowed_sql
+    assert f"toTimeZone(fromUnixTimestamp({int(at.timestamp())}), 'UTC')" in narrowed_sql
     # Narrowing twice must not accumulate bounds on a shared tree.
     assert matched.narrowed_to(3, at=at, tz="UTC")["source"]["query"] == narrowed_sql
 
@@ -184,8 +184,17 @@ def test_narrowing_renders_the_anchor_in_the_team_timezone() -> None:
     assert matched is not None
     at = datetime(2026, 9, 22, 12, 44, 11, tzinfo=UTC)
     narrowed_sql = matched.narrowed_to(3, at=at, tz="Asia/Kolkata")["query"]
-    assert "toDateTime('2026-09-22 18:14:11', 'Asia/Kolkata')" in narrowed_sql
+    assert f"toTimeZone(fromUnixTimestamp({int(at.timestamp())}), 'Asia/Kolkata')" in narrowed_sql
     assert "now()" not in narrowed_sql
+
+
+def test_pinning_distinguishes_the_two_occurrences_of_a_dst_fold_hour() -> None:
+    matched = match_detector_series_query(_query(), column="value")
+    assert matched is not None
+    # Amsterdam leaves DST on 2026-10-25 01:00 UTC: 00:37 and 01:37 UTC are both 02:37 local.
+    first = matched.narrowed_to(3, at=datetime(2026, 10, 25, 0, 37, tzinfo=UTC), tz="Europe/Amsterdam")
+    second = matched.narrowed_to(3, at=datetime(2026, 10, 25, 1, 37, tzinfo=UTC), tz="Europe/Amsterdam")
+    assert first["query"] != second["query"]
 
 
 def test_narrowing_refuses_a_window_it_would_not_shorten() -> None:

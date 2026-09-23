@@ -110,7 +110,7 @@ class TestDetectorHistory(BaseTest):
         assert narrowed is not None
         narrowed_sql = narrowed["query"]
         assert "now()" not in narrowed_sql
-        assert "toDateTime('2026-09-22 12:30:00', 'UTC')" in narrowed_sql
+        assert "fromUnixTimestamp(" in narrowed_sql
 
     def test_a_warm_cache_reads_only_the_recent_tail_and_returns_the_full_scan_series(self) -> None:
         warehouse = _Warehouse(self._dense(10))
@@ -186,6 +186,17 @@ class TestDetectorHistory(BaseTest):
             )
 
         # first_row scores the oldest bucket, which the tail refresh never re-reads.
+        assert rows is None
+        assert warehouse.overrides == []
+
+    def test_a_dst_fold_inside_the_window_falls_back_to_full_scans(self) -> None:
+        self.team.timezone = "Europe/Amsterdam"
+        self.team.save(update_fields=["timezone"])
+        warehouse = _Warehouse(self._dense(10))
+        # Amsterdam left DST on 2026-10-25 01:00 UTC; a 48h window from the 26th spans it.
+        with time_machine.travel("2026-10-26T12:30:00Z", tick=False):
+            rows = self._check(warehouse)
+
         assert rows is None
         assert warehouse.overrides == []
 

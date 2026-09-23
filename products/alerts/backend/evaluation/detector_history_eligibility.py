@@ -12,7 +12,6 @@ do with it. Merge the two into one matcher once both have landed.
 from copy import deepcopy
 from dataclasses import field, fields
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext, get_default_limit_for_context
@@ -461,15 +460,17 @@ class DetectorSeriesQuery:
 
 
 def _pin_clock(node: ast.AST, *, at: datetime, tz: str) -> None:
-    """Replace every ``now()`` under ``node`` with ``at`` as a literal in timezone ``tz``.
+    """Replace every ``now()`` under ``node`` with ``at`` as an epoch literal in timezone ``tz``.
 
     The matcher only admits ``now()`` inside the recognized window bounds, so this touches
     nothing else.
     """
+    # Epoch seconds, not a wall-clock string: during a DST fold the same local time names two
+    # instants, and a string rendering would resolve to the wrong one for a whole hour.
     pinned = ast.Call(
-        name="toDateTime",
+        name="toTimeZone",
         args=[
-            ast.Constant(value=at.astimezone(ZoneInfo(tz)).strftime("%Y-%m-%d %H:%M:%S")),
+            ast.Call(name="fromUnixTimestamp", args=[ast.Constant(value=int(at.timestamp()))]),
             ast.Constant(value=tz),
         ],
     )
