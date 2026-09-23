@@ -33,6 +33,15 @@ class DeliveryError(Exception):
 
 class DeliveryTransport(Protocol):
     capabilities: frozenset[str]
+    provider: str
+
+    def channel_target(self, target: AlertDestinationData) -> str:
+        """Which conversation this destination is, as the provider names it.
+
+        A repointed destination gives a different answer, which is what stops a reply going
+        into the thread the previous channel held.
+        """
+        ...
 
     def deliver(
         self,

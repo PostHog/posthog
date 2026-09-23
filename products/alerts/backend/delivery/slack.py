@@ -35,6 +35,10 @@ def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
 
 class SlackTransport:
     capabilities = frozenset({REPLY, UPDATE})
+    provider = PROVIDER
+
+    def channel_target(self, target: AlertDestinationData) -> str:
+        return target.get("slack_channel_id", "")
 
     def deliver(
         self,
