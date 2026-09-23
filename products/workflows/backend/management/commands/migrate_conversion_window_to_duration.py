@@ -155,7 +155,13 @@ class Command(BaseCommand):
         drafts_stripped = 0
         for flow in drafted.iterator():
             draft = flow.draft
-            if not isinstance(draft, dict) or stripped_conversion(draft.get("conversion")) is None:
+            if not isinstance(draft, dict):
+                continue
+            if converted_conversion(draft.get("conversion")) is not None:
+                # Publishing this draft later would drop a window the convert pass could still save.
+                still_convertible += 1
+                continue
+            if stripped_conversion(draft.get("conversion")) is None:
                 continue
             self.stdout.write(f"  {verb} draft on flow id={flow.id} team_id={flow.team_id}")
             if live_run:
@@ -176,6 +182,10 @@ class Command(BaseCommand):
             content = revision.content
             if not isinstance(content, dict):
                 continue
+            if converted_conversion(content.get("conversion")) is not None:
+                # Restoring this snapshot later would drop a window the convert pass could still save.
+                still_convertible += 1
+                continue
             fresh = stripped_conversion(content.get("conversion"))
             if fresh is None:
                 continue
@@ -189,8 +199,9 @@ class Command(BaseCommand):
         if still_convertible:
             self.stdout.write(
                 self.style.WARNING(
-                    f"  {still_convertible} flow(s) still carry a convertible value and were left alone. "
-                    "Run the command without --strip-inert first, then repeat this pass."
+                    f"  {still_convertible} flow(s), draft(s) or snapshot(s) still carry a convertible "
+                    "value and were left alone. Run the command without --strip-inert first, then "
+                    "repeat this pass."
                 )
             )
         done = "stripped" if live_run else "to strip"
@@ -307,7 +318,7 @@ class Command(BaseCommand):
         )
 
 
-def stripped_conversion(conversion: object) -> dict | None:
+def stripped_conversion(conversion: object) -> dict[str, Any] | None:
     """The same conversion without window_minutes, or None when the key must stay or is already gone.
 
     A row the convert pass would still rewrite is left alone: dropping its value there would move the

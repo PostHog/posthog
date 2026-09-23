@@ -1,3 +1,5 @@
+from io import StringIO
+
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
@@ -158,6 +160,35 @@ class TestStripInert(BaseTest):
 
         flow.refresh_from_db()
         assert flow.conversion == {"filters": [], "window": "7d"}
+
+    def test_refuses_a_convertible_draft_or_snapshot_and_says_so(self):
+        # A convertible value hiding in a draft or a snapshot is not inert: publishing or restoring it
+        # after the field is gone drops the window. Skipping it silently would report a clean sweep.
+        flow = _flow(self.team, "clean live row", {"filters": []})
+        flow.draft = {"conversion": {"filters": [], "window_minutes": 2880}}
+        flow.save()
+        with team_scope(self.team.pk):
+            revision = HogFlowRevision.objects.create(
+                team=self.team,
+                hog_flow=flow,
+                version=1,
+                content={"conversion": {"filters": [], "window_minutes": 1440}},
+            )
+
+        out = StringIO()
+        call_command(
+            "migrate_conversion_window_to_duration",
+            team_id=self.team.pk,
+            live_run=True,
+            strip_inert=True,
+            stdout=out,
+        )
+
+        flow.refresh_from_db()
+        revision.refresh_from_db()
+        assert flow.draft == {"conversion": {"filters": [], "window_minutes": 2880}}
+        assert revision.content == {"conversion": {"filters": [], "window_minutes": 1440}}
+        assert "2 flow(s), draft(s) or snapshot(s) still carry a convertible value" in out.getvalue()
 
     def test_strips_drafts_and_revision_snapshots(self):
         # A snapshot that keeps the key puts it back the moment someone restores that version.
