@@ -1263,13 +1263,18 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 [urls.engineeringAnalytics()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsPullRequestList()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsWorkflows()]: (_, s) => applyScope(s.source, s.repo),
-                [urls.engineeringAnalyticsTestHealth()]: (_, s) => applyScope(s.source, s.repo),
-                [urls.engineeringAnalyticsHealth()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsTests()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsDeploys()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsTeams()]: (_, s) => applyScope(s.source, s.repo),
+                '/engineering-analytics/teams/:ownerTeam': (_, s) => applyScope(s.source, s.repo),
             }
         }),
 
-        afterMount(({ actions }) => {
+        afterMount(({ actions, values }) => {
             actions.loadGithubSources()
-            actions.refresh()
+            // A scoped URL already refreshed through urlToAction, which runs before this hook.
+            if (!values.cardsLoading) {
+                actions.refresh()
+            }
         }),
     ])

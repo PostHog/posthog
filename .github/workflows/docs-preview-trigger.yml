@@ -11,14 +11,13 @@ on:
             - 'docs/**'
 
 permissions:
-    pull-requests: write
+    contents: read
 
 jobs:
     trigger-preview:
-        # The queue's branch is deleted the moment it merges, so its Vercel
-        # preview is torn down before anyone could open it. No gate coverage is
-        # lost either: the frontmatter, internal-docs and link checks below are
-        # all continue-on-error, so they never blocked a merge anyway.
+        # Skip merge-queue branches. No gate coverage is lost: the frontmatter,
+        # internal-docs and link checks below are all continue-on-error, so they
+        # never blocked a merge anyway.
         if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: Trigger posthog.com preview build
         runs-on: ubuntu-24.04
@@ -67,21 +66,3 @@ jobs:
             - name: Check for broken links
               continue-on-error: true
               run: node .github/scripts/check-docs-links.js
-
-            - name: Trigger Vercel build
-              id: trigger-build
-              env:
-                  BRANCH_NAME: ${{ github.event.pull_request.head.ref || github.ref_name }}
-                  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-                  VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
-                  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-              run: .github/scripts/trigger-vercel-preview.sh "$BRANCH_NAME"
-
-            - name: Post docs preview to CI report
-              if: github.event_name == 'pull_request'
-              env:
-                  GITHUB_TOKEN: ${{ github.token }}
-                  TRIGGER_STATUS: ${{ steps.trigger-build.outputs.trigger_status }}
-                  DEPLOYMENT_URL: ${{ steps.trigger-build.outputs.deployment_url }}
-                  DEPLOYMENT_ID: ${{ steps.trigger-build.outputs.deployment_id }}
-              run: node .github/scripts/post-docs-preview-section.mjs
