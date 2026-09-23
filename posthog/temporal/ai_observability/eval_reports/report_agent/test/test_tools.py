@@ -1052,7 +1052,9 @@ class TestListAndGetReportRun(BaseTest):
         )
 
     def test_list_returns_compact_index_newest_first(self):
-        result = json.loads(_list_recent_report_runs_fn(state=self.state))
+        # One query and no deferred load. Reading a `content` key again detoasts the blob per row.
+        with self.assertNumQueries(1):
+            result = json.loads(_list_recent_report_runs_fn(state=self.state))
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["title"], "Recent report")
         self.assertEqual(result[0]["pass_rate"], 94.2)

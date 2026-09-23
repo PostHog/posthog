@@ -255,8 +255,6 @@ class TestEvaluationReportRunModel(BaseTest):
 
 
 class TestBackfillReportRunIndexColumns(BaseTest):
-    """The backfill is what keeps runs stored before the index columns existed readable."""
-
     def _run_backfill(self) -> None:
         # The migration module name starts with a digit, so it can only be imported dynamically.
         module = importlib.import_module(
@@ -284,7 +282,6 @@ class TestBackfillReportRunIndexColumns(BaseTest):
             trigger_threshold=100,
             delivery_targets=[],
         )
-        # A row from before `content.evaluation_target` existed, plus one that carries every key.
         legacy = EvaluationReportRun.objects.create(
             report=report,
             content={"title": "Legacy", "metrics": {"total_runs": 4}},

@@ -206,9 +206,11 @@ class EvaluationReportRun(UUIDTModel):
     # Copies of content keys. `content` holds every section and citation, so Postgres stores it
     # out of line and reads the whole blob to answer even one key. Listing past runs needs only
     # these three, so they live in their own columns and leave `content` on disk.
-    title = models.TextField(blank=True, default="")
-    evaluation_target = models.CharField(max_length=32, blank=True, default="")
-    generation_status = models.CharField(max_length=32, blank=True, default="")
+    # `db_default` keeps the Postgres default in place, so a worker still on the previous release
+    # can insert a row between the migration and its own rollout.
+    title = models.TextField(blank=True, default="", db_default="")
+    evaluation_target = models.CharField(max_length=32, blank=True, default="", db_default="")
+    generation_status = models.CharField(max_length=32, blank=True, default="", db_default="")
     period_start = models.DateTimeField()
     period_end = models.DateTimeField()
     delivery_status = models.CharField(
