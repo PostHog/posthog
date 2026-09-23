@@ -59,6 +59,7 @@ Reset the process-cached registry and the dedup cache between tests with `reset_
 
 Create `posthog/ingress/<provider>/` with an `__init__.py` and a `provider.py`.
 Copy `github/` for the full shape, or `vapi/` for a small one.
+Copy the layout, not the behavior: a provider package holds only what is specific to its third party. A need that a second provider could share becomes a lane, a scheme option or a `WebhookProvider` attribute, the way `retry_status` and `throttle_class` did. A true one-off stays in the provider with a `# One-off:` comment that says why no other provider needs it.
 `provider.py` holds three things:
 
 - `SPECS`, one `ProviderSpec` per app, naming the event types that app is subscribed to. The registry validates consumers against these.
