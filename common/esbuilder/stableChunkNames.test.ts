@@ -1,4 +1,4 @@
-import { planStableChunks } from './stableChunkNames.mjs'
+import { planStableChunks, stableFileName } from './stableChunkNames.mjs'
 
 // Two chunks: an entry that imports a shared chunk, the way esbuild writes them with publicPath /static.
 const OUTPUTS = {
@@ -45,5 +45,41 @@ describe('planStableChunks', () => {
         expect(source).not.toContain('from"/static/chunk-BBBB2222.js"')
         expect(source).toContain('new URL("/static/chunk-BBBB2222.js")')
         expect(source).toContain('"/static/Inter-CCCC3333.woff2"')
+    })
+
+    it('rewrites text inside a string literal that merely looks like an import (known limitation)', () => {
+        // IMPORT_OF_PATH matches by text shape, not JS syntax, so it cannot tell a real import from
+        // string data that happens to name a real chunk. This pins today's behavior rather than
+        // asserting it is correct.
+        const lookalike = entry('export const a=1', `const msg = "retry: import('/static/chunk-BBBB2222.js')"`)
+        const { source } = plan(lookalike).get('dist/Scene-AAAA1111.js')!
+
+        expect(source).toContain(`retry: import('@c/`)
+    })
+
+    describe('identity collisions', () => {
+        it('warns and falls back to a unique name when two chunks share an identity', () => {
+            // Two chunks with no inputs hash to the same identity (see the comment in the source).
+            const outputs = {
+                'dist/chunk-EEEE0000.js': {},
+                'dist/chunk-FFFF0000.js': {},
+            }
+            const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+            const { plan: collisionPlan } = planStableChunks(outputs, () => '')
+
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('identity collision for dist/chunk-'))
+            expect(collisionPlan.get('dist/chunk-EEEE0000.js')!.identity).not.toBe(
+                collisionPlan.get('dist/chunk-FFFF0000.js')!.identity
+            )
+
+            warn.mockRestore()
+        })
+    })
+
+    describe('stableFileName', () => {
+        it('throws when the esbuild output name has no -<hash> suffix to replace', () => {
+            expect(() => stableFileName('index.js', 'source')).toThrow(/does not end in the expected/)
+        })
     })
 })

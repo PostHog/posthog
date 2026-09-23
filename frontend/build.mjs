@@ -111,6 +111,8 @@ await buildInParallel(
                 if (!isDev) {
                     reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
                     const preloadManifest = writePreloadManifest(buildResponse.outputs)
+                    // A throw here must fail the build: it reaches buildInParallel's catch, which
+                    // exits non-zero for non-dev builds. Keep it in this awaited call chain.
                     stable = writeStableChunks({
                         absWorkingDir: __dirname,
                         outputs: buildResponse.outputs,
@@ -210,6 +212,8 @@ function copyEmojibaseData() {
 
 export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
     copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints, stable)
+    // layout.html also gets the {% if stable_chunks %} boot branch, but posthog/utils.py only sets
+    // stable_chunks for "index.html", so this branch never renders here; the {% else %} default runs.
     copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints, stable)
 }
 

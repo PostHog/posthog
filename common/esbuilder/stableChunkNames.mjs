@@ -61,6 +61,11 @@ export function rewriteChunkSource(source, identityByFile) {
 
 export function stableFileName(originalFile, rewrittenSource) {
     const prefix = originalFile.replace(/-[^-./]+\.js$/, '')
+    // Only holds because chunkNames/entryNames in utils.mjs are `[name]-[hash]` for non-dev builds.
+    // Fail loudly rather than silently producing a garbled name like `index.js-S....js`.
+    if (prefix === originalFile) {
+        throw new Error(`stable chunks: ${originalFile} does not end in the expected -<hash>.js suffix`)
+    }
     return `${prefix}-${STABLE_NAME_MARKER}${shortHash(rewrittenSource)}.js`
 }
 
@@ -83,6 +88,9 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/') {
         if (seen.has(identity)) {
             // Two chunks with the same inputs cannot come out of one build, but an empty chunk
             // could. Fall back to the esbuild name: unique within the build, only less stable.
+            console.warn(
+                `stable chunks: identity collision for ${outputPath}, falling back to an esbuild-hash-derived name`
+            )
             identity = `${identity}${shortHash(outputPath)}`
         }
         seen.set(identity, outputPath)
