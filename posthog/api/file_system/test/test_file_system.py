@@ -919,9 +919,7 @@ class TestFileSystemAPI(APIBaseTest):
         ]
     )
     def test_list_pages_stay_disjoint_when_sort_values_tie(self, _name: str, query: str, descending: bool):
-        # No column the list sorts on is unique, so tied rows need `id` to break the tie. Without
-        # it Postgres can order the tie differently per page, and a client that walks limit/offset
-        # pages then sees an item twice or misses it.
+        # Every row ties on every sort column, so only the `id` tiebreaker keeps the pages disjoint.
         ids = [UUID(f"019759ff-0000-7000-8000-00000000000{index}") for index in range(5)]
         with time_machine.travel("2020-01-01 10:00:00", tick=False):
             # Insert newest id first, so heap order is the reverse of id order.
