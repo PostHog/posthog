@@ -97,6 +97,22 @@ describe('mcpAnalyticsOnboardingLogic', () => {
         expect(productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }).values.status).toBe('unknown')
     })
 
+    // A project the server refuses is not a fault in this query. The denial has to reach the
+    // scene as `accessDenied` without the loader rejecting, since a rejected loader is filed as
+    // an app fault - and every tab mounted behind this one would file its own.
+    it('marks the project access-denied on a 403 instead of rejecting the loader', async () => {
+        // The denial arrives with no DRF code, which is the shape the coded-only checks miss.
+        jest.spyOn(mockApi, 'query').mockRejectedValue(Object.assign(new Error('Non-OK response'), { status: 403 }))
+        const logic = mcpAnalyticsOnboardingLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.accessDenied).toBe(true)
+        // `unknown` hands the empty-state gate a resolved answer, so the scene renders the
+        // access-denied state instead of spinning.
+        expect(productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }).values.status).toBe('unknown')
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadSignalsFailure'])
+    })
+
     it('a failing poll never downgrades an existing answer', async () => {
         const logic = mountWith([[1, 1, 1, '2026-07-01T00:00:00Z']])
         await expectLogic(logic).toFinishAllListeners()

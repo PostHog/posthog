@@ -3,6 +3,7 @@ import { router, combineUrl } from 'kea-router'
 
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -46,6 +47,23 @@ export function MCPAnalyticsScene(): JSX.Element {
 }
 
 function MCPAnalyticsSceneContent(): JSX.Element {
+    const { accessDenied } = useValues(mcpAnalyticsOnboardingLogic)
+
+    // Every tab loads its own data, so mounting them against a project the server refuses
+    // leaves each panel blank with no explanation. Kept in its own component so none of the
+    // tab logics mount at all in that case.
+    if (accessDenied) {
+        return (
+            <SceneContent>
+                <SceneTitleSection name="MCP analytics" description={null} resourceType={{ type: 'mcp_analytics' }} />
+                <AccessDenied reason="You don't have access to this project." />
+            </SceneContent>
+        )
+    }
+    return <MCPAnalyticsTabs />
+}
+
+function MCPAnalyticsTabs(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)

@@ -9,7 +9,12 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
+import {
+    isAccessDeniedError,
+    isForbiddenError,
+    isUnavailableEndpointError,
+    shouldReportApiFailure,
+} from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -233,7 +238,13 @@ export function initKea({
                 }
                 const isSelfHandledNotFound =
                     NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
-                if (shouldReportApiFailure(error) && !isSelfHandledNotFound) {
+                // A read the server refuses is an authorization outcome, not an app fault, so it
+                // is filed the same way the toast above already treats it. `shouldReportApiFailure`
+                // alone only recognizes the DRF-coded form, and a denial that arrives with no
+                // parseable body then opens one error tracking issue per loader: a user without
+                // project access files a whole scene's worth of issues in a few seconds.
+                const isDeniedRead = isLoadAction && isForbiddenError(error)
+                if (shouldReportApiFailure(error) && !isSelfHandledNotFound && !isDeniedRead) {
                     posthog.captureException(error)
                 }
             },

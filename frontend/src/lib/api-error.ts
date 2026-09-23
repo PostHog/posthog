@@ -6,6 +6,16 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/**
+ * Any 403, whatever body it arrived with. `isAccessDeniedError` needs DRF's `permission_denied`
+ * code, but a denial can reach the browser with no parseable body — a project-level refusal, or
+ * a proxy answering before Django does — and a caller that only matches the coded form then
+ * treats the denial as a fault.
+ */
+export function isForbiddenError(error: unknown): boolean {
+    return (error as { status?: number } | null)?.status === 403
+}
+
 /** DRF code for `PostHogFeatureFlagPermission` (posthog/permissions.py). Keep in sync with the backend. */
 export const FEATURE_FLAG_REQUIRED_ERROR_CODE = 'feature_flag_required'
 
