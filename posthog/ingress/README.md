@@ -230,6 +230,12 @@ The same attribute answers a delivery whose consumers did not accept it, under o
 
 ## Adding a provider
 
+A provider package holds only what is specific to its third party: header names, how it names event types and delivery ids, how its body parses, and the status codes its protocol fixes.
+A need that a second provider could share becomes shared code: a lane in `views.py`, part of `dispatch/`, a scheme or scheme option in `verify/`, or an attribute on `WebhookProvider`.
+`throttle_class`, `retry_status` and the HMAC digest option each started as one provider's need and became shared that way.
+A true one-off stays in the provider, marked with a `# One-off:` comment that says why no other provider needs it.
+Tracing and metrics in a provider package fail CI unless marked, see "Shared mechanisms" in [the egress README](../egress/README.md#shared-mechanisms).
+
 Add a `<provider>/` subpackage with a `provider.py` holding three things (see `github/` for the full shape, `vapi/` for a small one):
 
 - `SPECS` — one `ProviderSpec` per app, naming the event types the app is subscribed to. The registry validates consumers against these.
