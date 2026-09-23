@@ -114,16 +114,6 @@ def _repair_locked(source: ExternalDataSource) -> int:
     all_cdc_schema_ids = [schema.id for schema in all_cdc_schemas]
     _cancel_running_cdc_jobs(source, all_cdc_schemas, log)
 
-    # Every CDC table, including those with sync off: the new slot cannot replay what the dead one
-    # lost, so a table turned back on later must re-snapshot too.
-    all_cdc_schema_ids = list(
-        ExternalDataSchema.objects.filter(
-            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC
-        )
-        .exclude(deleted=True)
-        .values_list("id", flat=True)
-    )
-
     # Reset schemas before touching the slot (same ordering as the extraction activity's
     # slot-invalidation recovery): if recreation fails below, a re-run repeats idempotently
     # and no schema keeps streaming across the gap unnoticed. Deferred runs are dropped —
@@ -151,9 +141,6 @@ def _repair_locked(source: ExternalDataSource) -> int:
     source.job_inputs = {**(source.job_inputs or {}), **resource_fields}
     source.status = ExternalDataSource.Status.RUNNING
     source.save(update_fields=["job_inputs", "status", "updated_at"])
-
-    for schema_id in all_cdc_schema_ids:
-        purge_buffer_prefix(source.team_id, str(schema_id), log, strict=True)
 
     _resume_schedules(source, cdc_schemas)
 
