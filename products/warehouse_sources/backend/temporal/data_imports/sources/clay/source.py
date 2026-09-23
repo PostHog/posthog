@@ -39,8 +39,9 @@ class ClaySource(ResumableSource[ClaySourceConfig, ClayResumeConfig]):
                 "and update the source."
             ),
             "403 Client Error: Forbidden for url: https://api.clay.com": (
-                "Clay denied access to this table. Reading tables through the API needs a Clay Enterprise "
-                "plan, and the API key's user must have access to the table."
+                "Clay denied access to this table. Turn on Enable for API in the table's settings "
+                "(Edit table settings > Integrations). This needs a Clay Enterprise plan, and the API key's "
+                "user must have access to the table."
             ),
             "404 Client Error: Not Found for url: https://api.clay.com": (
                 "Clay could not find this table. It may have been deleted, or the table ID may be wrong."
@@ -98,7 +99,8 @@ class ClaySource(ResumableSource[ClaySourceConfig, ClayResumeConfig]):
             label="Clay",
             caption=(
                 "Sync rows from your Clay tables. Reading tables through the Clay API needs a Clay Enterprise plan. "
-                "Create an API key in Clay under **Settings > Account > API keys**. "
+                "Create an API key in Clay under **Settings > Account > API keys**, and turn on **Enable for API** "
+                "in each table's settings (**Edit table settings > Integrations**). "
                 "Clay's API can't list tables, so paste the ID or URL of each table you want to sync "
                 "(the ID starts with `t_` and appears after `/tables/` in the table's URL)."
             ),

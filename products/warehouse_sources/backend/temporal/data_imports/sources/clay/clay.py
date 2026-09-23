@@ -138,8 +138,9 @@ def validate_credentials(api_key: str, table_ids: list[str]) -> tuple[bool, str 
             continue
         if res.status_code == 403:
             return False, (
-                f"Clay denied access to table {table_id}. Reading tables through the API needs a Clay "
-                "Enterprise plan, and the API key's user must have access to the table."
+                f"Clay denied access to table {table_id}. Turn on Enable for API in the table's settings "
+                "(Edit table settings > Integrations). This needs a Clay Enterprise plan, and the API key's "
+                "user must have access to the table."
             )
         if res.status_code == 404:
             return False, f"Clay could not find table {table_id}. Check the table ID or URL."
