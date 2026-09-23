@@ -17,6 +17,7 @@ logger = structlog.get_logger(__name__)
 PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus"]
 PARTITIONS_AHEAD = 7
 RETENTION_DAYS = 7
+DEFAULT_PARTITION_DELETE_BATCH_SIZE = 10_000
 
 # Deliberately not the lock-takeover sentinel — that string has special
 # downstream semantics in the dead-job gate.
@@ -97,7 +98,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                             )
                             continue
                     try:
-                        _drop_partition(conn, partition_name)
+                        await sync_to_async(_drop_partition)(conn, partition_name)
                         dropped.append(partition_name)
                     except Exception as e:
                         errors.append(f"Failed to drop {partition_name}: {e}")
@@ -159,10 +160,23 @@ def _expire_default_partition_rows(
     try:
         if table == "sourcebatch":
             _terminalize_stranded_runs(conn, partition_name, created_before=created_before)
-        deleted = conn.execute(
-            f"DELETE FROM {partition_name} WHERE created_at < %(created_before)s",
-            {"created_before": created_before},
-        ).rowcount
+        deleted = 0
+        while True:
+            # Bounded batches keep each statement short after an outage leaves several days of rows.
+            batch_deleted = conn.execute(
+                f"""
+                DELETE FROM {partition_name}
+                WHERE ctid = ANY(ARRAY(
+                    SELECT ctid FROM {partition_name}
+                    WHERE created_at < %(created_before)s
+                    LIMIT %(limit)s
+                ))
+                """,
+                {"created_before": created_before, "limit": DEFAULT_PARTITION_DELETE_BATCH_SIZE},
+            ).rowcount
+            deleted += batch_deleted
+            if batch_deleted < DEFAULT_PARTITION_DELETE_BATCH_SIZE:
+                break
     except Exception as e:
         errors.append(f"Failed to expire old rows in {partition_name}: {e}")
         logger.exception("Failed to expire old default partition rows", partition=partition_name)

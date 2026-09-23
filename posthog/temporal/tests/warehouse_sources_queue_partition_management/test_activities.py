@@ -311,10 +311,15 @@ class _FakePgConn:
     """
 
     def __init__(
-        self, partitions: dict[str, list[str]] | None = None, *, denied_drops: frozenset[str] = frozenset()
+        self,
+        partitions: dict[str, list[str]] | None = None,
+        *,
+        denied_drops: frozenset[str] = frozenset(),
+        delete_rowcounts: dict[str, list[int]] | None = None,
     ) -> None:
         self.partitions = partitions or {}
         self.denied_drops = denied_drops
+        self.delete_rowcounts = delete_rowcounts or {}
         self.dropped: list[str] = []
         self.deleted: list[tuple[str, datetime]] = []
 
@@ -335,8 +340,11 @@ class _FakePgConn:
             if partition_name in self.denied_drops:
                 raise psycopg.errors.InsufficientPrivilege(f"must be owner of table {partition_name}")
             self.dropped.append(partition_name)
-        elif sql.startswith("DELETE FROM "):
-            self.deleted.append((sql.split()[2], params["created_before"]))
+        elif sql.strip().startswith("DELETE FROM "):
+            partition_name = sql.split()[2]
+            self.deleted.append((partition_name, params["created_before"]))
+            remaining = self.delete_rowcounts.get(partition_name, [])
+            cursor.rowcount = remaining.pop(0) if remaining else 0
         return cursor
 
 
@@ -572,11 +580,17 @@ async def test_activity_expires_old_default_partition_rows_instead_of_dropping(a
         _patched_pg(partitions) as conn,
         _patched_s3([]),
         patch.object(activities_module, "_terminalize_stranded_runs") as terminalize,
+        patch.object(activities_module, "DEFAULT_PARTITION_DELETE_BATCH_SIZE", 2),
     ):
+        conn.delete_rowcounts = {"sourcebatch_default": [2, 1]}
         result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
 
     terminalize.assert_called_once_with(conn, "sourcebatch_default", created_before=cutoff)
-    assert conn.deleted == [("sourcebatch_default", cutoff), ("sourcebatchstatus_default", cutoff)]
+    assert conn.deleted == [
+        ("sourcebatch_default", cutoff),
+        ("sourcebatch_default", cutoff),
+        ("sourcebatchstatus_default", cutoff),
+    ]
     assert conn.dropped == []
     assert result["success"] is True
 
