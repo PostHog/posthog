@@ -23,6 +23,10 @@ targets = [
     "x86_64-unknown-linux-musl",
     "x86_64-pc-windows-msvc",
 ]
+# Prefer our own origin for artifact downloads, with GitHub Releases as the
+# fallback. {tag} is posthog-cli/vX.Y.Z, which is also the key prefix the
+# release workflow uploads to, so the project name is not repeated in the URL.
+simple-download-url = "https://releases.posthog.com/{tag}"
 # Path that installers should place binaries in
 install-path = "~/.posthog"
 # Whether to install an updater program
