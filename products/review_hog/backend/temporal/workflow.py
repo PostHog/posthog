@@ -105,6 +105,16 @@ _SANDBOX_HEARTBEAT = timedelta(minutes=5)
 _QUICK_TIMEOUT = timedelta(minutes=2)
 _FETCH_TIMEOUT = timedelta(minutes=5)
 _RETRY = RetryPolicy(maximum_attempts=2)
+# A terminal status-comment edit is the only write that clears "in progress" from the PR, and it
+# runs on the shared per-installation GitHub budget. Two back-to-back attempts land inside the same
+# shed window, so the edit needs spaced attempts to ride the window out. The activity is a single
+# idempotent PATCH, so the extra attempts cost nothing but the wait.
+_STATUS_COMMENT_RETRY = RetryPolicy(
+    maximum_attempts=4,
+    initial_interval=timedelta(seconds=30),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=2),
+)
 # The validate activity's final-attempt fallback keys off the same constant — don't let them drift.
 _VALIDATE_RETRY = RetryPolicy(maximum_attempts=VALIDATION_MAX_ATTEMPTS)
 # The one-shot LLM stages (chunking, selection, dedup): provider overload (529) spells last
@@ -701,7 +711,7 @@ class ReviewPRWorkflow:
                         fail_status_comment_activity,
                         StatusCommentInput(team_id=inputs.team_id, report_id=report_id, review_mode=inputs.review_mode),
                         start_to_close_timeout=_QUICK_TIMEOUT,
-                        retry_policy=_RETRY,
+                        retry_policy=_STATUS_COMMENT_RETRY,
                     )
                 except Exception:
                     workflow.logger.warning("Could not mark the status comment as failed")
@@ -771,7 +781,7 @@ class ReviewPRWorkflow:
                         review_mode=inputs.review_mode,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
-                    retry_policy=_RETRY,
+                    retry_policy=_STATUS_COMMENT_RETRY,
                 )
             except Exception:
                 workflow.logger.warning("Could not finalize the status comment")

@@ -62,6 +62,14 @@ def _api_message(response: requests.Response) -> str:
     return response.text[:200]
 
 
+# NORMAL, not the transport's CRITICAL default: a review is automated (nobody blocks on any single
+# call, and Temporal retries a shed one), so it must not burn the reserve kept for genuinely
+# interactive traffic on the shared installation budget. Not BATCH either, because devs do wait on
+# the review after a push, so it shouldn't be first in line for shedding. A caller whose one call
+# carries the whole outcome, or whose call is pure decoration, passes its own lane instead.
+DEFAULT_PRIORITY = Priority.NORMAL
+
+
 def github_api_request(
     method: str,
     path: str,
@@ -71,11 +79,13 @@ def github_api_request(
     installation_id: str | None = None,
     params: dict[str, str | int] | None = None,
     json: dict[str, Any] | None = None,
+    priority: Priority = DEFAULT_PRIORITY,
 ) -> requests.Response:
     """One gated, recorded GitHub REST call. `path` is the API path (`/repos/...`); `endpoint` is its
     normalized template (`/repos/{owner}/{repo}/...`) for bounded-cardinality telemetry labels.
 
-    Raises `GitHubRateLimitError` when GitHub rate-limits the call and `GitHubAPIError` on any other
+    Raises `GitHubRateLimitError` when GitHub rate-limits the call, `GitHubEgressBudgetExhausted`
+    when our own egress budget sheds the call before it is sent, and `GitHubAPIError` on any other
     non-2xx status; transport-level failures propagate as `requests` exceptions.
     """
     response = github_request(
@@ -84,11 +94,7 @@ def github_api_request(
         source=_SOURCE,
         headers={"Authorization": f"Bearer {token}"},
         installation_id=installation_id,
-        # NORMAL, not the transport's CRITICAL default: a review is automated (nobody blocks on any
-        # single call, and Temporal retries a shed one), so it must not burn the reserve kept for
-        # genuinely interactive traffic on the shared installation budget. Not BATCH either — devs
-        # do wait on the review after a push, so it shouldn't be first in line for shedding.
-        priority=Priority.NORMAL,
+        priority=priority,
         endpoint=endpoint,
         params=params,
         json=json,
@@ -112,6 +118,7 @@ def github_api_get_paginated(
     endpoint: str,
     installation_id: str | None = None,
     params: dict[str, str | int] | None = None,
+    priority: Priority = DEFAULT_PRIORITY,
 ) -> Iterator[dict[str, Any]]:
     """Yield every item of a paginated list endpoint, fetching `per_page=100` pages until a short page."""
     page = 1
@@ -123,6 +130,7 @@ def github_api_get_paginated(
             endpoint=endpoint,
             installation_id=installation_id,
             params={**(params or {}), "per_page": _PER_PAGE, "page": page},
+            priority=priority,
         )
         items = response.json()
         yield from items

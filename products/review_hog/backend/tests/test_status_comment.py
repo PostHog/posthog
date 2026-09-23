@@ -1,12 +1,16 @@
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
@@ -239,6 +243,28 @@ def _posts(mock_request: MagicMock) -> list[str]:
     return [c.args[1] for c in mock_request.call_args_list if c.args[0] == "POST"]
 
 
+def _priorities(mock_request: MagicMock) -> list[Priority]:
+    return [c.kwargs["priority"] for c in mock_request.call_args_list]
+
+
+_TERMINAL_WRITERS = [
+    (
+        "finalize",
+        lambda team_id, report_id: finalize_status_comment(
+            FinalizeStatusCommentInput(
+                team_id=team_id, report_id=report_id, run_index=1, urgency_threshold=IssuePriority.CONSIDER.value
+            )
+        ),
+    ),
+    ("fail", lambda team_id, report_id: fail_status_comment(team_id, report_id)),
+]
+
+_DEFERRALS = [
+    ("egress_shed", GitHubEgressBudgetExhausted("budget exhausted for installation 1; deferring")),
+    ("github_rate_limit", GitHubRateLimitError("rate limited", retry_after=60)),
+]
+
+
 @patch(_INTEGRATION)
 @patch(_PAGINATED)
 @patch(_REQUEST)
@@ -341,6 +367,9 @@ class TestMaybeRefreshStatusComment(BaseTest):
         maybe_refresh_status_comment(self.team.id, str(report.id))
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
+        # A progress refresh is decoration, so it must yield the installation's shared GitHub budget
+        # first; on a busier lane it can outbid the one terminal edit that clears "in progress".
+        assert _priorities(mock_request) == [Priority.BATCH]
         report.refresh_from_db()
         assert report.status_comment_edited_at is not None and report.status_comment_edited_at > before
 
@@ -422,6 +451,44 @@ class TestFinalizeStatusComment(BaseTest):
         # The entry point threads the turn's mode into the renderer; a dropped kwarg here would
         # leave a dead flash run reading as a full one.
         assert body.startswith(FLASH_MODE_MESSAGE_PREFIX)
+
+    def _report_with_comment(self) -> str:
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        report.status_comment_id = 555
+        report.save(update_fields=["status_comment_id"])
+        return report_id
+
+    @parameterized.expand(_TERMINAL_WRITERS)
+    def test_terminal_edit_takes_the_unsheddable_lane(
+        self, mock_request: MagicMock, mock_integration: MagicMock, _name: str, write
+    ) -> None:
+        # One edit per run carries the whole outcome. On the sheddable lane the egress limiter drops
+        # it whenever the installation's budget is hot, and the PR keeps the last progress step
+        # ("Step 4/6") as the finished run's permanent state.
+        _wire_auth(mock_integration)
+
+        write(self.team.id, self._report_with_comment())
+
+        assert _priorities(mock_request) == [Priority.CRITICAL]
+
+    @parameterized.expand(
+        [
+            (f"{writer}_{deferral}", write, error)
+            for writer, write in _TERMINAL_WRITERS
+            for deferral, error in _DEFERRALS
+        ]
+    )
+    def test_terminal_edit_raises_a_deferral_so_the_activity_retries(
+        self, mock_request: MagicMock, mock_integration: MagicMock, _name: str, write, error: Exception
+    ) -> None:
+        # Swallowing a deferral strands the PR mid-progress forever: nothing else rewrites the
+        # comment, and the next turn only runs on the next push, which may never come.
+        _wire_auth(mock_integration)
+        mock_request.side_effect = error
+
+        with pytest.raises(type(error)):
+            write(self.team.id, self._report_with_comment())
 
 
 class TestResolutionSection:
@@ -560,6 +627,36 @@ class TestUpdateResolutionStatusComment(BaseTest):
         mock_integration.first_for_team_repository.assert_not_called()
         mock_integration_model.objects.get.assert_called_once_with(id=42, team_id=self.team.id)
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/777"]
+
+    @parameterized.expand([("progress", False, Priority.BATCH), ("closing", True, Priority.CRITICAL)])
+    def test_only_the_closing_section_takes_the_unsheddable_lane(
+        self,
+        mock_request: MagicMock,
+        mock_paginated: MagicMock,
+        mock_integration: MagicMock,
+        _name: str,
+        terminal: bool,
+        expected_priority: Priority,
+    ) -> None:
+        # The resolution half of the same promise: a shed closing tally leaves "Resolving comments:
+        # k/n" on the PR forever, while a shed mid-run refresh costs nothing because the next one
+        # states the same thing.
+        _wire_auth(mock_integration)
+        report = self._report()
+        report.status_comment_id = 777
+        report.save(update_fields=["status_comment_id"])
+        get_response = MagicMock()
+        get_response.json.return_value = {"body": status_marker(str(report.id))}
+        mock_request.side_effect = [get_response, MagicMock()]
+
+        update_resolution_status_comment(
+            self.team.id,
+            str(report.id),
+            render_resolution_final_section(outcomes={"fixed": 1}, failed_turns=0),
+            terminal=terminal,
+        )
+
+        assert _priorities(mock_request) == [expected_priority, expected_priority]
 
 
 class TestFailRun(BaseTest):

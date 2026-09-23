@@ -17,6 +17,7 @@ access goes through `database_sync_to_async(..., thread_sensitive=False)`; `@sco
 import logging
 import datetime
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -25,6 +26,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
@@ -1590,6 +1592,30 @@ async def track_review_failed_activity(input: TrackReviewFailedInput) -> None:
 
 # --- The PR's live status comment -------------------------------------------------------------------
 
+# The longest GitHub-supplied reset a terminal status-comment retry waits out. A primary rate limit
+# can reset up to an hour away, and holding the review workflow open that long for one comment edit
+# also holds back the resolution stage it dispatches. Past the cap the retry policy's own interval
+# applies, which may land inside the window and lose the attempt.
+_MAX_HONORED_RATE_LIMIT_WAIT = datetime.timedelta(minutes=10)
+
+
+async def _write_terminal_status_comment(write: Callable[[], None]) -> None:
+    """Run a terminal status-comment write, honoring GitHub's own reset hint on the retry.
+
+    The write re-raises a transient GitHub condition so Temporal retries it (see
+    `reviewer.status_comment`). An egress shed carries no timing, so the retry policy's escalating
+    interval decides. A GitHub rate limit does carry one, and its window outlasts that interval, so
+    the reset hint becomes the next attempt's delay instead.
+    """
+    try:
+        await database_sync_to_async(write, thread_sensitive=False)()
+    except GitHubRateLimitError as e:
+        delay = min(datetime.timedelta(seconds=e.retry_after or 0), _MAX_HONORED_RATE_LIMIT_WAIT)
+        raise ApplicationError(
+            f"GitHub rate-limited the terminal status-comment edit; retrying in {delay.total_seconds():.0f}s",
+            next_retry_delay=delay if delay > datetime.timedelta(0) else None,
+        )
+
 
 @activity.defn
 @scoped_temporal()
@@ -1610,7 +1636,7 @@ async def post_status_comment_activity(input: StatusCommentInput) -> None:
 @close_db_connections
 async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) -> None:
     """Rewrite the status comment with the turn's outcome: full found counts vs. what was published."""
-    await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
+    await _write_terminal_status_comment(lambda: finalize_status_comment(input))
 
 
 def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL) -> None:
@@ -1630,7 +1656,7 @@ async def fail_status_comment_activity(input: StatusCommentInput) -> None:
     The idle write lives in this activity rather than as its own workflow command so in-flight
     histories replay unchanged (new unconditional commands break replay determinism).
     """
-    await database_sync_to_async(_fail_run, thread_sensitive=False)(input.team_id, input.report_id, input.review_mode)
+    await _write_terminal_status_comment(lambda: _fail_run(input.team_id, input.report_id, input.review_mode))
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------
