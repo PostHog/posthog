@@ -1,0 +1,24 @@
+{% extends "email/base.html" %}
+{% block heading %}Someone asked to join {{ organization_name }}{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        <a href="mailto:{{ requester_email }}">{{ requester_email }}</a> tried to sign in to PostHog. Their email domain
+        belongs to <strong>{{ organization_name }}</strong>, and they do not have an account yet, so we could not let
+        them in. They are asking you for an invite.
+    </p>
+    <!-- prettier-ignore -->
+    <p>
+        If you know them, invite them from your organization members settings. If you do not, ignore this email.
+    </p>
+    <div class="mb mt text-center">
+        <a class="button primary" href="{{ members_url }}">Invite them</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ members_url }}">{{ members_url }}</a>
+        </p>
+    </div>
+{% endblock %}

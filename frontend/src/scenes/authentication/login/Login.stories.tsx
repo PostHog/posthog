@@ -23,7 +23,7 @@ type StoryArgs = {
     gitlab: boolean
     samlAvailable: boolean
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
-    generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
+    generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent' | 'jit_not_enabled'
     pendingOAuthConnection: boolean
     arrivedFromWebsite: boolean
     hasLoggedInBefore: boolean
@@ -51,7 +51,7 @@ const meta: Meta<StoryArgs> = {
         generalError: {
             control: 'select',
             name: 'General error',
-            options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
+            options: ['none', 'invalid_credentials', 'code_based_verification_sent', 'jit_not_enabled'],
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
         arrivedFromWebsite: { control: 'boolean', name: 'Arrived from posthog.com' },
@@ -111,6 +111,7 @@ const Template: StoryFn<StoryArgs> = ({
         },
         post: {
             '/api/login/precheck': { sso_enforcement: enforcement, saml_available: samlAvailable },
+            '/api/login/request-access': {},
         },
     })
 
@@ -132,6 +133,9 @@ const Template: StoryFn<StoryArgs> = ({
                 code_based_verification_sent: 'Check your email to verify your account.',
             }
             loginLogic.actions.setGeneralError(generalError, messages[generalError] ?? '')
+            if (generalError === 'jit_not_enabled') {
+                loginLogic.actions.setBlockedOrganizationName('Hogflix')
+            }
         } else {
             loginLogic.actions.clearGeneralError()
         }
@@ -156,6 +160,10 @@ SAMLAvailable.args = { samlAvailable: true }
 
 export const LoginError: StoryFn<StoryArgs> = Template.bind({})
 LoginError.args = { generalError: 'invalid_credentials' }
+
+export const DomainBlocked: StoryFn<StoryArgs> = Template.bind({})
+DomainBlocked.storyName = 'Blocked by a claimed email domain'
+DomainBlocked.args = { generalError: 'jit_not_enabled' }
 
 export const PendingOAuthConnection: StoryFn<StoryArgs> = Template.bind({})
 PendingOAuthConnection.storyName = 'Pending OAuth connection'

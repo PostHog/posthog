@@ -1264,7 +1264,6 @@ MAX_ERROR_CHARS = 255
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
         return
@@ -1327,7 +1326,6 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], suspended_query_ids: list[str]) -> None:
-
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -2855,6 +2853,49 @@ def send_integration_access_request(team_id: int, requesting_user_id: int, kind:
             **get_email_team_and_org_context(team=team),
         },
         reply_to=requester.email or "",
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_organization_access_request(organization_id: str, requester_email: str) -> None:
+    """Notify org admins that a person blocked on their claimed email domain is asking for an invite."""
+    organization = Organization.objects.filter(id=organization_id).first()
+    if organization is None:
+        return
+
+    team = organization.teams.first()
+    members_url = (
+        f"{settings.SITE_URL}/project/{team.id}/settings/organization-members"
+        if team is not None
+        else f"{settings.SITE_URL}/settings/organization-members"
+    )
+
+    # Deterministic per requester so a repeated attempt does not mail the admins again
+    # (MessagingRecord dedups on the campaign key).
+    campaign_key = f"organization_access_request_{organization_id}_{requester_email.lower()}"
+
+    memberships = OrganizationMembership.objects.select_related("user").filter(
+        organization_id=organization.id, level__gte=OrganizationMembership.Level.ADMIN
+    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
+    if not recipients:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=f"{requester_email} asked to join {organization.name} on PostHog",
+        template_name="organization_access_requested",
+        template_context={
+            "requester_email": requester_email,
+            "members_url": members_url,
+            **get_email_team_and_org_context(organization=organization),
+        },
+        reply_to=requester_email,
     )
     for user in recipients:
         message.add_user_recipient(user)

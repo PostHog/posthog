@@ -1665,6 +1665,34 @@ class TestPasswordResetAPI(APIBaseTest):
         abandoned.refresh_from_db()
         self.assertIsNone(abandoned.requested_password_reset_at)
 
+    @parameterized.expand(
+        [
+            ("no_account", False, "no_account"),
+            ("deactivated_account", True, "deactivated_account"),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    def test_password_reset_for_unresolvable_address_reports_a_no_op(
+        self, _name, deactivate_account, expected_reason, mock_capture
+    ):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        email = "nobody@notposthog.com"
+        if deactivate_account:
+            user = User.objects.create_and_join(self.organization, email, None)
+            user.is_active = False
+            user.save()
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post("/api/reset/", {"email": email})
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(len(mail.outbox), 0)
+        no_op_calls = [call for call in mock_capture.call_args_list if call.args[:1] == ("password reset no-op",)]
+        self.assertEqual(len(no_op_calls), 1)
+        properties = no_op_calls[0].kwargs["properties"]
+        self.assertEqual(properties["reason"], expected_reason)
+        self.assertEqual(properties["email_domain"], "notposthog.com")
+
     def test_reset_with_sso_available(self):
         """
         If the user has logged in / signed up with SSO, we let them know so they don't have to reset their password.

@@ -460,6 +460,14 @@ class PostHogAIAccessRequestIPThrottle(IPThrottle):
     rate = "1/day"
 
 
+# The caller has no account, so only the IP identifies them. The session grant is single use,
+# which caps a blocked person at one email per blocked login; this caps how many times they can
+# get blocked and ask again.
+class OrganizationAccessRequestThrottle(IPThrottle):
+    scope = "organization_access_request"
+    rate = "10/day"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project

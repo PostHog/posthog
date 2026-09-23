@@ -184,6 +184,27 @@ def report_user_password_reset(user: User) -> None:
     )
 
 
+def report_password_reset_no_op(email: str, matched_deactivated_account: bool) -> None:
+    """
+    Reports a password reset request that resolved to no active account.
+
+    The endpoint answers every request with success so that it cannot be used to test which
+    addresses have accounts. That also means a request for an address we cannot resolve sends no
+    email and leaves no other record, so support cannot tell a lookup miss from a delivery failure.
+    The event carries the email domain and not the address, so an address that belongs to nobody
+    stays out of our own analytics.
+    """
+    posthoganalytics.capture(
+        "password reset no-op",
+        properties={
+            "reason": "deactivated_account" if matched_deactivated_account else "no_account",
+            "email_domain": email.rpartition("@")[2].lower(),
+            "realm": get_instance_realm(),
+            "region": get_instance_region(),
+        },
+    )
+
+
 def report_team_member_invited(
     inviting_user: User,
     invite_id: str,
