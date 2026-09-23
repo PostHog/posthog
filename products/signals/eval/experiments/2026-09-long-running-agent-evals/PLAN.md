@@ -278,3 +278,28 @@ Task content reads retain call metrics but omit payload spans and free-text inte
 - September 23: merged current master, regenerated API types, and passed the trial API suite and repository-wide type checks again. Revoked the local verification credential, removed temporary services and scout containers, and restored the original backend and worker with a passing app health check. Trial opt-ins are disabled on the restored stack.
 - The successful smoke checks execution and isolation. Model quality comparisons still need repeated runs and judging. An earlier local attempt was canceled for routing failures; another exposed an incomplete synthetic schema registry, which was corrected before the successful pair. Private transcripts and attempt history remain outside Git.
 - No new production comparison has been launched during implementation. Deployment still requires the private gateway and capture checks described above.
+
+### Gateway follow-up, September 23
+
+The recommended next change removes the dedicated gateway deployment requirement.
+Reuse the existing Python gateway with a capture policy for authenticated experiment requests.
+This is a proposal from code inspection; the implementation above still requires its dedicated gateway URL.
+
+- The gateway already reads OAuth scopes and the sandbox task identity in `auth/authenticators.py`.
+  Use the experiment credential minted by the backend to select the capture policy.
+  A caller-supplied event property is insufficient proof that a request belongs to an experiment.
+- Suppress experiment generation events on both success and failure, including both configured capture destinations, exception capture, and rate-limit denial events.
+  Keep the separate rate-limit and Prometheus callbacks active.
+  The current `signals` product has no customer credit bucket; keep this exception limited to supported experiment traffic so other products retain their billing events.
+- Apply the policy to the scout's sandbox calls and backend report-validation calls.
+  The latter currently use a shared backend credential, so they need an authenticated experiment identity too.
+  Changing only the sandbox environment would leave this path uncovered.
+- Replace the private URL override after this behavior is supported.
+  Keep trial transcript/result storage and the existing backend/MCP capture controls.
+  Missing generation events still mean event-based dollar totals are unavailable, not zero.
+
+The Python gateway is under a feature freeze; any implementation must document the active caller's applicable migration blocker from `services/llm-gateway/PARITY.md` and stay limited to that caller.
+That record still lists Python-only models available to scouts, so requiring all comparisons to use Go would narrow the supported model choices.
+Verify normal and experiment traffic concurrently, including streaming, failures, retries, and report validation, with stubbed providers before another end-to-end scout check.
+Check that spend limits remain active and experiment content reaches neither configured capture destination.
+No service deployment or model call was performed for this investigation.
