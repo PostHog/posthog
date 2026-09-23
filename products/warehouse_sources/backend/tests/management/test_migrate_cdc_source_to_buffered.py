@@ -27,7 +27,6 @@ _CMD = "products.warehouse_sources.backend.management.commands.migrate_cdc_sourc
 @contextmanager
 def _mocked_side_effects(
     oldest_batch_age: float | None = None,
-    write_resolution: bool = True,
     buffer_keys: list[str] | None = None,
     buffer_keys_by_schema: dict[str, list[str]] | None = None,
     extraction_running: bool = False,
@@ -55,7 +54,6 @@ def _mocked_side_effects(
     with (
         patch(f"{_CMD}.psycopg.Connection.connect") as mock_connect,
         patch(f"{_CMD}.BatchQueue.get_oldest_non_terminal_batch_age_seconds", return_value=oldest_batch_age),
-        patch(f"{_CMD}.is_cdc_write_resolution_enabled", return_value=write_resolution),
         patch(f"{_CMD}.purge_buffer_prefix") as mock_purge,
         patch("products.data_warehouse.backend.facade.api.get_s3_client", return_value=s3),
         patch(
@@ -273,6 +271,10 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         # source that would otherwise be refused its next flip.
         source = self._source(ingest_mode="buffered")
         self._schema(source, "users")
+        history = self._schema(source, "events", table_mode="cdc_only")
+        disabled_history = self._schema(source, "audit", table_mode="both")
+        disabled_history.should_sync = False
+        disabled_history.save()
 
         with _mocked_side_effects():
             self._run(source, rollback=True)
@@ -280,6 +282,9 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         source.refresh_from_db()
         assert source.job_inputs["cdc_ingest_mode"] == "legacy"
         assert source.job_inputs["cdc_buffered_before"]
+        for schema in (history, disabled_history):
+            schema.refresh_from_db()
+            assert schema.sync_type_config["cdc_buffered_before"] is True
 
     def test_rollback_restores_schedules_even_when_the_extraction_unpause_fails(self):
         # The per-schema restore runs before the single Temporal call that unpauses extraction, so
@@ -426,32 +431,25 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         source.refresh_from_db()
         assert "cdc_ingest_mode" not in source.job_inputs
 
-    def test_flipping_marks_each_schema_and_rollback_unmarks_it(self):
+    def test_flipping_records_the_buffered_lane_and_rollback_keeps_the_record(self):
         source = self._source()
         history = self._schema(source, "events", table_mode="cdc_only")
         with _mocked_side_effects():
             self._run(source)
         history.refresh_from_db()
-        assert (
-            history.sync_type_config["cdc_buffered_lane"] is True
-            and history.sync_type_config["cdc_buffered_before"] is True
-        )
+        assert history.sync_type_config["cdc_buffered_before"] is True
 
         with _mocked_side_effects():
             self._run(source, rollback=True)
         history.refresh_from_db()
-        assert "cdc_buffered_lane" not in history.sync_type_config
         assert history.sync_type_config["cdc_buffered_before"] is True
 
-    @parameterized.expand([("flip", None, False), ("rollback", "buffered", True)])
-    def test_marking_keeps_the_keys_a_run_wrote_while_the_command_waited(self, _name, ingest_mode, rollback):
+    def test_marking_keeps_the_keys_a_run_wrote_while_the_command_waited(self):
         # The command waits out an in-flight capture run, and that run appends to the same JSON —
         # under backpressure, the only record of batches it deferred. Saving the copy loaded before
         # the wait would put the JSON back the way it was.
-        source = self._source(ingest_mode)
+        source = self._source()
         schema = self._schema(source, "users")
-        if rollback:
-            update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_buffered_lane": True})
 
         def run_writes_during_the_wait(*_args):
             update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_deferred_runs": [{"run": 1}]})
@@ -460,11 +458,11 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
             _mocked_side_effects(),
             patch(f"{_CMD}.Command._wait_for_extraction_idle", side_effect=run_writes_during_the_wait),
         ):
-            self._run(source, rollback=rollback)
+            self._run(source)
 
         schema.refresh_from_db()
         assert schema.sync_type_config["cdc_deferred_runs"] == [{"run": 1}]
-        assert schema.sync_type_config.get("cdc_buffered_lane") is (None if rollback else True)
+        assert schema.sync_type_config["cdc_buffered_before"] is True
 
     @parameterized.expand([("flip", None, False), ("rollback", "buffered", True)])
     def test_an_orphaned_companion_job_is_retired_instead_of_blocking(self, _name, ingest_mode, rollback):
@@ -498,73 +496,6 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         source.refresh_from_db()
         assert (companion.status, companion.latest_error) == (ExternalDataJob.Status.FAILED, COMPANION_RETIRED_ERROR)
         assert source.job_inputs["cdc_ingest_mode"] == ("legacy" if rollback else "buffered")
-
-    def test_rerunning_on_a_buffered_source_moves_only_the_unserved_schemas(self):
-        # A source flipped before history modes were served left its `cdc_only` schema on legacy.
-        # Re-running moves that schema, marks it, and purges only its prefix — the served schema's
-        # buffer holds files the consumer still owes.
-        source = self._source()
-        source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "buffered", "cdc_buffered_before": True}
-        source.save(update_fields=["job_inputs"])
-        served = self._schema(source, "users")
-        left_behind = self._schema(source, "events", table_mode="cdc_only")
-
-        with _mocked_side_effects() as mocks:
-            out = self._run(source)
-
-        assert "buffered lane (1): events" in out
-        assert "already buffered (1): users" in out
-        assert "staying on legacy" not in out
-        left_behind.refresh_from_db()
-        served.refresh_from_db()
-        assert left_behind.sync_type_config.get("cdc_buffered_lane") is True
-        assert "cdc_buffered_lane" not in served.sync_type_config
-        purged = {call.args[1] for call in mocks["purge"].call_args_list}
-        assert purged == {str(left_behind.id)}
-
-    def test_a_reserved_column_on_a_schema_added_since_the_flip_is_still_refused(self):
-        # The source-level marker waives only the consolidated schemas that predate the per-schema
-        # one; a history schema never buffered before can only own that column itself.
-        source = self._source()
-        source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "buffered", "cdc_buffered_before": True}
-        source.save(update_fields=["job_inputs"])
-        table = DataWarehouseTable.objects.create(
-            team_id=self.team.pk,
-            name="events",
-            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-            url_pattern="https://bucket/events/*",
-            external_data_source=source,
-            columns={"id": {"hogql": "IntegerDatabaseField"}, CDC_SEQ_COLUMN: {"hogql": "IntegerDatabaseField"}},
-        )
-        self._schema(source, "events", table_mode="cdc_only", table=table)
-
-        with _mocked_side_effects():
-            with pytest.raises(CommandError, match="reserved for change ordering"):
-                self._run(source)
-
-    def test_flipping_without_write_resolution_is_refused(self):
-        # No load position means no file is ever proven consumed, so the buffer fills until the S3
-        # TTL expires it — with the slot long advanced, that is unrecoverable loss, not a stall.
-        source = self._source()
-        self._schema(source, "users")
-
-        with _mocked_side_effects(write_resolution=False) as mocks:
-            with pytest.raises(CommandError, match="dwh-cdc-write-resolution is off"):
-                self._run(source)
-
-        source.refresh_from_db()
-        assert "cdc_ingest_mode" not in source.job_inputs
-        mocks["pause"].assert_not_called()
-
-    def test_rollback_does_not_need_write_resolution(self):
-        source = self._source(ingest_mode="buffered")
-        self._schema(source, "users")
-
-        with _mocked_side_effects(write_resolution=False):
-            self._run(source, rollback=True)
-
-        source.refresh_from_db()
-        assert source.job_inputs["cdc_ingest_mode"] == "legacy"
 
     def test_a_stuck_sourcebatch_aborts_the_flip_with_the_source_paused(self):
         source = self._source()

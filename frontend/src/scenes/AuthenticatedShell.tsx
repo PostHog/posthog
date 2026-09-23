@@ -1,4 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
+import { Suspense } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { Command } from 'lib/components/Command/Command'
@@ -8,10 +9,12 @@ import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { WizardHandoffDialog } from 'scenes/onboarding/shared/wizard-sync/WizardHandoffDialog'
 import { WizardSyncDebugPanel } from 'scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel'
 import { WizardSyncFab } from 'scenes/onboarding/shared/wizard-sync/WizardSyncFab'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { GlobalModals } from '~/layout/GlobalModals'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
@@ -20,6 +23,10 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
 import { sceneLogic } from './sceneLogic'
+
+const TerminalDock = lazyWithRetry(() =>
+    import('./terminal/TerminalDock').then(({ TerminalDock }) => ({ default: TerminalDock }))
+)
 
 export default function AuthenticatedShell({ children }: { children: React.ReactNode }): JSX.Element {
     useMountedLogic(apiStatusLogic)
@@ -38,6 +45,13 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 <Navigation sceneConfig={sceneConfig}>{children}</Navigation>
                 <GlobalModals />
                 <GlobalShortcuts />
+                {featureFlags[FEATURE_FLAGS.POSTHOG_TERMINAL] && (
+                    <ErrorBoundary className="fixed bottom-0 inset-x-0 max-h-[60vh] overflow-auto z-modal bg-surface-primary">
+                        <Suspense fallback={null}>
+                            <TerminalDock />
+                        </Suspense>
+                    </ErrorBoundary>
+                )}
                 <Command />
                 <ImpersonationNotice />
                 <WizardSyncFab />

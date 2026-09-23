@@ -232,7 +232,7 @@ describe("RunBudgetGuard", () => {
     expect(guard.currentStage).toBe("critical");
   });
 
-  test("re-queues the delivered stage after a conversation clear but not after a refresh", () => {
+  test("re-queues the delivered stage after onConversationCleared but not after onQueryReset", () => {
     const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
     guard.recordAssistantMessage(opusCall("m1", 2_000_000));
     expect(guard.takePendingSteer()).toBe("critical");

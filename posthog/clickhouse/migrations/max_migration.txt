@@ -1,1 +1,1 @@
-0329_logs_volume_buckets_retention_ttl
+0330_trace_spans_retention_days

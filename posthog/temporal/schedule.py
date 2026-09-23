@@ -78,7 +78,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
-from products.alerts.backend.facade.temporal import create_alerts_product_tick_schedule
+from products.alerts.backend.facade.temporal import create_alerts_platform_tick_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import (
     create_business_knowledge_learning_coordinator_schedule,
@@ -122,7 +122,6 @@ from products.replay_vision.backend.temporal.estimates import create_replay_visi
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
-from products.replay_vision.backend.temporal.media_backfill import create_replay_vision_media_backfill_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
@@ -149,6 +148,12 @@ async def cleanup_sync_vectors_schedule(client: Client):
     """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
     if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
         await a_delete_schedule(client, "ai-sync-vectors-schedule")
+
+
+async def cleanup_replay_vision_media_backfill_schedule(client: Client):
+    """Retired: delete the Replay Vision poster backfill schedule, whose workflow no worker registers anymore."""
+    if await a_schedule_exists(client, "replay-vision-media-backfill-schedule"):
+        await a_delete_schedule(client, "replay-vision-media-backfill-schedule")
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -898,6 +903,7 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
 
 schedules = [
     cleanup_sync_vectors_schedule,
+    cleanup_replay_vision_media_backfill_schedule,
     create_run_quota_limiting_schedule,
     create_schedule_due_billing_alert_checks_schedule,
     create_context_layer_dream_schedule,
@@ -935,7 +941,7 @@ schedules = [
     create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
-    create_alerts_product_tick_schedule,
+    create_alerts_platform_tick_schedule,
     create_logs_alert_check_schedule,
     create_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
@@ -975,7 +981,6 @@ if settings.CLOUD_DEPLOYMENT:
     # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this
     # deployment's own Redis index, so per-deployment scoping is inherent.
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
-    schedules.append(create_replay_vision_media_backfill_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)
     if should_register_checkpoint_compaction_schedule():
