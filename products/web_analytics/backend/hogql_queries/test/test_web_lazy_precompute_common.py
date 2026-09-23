@@ -47,7 +47,6 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
     SESSION_SETTLING_SECONDS,
-    STALE_WHILE_REVALIDATE_SECONDS,
     STICKY_WARM_SHAPES_KEY,
     TEAM_SHAPE_SET_TTL_SECONDS,
     VOLUME_FLOOR_READY_KEY,
@@ -795,14 +794,16 @@ class TestWebEnsurePrecomputed(BaseTest):
     def test_stale_while_revalidate_grace_by_trigger(self, _name, tags, mock_ensure):
         mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
         reset_query_tags()
-        if tags is not None:
-            with tags_context(**tags):
+        # Sentinel override proves the grace flows from the setting, not a hardcoded value.
+        with override_settings(WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS=1234):
+            if tags is not None:
+                with tags_context(**tags):
+                    web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+            else:
                 web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
-        else:
-            web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         grace = mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"]
         if tags is None:
-            assert grace == STALE_WHILE_REVALIDATE_SECONDS
+            assert grace == 1234
         else:
             assert grace is None, f"background context {tags} must not be served stale"
 
@@ -815,15 +816,16 @@ class TestWebEnsurePrecomputed(BaseTest):
             ("force_async", ExecutionMode.CALCULATE_ASYNC_ALWAYS.value, None),
             # A normal (non-forced) read must keep the grace, or every read pays a
             # synchronous recompute and the serve-stale optimization is lost.
-            ("blocking", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value, STALE_WHILE_REVALIDATE_SECONDS),
+            ("blocking", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value, 1234),
         ]
     )
     @mock.patch(f"{_COMMON}.ensure_precomputed")
     def test_forced_refresh_bypasses_stale_grace(self, _name, execution_mode, expected_grace, mock_ensure):
         mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
         reset_query_tags()
-        with tags_context(execution_mode=execution_mode):
-            web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        with override_settings(WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS=1234):
+            with tags_context(execution_mode=execution_mode):
+                web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
 
     @parameterized.expand(
