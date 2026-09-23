@@ -622,12 +622,16 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("expression", {"language": "hogQLExpr"}),
-            ("non_sql_source", {"sourceQuery": {"kind": "EventsNode"}}),
-            ("connection", {"connectionId": "example-connection"}),
-            ("globals", {"globals": {}}),
-            ("filters", {"filters": {}}),
-            ("modifiers", {"modifiers": {}}),
+            ("expression", {"language": "hogQLExpr"}, True),
+            ("non_sql_source", {"sourceQuery": {"kind": "EventsNode"}}, True),
+            ("connection", {"connectionId": "example-connection"}, True),
+            ("globals", {"globals": {}}, True),
+            ("filters", {"filters": {}}, True),
+            ("modifiers", {"modifiers": {}}, True),
+            ("hog", {"language": "hog", "globals": {"event": {}}}, False),
+            ("hog_template", {"language": "hogTemplate", "globals": {"event": {}}}, False),
+            ("liquid", {"language": "liquid", "globals": {"event": {}}}, False),
+            ("hog_json", {"language": "hogJson", "globals": {"event": {}}}, False),
         ]
     )
     @patch("posthog.api.services.query.create_default_modifiers_for_team")
@@ -639,10 +643,11 @@ class TestLanguageServiceRouting(SimpleTestCase):
         self,
         _name: str,
         context: dict[str, object],
+        builds_database: bool,
         client_class: MagicMock,
         _enabled: MagicMock,
         python_autocomplete: MagicMock,
-        _resolve_database: MagicMock,
+        resolve_database: MagicMock,
         _modifiers: MagicMock,
     ) -> None:
         query = HogQLAutocomplete.model_validate(
@@ -668,7 +673,9 @@ class TestLanguageServiceRouting(SimpleTestCase):
         client_class.assert_not_called()
         timing_values = {timing.k: timing.t for timing in response.timings or []}
         assert "./editor_assist/routing" in timing_values
-        assert "./editor_assist/fallback_database" in timing_values
+        assert resolve_database.called is builds_database
+        assert (python_autocomplete.call_args.kwargs["database_arg"] is None) is not builds_database
+        assert ("./editor_assist/fallback_database" in timing_values) is builds_database
         assert "./editor_assist/fallback_python_autocomplete" in timing_values
         assert "./editor_assist" in timing_values
 

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Adapter } from "./adapter";
 import type { AgentRuntime } from "./agent-runtime";
 import type { ReportStateReason } from "./dismissal-reasons";
+import { REASONING_EFFORT_LABELS } from "./model-catalog.generated";
 import type { StoredLogEntry } from "./session-events";
 import type { UploadableSkillSource } from "./skills";
 
@@ -43,14 +44,10 @@ export type ServiceTier = z.infer<typeof serviceTierSchema>;
 
 export const SERVICE_TIERS = serviceTierSchema.options;
 
-export const EFFORT_LEVEL_LABELS: Record<EffortLevel, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra High",
-  max: "Max",
-  ultracode: "Ultracode",
-};
+// The annotation is the check: a depth added to `EffortLevel` but not to the catalog (or
+// the reverse) fails to compile here.
+export const EFFORT_LEVEL_LABELS: Record<EffortLevel, string> =
+  REASONING_EFFORT_LABELS;
 
 /** Claude Code docs for the tiers that need explaining. */
 export const EFFORT_LEVEL_DOCS_URLS: Partial<Record<EffortLevel, string>> = {

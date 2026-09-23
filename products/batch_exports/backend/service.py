@@ -187,7 +187,7 @@ def _field_is_type(f: Field, target: type) -> bool:
     return False
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BaseBatchExportInputs:
     """Base class for all batch export inputs containing common fields.
 
@@ -340,7 +340,7 @@ class S3CompatibleBatchExportInputs(S3FamilyBaseInputs):
     use_virtual_style_addressing: bool = False
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class FileDownloadBatchExportInputs(BaseBatchExportInputs):
     """Inputs for a file download batch export workflow.
 
@@ -360,6 +360,8 @@ class FileDownloadBatchExportInputs(BaseBatchExportInputs):
     max_file_size_mb: int | None = None
     compression: str | None = None
     expires_in_seconds: int = 3600
+    main_activity_timeout_seconds: int | None = None
+    stage_activity_timeout_seconds: int | None = None
 
 
 @dataclass(frozen=False, kw_only=True)
@@ -975,8 +977,8 @@ async def start_batch_export_workflow(
 def start_file_download_batch_export(
     batch_export: BatchExportOnDemand,
     workflow_id: str,
-    data_interval_start: dt.datetime,
-    data_interval_end: dt.datetime,
+    data_interval_start: dt.datetime | None,
+    data_interval_end: dt.datetime | None,
     batch_export_model: BatchExportModel,
     batch_export_run_id: UUID | None = None,
     compression: str | None = None,
@@ -985,18 +987,28 @@ def start_file_download_batch_export(
     include_events: list[str] | None = None,
     exclude_events: list[str] | None = None,
 ) -> None:
+    incomplete_interval = data_interval_start is None or data_interval_end is None
+    if incomplete_interval and (batch_export_model.name != "hogql" or batch_export_run_id is None):
+        raise ValueError("Only on-demand HogQL exports can omit interval bounds")
     inputs = FileDownloadBatchExportInputs(
         batch_export_id=batch_export.id,
         batch_export_model=batch_export_model,
         batch_export_run_id=batch_export_run_id,
         team_id=batch_export.team_id,
-        data_interval_start=data_interval_start.isoformat(),
-        data_interval_end=data_interval_end.isoformat(),
+        data_interval_start=data_interval_start.isoformat() if data_interval_start is not None else None,
+        data_interval_end=data_interval_end.isoformat() if data_interval_end is not None else None,
         compression=compression,
         file_format=format,
         max_file_size_mb=max_size_mb,
         include_events=include_events,
         exclude_events=exclude_events,
+        # Persist timeout choices in the workflow input so configuration changes do not affect replay.
+        main_activity_timeout_seconds=settings.BATCH_EXPORT_HOGQL_ON_DEMAND_MAIN_TIMEOUT_SECONDS
+        if incomplete_interval
+        else None,
+        stage_activity_timeout_seconds=settings.BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME + 300
+        if incomplete_interval
+        else None,
     )
     temporal = sync_connect()
 
@@ -1389,7 +1401,8 @@ async def afetch_last_run_records_completed(
         return None
     if matching_interval_duration is not None:
         start = run["data_interval_start"]
-        last_interval_duration = run["data_interval_end"] - start if start is not None else None
+        end = run["data_interval_end"]
+        last_interval_duration = end - start if start is not None and end is not None else None
         if last_interval_duration != matching_interval_duration:
             return None
     return run["records_completed"]
@@ -1419,13 +1432,13 @@ async def afetch_batch_export_runs_in_range(
     return [run async for run in queryset]
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BatchExportInsertInputs:
     """Base dataclass for batch export insert inputs containing common fields."""
 
     team_id: int
     data_interval_start: str | None
-    data_interval_end: str
+    data_interval_end: str | None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     run_id: str | None = None
