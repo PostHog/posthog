@@ -619,3 +619,38 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
         assert resp.deleted_count == 3
         for uuid in ("tombstoned", "live", "blocked"):
             assert not self._present(uuid)
+
+    def test_delete_persons_tombstone_mode_keeps_rows_and_reports_versions(self):
+        resp = self.client.delete_persons(
+            person_pb2.DeletePersonsRequest(
+                team_id=self.TEAM_ID,
+                person_uuids=["live", "tombstoned"],
+                mode=person_pb2.DELETE_PERSONS_MODE_TOMBSTONE,
+            )
+        )
+
+        # The live person reports what it wrote. The already tombstoned one is not counted, but it
+        # is reported with the versions it holds, like the replica, so a retry can republish them.
+        assert resp.tombstoned
+        assert resp.deleted_count == 1
+        assert [t.person_uuid for t in resp.tombstones] == ["live", "tombstoned"]
+        assert resp.tombstones[0].version == 1
+        assert [(d.distinct_id, d.version) for d in resp.tombstones[0].distinct_ids] == [("l-1", 1)]
+        assert [(d.distinct_id, d.version) for d in resp.tombstones[1].distinct_ids] == [("t-1", 0), ("t-2", 0)]
+        stored = self.client.get_person_by_uuid(
+            person_pb2.GetPersonByUuidRequest(team_id=self.TEAM_ID, uuid="live")
+        ).person
+        assert stored.is_deleted
+        assert stored.version == 1
+
+        hard = self.client.delete_persons(
+            person_pb2.DeletePersonsRequest(
+                team_id=self.TEAM_ID, person_uuids=["live"], mode=person_pb2.DELETE_PERSONS_MODE_HARD
+            )
+        )
+        assert hard.deleted_count == 1
+        assert not hard.tombstoned
+        assert (
+            self.client.get_person(person_pb2.GetPersonRequest(team_id=self.TEAM_ID, person_id=2)).HasField("person")
+            is False
+        )

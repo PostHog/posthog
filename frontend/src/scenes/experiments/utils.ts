@@ -43,7 +43,7 @@ import {
     MultivariateFlagVariant,
     PropertyFilterType,
     PropertyOperator,
-    type QueryBasedInsightModel,
+    type InsightModel,
     UniversalFiltersGroupValue,
 } from '~/types'
 
@@ -641,7 +641,7 @@ export function getDefaultExperimentMetric(metricType: ExperimentMetricType): Ex
     }
 }
 
-export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel | null): ExperimentMetric | undefined {
+export function getExperimentMetricFromInsight(insight: InsightModel | null): ExperimentMetric | undefined {
     if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
         return undefined
     }

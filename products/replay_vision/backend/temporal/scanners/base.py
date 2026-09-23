@@ -37,6 +37,9 @@ Segment = Annotated[TextSegment | ChipSegment, Field(discriminator="kind")]
 # The side-mission calibration floor: templated into the prompt and enforced at emission.
 MIN_SIGNAL_CONFIDENCE = 0.4
 
+# The watch feed lists up to three headlines on one line, so an overlong one reflows the whole card.
+SIGNAL_HEADLINE_MAX_LENGTH = 80
+
 # Stable step names the producer (`mission_steps`) and consumers (`assemble`) key on.
 STEP_CORE = "core"
 STEP_SIGNALS = "signals"
@@ -59,6 +62,14 @@ class SignalFinding(BaseModel, frozen=True):
 
     problem_type: Literal["bug", "crash", "design_flaw", "ux_friction"] = Field(
         description="The kind of issue: `bug`, `crash`, `design_flaw`, or `ux_friction`."
+    )
+    headline: str = Field(
+        description=(
+            "The issue in 8 words or fewer, for a feed card that lists several findings side by side. Name the "
+            "control, the page, or the product step it happened on, so the line reads on its own without the "
+            "`description`. Never copy text the user typed and never name a person — unlike the description, "
+            "this line is shown to a whole team out of context. Sentence case, no final period."
+        )
     )
     start_time: int = Field(
         ge=0,
@@ -96,6 +107,14 @@ class SignalFinding(BaseModel, frozen=True):
         # them so the timing stays only in start_time/end_time and the prose reads cleanly. Collapse any double space
         # the removal (or the model) leaves so the prose stays clean.
         return re.sub(r"\s{2,}", " ", TIMESTAMP_CITATION_RE.sub("", value)).strip()
+
+    @field_validator("headline", mode="after")
+    @classmethod
+    def _shorten_headline(cls, value: str) -> str:
+        # Same timestamp-marker leak as the description, plus a hard length bound — the prompt asks for 8 words
+        # and the model sometimes answers with a sentence, which would reflow the card it lands on.
+        cleaned = re.sub(r"\s{2,}", " ", TIMESTAMP_CITATION_RE.sub("", value)).strip()
+        return cleaned[:SIGNAL_HEADLINE_MAX_LENGTH].rstrip()
 
 
 class SignalsResponse(BaseModel, frozen=True):

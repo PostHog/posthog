@@ -24,6 +24,7 @@ from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchRun,
+    AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.presentation.views.serializers import (
@@ -570,6 +571,311 @@ class TestValidationWarningSerializer(SimpleTestCase):
     def test_help_text_names_every_code_the_validator_emits(self) -> None:
         help_text = str(ValidationWarningSerializer().fields["code"].help_text)
         assert all(f"'{code}'" in help_text for code in VALIDATION_WARNING_CODES)
+
+
+class TestAutoresearchSuggestionAPI(TeamScopedTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/autoresearch"
+        self._flag_patcher = patch(
+            "products.autoresearch.backend.access.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self._flag_patcher.start()
+        self.addCleanup(self._flag_patcher.stop)
+
+    def _make_pipeline(self, **kwargs) -> AutoresearchPipeline:
+        defaults = {
+            "team": self.team,
+            "created_by": self.user,
+            "name": "Test Pipeline",
+            "target_event": "$pageview",
+            "horizon_days": 7,
+            "iteration_budget": 50,
+            "iteration_budget_remaining": 50,
+        }
+        defaults.update(kwargs)
+        return AutoresearchPipeline.objects.create(**defaults)
+
+    def _suggestions_url(self, pipeline_id: object) -> str:
+        return f"{self.base_url}/{pipeline_id}/suggestions/"
+
+    # ──────────────────────────────────────────── create ──────────────────────────────────────────
+
+    def test_create_suggestion(self):
+        pipeline = self._make_pipeline()
+        resp = self.client.post(
+            self._suggestions_url(pipeline.id),
+            {"prompt": "try a gradient boosting model", "priority": "consider"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_201_CREATED
+        data = resp.json()
+        assert data["prompt"] == "try a gradient boosting model"
+        assert data["priority"] == "consider"
+        assert data["status"] == "queued"
+        assert data["source"] == "user"
+        assert AutoresearchSuggestion.objects.filter(pipeline=pipeline).count() == 1
+
+    def test_create_suggestion_try_next_priority(self):
+        pipeline = self._make_pipeline()
+        resp = self.client.post(
+            self._suggestions_url(pipeline.id),
+            {"prompt": "remove recency features", "priority": "try_next"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.json()["priority"] == "try_next"
+
+    def test_create_suggestion_default_priority_is_consider(self):
+        pipeline = self._make_pipeline()
+        resp = self.client.post(
+            self._suggestions_url(pipeline.id),
+            {"prompt": "try a different model"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.json()["priority"] == "consider"
+
+    def test_create_suggestion_archived_pipeline_returns_400(self):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.ARCHIVED)
+        # Archived pipelines are excluded from the queryset; suggestions endpoint
+        # does its own lookup and returns 400 (not 404) so the error is clear.
+        resp = self.client.post(
+            self._suggestions_url(pipeline.id),
+            {"prompt": "try XGBoost"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_suggestion_on_a_missing_pipeline_returns_404(self):
+        resp = self.client.post(self._suggestions_url(uuid.uuid4()), {"prompt": "try XGBoost"}, format="json")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_create_suggestion_missing_prompt_returns_400(self):
+        pipeline = self._make_pipeline()
+        resp = self.client.post(self._suggestions_url(pipeline.id), {}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    # ──────────────────────────────────────────── list ────────────────────────────────────────────
+
+    def test_list_suggestions(self):
+        pipeline = self._make_pipeline()
+        AutoresearchSuggestion.objects.create(
+            pipeline=pipeline,
+            created_by=self.user,
+            prompt="first suggestion",
+            priority=AutoresearchSuggestion.Priority.CONSIDER,
+            source=AutoresearchSuggestion.Source.USER,
+        )
+        AutoresearchSuggestion.objects.create(
+            pipeline=pipeline,
+            created_by=self.user,
+            prompt="second suggestion",
+            priority=AutoresearchSuggestion.Priority.TRY_NEXT,
+            source=AutoresearchSuggestion.Source.USER,
+        )
+        resp = self.client.get(self._suggestions_url(pipeline.id))
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["count"] == 2
+
+    def test_suggestions_not_leaked_across_pipelines(self):
+        pipeline_a = self._make_pipeline(name="Pipeline A")
+        pipeline_b = self._make_pipeline(name="Pipeline B")
+        AutoresearchSuggestion.objects.create(
+            pipeline=pipeline_a,
+            created_by=self.user,
+            prompt="only for A",
+            source=AutoresearchSuggestion.Source.USER,
+        )
+        resp = self.client.get(self._suggestions_url(pipeline_b.id))
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["count"] == 0
+
+    # ──────────────────────────────────────────── retrieve ────────────────────────────────────────
+
+    def test_retrieve_suggestion(self):
+        pipeline = self._make_pipeline()
+        suggestion = AutoresearchSuggestion.objects.create(
+            pipeline=pipeline,
+            created_by=self.user,
+            prompt="use day-of-week features",
+            priority=AutoresearchSuggestion.Priority.TRY_NEXT,
+            status=AutoresearchSuggestion.Status.QUEUED,
+            source=AutoresearchSuggestion.Source.USER,
+        )
+        resp = self.client.get(f"{self._suggestions_url(pipeline.id)}{suggestion.id}/")
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["id"] == str(suggestion.id)
+        assert data["prompt"] == "use day-of-week features"
+        assert data["status"] == "queued"
+
+    def test_retrieve_suggestion_wrong_pipeline_returns_404(self):
+        pipeline_a = self._make_pipeline(name="Pipeline A")
+        pipeline_b = self._make_pipeline(name="Pipeline B")
+        suggestion = AutoresearchSuggestion.objects.create(
+            pipeline=pipeline_a,
+            created_by=self.user,
+            prompt="belongs to A",
+            source=AutoresearchSuggestion.Source.USER,
+        )
+        resp = self.client.get(f"{self._suggestions_url(pipeline_b.id)}{suggestion.id}/")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    # ──────────────────────────────────────────── respond ─────────────────────────────────────────
+
+    def _make_suggestion(self, pipeline: AutoresearchPipeline, status_value: str = "queued") -> AutoresearchSuggestion:
+        return AutoresearchSuggestion.objects.create(
+            pipeline=pipeline,
+            created_by=self.user,
+            prompt="try a calibrated logistic regression",
+            priority=AutoresearchSuggestion.Priority.TRY_NEXT,
+            source=AutoresearchSuggestion.Source.USER,
+            status=status_value,
+        )
+
+    def _link_iteration(self, suggestion: AutoresearchSuggestion) -> AutoresearchIteration:
+        run = AutoresearchTrainingRun.objects.create(pipeline=suggestion.pipeline, status="running")
+        return AutoresearchIteration.objects.create(
+            pipeline=suggestion.pipeline,
+            training_run=run,
+            parent_suggestion=suggestion,
+            iteration_number=0,
+            recipe_hash="abc",
+            recipe_snapshot={"feature_sql": "SELECT 1"},
+            model_spec={"model_class": "m"},
+            status="kept",
+        )
+
+    def _respond(self, suggestion: AutoresearchSuggestion, body: dict):
+        return self.client.post(
+            f"{self._suggestions_url(suggestion.pipeline_id)}{suggestion.id}/respond/", body, format="json"
+        )
+
+    def test_respond_sets_status_and_agent_response(self):
+        pipeline = self._make_pipeline()
+        suggestion = self._make_suggestion(pipeline)
+        iteration = self._link_iteration(suggestion)
+        resp = self._respond(
+            suggestion, {"status": "acted_on", "agent_response": "Spawned iter 2 with LR + calibration."}
+        )
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        data = resp.json()
+        assert data["status"] == "acted_on"
+        assert data["agent_response"] == "Spawned iter 2 with LR + calibration."
+        assert data["linked_iteration_ids"] == [str(iteration.id)]
+        suggestion.refresh_from_db()
+        assert suggestion.status == "acted_on"
+
+    def test_respond_acted_on_needs_a_linked_iteration(self):
+        suggestion = self._make_suggestion(self._make_pipeline())
+        resp = self._respond(suggestion, {"status": "acted_on", "agent_response": "done"})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "parent_suggestion" in str(resp.json())
+
+    @parameterized.expand(
+        [
+            ("acted_on_back_to_picked_up", "acted_on", "picked_up"),
+            ("acted_on_to_dismissed", "acted_on", "dismissed"),
+            ("dismissed_back_to_picked_up", "dismissed", "picked_up"),
+        ]
+    )
+    def test_respond_refuses_a_backward_transition(self, _name: str, current: str, requested: str):
+        suggestion = self._make_suggestion(self._make_pipeline(), status_value=current)
+        resp = self._respond(suggestion, {"status": requested, "agent_response": "changed my mind"})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        suggestion.refresh_from_db()
+        assert suggestion.status == current
+
+    def test_respond_same_status_updates_the_note_and_blank_clears_it(self):
+        suggestion = self._make_suggestion(self._make_pipeline())
+        assert self._respond(suggestion, {"status": "picked_up", "agent_response": "first"}).status_code == 200
+        resp = self._respond(suggestion, {"status": "picked_up"})
+        assert resp.json()["agent_response"] == "first"
+        resp = self._respond(suggestion, {"status": "picked_up", "agent_response": ""})
+        assert resp.json()["agent_response"] == ""
+
+    def test_respond_dismissed_without_a_reason_returns_400(self):
+        suggestion = self._make_suggestion(self._make_pipeline())
+        resp = self._respond(suggestion, {"status": "dismissed"})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "agent_response" in str(resp.json())
+        # A reason recorded earlier satisfies a repeated dismissal that omits the note.
+        assert self._respond(suggestion, {"status": "dismissed", "agent_response": "dead end"}).status_code == 200
+        resp = self._respond(suggestion, {"status": "dismissed"})
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["agent_response"] == "dead end"
+
+    def test_respond_after_pipeline_archived_returns_400(self):
+        pipeline = self._make_pipeline()
+        suggestion = self._make_suggestion(pipeline)
+        pipeline.status = AutoresearchPipeline.Status.ARCHIVED
+        pipeline.save(update_fields=["status"])
+        resp = self._respond(suggestion, {"status": "picked_up"})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "archived" in str(resp.json())
+
+    @parameterized.expand([("retrieve",), ("respond",)])
+    def test_non_uuid_suggestion_id_returns_404(self, action: str):
+        pipeline = self._make_pipeline()
+        url = f"{self._suggestions_url(pipeline.id)}not-a-uuid/"
+        if action == "retrieve":
+            resp = self.client.get(url)
+        else:
+            resp = self.client.post(f"{url}respond/", {"status": "picked_up"}, format="json")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_list_reads_linked_iterations_in_one_query(self):
+        pipeline = self._make_pipeline()
+        for _ in range(3):
+            self._link_iteration(self._make_suggestion(pipeline))
+        with CaptureQueriesContext(connection) as queries:
+            resp = self.client.get(self._suggestions_url(pipeline.id))
+        assert resp.status_code == status.HTTP_200_OK
+        assert all(len(row["linked_iteration_ids"]) == 1 for row in resp.json()["results"])
+        assert sum("autoresearchiteration" in q["sql"].lower() for q in queries.captured_queries) == 1
+
+    def test_agent_authored_suggestion_has_no_creator(self):
+        pipeline = self._make_pipeline()
+        suggestion = AutoresearchSuggestion.objects.create(
+            pipeline=pipeline, prompt="from the agent", source=AutoresearchSuggestion.Source.AGENT
+        )
+        resp = self.client.get(f"{self._suggestions_url(pipeline.id)}{suggestion.id}/")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["created_by"] is None
+
+    def test_respond_dismissed(self):
+        pipeline = self._make_pipeline()
+        suggestion = self._make_suggestion(pipeline)
+        resp = self.client.post(
+            f"{self._suggestions_url(pipeline.id)}{suggestion.id}/respond/",
+            {"status": "dismissed", "agent_response": "Already a dead-end in a prior run."},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["status"] == "dismissed"
+
+    def test_respond_invalid_status_returns_400(self):
+        pipeline = self._make_pipeline()
+        suggestion = self._make_suggestion(pipeline)
+        resp = self.client.post(
+            f"{self._suggestions_url(pipeline.id)}{suggestion.id}/respond/",
+            {"status": "queued"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_respond_wrong_pipeline_returns_404(self):
+        pipeline_a = self._make_pipeline(name="Pipeline A")
+        pipeline_b = self._make_pipeline(name="Pipeline B")
+        suggestion = self._make_suggestion(pipeline_a)
+        resp = self.client.post(
+            f"{self._suggestions_url(pipeline_b.id)}{suggestion.id}/respond/",
+            {"status": "acted_on"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
 
 
 class _InMemoryStorage:

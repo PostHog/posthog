@@ -5,7 +5,10 @@ import {
   SIGNED_REWRITE_QUALIFIED_TOOL_NAME,
 } from "../local-tools";
 import { buildStoreSkillsInstructions } from "../skills-store";
-import { buildTaskSummaryInstructions } from "./task-summary";
+import {
+  buildTaskSummaryInstructions,
+  TASK_SUMMARY_TOOL_NAME,
+} from "./task-summary";
 
 export type SlackArtifactDelivery = "none" | "message" | "canvas_file";
 
@@ -277,6 +280,13 @@ When you create a non-code file the user should be able to download (such as a r
     const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.options.storeSkillsInstalledCount)}
 ${buildTaskSummaryInstructions()}`;
 
+    // The shared block above is shaped for a run that ends with work landed. A
+    // repo-less run often only answers a question, so it needs to hear that the
+    // answer itself is what the summary has to carry.
+    const chatTaskSummaryInstructions = `
+## Summarizing a question you answered
+The answer is the work of this run, so the run still needs a summary. Call the \`${TASK_SUMMARY_TOOL_NAME}\` tool before your final reply, even when the run is one question and one answer. Lead with what was asked and what you found, then the numbers, entities, or links the answer rests on. A teammate reads that summary from the run row instead of opening the transcript, so it has to stand on its own.`;
+
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
     const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread, or one you read from \`gh api user --jq .login\`, which authenticates as the person you are working for. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
@@ -394,6 +404,7 @@ ${repositoryInstructions}${publishInstructions}
 Important:
 - Prefer using MCP tools to answer questions with real data over giving generic advice.
 ${commonInstructions}
+${chatTaskSummaryInstructions}
 `;
     }
 

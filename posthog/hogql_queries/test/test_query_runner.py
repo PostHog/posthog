@@ -117,8 +117,10 @@ from posthog.slo.types import SloOutcome
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {
     "01977f7b-7f29-0000-a028-7275d1a767a4": {
@@ -1723,16 +1725,28 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert no_user_payload["restricted_resources"] == ["*"]
         assert self._runner(None, base).get_cache_key() != self._runner(self.user, base).get_cache_key()
 
-    def test_hogql_query_runner_partitions_cache_on_access_control(self):
+    @parameterized.expand(
+        [
+            ("notebooks", "notebook"),
+            ("_account_tagged_items", "account"),
+            ("_account_resource_notebooks", "account"),
+            ("_ticket_tagged_items", "ticket"),
+            ("_ticket_assignments", "ticket"),
+            ("_ticket_assignee_roles", "ticket"),
+            ("_task_public_channels", "task"),
+        ]
+    )
+    def test_hogql_query_runner_partitions_cache_on_access_control(self, table: str, scope: str) -> None:
         # Raw HogQL is the only way to reach access-controlled system.* tables.
-        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        query = {"kind": "HogQLQuery", "query": f"select * from system.{table}"}
 
-        self._ac(resource="notebook", access_level="none")
+        resource = "customer_analytics" if scope == "account" else scope
+        self._ac(resource=resource, access_level="none")
         denied_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
-        assert "notebook" in (denied_runner.get_cache_payload().get("restricted_resources") or [])
+        assert scope in (denied_runner.get_cache_payload().get("restricted_resources") or [])
         key_denied = denied_runner.get_cache_key()
 
-        self._ac(resource="notebook", access_level="editor")
+        self._ac(resource=resource, access_level="editor")
         key_granted = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
 
         assert key_denied != key_granted
@@ -1771,6 +1785,43 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             runner.get_cache_key()
         ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
         assert ac_queries == [], ac_queries
+
+    @parameterized.expand(
+        [
+            ("warehouse table", "select * from warehouse_orders", set(), True),
+            (
+                "system table with the source scope",
+                "select * from system.data_warehouse_sources",
+                {"external_data_source"},
+                False,
+            ),
+            ("saved view over a system table", "select * from notebook_view", {"notebook"}, False),
+        ]
+    )
+    def test_shared_link_viewer_partitions_only_on_scopes_a_table_carries(
+        self, _name, sql, expected_restricted, same_key_as_user
+    ):
+        # A shared-link viewer bypasses warehouse access control, so on a synced table it shares the unrestricted
+        # user's entry, while a system table it cannot read, directly or through a view, keeps it on its own.
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="warehouse_orders",
+            format="Parquet",
+            url_pattern="https://bucket.s3/data/*",
+            columns={},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="notebook_view",
+            query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
+        )
+        query = {"kind": "HogQLQuery", "query": sql}
+        shared_runner = HogQLQueryRunner(query=query, team=self.team, user=_shared_link_user(self.team))
+        user_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+
+        restricted = set(shared_runner.get_cache_payload().get("restricted_resources") or [])
+        assert restricted == expected_restricted
+        assert (shared_runner.get_cache_key() == user_runner.get_cache_key()) == same_key_as_user
 
     def test_hogql_fingerprint_partitions_only_on_queried_tables(self):
         # Two denied resources, but the query only reads notebooks - so only that scope partitions.
