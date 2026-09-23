@@ -179,19 +179,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             ),
         },
         {
-            title: 'Session',
-            key: 'session',
-            render: (_, obs) => (
-                <Link
-                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
-                    className="font-mono text-xs truncate block max-w-40 @7xl/observations:max-w-none"
-                    title={obs.session_id}
-                >
-                    {obs.session_id}
-                </Link>
-            ),
-        },
-        {
             title: 'Person',
             key: 'recording_subject',
             sorter: true,
