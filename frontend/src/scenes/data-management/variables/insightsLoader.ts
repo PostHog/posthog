@@ -28,7 +28,7 @@ export async function fetchInsightsUsingVariable(teamId: number, variableId: str
         // Paginate through all insights
         while (true) {
             const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
-                `api/environments/${teamId}/insights/?basic=true&limit=${limit}&offset=${offset}`
+                `api/projects/${teamId}/insights/?basic=true&limit=${limit}&offset=${offset}`
             )
 
             const insights = legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))

@@ -49,6 +49,7 @@ export enum Scene {
     DeadLetterQueue = 'DeadLetterQueue',
     Destinations = 'Destinations',
     DebugHog = 'DebugHog',
+    ProjectFiles = 'ProjectFiles',
     DebugQuery = 'DebugQuery',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
     Error404 = '404',
