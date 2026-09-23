@@ -6,7 +6,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { CompareFilter as CompareFilterType } from '~/queries/schema/schema-general'
 
-export function DashboardCompareFilter(): JSX.Element {
+export function DashboardCompareFilter({ fullWidth }: { fullWidth?: boolean }): JSX.Element {
     const { dashboardEditing, effectiveEditBarFilters } = useValues(dashboardLogic)
     const { setCompareFilter, setDashboardEditing } = useActions(dashboardLogic)
 
@@ -27,6 +27,7 @@ export function DashboardCompareFilter(): JSX.Element {
             updateCompareFilter={updateCompareFilter}
             disabled={isAllTime}
             disableReason={isAllTime ? COMPARE_ALL_TIME_DISABLED_REASON : null}
+            fullWidth={fullWidth}
         />
     )
 }

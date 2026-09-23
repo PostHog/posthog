@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -97,6 +98,18 @@ describe('DashboardFilterBar', () => {
             'aria-disabled',
             'false'
         )
+
+        logic.unmount()
+    })
+
+    it('shows the compare filter inside the advanced options popover', async () => {
+        const logic = renderFilterBar(DashboardEventSource.SceneCommonButtons)
+
+        expect(document.querySelector('[data-attr="compare-filter"]')).not.toBeInTheDocument()
+
+        await userEvent.click(document.querySelector('[data-attr="dashboard-advanced-filters"]')!)
+
+        expect(document.querySelector('[data-attr="compare-filter"]')).toBeInTheDocument()
 
         logic.unmount()
     })

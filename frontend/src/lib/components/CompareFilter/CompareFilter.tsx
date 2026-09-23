@@ -25,6 +25,7 @@ type CompareFilterProps = {
     inheritLabel?: string
     /** Called instead of `updateCompareFilter` when the inherit option is selected. Selected whenever `compareFilter` is null/undefined. Requires `inheritLabel`. */
     onInherit?: () => void
+    fullWidth?: boolean
 }
 
 export function CompareFilter({
@@ -36,6 +37,7 @@ export function CompareFilter({
     allowCustomComparison = true,
     inheritLabel,
     onInherit,
+    fullWidth,
 }: CompareFilterProps): JSX.Element | null {
     // This keeps the state of the rolling date range filter, even when different drop down options are selected
     // The default value for this is one month
@@ -139,6 +141,7 @@ export function CompareFilter({
             data-attr="compare-filter"
             options={options.filter((option) => allowCustomComparison || option.value !== 'compareTo')}
             size="small"
+            fullWidth={fullWidth}
             disabled={disabled}
             disabledReason={disableReason}
             tooltip={tooltip}
