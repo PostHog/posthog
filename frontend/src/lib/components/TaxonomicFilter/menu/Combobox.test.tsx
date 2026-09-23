@@ -1138,6 +1138,79 @@ describe('MenuFilterCombobox', () => {
         expect(screen.queryByText('Check for results in other categories')).not.toBeInTheDocument()
     })
 
+    // Parity with the classic picker, whose half lives in infiniteListLogic.test.ts / InfiniteList.
+    describe('an event name PostHog has not captured yet', () => {
+        function renderEvents(options: { allowNonCapturedEvents: boolean; onCommit?: any }): void {
+            render(
+                <Provider>
+                    <TaxonomicFilterHeadless.Root
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                        onChange={jest.fn()}
+                        searchQuery="checkout_started"
+                        allowNonCapturedEvents={options.allowNonCapturedEvents}
+                    >
+                        <MenuFilterCombobox
+                            drillTo={TaxonomicFilterGroupType.Events}
+                            onCommit={options.onCommit ?? jest.fn()}
+                            onBack={jest.fn()}
+                        />
+                    </TaxonomicFilterHeadless.Root>
+                </Provider>
+            )
+        }
+
+        beforeEach(() => {
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+        })
+
+        it('offers the typed name and commits it on click', async () => {
+            const user = userEvent.setup()
+            const onCommit = jest.fn()
+            renderEvents({ allowNonCapturedEvents: true, onCommit })
+
+            const option = await screen.findByTestId('prop-filter-event-option-custom')
+            expect(option).toHaveTextContent('checkout_started')
+            expect(screen.queryByTestId('menu-filter-empty')).not.toBeInTheDocument()
+
+            await user.click(option)
+
+            expect(onCommit).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    name: 'checkout_started',
+                    item: { name: 'checkout_started', isNonCaptured: true },
+                    group: expect.objectContaining({ type: TaxonomicFilterGroupType.Events }),
+                }),
+                undefined,
+                expect.anything()
+            )
+        })
+
+        it('commits the option with the Enter key', async () => {
+            const user = userEvent.setup()
+            const onCommit = jest.fn()
+            renderEvents({ allowNonCapturedEvents: true, onCommit })
+
+            await screen.findByTestId('prop-filter-event-option-custom')
+            await user.click(screen.getByTestId('menu-filter-search'))
+            await user.keyboard('{Enter}')
+
+            await waitFor(() =>
+                expect(onCommit).toHaveBeenCalledWith(
+                    expect.objectContaining({ item: { name: 'checkout_started', isNonCaptured: true } }),
+                    undefined,
+                    expect.anything()
+                )
+            )
+        })
+
+        it('reports no matches when the caller has not opted in', async () => {
+            renderEvents({ allowNonCapturedEvents: false })
+
+            await waitFor(() => expect(screen.getByTestId('menu-filter-empty')).toBeInTheDocument())
+            expect(screen.queryByTestId('prop-filter-event-option-custom')).not.toBeInTheDocument()
+        })
+    })
+
     // Parity with the legacy picker, whose half lives in TaxonomicFilter.test.tsx. Nothing enforces
     // that the two agree, so the same rule is asserted on both.
     describe('an event hidden because its data is moving', () => {

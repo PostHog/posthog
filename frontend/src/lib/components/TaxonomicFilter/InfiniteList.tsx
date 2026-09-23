@@ -32,6 +32,7 @@ import {
     TaxonomicFilterGroupValueMap,
 } from 'lib/components/TaxonomicFilter/types'
 import { hiddenEventMatchingSearch } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import { buildNonCapturedEventItem, NonCapturedEventItem } from 'lib/components/TaxonomicFilter/utils/nonCapturedEvent'
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -395,7 +396,7 @@ interface InfiniteListRowProps {
     selectItem: (
         group: TaxonomicFilterGroup,
         value: string | number | null,
-        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true },
+        item: TaxonomicDefinitionTypes | NonCapturedEventItem,
         meta?: SelectItemMeta
     ) => void
     setHighlightedItemElement: (element: HTMLDivElement | null) => void
@@ -515,12 +516,9 @@ export const InfiniteListRow = ({
             if (!itemGroup) {
                 return
             }
-            selectItem(
-                itemGroup,
-                trimmedSearchQuery,
-                { name: trimmedSearchQuery, isNonCaptured: true },
-                { position: rowIndex }
-            )
+            selectItem(itemGroup, trimmedSearchQuery, buildNonCapturedEventItem(trimmedSearchQuery), {
+                position: rowIndex,
+            })
         }
 
         return (
