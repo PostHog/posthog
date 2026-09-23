@@ -70,7 +70,7 @@ export class TerminalCommands {
                         response = encoded
                     } catch (error) {
                         // A failed tool can put its whole payload in the message, and the guest reads
-                        // this file into a shell variable inside a 128 MiB virtual machine.
+                        // this file into a shell variable inside the virtual machine.
                         const encoded = envelope({
                             ok: false,
                             error: error instanceof Error ? error.message : 'The command failed. Try ph help.',

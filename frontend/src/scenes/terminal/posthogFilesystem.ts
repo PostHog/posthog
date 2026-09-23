@@ -148,6 +148,12 @@ mc opens Midnight Commander. Tab switches panels; F3 views, F4 edits, F10 quits.
 Use Escape then a digit if your browser or keyboard captures function keys.
 mcview, mcedit, and mcdiff also run directly from the shell.
 tree lists folders and files. ncdu -r browses disk usage without allowing deletion.
+node (or nodejs) installs Node.js on first use. pi installs the pi coding harness
+and Node.js on first use. Try node --version or pi --help.
+The browser downloads verified packages from GitHub and caches them when storage
+is available. Closing the terminal discards the installed files and local sessions.
+pi runs offline: model calls, login, and package downloads need a network bridge.
+Use /tmp for local scripts and pi sessions; mounted PostHog files keep their API rules.
 Project file sizes stay zero until opened; ncdu does not download their contents.
 Bundled tool licenses and source links are in /opt/posthog-tools/licenses.
 ph runs project commands and tools from connected MCP servers with your permissions.
