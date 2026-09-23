@@ -58473,6 +58473,25 @@ export namespace Schemas {
       Value: 'value',
     } as const;
 
+    export interface MaterializationPreviewAggregate {
+      /** Aggregate expression in the transformed query. */
+      expression: string;
+      /**
+         * Function that combines materialized partials again, or null when there is none.
+         * @nullable
+         */
+      reaggregate_fn: string | null;
+    }
+
+    export interface MaterializationPreviewRangePair {
+      /** Column the query buckets on. */
+      column: string;
+      /** Query variables that filter on this column. */
+      variables: string[];
+      /** Bucket function applied to the column. */
+      bucket_fn: string;
+    }
+
     /**
      * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
      * @nullable
@@ -58480,12 +58499,42 @@ export namespace Schemas {
     export type MaterializationPreviewRequestBucketOverrides = {[key: string]: string} | null;
 
     export interface MaterializationPreviewRequest {
+      /** Endpoint version to preview. Defaults to the current version. */
       version?: number;
       /**
          * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
          * @nullable
          */
       bucket_overrides?: MaterializationPreviewRequestBucketOverrides;
+    }
+
+    export interface MaterializationPreviewResponse {
+      /** Whether the endpoint query can be materialized. */
+      can_materialize: boolean;
+      /**
+         * Why the query cannot be materialized, or null when it can.
+         * @nullable
+         */
+      reason: string | null;
+      /**
+         * Query rewritten for materialization, when one could be produced.
+         * @nullable
+         */
+      transformed_query: string | null;
+      /**
+         * Query that would run against the materialized table.
+         * @nullable
+         */
+      execution_query: string | null;
+      /**
+         * Execution query formatted for display.
+         * @nullable
+         */
+      display_execution_query: string | null;
+      /** Bucketed columns and the variables that filter on them. */
+      range_pairs: MaterializationPreviewRangePair[];
+      /** Aggregate expressions and how to re-aggregate them. */
+      aggregates: MaterializationPreviewAggregate[];
     }
 
     /**
@@ -97183,6 +97232,24 @@ export namespace Schemas {
       limit: number;
     }
 
+    export interface TwoFactorStatus {
+      /** Whether the user has any 2FA method enabled. */
+      is_enabled: boolean;
+      /** Number of unused backup codes. The codes themselves are only returned when they are generated. */
+      backup_codes_remaining: number;
+      /**
+         * The primary 2FA method: "TOTP" or "passkey". Null when 2FA is off.
+         * @nullable
+         */
+      method: string | null;
+      /** Whether the user has at least one verified passkey. */
+      has_passkeys: boolean;
+      /** Whether the user has an authenticator app set up. */
+      has_totp: boolean;
+      /** Whether passkeys count as a 2FA method. */
+      passkeys_enabled_for_2fa: boolean;
+    }
+
     export interface UnquarantineQuery {
       /**
          * Snapshot identifier to unquarantine
@@ -101357,6 +101424,58 @@ export namespace Schemas {
     export interface _TracingDurationHistogramRequest {
       /** The duration-histogram query to execute. */
       query: _TracingDurationHistogramQueryBody;
+    }
+
+    export interface _TracingErrorCountsRequest {
+      /**
+         * Hex trace IDs to count exceptions for, matched against the exception's `$trace_id` property. Case insensitive. At most 200 per request.
+         * @maxItems 200
+         */
+      traceIds?: string[];
+      /**
+         * Hex span IDs to count exceptions for, matched against the exception's `$span_id` property. Only counted within the requested traces, so `traceIds` is required alongside. At most 200 per request.
+         * @maxItems 200
+         */
+      spanIds?: string[];
+      /**
+         * Session IDs to count exceptions for. The fallback for exceptions that carry no trace ID. At most 200 per request.
+         * @maxItems 200
+         */
+      sessionIds?: string[];
+      /** Start of the window the exceptions must fall in. ISO 8601. */
+      dateFrom: string;
+      /** End of the window the exceptions must fall in. ISO 8601. */
+      dateTo: string;
+    }
+
+    export interface _TracingTraceErrorCount {
+      /** Exception events in the window that error tracking linked to an issue. */
+      exceptions: number;
+      /** The trace the exceptions belong to, lowercase hex. */
+      trace_id: string;
+    }
+
+    export interface _TracingSpanErrorCount {
+      /** Exception events in the window that error tracking linked to an issue. */
+      exceptions: number;
+      /** The span the exceptions belong to, lowercase hex. */
+      span_id: string;
+    }
+
+    export interface _TracingSessionErrorCount {
+      /** Exception events in the window that error tracking linked to an issue. */
+      exceptions: number;
+      /** The session the exceptions belong to. */
+      session_id: string;
+    }
+
+    export interface _TracingErrorCountsResponse {
+      /** One entry per requested trace that had exceptions. Traces with none are omitted. */
+      traceResults: _TracingTraceErrorCount[];
+      /** One entry per requested span that had exceptions. Spans with none are omitted. */
+      spanResults: _TracingSpanErrorCount[];
+      /** One entry per requested session that had exceptions. Sessions with none are omitted. */
+      sessionResults: _TracingSessionErrorCount[];
     }
 
     export interface _TracingImpactRequest {
@@ -105603,6 +105722,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EndpointsRetrieveParams = {
+    /**
+     * Endpoint version to act on. Defaults to the current version.
+     */
+    version?: number;
+    };
+
     export type EndpointsLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
@@ -105635,9 +105761,16 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EndpointsMaterializationStatusRetrieveParams = {
+    /**
+     * Endpoint version to act on. Defaults to the current version.
+     */
+    version?: number;
+    };
+
     export type EndpointsOpenapiSpecRetrieveParams = {
     /**
-     * Specific endpoint version to generate the spec for. Defaults to latest.
+     * Endpoint version to act on. Defaults to the current version.
      */
     version?: number;
     };
