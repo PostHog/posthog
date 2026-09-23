@@ -22,7 +22,10 @@ from products.data_warehouse.backend.facade.api import delete_external_data_sche
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    mark_schema_running_unless_halted,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
@@ -342,10 +345,6 @@ def create_external_data_job_model_activity(
             pipeline_version = ExternalDataJob.PipelineVersion.V3
             _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
-        # Persist the Running status only after the job row exists: a Running schema with no job
-        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
-        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
-        schema.status = ExternalDataSchema.Status.RUNNING
         # Only v3 runs deliver to destinations; v2 has no per-batch queue to carry the ids.
         destination_ids: list[str] = []
         if pipeline_version == ExternalDataJob.PipelineVersion.V3 and is_multi_destination_enabled(
@@ -361,7 +360,10 @@ def create_external_data_job_model_activity(
             schema_snapshot=_build_schema_snapshot(schema),
             destination_ids=destination_ids,
         )
-        schema.save(update_fields=["status", "updated_at"])
+        # Persist the Running status only after the job row exists: a Running schema with no job
+        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
+        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
+        mark_schema_running_unless_halted(schema)
 
         logger.info(
             f"Created external data job for external data source {inputs.source_id}",

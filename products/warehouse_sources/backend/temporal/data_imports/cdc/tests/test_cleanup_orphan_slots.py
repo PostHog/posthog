@@ -163,6 +163,30 @@ def test_critical_lag_posthog_auto_drop_marks_broken_and_pauses(team):
     mock_pause.assert_called_once_with(str(source.id))
 
 
+@pytest.mark.parametrize(
+    "reason, lag_mb, cleared",
+    [
+        ("critical_lag_self_managed", 10, True),
+        ("critical_lag_self_managed", 1500, False),
+        ("auth_failed", 10, False),
+    ],
+)
+def test_self_managed_lag_marker_clears_once_lag_recovers(team, reason, lag_mb, cleared):
+    source = _create_source(team, job_inputs=_cdc_job_inputs(management="self_managed"))
+    source.status = ExternalDataSource.Status.ERROR
+    source.save()
+    schema = _create_cdc_schema(team, source)
+    schema.sync_type_config = {**schema.sync_type_config, "cdc_broken": {"reason": reason}}
+    schema.save()
+
+    _run(_mock_adapter(lag_bytes=lag_mb * 1024 * 1024))
+
+    schema.refresh_from_db()
+    source.refresh_from_db()
+    assert ("cdc_broken" not in schema.sync_type_config) is cleared
+    assert (source.status == ExternalDataSource.Status.RUNNING) is cleared
+
+
 def test_critical_lag_auto_drop_disabled_does_not_drop(team):
     # cdc_auto_drop_slot stored as boolean False round-trips to "False"; str_to_bool must
     # decode it as False so the safety net stays off.
