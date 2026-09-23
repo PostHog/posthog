@@ -227,7 +227,7 @@ async def _read_snapshot_hashes(
     prefix = account_property_snapshot_prefix(team_id, binding, source_id, segment.value)
     async with aget_s3_client() as s3_client:
         merge = await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
-        return merge.hashes
+        return merge.hashes if merge.complete else {}
 
 
 async def _write_snapshot_hashes(

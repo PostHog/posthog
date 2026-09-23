@@ -520,6 +520,25 @@ async def test_snapshot_read_skips_file_deleted_by_concurrent_compaction() -> No
 
 
 @pytest.mark.asyncio
+async def test_snapshot_read_discards_partial_hashes_when_a_newer_file_disappears() -> None:
+    fake = _FakeS3()
+    prefix = account_property_snapshot_prefix(7, _SNAPSHOT_BINDING, "src", _SEGMENT.value)
+    await fake._pipe_file(f"{prefix}/job-1.parquet", aps._encode_snapshot({"account": "old"}))
+    await fake._pipe_file(f"{prefix}/job-2.parquet", aps._encode_snapshot({"account": "new"}))
+    original_cat_file = fake._cat_file
+
+    async def _cat_with_missing_newer_file(path: str) -> bytes:
+        if path.endswith("/job-2.parquet"):
+            raise FileNotFoundError(path)
+        return await original_cat_file(path)
+
+    with patch.object(fake, "_cat_file", _cat_with_missing_newer_file):
+        hashes = await _read(fake)
+
+    assert hashes == {}
+
+
+@pytest.mark.asyncio
 async def test_snapshot_write_persists_only_current_hashes_after_an_incomplete_merge() -> None:
     fake = _FakeS3()
     prefix = account_property_snapshot_prefix(7, _SNAPSHOT_BINDING, "src", _SEGMENT.value)
