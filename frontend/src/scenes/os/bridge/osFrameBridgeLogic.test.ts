@@ -141,11 +141,15 @@ describe('osFrameBridgeLogic', () => {
         expect(sentOfType('user-changed')).toEqual([{ type: 'user-changed' }])
     })
 
-    function messageFrom(origin: string, source: Window | null): () => void {
+    function messageFrom(
+        origin: string,
+        source: Window | null,
+        message: Record<string, unknown> = { type: 'user-changed' }
+    ): () => void {
         return () =>
             window.dispatchEvent(
                 new MessageEvent('message', {
-                    data: { channel: OS_BRIDGE_CHANNEL, version: OS_BRIDGE_VERSION, type: 'user-changed' },
+                    data: { channel: OS_BRIDGE_CHANNEL, version: OS_BRIDGE_VERSION, ...message },
                     origin,
                     source,
                 })
@@ -164,6 +168,16 @@ describe('osFrameBridgeLogic', () => {
         ['another frame on this origin', window.location.origin, () => sibling.contentWindow],
     ])('ignores a user change from %s', async (_description, origin, source) => {
         await expectLogic(logic, messageFrom(origin, source())).toNotHaveDispatchedActions(['loadUser'])
+    })
+
+    test.each([
+        ['the OS page', window.location.origin, () => window.parent, `/project/${MOCK_TEAM_ID}/alerts`],
+        ['another origin', 'https://evil.example.com', () => window.parent, INSIGHTS],
+        ['another frame on this origin', window.location.origin, () => sibling.contentWindow, INSIGHTS],
+    ])('goes to the page that %s asks for only when the OS page asks', (_description, origin, source, expected) => {
+        messageFrom(origin, source(), { type: 'navigate', path: '/alerts' })()
+
+        expect(router.values.location.pathname).toEqual(expected)
     })
 
     it('opens the OS spotlight in place of the command menu', () => {

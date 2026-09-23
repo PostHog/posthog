@@ -50,12 +50,14 @@ export function OsDesktopIcon({ app, wallpaper, onOpen }: OsDesktopIconProps): J
                                 fillRule={icon.fillRule}
                                 glowColor={wallpaper.glow.light}
                                 glowColorDark={wallpaper.glow.dark}
+                                highlighted={app.highlighted}
                             />
                         ) : (
                             <GlassIconFromElement
                                 icon={icon.element}
                                 glowColor={wallpaper.glow.light}
                                 glowColorDark={wallpaper.glow.dark}
+                                highlighted={app.highlighted}
                             />
                         )}
                     </span>

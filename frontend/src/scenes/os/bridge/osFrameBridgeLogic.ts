@@ -11,7 +11,7 @@ import { SidePanelTab } from '~/types'
 import { osWindowCommandFor } from '../windows/osWindowShortcuts'
 import { OsBridgeMessage, isFromOsHost, parseOsHostMessage, postToOs } from './osBridgeProtocol'
 import { setOsWindowOpener } from './osFrameConnection'
-import { OsLinkTarget, osLinkTarget, osNavigationTarget } from './osFrameRouting'
+import { OsLinkTarget, osLinkTarget, osNavigationTarget, osPathShowsPage } from './osFrameRouting'
 import { osSidePanelPath } from './osSidePanelPath'
 
 /**
@@ -202,8 +202,15 @@ export const osFrameBridgeLogic = kea<osFrameBridgeLogicType>([
                 }
                 const onPointerDown = (): void => send({ type: 'focus' })
                 const onHostMessage = (event: MessageEvent): void => {
-                    if (isFromOsHost(event, window) && parseOsHostMessage(event.data)?.type === 'user-changed') {
+                    const message = isFromOsHost(event, window) ? parseOsHostMessage(event.data) : null
+                    if (message?.type === 'user-changed') {
                         actions.loadUser()
+                    } else if (message?.type === 'navigate') {
+                        const { pathname, search, hash } = router.values.location
+                        // The OS page can send the same page twice while the app loads, and one history entry is enough.
+                        if (!osPathShowsPage(`${pathname}${search}${hash}`, message.path)) {
+                            router.actions.push(message.path)
+                        }
                     }
                 }
                 const onTitleChange = (): void => cache.reportLocation(false)

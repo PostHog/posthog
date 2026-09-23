@@ -27,6 +27,7 @@ describe('osBridgeProtocol', () => {
         ],
         ['a click into the frame', envelope({ type: 'focus' }), { type: 'focus' }],
         ['a changed user', envelope({ type: 'user-changed' }), { type: 'user-changed' }],
+        ['a navigate, which only the OS page sends', envelope({ type: 'navigate', path: '/insights' }), null],
         [
             'a window shortcut',
             envelope({ type: 'window-command', command: 'snap-left' }),
@@ -68,6 +69,19 @@ describe('osBridgeProtocol', () => {
 
     test.each([
         ['a changed user', envelope({ type: 'user-changed' }), { type: 'user-changed' }],
+        [
+            'a page to go to',
+            envelope({ type: 'navigate', path: '/insights?tab=history' }),
+            { type: 'navigate', path: '/insights?tab=history' },
+        ],
+        ['a page on another host', envelope({ type: 'navigate', path: '//evil.example.com/x' }), null],
+        [
+            'a page on another host with a backslash',
+            envelope({ type: 'navigate', path: '/\\evil.example.com/x' }),
+            null,
+        ],
+        ['a full url', envelope({ type: 'navigate', path: 'https://evil.example.com/x' }), null],
+        ['a script url', envelope({ type: 'navigate', path: 'javascript:alert(1)' }), null],
         ['a frame-only message', envelope({ type: 'open-window', path: '/project/1/replay' }), null],
         ['a message from another channel', { channel: 'other', version: 1, type: 'user-changed' }, null],
         ['a message from a newer protocol', { ...envelope({ type: 'user-changed' }), version: 2 }, null],

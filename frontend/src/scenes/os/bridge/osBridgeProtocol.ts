@@ -28,7 +28,9 @@ export type OsBridgeMessage =
 /** Messages the OS page sends to its window frames. */
 export type OsHostMessage =
     /** The user changed, for example the theme in the menu bar, so the frame reloads it. */
-    { type: 'user-changed' }
+    | { type: 'user-changed' }
+    /** Go to another page of the app in the same window, for example from the menu bar's app menu. */
+    | { type: 'navigate'; path: string }
 
 export type OsBridgeEnvelope = (OsBridgeMessage | OsHostMessage) & {
     channel: typeof OS_BRIDGE_CHANNEL
@@ -111,7 +113,18 @@ export function parseOsBridgeMessage(data: unknown): OsBridgeMessage | null {
 
 /** Reads a message event's data as a message from the OS page, or returns null. */
 export function parseOsHostMessage(data: unknown): OsHostMessage | null {
-    return envelopeData(data)?.type === 'user-changed' ? { type: 'user-changed' } : null
+    const raw = envelopeData(data)
+    switch (raw?.type) {
+        case 'user-changed':
+            return { type: 'user-changed' }
+        case 'navigate': {
+            // Only a path on this origin: `//host/x`, `/\host/x` and full URLs would leave the app.
+            const path = text(raw.path)
+            return path && /^\/(?![/\\])/.test(path) ? { type: 'navigate', path } : null
+        }
+        default:
+            return null
+    }
 }
 
 export interface OsBridgeFrame {

@@ -119,6 +119,34 @@ describe('osBridgeLogic', () => {
         )
     })
 
+    it('sends a page to its window once more when the frame was still loading, and stops after that', () => {
+        const postMessage = jest.spyOn(frame.contentWindow as Window, 'postMessage')
+        const navigates = (): number =>
+            (postMessage.mock.calls as unknown[][]).filter((call) => (call[0] as { type?: string }).type === 'navigate')
+                .length
+        const id = windows.values.windows[0].id
+
+        bridge.actions.navigateWindow(id, '/alerts')
+        expect(postMessage).toHaveBeenCalledWith(
+            { channel: OS_BRIDGE_CHANNEL, version: OS_BRIDGE_VERSION, type: 'navigate', path: '/alerts' },
+            window.location.origin
+        )
+
+        // The app finished loading and reports the page it started on, so it never saw the first message.
+        send({ type: 'location', path: INSIGHTS, title: 'Insights', traversed: false })
+        expect(navigates()).toEqual(2)
+
+        // The page adds its own query on load, which still counts as the page that was sent.
+        send({
+            type: 'location',
+            path: `/project/${MOCK_TEAM_ID}/alerts?alert_id=1`,
+            title: 'Alerts',
+            traversed: false,
+        })
+        send({ type: 'location', path: INSIGHTS, title: 'Insights', traversed: false })
+        expect(navigates()).toEqual(2)
+    })
+
     it('reloads its own user and tells the other frames when a window changes the user', async () => {
         const other = document.createElement('iframe')
         other.name = osFrameName('other1')

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconNotification, IconSearch, IconSparkles } from '@posthog/icons'
+import { IconNotification, IconSparkles } from '@posthog/icons'
 
 import { Logo } from 'lib/brand'
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
@@ -16,45 +16,31 @@ import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 
-import { osSpotlightLogic } from '../spotlight/osSpotlightLogic'
+import { OsAppMenu } from './OsAppMenu'
+import { OsMenuBarSearch } from './OsMenuBarSearch'
 import { osShellLogic } from './osShellLogic'
 
 function openInNewTab(href: string): void {
     window.open(href, '_blank', 'noopener,noreferrer')
 }
 
-/** The top menu bar, ported from the posthog.com taskbar. */
+/**
+ * The top menu bar, ported from the posthog.com taskbar: the PostHog menu and the focused app's menu on
+ * the left, the search in the middle, and the project, PostHog AI, notifications and account on the right.
+ */
 export function OsMenuBar(): JSX.Element {
-    const { desktopColumns } = useValues(osShellLogic)
     const { openApp } = useActions(osShellLogic)
-    const { openSpotlight } = useActions(osSpotlightLogic)
     const { user } = useValues(userLogic)
     const { inAppUnreadCount } = useValues(sidePanelNotificationsLogic)
 
     const logoMenu: LemonMenuItems = [
-        { label: 'Home', onClick: () => openApp(urls.projectHomepage(), 'Home'), 'data-attr': 'os-menu-logo-home' },
-        {
-            label: 'Settings',
-            onClick: () => openApp(urls.settings(), 'Settings'),
-            'data-attr': 'os-menu-logo-settings',
-        },
-        {
-            label: 'About PostHog',
-            onClick: () => openInNewTab('https://posthog.com/about'),
-            'data-attr': 'os-menu-logo-about',
-        },
-    ]
-    const appsMenu: LemonMenuItems = [
-        {
-            title: 'Your apps',
-            items: desktopColumns.left.map((app) => ({
-                label: app.label,
-                onClick: () => openApp(app.href, app.label),
-                'data-attr': `os-menu-apps-${app.key}`,
-            })),
-        },
         {
             items: [
+                {
+                    label: 'Home',
+                    onClick: () => openApp(urls.projectHomepage(), 'Home'),
+                    'data-attr': 'os-menu-logo-home',
+                },
                 {
                     label: 'App Store',
                     onClick: () => openApp(urls.osAppStore(), 'App Store'),
@@ -65,25 +51,31 @@ export function OsMenuBar(): JSX.Element {
                     onClick: () => openApp(urls.settings('user-navigation'), 'Settings'),
                     'data-attr': 'os-menu-apps-customize',
                 },
+                {
+                    label: 'Settings',
+                    onClick: () => openApp(urls.settings(), 'Settings'),
+                    'data-attr': 'os-menu-logo-settings',
+                },
             ],
         },
-    ]
-    const helpMenu: LemonMenuItems = [
-        { label: 'Docs', onClick: () => openInNewTab('https://posthog.com/docs'), 'data-attr': 'os-menu-help-docs' },
         {
-            label: 'Changelog',
-            onClick: () => openInNewTab('https://posthog.com/changelog'),
-            'data-attr': 'os-menu-help-changelog',
+            items: [
+                {
+                    label: 'About PostHog',
+                    onClick: () => openInNewTab('https://posthog.com/about'),
+                    'data-attr': 'os-menu-logo-about',
+                },
+            ],
         },
     ]
 
     return (
         <header className="OsShell__menu-bar" data-os-scheme="primary" data-attr="os-menu-bar">
-            <nav aria-label="Menu bar" className="flex items-center gap-px">
+            <nav aria-label="Menu bar" className="flex items-center gap-px min-w-0">
                 <LemonMenu items={logoMenu} placement="bottom-start">
                     <button
                         type="button"
-                        className="OsShell__menu-trigger"
+                        className="OsShell__menu-trigger shrink-0"
                         aria-label="PostHog menu"
                         data-attr="os-menu-logo"
                     >
@@ -93,30 +85,11 @@ export function OsMenuBar(): JSX.Element {
                         </span>
                     </button>
                 </LemonMenu>
-                <LemonMenu items={appsMenu} placement="bottom-start">
-                    <button type="button" className="OsShell__menu-trigger" data-attr="os-menu-apps">
-                        Apps
-                    </button>
-                </LemonMenu>
-                <LemonMenu items={helpMenu} placement="bottom-start">
-                    <button type="button" className="OsShell__menu-trigger" data-attr="os-menu-help">
-                        Help
-                    </button>
-                </LemonMenu>
+                <OsAppMenu />
             </nav>
-            <div data-os-scheme="secondary" className="flex items-center gap-0.5 py-1">
-                <ProjectMenu buttonProps={{ className: 'OsShell__menu-trigger font-semibold' }} />
-                <Tooltip title="Search">
-                    <button
-                        type="button"
-                        className="OsShell__menu-trigger"
-                        aria-label="Search"
-                        onClick={() => openSpotlight()}
-                        data-attr="os-menu-search"
-                    >
-                        <IconSearch className="size-5" />
-                    </button>
-                </Tooltip>
+            <OsMenuBarSearch />
+            <div data-os-scheme="secondary" className="flex items-center justify-end gap-0.5 py-1 min-w-0">
+                <ProjectMenu buttonProps={{ className: 'OsShell__menu-trigger font-semibold min-w-0' }} />
                 <Tooltip title="PostHog AI">
                     <button
                         type="button"

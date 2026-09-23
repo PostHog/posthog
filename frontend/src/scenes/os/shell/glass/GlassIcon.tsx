@@ -19,6 +19,8 @@ export interface GlassIconProps {
     glowColor: string
     /** Hover glow in dark mode. */
     glowColorDark: string
+    /** Draws the glyph in the accent color, for the one icon on the desktop that must stand out. */
+    highlighted?: boolean
     className?: string
 }
 
@@ -38,6 +40,7 @@ export function GlassIcon({
     fillRule = 'nonzero',
     glowColor,
     glowColorDark,
+    highlighted = false,
     className,
 }: GlassIconProps): JSX.Element {
     const id = useId().replace(/:/g, '')
@@ -58,7 +61,13 @@ export function GlassIcon({
     const maskH = vbH + 4 * unit
 
     return (
-        <span className={cn('relative inline-flex items-center justify-center size-9', className)}>
+        <span
+            className={cn(
+                'relative inline-flex items-center justify-center size-9',
+                highlighted ? 'text-accent' : 'text-white',
+                className
+            )}
+        >
             <span
                 aria-hidden
                 className="pointer-events-none absolute inset-1 rounded-[40%] blur-md opacity-0 transition-opacity duration-700 ease-out group-hover:opacity-60 dark:group-hover:opacity-0 motion-reduce:transition-none"
@@ -165,7 +174,7 @@ export function GlassIcon({
                 <g filter={`url(#${shadowId})`}>
                     <g opacity={FILL_OPACITY}>
                         {parts.map((part, index) => (
-                            <path key={index} d={part.d} fill="white" fillRule={part.fillRule} />
+                            <path key={index} d={part.d} fill="currentColor" fillRule={part.fillRule} />
                         ))}
                     </g>
                     {parts.map((part, index) => (
@@ -173,7 +182,7 @@ export function GlassIcon({
                             key={index}
                             d={part.d}
                             fill="none"
-                            stroke="white"
+                            stroke="currentColor"
                             strokeOpacity={0.55}
                             strokeWidth={strokeWidth}
                             mask={`url(#${id}-outer${index})`}
@@ -186,7 +195,7 @@ export function GlassIcon({
                             key={index}
                             d={part.d}
                             fill="none"
-                            stroke="white"
+                            stroke="currentColor"
                             strokeWidth={strokeWidth}
                             mask={`url(#${id}-inner${index})`}
                         />

@@ -19,6 +19,8 @@ export interface OsDesktopApp {
     href: string
     /** Opens in a new browser tab, because the site refuses to load inside a window. */
     external?: boolean
+    /** Drawn in the accent color. Only the App Store has it, so it reads as the place to get more apps. */
+    highlighted?: boolean
     icon: OsDesktopAppIcon
 }
 
@@ -56,6 +58,7 @@ export function osDesktopColumns(productGroups: FlatNavProductGroup[]): OsDeskto
                 key: 'app-store',
                 label: 'App Store',
                 href: urls.osAppStore(),
+                highlighted: true,
                 icon: { kind: 'element', element: <IconStore /> },
             },
             {

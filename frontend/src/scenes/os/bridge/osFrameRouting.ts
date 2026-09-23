@@ -1,3 +1,5 @@
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+
 import { osFrameSrc } from './osFrame'
 
 export interface OsLinkClick {
@@ -89,4 +91,28 @@ export function osNavigationTarget(destination: string, origin: string): string 
         return null
     }
     return url.origin !== origin || isServerPath(url.pathname) || isApiRedirect(url) ? url.href : null
+}
+
+export interface OsParsedHref {
+    pathname: string
+    params: URLSearchParams
+}
+
+/** An app path without its project id or trailing slash, and its query. */
+export function parseOsHref(href: string): OsParsedHref {
+    const url = new URL(removeProjectIdIfPresent(href), 'http://os.invalid')
+    return { pathname: url.pathname.replace(/\/+$/, '') || '/', params: url.searchParams }
+}
+
+/**
+ * True when a URL shows the page at `href`: the same path, and every query value of `href`. Other query
+ * values in the URL, such as filters, do not matter.
+ */
+export function osPathShowsPage(path: string, href: string): boolean {
+    const current = parseOsHref(path)
+    const page = parseOsHref(href)
+    return (
+        current.pathname === page.pathname &&
+        [...page.params.entries()].every(([key, value]) => current.params.get(key) === value)
+    )
 }

@@ -7,8 +7,9 @@ import { osSpotlightLogic } from '../spotlight/osSpotlightLogic'
 import { osWindowsLogic } from '../windows/osWindowsLogic'
 import type { OsWindowState } from '../windows/osWindowsLogic'
 import { OsBridgeMessage, osBridgeSenderWindowId, parseOsBridgeMessage, postToOsFrames } from './osBridgeProtocol'
-import { OS_FRAME_NAME_PREFIX, osFrameName } from './osFrame'
+import { OS_FRAME_NAME_PREFIX, osFrameName, osFrameSrc } from './osFrame'
 import { setOsWindowOpener } from './osFrameConnection'
+import { osPathShowsPage } from './osFrameRouting'
 import { osSidePanelPath } from './osSidePanelPath'
 
 function osWindowFrames(): HTMLIFrameElement[] {
@@ -90,6 +91,13 @@ export interface osBridgeLogicActions {
         tab: string
         windowId: string
     }
+    navigateWindow: (
+        windowId: string,
+        path: string
+    ) => {
+        path: string
+        windowId: string
+    }
 }
 
 export type osBridgeLogicType = MakeLogicType<osBridgeLogicValues, osBridgeLogicActions>
@@ -104,7 +112,7 @@ export const osBridgeLogic = kea<osBridgeLogicType>([
         values: [osWindowsLogic, ['focusedWindow']],
         actions: [
             osWindowsLogic,
-            ['windowNavigated', 'focusWindow', 'openWindow', 'runWindowCommand'],
+            ['windowNavigated', 'focusWindow', 'openWindow', 'runWindowCommand', 'closeWindow'],
             osSpotlightLogic,
             ['showSpotlight'],
             userLogic,
@@ -115,11 +123,14 @@ export const osBridgeLogic = kea<osBridgeLogicType>([
         messageReceived: (windowId: string, message: OsBridgeMessage) => ({ windowId, message }),
         /** A window asked for a side panel. A shell with its own side panel can listen for this. */
         sidePanelRequested: (windowId: string, tab: string, options?: string) => ({ windowId, tab, options }),
+        /** Shows another page in a window without reloading the app in it, for example from the app menu. */
+        navigateWindow: (windowId: string, path: string) => ({ windowId, path }),
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         messageReceived: ({ windowId, message }) => {
             switch (message.type) {
                 case 'location':
+                    cache.settleNavigation?.(windowId, message.path)
                     actions.windowNavigated(windowId, message.path, message.title)
                     // Back and forward can step a window that is behind others, so that window comes to the front.
                     if (message.traversed) {
@@ -163,6 +174,27 @@ export const osBridgeLogic = kea<osBridgeLogicType>([
         updateUserSuccess: () => {
             postToOsFrames(osWindowFrames(), { type: 'user-changed' }, window.location.origin)
         },
+        navigateWindow: ({ windowId, path }) => {
+            const frame = osWindowFrames().find((candidate) => candidate.name === osFrameName(windowId))
+            if (!frame) {
+                return
+            }
+            // A frame on another origin (a sign-in page) cannot read messages, so it loads the page again.
+            if (isCrossOrigin(frame)) {
+                const src = osFrameSrc({ pathname: path, search: '', hash: '' }, window.location.origin)
+                if (src) {
+                    frame.src = src
+                }
+                return
+            }
+            // A frame whose app is still loading drops the message. Its first location report then shows
+            // another page, and `settleNavigation` sends the message once more.
+            cache.pendingNavigations.set(windowId, { path, retried: false })
+            postToOsFrames([frame], { type: 'navigate', path }, window.location.origin)
+        },
+        closeWindow: ({ id }) => {
+            cache.pendingNavigations.delete(id)
+        },
         sidePanelRequested: ({ tab, options }) => {
             const panelPath = osSidePanelPath(tab, options)
             if (panelPath) {
@@ -171,6 +203,20 @@ export const osBridgeLogic = kea<osBridgeLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
+        cache.pendingNavigations = new Map<string, { path: string; retried: boolean }>()
+        cache.settleNavigation = (windowId: string, reportedPath: string): void => {
+            const pending = cache.pendingNavigations.get(windowId)
+            if (!pending) {
+                return
+            }
+            // A page can add its own query on load, such as filters, so only the path and the query sent must match.
+            if (osPathShowsPage(reportedPath, pending.path) || pending.retried) {
+                cache.pendingNavigations.delete(windowId)
+                return
+            }
+            actions.navigateWindow(windowId, pending.path)
+            cache.pendingNavigations.set(windowId, { ...pending, retried: true })
+        }
         cache.disposables.add(
             () => {
                 const onMessage = (event: MessageEvent): void => {
