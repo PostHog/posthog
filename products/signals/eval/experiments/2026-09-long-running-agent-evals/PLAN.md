@@ -258,6 +258,8 @@ Automatic downstream implementation and repository-selection agents do not run; 
 Unsupported write actions and unsupported specialized inbox filters invalidate the comparison explicitly.
 Normal inbox deduplication reads, report details, evidence, and artefacts remain available.
 Runtime settings are checked against the saved variant at completion.
+That API check compares protected task state; inspect transcript configuration events and gateway model counters when verifying execution.
+The MCP `llm_model` label is supplied by the model and is not authoritative runtime evidence.
 MCP trial launch/result tools omit analytics, including nested `exec` calls.
 Task content reads retain call metrics but omit payload spans and free-text intent for every caller, including operators retrieving private transcripts.
 
@@ -273,5 +275,6 @@ Task content reads retain call metrics but omit payload spans and free-text inte
 - September 23: completed two concurrent Docker scout runs through the normal Temporal harness against an invented invoice-export case. Luna and Terra both queried the data, read and wrote private memory, saved summaries, and authored captured reports at medium effort. Their transcript configuration matched the requested models and effort throughout.
 - September 23: checked each sandbox's actual OAuth credentials against its own and its sibling's memory, reports, tasks, runs, and logs. Private results remained separate, the normal inbox could not retrieve them, and the source skill, config, and shared memory stayed unchanged.
 - September 23: routing checks, private log/summary/lifecycle authorization tests, repository-wide Python type checks, API generation, and product dependency checks passed. Security scanning found no findings on the changed lines.
+- September 23: merged current master, regenerated API types, and passed the trial API suite and repository-wide type checks again. Revoked the local verification credential, removed temporary services and scout containers, and restored the original backend and worker with a passing app health check. Trial opt-ins are disabled on the restored stack.
 - The successful smoke checks execution and isolation. Model quality comparisons still need repeated runs and judging. An earlier local attempt was canceled for routing failures; another exposed an incomplete synthetic schema registry, which was corrected before the successful pair. Private transcripts and attempt history remain outside Git.
 - No new production comparison has been launched during implementation. Deployment still requires the private gateway and capture checks described above.
