@@ -22,7 +22,7 @@ from temporalio import activity
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
-from posthog.clickhouse.client.connection import ClickHouseCredentials
+from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
 from posthog.security.outbound_proxy import internal_requests_session
 
@@ -311,7 +311,7 @@ class ClickHouseClient:
         if database:
             self.params["database"] = database
 
-        self.params["max_query_size"] = "1048576"  # 1MB
+        self.params["max_query_size"] = str(MAX_QUERY_SIZE_BYTES)
 
         self.params.update(kwargs)
 

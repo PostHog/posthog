@@ -23,6 +23,7 @@ from posthog.hogql import query_stats
 
 from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
+    MAX_QUERY_SIZE_BYTES,
     ClickHouseUser,
     QuerySummary,
     Workload,
@@ -307,11 +308,7 @@ def default_settings() -> dict:
     return {
         "join_algorithm": "direct,parallel_hash,hash",
         "distributed_replica_max_ignored_errors": 1000,
-        # max_query_size can't be set in a query, because it determines the size of the buffer used to parse the query
-        # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
-        # Every property read on the native-JSON events table expands to a few hundred bytes of SQL, so a query that
-        # reads many properties (the bot-traffic classifier is ~2 MB) needs more room than the 1 MB that fit before.
-        "max_query_size": 8 * 1024 * 1024,
+        "max_query_size": MAX_QUERY_SIZE_BYTES,
     }
 
 
