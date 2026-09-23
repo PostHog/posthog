@@ -59,8 +59,9 @@ describe('TerminalSession', () => {
         expect(calls).toBe(1)
     })
 
-    it('detaches its document selection listener when the session is disposed', () => {
+    it('wraps and detaches the listener xterm registers when the terminal opens', () => {
         const addEventListener = jest.spyOn(document, 'addEventListener')
+        const removeEventListener = jest.spyOn(document, 'removeEventListener')
         try {
             const session = new TerminalSession(
                 () => {},
@@ -68,14 +69,21 @@ describe('TerminalSession', () => {
                 () => {},
                 () => {}
             )
-            const registrations = addEventListener.mock.calls.filter(([type]) => type === 'selectionchange')
-            expect(registrations).not.toHaveLength(0)
+            const registered = addEventListener.mock.calls.filter(([type]) => type === 'selectionchange')
+            expect(registered).not.toHaveLength(0)
             session.dispose()
-            for (const [, , options] of registrations) {
+            // xterm disposes by the unwrapped function, so what it removes must not be what was attached.
+            const unwrapped = removeEventListener.mock.calls
+                .filter(([type]) => type === 'selectionchange')
+                .map(([, listener]) => listener)
+            expect(unwrapped).not.toHaveLength(0)
+            for (const [, listener, options] of registered) {
+                expect(unwrapped).not.toContain(listener)
                 expect((options as AddEventListenerOptions).signal?.aborted).toBe(true)
             }
         } finally {
             addEventListener.mockRestore()
+            removeEventListener.mockRestore()
         }
     })
 })
