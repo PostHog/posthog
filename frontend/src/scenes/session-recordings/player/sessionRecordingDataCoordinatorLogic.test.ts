@@ -308,8 +308,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             resumeKeaLoadersErrors()
         })
 
-        // A 404 here is the same missing recording loadRecordingMeta reports, and the player already
-        // renders RecordingNotFound for it, so only the 500 belongs in error tracking.
+        // The player already renders RecordingNotFound for a 404, so only the 500 belongs in error tracking.
         it.each([
             [500, { status: 0 }, 1],
             [404, { detail: 'Not found.' }, 0],

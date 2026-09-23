@@ -1201,13 +1201,8 @@ export type sessionRecordingPlayerLogicType = MakeLogicType<
     sessionRecordingPlayerLogicMeta
 >
 
-/**
- * Marks a recording, tolerating the recording no longer being there. A recording deleted or expired
- * while the player was open answers 404, and there is nothing left to mark, so the failure is
- * expected. Every other failure still rejects and reaches error tracking.
- *
- * Returns false when the recording is gone, so the caller can stop instead of marking it again.
- */
+// A recording deleted or expired while the player was open answers 404, and there is nothing left
+// to mark. Returns false for that, so the caller stops. Every other failure still rejects.
 async function markRecording(
     sessionRecordingId: SessionRecordingType['id'],
     data: Partial<SessionRecordingUpdateType>
