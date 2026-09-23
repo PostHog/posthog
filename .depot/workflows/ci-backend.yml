@@ -15,6 +15,8 @@
 #   so the relay's failure log prints the `depot ci` commands that retry it, and the label
 #   that sends the PR back to GitHub Actions.
 # - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
+# - turbo-discover adds the `origin` remote before its history fetch when it is missing.
+#   Depot CI serves an input-less actions/checkout from a fast clone that has no remote.
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
 #   the canonical composites; any deltas are documented in each mirror's header). Every
@@ -690,6 +692,8 @@ jobs:
               # --depth, not --deepen: --deepen adds no history once GitHub has replaced the PR's
               # merge ref, because no ref then points at GITHUB_SHA.
               run: |
+                  # Depot CI serves an input-less checkout from a fast clone that adds no origin remote.
+                  git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
                   git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"
                   echo "History depth: $(git rev-list --count HEAD)"
             - name: Verify PR merge for test selection
@@ -785,11 +789,12 @@ jobs:
                   client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
-            - name: Install pnpm dependencies
-              uses: ./.depot/actions/pnpm-install
+            - name: Set up pnpm and Node
+              uses: ./.depot/actions/setup-pnpm
               with:
-                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            - name: Install turbo
+              uses: ./.depot/actions/setup-turbo
             # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
             # --no-project` for the dependent cascade; the script pins tach, so no
             # Python project sync is needed. A missing uv widens the cascade to

@@ -57,7 +57,7 @@ def safe_different_model(team_id):
 def safe_tagged_item(tag, flag):
     # TaggedItem not in list - no dedicated serializer
     # ok: max-tools-direct-model-create
-    flag.tagged_items.create(tag=tag)
+    TaggedItem.objects.create(tag=tag, feature_flag=flag)
 
 
 def safe_experiment_not_in_list(team):
