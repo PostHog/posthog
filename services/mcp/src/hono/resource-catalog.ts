@@ -178,7 +178,7 @@ export class ResourceCatalog {
 
         for (const app of UI_APPS) {
             const html = buildAppStubHtml(app.appDir, baseUrl)
-            const meta = buildUiAppResourceMeta(baseUrl, analyticsBaseUrl)
+            const meta = buildUiAppResourceMeta(baseUrl, analyticsBaseUrl, app.resourceDomains)
 
             this.uiAppResources.push({
                 name: app.name,
