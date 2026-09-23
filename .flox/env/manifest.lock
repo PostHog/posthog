@@ -43,6 +43,10 @@
           "dev"
         ]
       },
+      "depot-cli": {
+        "pkg-path": "depot-cli",
+        "pkg-group": "depot"
+      },
       "emscripten": {
         "pkg-path": "emscripten",
         "pkg-group": "emscripten",
@@ -3505,6 +3509,93 @@
       },
       "system": "x86_64-linux",
       "group": "uv",
+      "priority": 5
+    },
+    {
+      "attr_path": "depot-cli",
+      "broken": false,
+      "derivation": "/nix/store/ig5780lqdnv0vcflhp8ipj7p22jplsys-depot-cli-2.101.73.drv",
+      "description": "Official CLI for the Depot Docker image builder",
+      "install_id": "depot-cli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
+      "name": "depot-cli-2.101.73",
+      "pname": "depot-cli",
+      "rev": "20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
+      "rev_count": 1076192,
+      "rev_date": "2026-09-19T02:38:33Z",
+      "scrape_date": "2026-09-20T04:57:58.508391Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.101.73",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/kl2fjsxqs78pdr2ffdzpbsqrkbxyq11j-depot-cli-2.101.73"
+      },
+      "system": "aarch64-darwin",
+      "group": "depot",
+      "priority": 5
+    },
+    {
+      "attr_path": "depot-cli",
+      "broken": false,
+      "derivation": "/nix/store/9g1n9p6ahsbzxarrsjcfd1fwpm0f2gnz-depot-cli-2.101.73.drv",
+      "description": "Official CLI for the Depot Docker image builder",
+      "install_id": "depot-cli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
+      "name": "depot-cli-2.101.73",
+      "pname": "depot-cli",
+      "rev": "20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
+      "rev_count": 1076192,
+      "rev_date": "2026-09-19T02:38:33Z",
+      "scrape_date": "2026-09-20T05:30:52.345034Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.101.73",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/lk9xdmz929wxh9yb7c7d4279m7g7n0vn-depot-cli-2.101.73"
+      },
+      "system": "aarch64-linux",
+      "group": "depot",
+      "priority": 5
+    },
+    {
+      "attr_path": "depot-cli",
+      "broken": false,
+      "derivation": "/nix/store/sgvy0j3rblwyiwmbw4jk5ri9aql32f53-depot-cli-2.101.73.drv",
+      "description": "Official CLI for the Depot Docker image builder",
+      "install_id": "depot-cli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
+      "name": "depot-cli-2.101.73",
+      "pname": "depot-cli",
+      "rev": "20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
+      "rev_count": 1076192,
+      "rev_date": "2026-09-19T02:38:33Z",
+      "scrape_date": "2026-09-20T06:07:11.316943Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.101.73",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/nrppisqhsscmf7vmifyg2fbrfamgjcq6-depot-cli-2.101.73"
+      },
+      "system": "x86_64-linux",
+      "group": "depot",
       "priority": 5
     }
   ]
