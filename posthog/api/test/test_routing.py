@@ -17,7 +17,9 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.test import APIRequestFactory
 
 from posthog.api.pagination import StableCursorPagination, stable_queryset_ordering
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
@@ -53,7 +55,7 @@ class ScopedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = AnnotationSerializer
 
 
-def test_stable_queryset_ordering_adds_a_primary_key_tiebreaker():
+def test_stable_queryset_ordering_adds_a_primary_key_tiebreaker() -> None:
     queryset = stable_queryset_ordering(Annotation.objects.order_by("date_marker"))
 
     assert queryset.query.order_by == ("date_marker", "pk")
@@ -63,11 +65,13 @@ def test_stable_queryset_ordering_adds_a_primary_key_tiebreaker():
     assert expression_queryset.query.order_by[-1] == "pk"
 
 
-def test_stable_cursor_pagination_adds_a_primary_key_tiebreaker():
+def test_stable_cursor_pagination_adds_a_primary_key_tiebreaker() -> None:
     class DateMarkerCursorPagination(StableCursorPagination):
         ordering = "-date_marker"
 
-    ordering = DateMarkerCursorPagination().get_ordering(None, Annotation.objects.all(), None)
+    ordering = DateMarkerCursorPagination().get_ordering(
+        Request(APIRequestFactory().get("/")), Annotation.objects.all(), FooViewSet()
+    )
 
     assert ordering == ("-date_marker", "-pk")
 

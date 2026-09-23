@@ -3,6 +3,8 @@ from typing import Any, Optional
 from django.db.models import QuerySet
 
 from rest_framework.pagination import CursorPagination, LimitOffsetPagination
+from rest_framework.request import Request
+from rest_framework.views import APIView
 
 
 def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
@@ -20,9 +22,9 @@ def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
 
 
 class StableCursorPagination(CursorPagination):
-    """Use a primary-key tie-breaker so cursor positions do not split equal values."""
+    """Append a primary-key tie-breaker to make cursor query ordering deterministic."""
 
-    def get_ordering(self, request: Any, queryset: QuerySet, view: Any) -> tuple[Any, ...]:
+    def get_ordering(self, request: Request, queryset: QuerySet, view: APIView) -> tuple[str, ...]:
         ordering = super().get_ordering(request, queryset, view)
         primary_key = queryset.model._meta.pk.name
         if any(str(term).lstrip("-") in {"pk", primary_key} for term in ordering):

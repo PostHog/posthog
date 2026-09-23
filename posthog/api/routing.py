@@ -1,4 +1,5 @@
 import sys
+from collections.abc import Sequence
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
@@ -370,7 +371,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         finally:
             self._in_get_queryset = False
 
-    def paginate_queryset(self, queryset: Any) -> Any:
+    def paginate_queryset(self, queryset: QuerySet | Sequence) -> Sequence | None:
         if self.paginator is not None and isinstance(queryset, QuerySet):
             queryset = stable_queryset_ordering(queryset)
         return super().paginate_queryset(queryset)
