@@ -32,6 +32,7 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -263,6 +264,7 @@ export function EditSubscription({
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
     const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery, replaceTeamsWebhook } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
@@ -311,7 +313,7 @@ export function EditSubscription({
     const formatter = new Intl.DateTimeFormat('en-US', { timeZoneName: 'shortGeneric' })
     const parts = formatter.formatToParts(new Date())
     const currentTimezone = parts?.find((part) => part.type === 'timeZoneName')?.value
-    const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription) : null
+    const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription, currentTeam?.timezone) : null
 
     let saveDisabledReason: string | undefined = undefined
     if (aiGate.submitBlocked) {

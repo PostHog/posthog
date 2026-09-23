@@ -422,19 +422,135 @@ const RRULE_FREQ_MAP: Record<string, number> = {
 
 // Client-side preview only — the authoritative next delivery date is computed
 // server-side in posthog/models/subscription.py (Subscription.set_next_delivery_date)
-export function getNextDeliveryDate(subscription: Partial<SubscriptionType>): Date | null {
+export function getNextDeliveryDate(subscription: Partial<SubscriptionType>, timezone?: string): Date | null {
     if (!subscription.frequency || !subscription.start_date) {
         return null
     }
     try {
+        // Mirror of Subscription.set_next_delivery_date: the recurrence is anchored to the
+        // local wall-clock time of start_date in the project timezone and each occurrence is
+        // read back in that timezone, keeping the delivery at the same local time across DST
+        // transitions. rrule.js operates on the UTC fields of the dates it is given, so
+        // wall-clock fields are carried through pseudo-UTC Dates. Without a timezone the
+        // historical UTC-anchored behavior is kept.
+        const wallStart = timezone ? dayjs(subscription.start_date).tz(timezone) : dayjs(subscription.start_date).utc()
+        // Widen the wall-time window beyond any tzdb offset shift: the wall occurrence
+        // whose later fold is still ahead can sit behind now on the wall clock by up to
+        // the size of the shift, so the rrule must start before it and the candidate
+        // filtering below decides purely by instant. 26h covers every shift in tzdb,
+        // including whole-day dateline skips, where 2h would silently drop multi-hour
+        // folds. Mirrors Subscription._compute_next_delivery_date.
+        const wallNow = timezone ? dayjs(Date.now() - 26 * 3600000).tz(timezone) : dayjs().utc()
+        // Whole-second precision, matching dateutil's rrule on the backend: it truncates
+        // microseconds, so the pseudo-UTC dates do the same or the two stacks disagree
+        // inside sub-second windows.
+        const toPseudoUtc = (d: dayjs.Dayjs): Date =>
+            new Date(Date.UTC(d.year(), d.month(), d.date(), d.hour(), d.minute(), d.second()))
         const rule = new RRule({
             freq: RRULE_FREQ_MAP[subscription.frequency],
             interval: subscription.interval ?? 1,
-            dtstart: new Date(subscription.start_date),
+            dtstart: toPseudoUtc(wallStart),
             byweekday: subscription.byweekday?.map((d) => RRULE_WEEKDAY_MAP[d]) ?? null,
             bysetpos: subscription.frequency === 'monthly' ? (subscription.bysetpos ?? null) : null,
         })
-        return rule.after(new Date())
+        const next = rule.after(toPseudoUtc(wallNow))
+        if (!next || !timezone) {
+            return next
+        }
+        // Compare in instants, not wall time: an ambiguous occurrence (repeated hour after
+        // a fall-back) exists twice and the earlier instant may already be past, while a
+        // nonexistent occurrence (spring-forward gap) falls forward using the pre-transition
+        // offset. Mirrors Subscription._compute_next_delivery_date.
+        const wallMsOf = (instant: number): number => {
+            const d = dayjs(instant).tz(timezone)
+            return Date.UTC(d.year(), d.month(), d.date(), d.hour(), d.minute(), d.second(), d.millisecond())
+        }
+        const offsetAt = (instant: number): number => wallMsOf(instant) - instant
+        // Enumerate every UTC offset in effect in a broad window around the wall time.
+        // Scanning offset changes directly (instead of probing +/-1h around found matches)
+        // keeps multi-hour folds like Antarctica/Troll's two-hour fall-back reachable and
+        // finds the pre-transition offset on positive-offset transition days, where the
+        // wall time as UTC already sits past the change and match-driven probing dead-ends.
+        const OFFSET_SCAN_WINDOW_MS = 26 * 3600000
+        const OFFSET_SCAN_STEP_MS = 15 * 60000
+        const scanOffsetChanges = (
+            wall: number,
+            onChange: (instant: number, before: number, after: number) => void
+        ): void => {
+            let prevT = wall - OFFSET_SCAN_WINDOW_MS
+            let prevOffset = offsetAt(prevT)
+            for (let t = prevT + OFFSET_SCAN_STEP_MS; t <= wall + OFFSET_SCAN_WINDOW_MS; t += OFFSET_SCAN_STEP_MS) {
+                const offset = offsetAt(t)
+                if (offset !== prevOffset) {
+                    // Bisect to whole-second precision: the first instant with the new offset.
+                    let lo = prevT
+                    let hi = t
+                    while (hi - lo > 1000) {
+                        const mid = Math.floor((lo + hi) / 2)
+                        if (offsetAt(mid) === prevOffset) {
+                            lo = mid
+                        } else {
+                            hi = mid
+                        }
+                    }
+                    onChange(hi, prevOffset, offset)
+                    prevOffset = offset
+                }
+                prevT = t
+            }
+        }
+        const offsetsAround = (wall: number): Set<number> => {
+            const offsets = new Set<number>([offsetAt(wall - OFFSET_SCAN_WINDOW_MS)])
+            scanOffsetChanges(wall, (_instant, _before, after) => offsets.add(after))
+            return offsets
+        }
+        const wallToInstants = (wall: number): number[] => {
+            const instants: number[] = []
+            for (const offset of offsetsAround(wall)) {
+                const instant = wall - offset
+                if (wallMsOf(instant) === wall && !instants.includes(instant)) {
+                    instants.push(instant)
+                }
+            }
+            return instants.sort((a, b) => a - b)
+        }
+        // A nonexistent wall time (spring-forward gap) has no matching instant: deliver at
+        // the pre-transition offset, i.e. as soon as the local clock jumps past it, the
+        // same normalization zoneinfo's fold=0 applies on the backend.
+        const preGapOffset = (wall: number): number | null => {
+            let found: number | null = null
+            scanOffsetChanges(wall, (instant, before, after) => {
+                if (after > before && wall >= instant + before && wall < instant + after) {
+                    found = before
+                }
+            })
+            return found
+        }
+        const pseudoFieldsOf = (d: Date): number =>
+            Date.UTC(
+                d.getUTCFullYear(),
+                d.getUTCMonth(),
+                d.getUTCDate(),
+                d.getUTCHours(),
+                d.getUTCMinutes(),
+                d.getUTCSeconds()
+            )
+
+        const lower = Date.now()
+        let occurrence: Date | null = next
+        while (occurrence) {
+            const wall = pseudoFieldsOf(occurrence)
+            let candidates = wallToInstants(wall)
+            if (candidates.length === 0) {
+                candidates = [wall - (preGapOffset(wall) ?? offsetAt(wall))]
+            }
+            const upcoming = candidates.find((instant) => instant > lower)
+            if (upcoming !== undefined) {
+                return new Date(upcoming)
+            }
+            occurrence = rule.after(occurrence, false)
+        }
+        return null
     } catch {
         return null
     }

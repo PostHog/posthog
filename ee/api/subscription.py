@@ -918,7 +918,16 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             or self.instance is None
             or (self.instance is not None and self.instance.enabled and bool(Subscription.RRULE_FIELDS & attrs.keys()))
         )
-        if check_schedule and Subscription.project_next_delivery_date(instance=self.instance, **attrs) is None:
+        if check_schedule:
+            # For creates the instance doesn't exist yet, so hand the project timezone in
+            # explicitly; PATCH validation reads it from the instance's team.
+            schedule_timezone = (
+                self.instance.team.timezone if self.instance is not None else self.context["get_team"]().timezone
+            )
+            schedule_projection = Subscription.project_next_delivery_date(
+                instance=self.instance, timezone_name=schedule_timezone, **attrs
+            )
+        if check_schedule and schedule_projection is None:
             base = "Subscription schedule has reached its end date. Extend until_date or remove count"
             if is_re_enabling:
                 raise ValidationError({"enabled": [f"{base} before re-enabling."]})
