@@ -14,6 +14,7 @@ import type { ProjectTreeRef } from '~/types'
 import { NinePServer } from './ninepServer'
 import { PosthogCommands } from './posthogCommands'
 import { PosthogFilesystem } from './posthogFilesystem'
+import { TerminalAI } from './terminalAI'
 import { TerminalConfirmation } from './terminalConfirmation'
 import { terminalDockLogic } from './terminalDockLogic'
 import { TerminalRuntime } from './terminalRuntime'
@@ -480,6 +481,7 @@ export const terminalLogic = kea<terminalLogicType>([
                 })
                 cache.filesystem = filesystem
                 new PosthogCommands(String(projectId), controller.signal, filesystem, (url) => router.actions.push(url))
+                new TerminalAI(filesystem, String(projectId), controller.signal)
                 actions.setStatus('booting')
                 const server = new NinePServer(filesystem, (error) => {
                     if (!controller.signal.aborted) {

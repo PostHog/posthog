@@ -659,6 +659,88 @@ export interface DocsSearchResponseApi {
     content: string
 }
 
+/**
+ * Agent instructions.
+ */
+export type TerminalAIRequestApiSystem = string | { [key: string]: JsonValueApi }[] | null
+
+export type TerminalAIMessageRoleEnumApi =
+    (typeof TerminalAIMessageRoleEnumApi)[keyof typeof TerminalAIMessageRoleEnumApi]
+
+export const TerminalAIMessageRoleEnumApi = {
+    User: 'user',
+    Assistant: 'assistant',
+} as const
+
+/**
+ * Anthropic text, image, or tool content blocks.
+ */
+export type TerminalAIMessageApiContent = string | { [key: string]: JsonValueApi }[]
+
+export interface TerminalAIMessageApi {
+    /** Author of this conversation message. */
+    role: TerminalAIMessageRoleEnumApi
+    /** Anthropic text, image, or tool content blocks. */
+    content: TerminalAIMessageApiContent
+}
+
+/**
+ * JSON schema for the tool's arguments.
+ */
+export type TerminalAIToolApiInputSchema = { [key: string]: JsonValueApi }
+
+/**
+ * Provider prompt cache settings.
+ */
+export type TerminalAIToolApiCacheControl = { [key: string]: string } | null
+
+export interface TerminalAIToolApi {
+    /**
+     * Name of a tool executed inside the terminal.
+     * @maxLength 128
+     */
+    name: string
+    /**
+     * What the tool does.
+     * @maxLength 20000
+     */
+    description?: string
+    /** JSON schema for the tool's arguments. */
+    input_schema: TerminalAIToolApiInputSchema
+    /** Provider prompt cache settings. */
+    cache_control?: TerminalAIToolApiCacheControl
+    /** Stream tool arguments as they are generated. */
+    eager_input_streaming?: boolean | null
+}
+
+export interface TerminalAIRequestApi {
+    /** Model served by the PostHog provider. */
+    model: 'claude-sonnet-4-6'
+    /**
+     * Conversation and tool results.
+     * @minItems 1
+     * @maxItems 1000
+     */
+    messages: TerminalAIMessageApi[]
+    /**
+     * Maximum output tokens for this generation.
+     * @minimum 1
+     * @maximum 8192
+     */
+    max_tokens: number
+    /** Always stream the model response. */
+    stream?: true
+    /** Agent instructions. */
+    system?: TerminalAIRequestApiSystem
+    /**
+     * Tools executed by pi.
+     * @maxItems 100
+     */
+    tools?: TerminalAIToolApi[]
+    /** Sampling temperature. */
+    temperature?: number | null
+}
+
 export type ConversationsListParams = {
     /**
      * Number of results to return per page.

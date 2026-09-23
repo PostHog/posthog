@@ -176,7 +176,9 @@ node (or nodejs) installs Node.js on first use. pi installs the pi coding harnes
 and Node.js on first use. Try node --version or pi --help.
 The browser downloads verified packages from GitHub and caches them when storage
 is available. Stopping the terminal discards the installed files and local sessions.
-pi runs offline: model calls, login, and package downloads need a network bridge.
+pi uses PostHog AI through your signed-in session. Try pi -p 'What can ph tools do?'
+Run one pi session at a time. AI credit limits apply. Gateway setup is required.
+The VM has no general network access, so external login and package downloads are unavailable.
 Use /tmp for local scripts and pi sessions; mounted PostHog files keep their API rules.
 Project file sizes stay zero until opened; ncdu does not download their contents.
 Bundled tool licenses and source links are in /opt/posthog-tools/licenses.

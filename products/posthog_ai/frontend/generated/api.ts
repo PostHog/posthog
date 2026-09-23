@@ -26,6 +26,7 @@ import type {
     PatchedMaxCoreMemoryApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
+    TerminalAIRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -439,5 +440,22 @@ export const docsSearch = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(docsSearchRequestApi),
+    })
+}
+
+export const getTerminalAiCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/terminal_ai/`
+}
+
+export const terminalAiCreate = async (
+    projectId: string,
+    terminalAIRequestApi: TerminalAIRequestApi,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getTerminalAiCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(terminalAIRequestApi),
     })
 }
