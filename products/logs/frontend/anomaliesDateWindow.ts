@@ -90,7 +90,10 @@ export function stepAnomaliesWindow(dateRange: DateRange, direction: -1 | 1, now
             const optionWindow = resolveAnomaliesWindow({ date_from: option.dateFrom }, now)
             return optionWindow?.end.diff(optionWindow.start) === spanMs
         })
-        return { date_from: rolling?.dateFrom ?? start.toISOString(), date_to: null }
+        // A span no option matches still has to roll. An absolute start with no end would chart only
+        // what is left before now, which is shorter than the step, and would then grow with the clock.
+        // Seconds hold any span exactly, and the backend reads that unit too.
+        return { date_from: rolling?.dateFrom ?? `-${Math.round(spanMs / 1000)}s`, date_to: null }
     }
     if (start.isBefore(oldestAllowedStart(now))) {
         return null

@@ -72,6 +72,12 @@ describe('anomaliesDateWindow', () => {
             direction: -1 as const,
             expected: { date_from: '2026-09-02T11:00:00.000Z', date_to: '2026-09-09T11:00:00.000Z' },
         },
+        {
+            name: 'a two day window from a saved link keeps its length when it steps into the present',
+            dateRange: { date_from: '2026-09-20T11:00:00.000Z', date_to: '2026-09-22T11:00:00.000Z' },
+            direction: 1 as const,
+            expected: { date_from: '-172800s', date_to: null },
+        },
     ])('$name', ({ dateRange, direction, expected }) => {
         expect(stepAnomaliesWindow(dateRange, direction, NOW)).toEqual(expected)
     })
