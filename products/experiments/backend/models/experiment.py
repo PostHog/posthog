@@ -161,11 +161,9 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
     class Meta:
         db_table = "posthog_experiment"
         indexes = [
-            # The list endpoint reads one team's unarchived experiments newest first. The rows are
-            # wide (about twelve JSONB columns), so without this the read is a heap scan of every
-            # experiment the team owns. `deleted` is left out on purpose: it is nullable, so the
-            # list's `exclude(deleted=True)` compiles to a predicate Postgres cannot use as an
-            # index condition, and adding the column here would stop the index supplying the sort.
+            # Matches the list endpoint: one team's unarchived experiments, newest first. `deleted`
+            # stays out because it is nullable, so `exclude(deleted=True)` compiles to a predicate
+            # Postgres applies as a filter, and the column would only break the sort order here.
             models.Index(fields=["team", "archived", "-created_at"], name="experiment_team_arch_created"),
         ]
         constraints = [
