@@ -12,6 +12,8 @@ import requests
 from parameterized import parameterized
 
 from posthog.egress.typesafe import ChoiceAnswer, NoulAnswer, SystemOneAnswers, TypeSafeRequestFailed
+from posthog.models import User
+from posthog.models.scoping import team_scope
 
 from products.posthog_ai.backend.turn_suggestions.benchmark import (
     BenchmarkCase,
@@ -29,7 +31,13 @@ from products.posthog_ai.backend.turn_suggestions.judgment import (
     build_judge_state,
     judge_turn,
 )
-from products.posthog_ai.backend.turn_suggestions.offer_ledger import STATE_KEY, OfferRecord, OfferStatus, read_ledger
+from products.posthog_ai.backend.turn_suggestions.offer_ledger import (
+    STATE_KEY,
+    OfferRecord,
+    OfferStatus,
+    claim_turn,
+    read_ledger,
+)
 from products.posthog_ai.backend.turn_suggestions.service import (
     TURN_SUGGESTION_METHOD,
     TurnSuggestionOutcome,
@@ -58,7 +66,7 @@ from products.posthog_ai.backend.turn_suggestions.verdict import (
     TurnVerdict,
 )
 from products.tasks.backend.facade.api import TaskClientProvenance
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Channel, Task
 
 SERVICE = "products.posthog_ai.backend.turn_suggestions.service"
 
@@ -844,36 +852,81 @@ class TestGenerateTurnSuggestion(BaseTest):
             OfferRecord(turn_index=1, run_id=str(self.task_run.id), kind="scout", status=OfferStatus.OFFERED),
         )
 
+    @parameterized.expand([("live_stream", True), ("stored_log", False)])
+    def test_a_resumed_run_counts_turns_across_the_resume_chain(self, _name: str, stream_alive: bool):
+        resumed = self.task_run.task.create_run(
+            mode="interactive", extra_state={"resume_from_run_id": str(self.task_run.id)}
+        )
+        current_turn = [_user_message("Break that down by country"), _agent_text("Most signups came from the US.")]
+        self.mocks["stream"].return_value = current_turn if stream_alive else []
+        logs = {self.task_run.log_url: _metric_turn(), resumed.log_url: current_turn}
+
+        def read_logs(log_urls: list[str]) -> str:
+            return "".join(json.dumps(entry) + "\n" for url in log_urls for entry in logs[url])
+
+        with patch(f"{SERVICE}.read_task_run_log_content", side_effect=read_logs):
+            outcome = generate_turn_suggestion(str(resumed.id), self.team.id)
+
+        assert outcome.status == "emitted"
+        assert self._published_params()["turnIndex"] == 1
+        assert self.mocks["publish"].call_args.args[0] == resumed.id
+        transcript = self.mocks["classify"].call_args.args[0]
+        assert [turn.question for turn in transcript.earlier_turns] == ["How many signups did we get this week?"]
+
+    def test_a_card_superseded_by_a_later_turn_is_not_published(self):
+        def classify_while_the_next_turn_claims(*_args: Any, **_kwargs: Any) -> TurnVerdict:
+            assert claim_turn(self.task_run.task_id, self.team.id, 1) is None
+            return _verdict()
+
+        self.mocks["classify"].side_effect = classify_while_the_next_turn_claims
+
+        outcome = self._generate()
+
+        assert outcome == TurnSuggestionOutcome(status="skipped", reason="superseded")
+        self.mocks["publish"].assert_not_called()
+        assert read_ledger(self.task_run.task_id, self.team.id).offers == ()
+
     @parameterized.expand(
         [
             ("muted", {"offers": [], "muted": True}, "dismissed"),
             ("budget_spent", {"offers": [_offer(0), _offer(1)]}, "offer_budget_spent"),
             ("card_on_the_previous_turn", {"offers": [_offer(0)]}, "follows_an_offer"),
+            (
+                "malformed_entry_next_to_a_card",
+                {"offers": [{"turn_index": 0, "status": "unknown"}, {"turn_index": 0}, _offer(0)]},
+                "follows_an_offer",
+            ),
             ("turn_already_claimed", {"offers": [], "last_classified_turn": 1}, "already_classified"),
         ]
     )
     def test_the_offer_ledger_holds_back_a_card(self, _name: str, ledger: dict, reason: str):
         Task.objects.filter(id=self.task_run.task_id).update(state={STATE_KEY: ledger})
+        updated_at = Task.objects.get(id=self.task_run.task_id).updated_at
         self.mocks["stream"].return_value = [*_metric_turn(), _user_message("And by country?"), _agent_text("US.")]
 
         outcome = self._generate()
 
         assert outcome == TurnSuggestionOutcome(status="skipped", reason=reason)
         self.mocks["classify"].assert_not_called()
+        assert Task.objects.get(id=self.task_run.task_id).updated_at == updated_at
 
     @parameterized.expand(
         [
             ("slack", {"origin_product": Task.OriginProduct.SLACK}, "not_posthog_ai_conversation"),
             ("desktop", {"client_provenance": TaskClientProvenance.POSTHOG_DESKTOP}, "not_started_in_web"),
+            ("other_client", {"client_provenance": "posthog_cli"}, None),
         ]
     )
-    def test_only_conversations_started_in_the_web_app_get_a_card(self, _name: str, fields: dict, reason: str):
+    def test_only_conversations_started_in_the_web_app_get_a_card(self, _name: str, fields: dict, reason: str | None):
         Task.objects.filter(id=self.task_run.task_id).update(**fields)
 
         outcome = self._generate()
 
-        assert outcome == TurnSuggestionOutcome(status="skipped", reason=reason)
-        self.mocks["classify"].assert_not_called()
+        if reason is None:
+            assert outcome.status == "emitted"
+        else:
+            assert outcome == TurnSuggestionOutcome(status="skipped", reason=reason)
+            self.mocks["classify"].assert_not_called()
 
     @parameterized.expand([("flag", "flag_off"), ("judge", "judge_not_configured")])
     def test_a_closed_gate_skips_before_classifying(self, gate: str, reason: str):
@@ -888,8 +941,10 @@ class TestGenerateTurnSuggestion(BaseTest):
         self.mocks["stream"].return_value = []
         log_lines = "\n".join(json.dumps(entry) for entry in _metric_turn()) + "\nnot json\n"
 
-        with patch(f"{SERVICE}.read_task_run_logs", return_value=log_lines):
+        with patch(f"{SERVICE}.read_task_run_log_content", return_value=log_lines) as read_logs:
             outcome = self._generate()
+
+        read_logs.assert_called_once_with([self.task_run.log_url])
 
         assert outcome.status == "emitted"
         transcript = self.mocks["classify"].call_args.args[0]
@@ -958,12 +1013,29 @@ class TestResolveTurnSuggestion(APIBaseTest):
             {"turnIndex": 0, "outcome": "dismissed"},
         )
 
-    @parameterized.expand([("turn_without_a_card", False, 3, 200), ("task_of_another_team", True, 0, 404)])
+    def test_a_card_keeps_its_first_outcome(self):
+        self._resolve(str(self.task.id), 0, "accepted")
+
+        response, publish = self._resolve(str(self.task.id), 0, "dismissed")
+
+        assert response.json() == {"recorded": False}
+        publish.assert_not_called()
+        ledger = read_ledger(self.task.id, self.team.id)
+        assert ledger.offers[0].status == OfferStatus.ACCEPTED
+        assert ledger.muted is False
+
+    @parameterized.expand(
+        [
+            ("turn_without_a_card", "own_task", 3, 200),
+            ("task_of_another_team", "other_team", 0, 404),
+            ("teammate_task_readable_in_a_shared_channel", "read_only", 0, 404),
+        ]
+    )
     def test_nothing_is_recorded_for_a_card_that_does_not_exist(
-        self, _name: str, other_team: bool, turn_index: int, status_code: int
+        self, _name: str, task_access: str, turn_index: int, status_code: int
     ):
         task_id = str(self.task.id)
-        if other_team:
+        if task_access == "other_team":
             other = self.create_team_with_organization(organization=self.organization)
             task_id = str(
                 Task.objects.create(
@@ -974,6 +1046,11 @@ class TestResolveTurnSuggestion(APIBaseTest):
                     created_by=self.user,
                 ).id
             )
+        elif task_access == "read_only":
+            creator = User.objects.create_and_join(self.organization, "creator@example.com", "password")
+            with team_scope(self.team.id):
+                shared = Channel.objects.create(team=self.team, name="general", created_by=creator)
+            Task.objects.filter(id=self.task.id).update(channel=shared, created_by=creator)
 
         response, publish = self._resolve(task_id, turn_index, "accepted")
 

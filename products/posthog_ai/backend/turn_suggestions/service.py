@@ -22,14 +22,17 @@ from products.posthog_ai.backend.turn_suggestions.offer_ledger import (
     read_ledger,
     record_offer,
     resolve_offer,
+    withdraw_offer,
 )
 from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript, build_turn_transcript
 from products.posthog_ai.backend.turn_suggestions.verdict import OfferKind, TurnVerdict
 from products.signals.backend.facade.api import scout_creation_available
 from products.tasks.backend.facade.api import (
+    TaskClientProvenance,
+    get_task_run_log_urls,
     parse_task_run_log_entries,
     publish_task_run_stream_notification,
-    read_task_run_logs,
+    read_task_run_log_content,
     read_task_run_stream_entries,
 )
 from products.tasks.backend.models import Task, TaskRun
@@ -70,15 +73,21 @@ def _turn_suggestions_enabled(task_run: TaskRun) -> bool:
     )
 
 
+def _read_log_entries(log_urls: list[str]) -> list[dict]:
+    return list(parse_task_run_log_entries(read_task_run_log_content(log_urls))) if log_urls else []
+
+
 def _load_transcript(task_run: TaskRun) -> TurnTranscript:
-    """The live Redis stream has the whole current turn; the S3 log is the fallback once it expired."""
-    transcript = build_turn_transcript(read_task_run_stream_entries(task_run.id, task_run.task_id, task_run.team_id))
-    if transcript.human_messages:
-        return transcript
-    log_content = read_task_run_logs(task_run.id, task_run.task_id, task_run.team_id)
-    if not log_content:
-        return transcript
-    return build_turn_transcript(parse_task_run_log_entries(log_content))
+    """Fold the whole resume chain, because the thread counts turns across it.
+
+    Earlier runs come from their S3 logs. The current run comes from its live Redis stream, which
+    has the whole current turn, or from its own log once the stream expired.
+    """
+    log_urls = get_task_run_log_urls(task_run.id, task_run.task_id, task_run.team_id) or []
+    current_entries = read_task_run_stream_entries(task_run.id, task_run.task_id, task_run.team_id)
+    if not build_turn_transcript(current_entries).human_messages:
+        current_entries = _read_log_entries(log_urls[-1:])
+    return build_turn_transcript([*_read_log_entries(log_urls[:-1]), *current_entries])
 
 
 def _turn_has_substance(transcript: TurnTranscript) -> bool:
@@ -163,8 +172,8 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     if task.origin_product != Task.OriginProduct.POSTHOG_AI or task_run.mode != "interactive":
         return _skipped("not_posthog_ai_conversation")
     # Cards render only in the PostHog AI web app. Slack conversations carry the Slack origin and
-    # fail the check above; PostHog Desktop ones carry a client provenance.
-    if task.client_provenance:
+    # fail the check above; PostHog Desktop ones carry the Desktop client provenance.
+    if task.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP:
         return _skipped("not_started_in_web")
     if task.created_by is None:
         return _skipped("no_user")
@@ -195,21 +204,28 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
         return TurnSuggestionOutcome(status="failed", reason="classifier_failed")
 
     params = _suggestion_params(verdict, turn_index)
-    offer = verdict.offer.value if params is not None else None
-    # Publishing also appends to the run's S3 log, a rewrite of the whole log; the offer ledger is
-    # what keeps that to a couple of times per conversation.
-    emitted = params is not None and publish_task_run_stream_notification(
-        task_run.id, task_run.task_id, task_run.team_id, TURN_SUGGESTION_METHOD, params
-    )
-    _capture_classified(task_run, verdict, offer=offer, emitted=emitted, turn_index=turn_index)
     if params is None:
+        _capture_classified(task_run, verdict, offer=None, emitted=False, turn_index=turn_index)
         if verdict.picked != OfferKind.NONE:
             return TurnSuggestionOutcome(status="failed", reason="draft_failed")
         return _skipped(f"no_offer:{verdict.intent.value}")
+
+    offer = verdict.offer.value
+    # Record before publishing, so a next turn that completes while the frame is in flight already sees the card.
+    record_refusal = record_offer(task.id, task_run.team_id, run_id=task_run.id, turn_index=turn_index, kind=offer)
+    if record_refusal is not None:
+        _capture_classified(task_run, verdict, offer=offer, emitted=False, turn_index=turn_index)
+        return _skipped(record_refusal.value)
+    # Publishing also appends to the run's S3 log, a rewrite of the whole log; the offer ledger is
+    # what keeps that to a couple of times per conversation.
+    emitted = publish_task_run_stream_notification(
+        task_run.id, task_run.task_id, task_run.team_id, TURN_SUGGESTION_METHOD, params
+    )
+    _capture_classified(task_run, verdict, offer=offer, emitted=emitted, turn_index=turn_index)
     if not emitted:
+        withdraw_offer(task.id, task_run.team_id, turn_index=turn_index)
         return TurnSuggestionOutcome(status="failed", reason="publish_failed")
-    record_offer(task.id, task_run.team_id, run_id=task_run.id, turn_index=turn_index, kind=verdict.offer.value)
-    return TurnSuggestionOutcome(status="emitted", reason=verdict.offer.value)
+    return TurnSuggestionOutcome(status="emitted", reason=offer)
 
 
 def resolve_turn_suggestion(
@@ -218,7 +234,8 @@ def resolve_turn_suggestion(
     """Record a dismissed or accepted card and write the outcome into its run's stream.
 
     The stream frame is also appended to the run's log, so a reloaded thread replays it after the
-    card frame and keeps the card hidden. Returns ``False`` when that turn got no card.
+    card frame and keeps the card hidden. Returns ``False`` when that turn got no card or its card
+    was already resolved, and then publishes nothing.
     """
     offer = resolve_offer(task_id, team_id, turn_index=turn_index, resolution=resolution)
     if offer is None:

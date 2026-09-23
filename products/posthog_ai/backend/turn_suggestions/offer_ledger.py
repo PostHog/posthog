@@ -38,6 +38,7 @@ class ClaimRefusal(StrEnum):
     BUDGET_SPENT = "offer_budget_spent"
     FOLLOWS_AN_OFFER = "follows_an_offer"
     ALREADY_CLASSIFIED = "already_classified"
+    SUPERSEDED = "superseded"
     TASK_MISSING = "task_missing"
 
 
@@ -51,6 +52,15 @@ class OfferRecord:
     def to_json(self) -> dict[str, Any]:
         return {"turn_index": self.turn_index, "run_id": self.run_id, "kind": self.kind, "status": self.status.value}
 
+    @classmethod
+    def from_json(cls, raw: Any) -> "OfferRecord | None":
+        if not isinstance(raw, dict) or not isinstance(raw.get("turn_index"), int):
+            return None
+        run_id, kind, status = raw.get("run_id"), raw.get("kind"), raw.get("status")
+        if not isinstance(run_id, str) or not isinstance(kind, str) or status not in OfferStatus.values:
+            return None
+        return cls(turn_index=raw["turn_index"], run_id=run_id, kind=kind, status=OfferStatus(status))
+
 
 @frozen
 class OfferLedger:
@@ -62,16 +72,9 @@ class OfferLedger:
     def from_json(cls, raw: Any) -> "OfferLedger":
         if not isinstance(raw, dict):
             return cls()
-        offers = tuple(
-            OfferRecord(
-                turn_index=entry["turn_index"],
-                run_id=str(entry["run_id"]),
-                kind=str(entry["kind"]),
-                status=OfferStatus(entry["status"]),
-            )
-            for entry in raw.get("offers", [])
-            if isinstance(entry, dict) and isinstance(entry.get("turn_index"), int)
-        )
+        raw_offers = raw.get("offers")
+        parsed = (OfferRecord.from_json(entry) for entry in raw_offers) if isinstance(raw_offers, list) else ()
+        offers = tuple(offer for offer in parsed if offer is not None)
         last_classified_turn = raw.get("last_classified_turn")
         return cls(
             offers=offers,
@@ -115,7 +118,7 @@ def claim_turn(task_id: UUID | str, team_id: int, turn_index: int) -> ClaimRefus
         ledger = OfferLedger.from_json(raw)
         refusal = ledger.refusal(turn_index)
         if refusal is not None:
-            return ledger.to_json(), refusal
+            return raw, refusal
         return replace(ledger, last_classified_turn=turn_index).to_json(), True
 
     result = update_task_state_entry(task_id, team_id, STATE_KEY, claim)
@@ -124,14 +127,41 @@ def claim_turn(task_id: UUID | str, team_id: int, turn_index: int) -> ClaimRefus
     return None if result is True else result
 
 
-def record_offer(task_id: UUID | str, team_id: int, *, run_id: UUID | str, turn_index: int, kind: str) -> None:
+def record_offer(
+    task_id: UUID | str, team_id: int, *, run_id: UUID | str, turn_index: int, kind: str
+) -> ClaimRefusal | None:
+    """Record the card of ``turn_index`` before it is published, or say why it must not be.
+
+    A later turn that claimed classification while this one was drafting supersedes it. The card
+    would arrive under a turn the thread already moved past, and it must not hold back the card of
+    the later turn. The check shares the row lock with ``claim_turn``, so of two consecutive turns
+    only one gets a card.
+    """
     offer = OfferRecord(turn_index=turn_index, run_id=str(run_id), kind=kind, status=OfferStatus.OFFERED)
 
-    def append(raw: Any) -> tuple[Any, None]:
+    def append(raw: Any) -> tuple[Any, ClaimRefusal | Literal[True]]:
         ledger = OfferLedger.from_json(raw)
-        return replace(ledger, offers=(*ledger.offers, offer)).to_json(), None
+        if ledger.last_classified_turn != turn_index:
+            return raw, ClaimRefusal.SUPERSEDED
+        return replace(ledger, offers=(*ledger.offers, offer)).to_json(), True
 
-    update_task_state_entry(task_id, team_id, STATE_KEY, append)
+    result = update_task_state_entry(task_id, team_id, STATE_KEY, append)
+    if result is None:
+        return ClaimRefusal.TASK_MISSING
+    return None if result is True else result
+
+
+def withdraw_offer(task_id: UUID | str, team_id: int, *, turn_index: int) -> None:
+    """Drop the recorded card of ``turn_index`` when it never reached the thread, so it spends no budget."""
+
+    def remove(raw: Any) -> tuple[Any, None]:
+        ledger = OfferLedger.from_json(raw)
+        offers = tuple(offer for offer in ledger.offers if offer.turn_index != turn_index)
+        if len(offers) == len(ledger.offers):
+            return raw, None
+        return replace(ledger, offers=offers).to_json(), None
+
+    update_task_state_entry(task_id, team_id, STATE_KEY, remove)
 
 
 def resolve_offer(
@@ -139,15 +169,16 @@ def resolve_offer(
 ) -> OfferRecord | None:
     """Record what the user did with the card of ``turn_index``. A dismissal mutes the conversation.
 
-    Returns the updated offer, or ``None`` when that turn got no card.
+    Returns the updated offer, or ``None`` when that turn got no card or its card was already
+    resolved. The first outcome stands, so a dismissal from another tab cannot overwrite an accept.
     """
     status = OfferStatus(resolution.value)
 
     def resolve(raw: Any) -> tuple[Any, OfferRecord | None]:
         ledger = OfferLedger.from_json(raw)
         target = next((offer for offer in ledger.offers if offer.turn_index == turn_index), None)
-        if target is None:
-            return ledger.to_json(), None
+        if target is None or target.status != OfferStatus.OFFERED:
+            return raw, None
         resolved = replace(target, status=status)
         offers = tuple(resolved if offer is target else offer for offer in ledger.offers)
         muted = ledger.muted or status == OfferStatus.DISMISSED

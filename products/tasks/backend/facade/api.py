@@ -711,18 +711,24 @@ def update_task_state_entry(
     """Row-locked read-modify-write of one key in the task's shared state bag.
 
     ``update`` gets the current value (``None`` when unset) and returns the value to store and a
-    result for the caller. The lock keeps concurrent writers of other keys from clobbering each
-    other. Returns ``None`` without calling ``update`` when the task does not exist.
+    result for the caller. Returning the current value unchanged skips the write. The lock keeps
+    concurrent writers of other keys from clobbering each other. Returns ``None`` without calling
+    ``update`` when the task does not exist.
     """
     with transaction.atomic():
-        task = Task.objects.select_for_update().only("id", "state").filter(id=task_id, team_id=team_id).first()
+        # NO KEY UPDATE does not block the KEY SHARE lock that task run writes take on this row.
+        task = (
+            Task.objects.select_for_update(no_key=True).only("id", "state").filter(id=task_id, team_id=team_id).first()
+        )
         if task is None:
             return None
         state = dict(task.state or {})
-        value, result = update(state.get(key))
-        state[key] = value
-        task.state = state
-        task.save(update_fields=["state", "updated_at"])
+        current = state.get(key)
+        value, result = update(current)
+        if value != current:
+            state[key] = value
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
     return result
 
 

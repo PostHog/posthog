@@ -85597,7 +85597,7 @@ export namespace Schemas {
     }
 
     export interface ResolveTurnSuggestionResponse {
-      /** Whether a suggestion card existed for that turn and its outcome was recorded. */
+      /** Whether a suggestion card existed for that turn and this call recorded its outcome. A card keeps the first outcome recorded for it. */
       recorded: boolean;
     }
 

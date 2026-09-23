@@ -5,6 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { turnSuggestionsResolveCreate } from '../generated/api'
 import type { StoredLogEntry } from '../types/wireTypes'
 import { runStreamLogic } from './runStreamLogic'
+import { suggestionActionLogic } from './suggestionActionLogic'
 import { turnSuggestionLogic } from './turnSuggestionLogic'
 
 jest.mock('../generated/api', () => ({
@@ -40,15 +41,21 @@ describe('turnSuggestionLogic', () => {
 
     afterEach(() => {
         jest.useRealTimers()
+        jest.mocked(turnSuggestionsResolveCreate).mockClear()
     })
 
-    it('reveals after the delay, hides on dismiss, mutes the rest of the conversation and records the dismissal', async () => {
+    async function mountStreamWithSuggestion(): Promise<ReturnType<typeof runStreamLogic.build>> {
         const stream = runStreamLogic({ streamKey: STREAM_KEY })
         stream.mount()
         await expectLogic(stream, () => {
             stream.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'How many signups?' }))
             stream.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', SUGGESTION))
         }).toFinishAllListeners()
+        return stream
+    }
+
+    it('reveals after the delay, hides on dismiss, mutes the rest of the conversation and records the dismissal', async () => {
+        const stream = await mountStreamWithSuggestion()
 
         // Fake timers only around the reveal: expectLogic waits on real timers.
         jest.useFakeTimers()
@@ -74,5 +81,22 @@ describe('turnSuggestionLogic', () => {
             turn_index: 0,
             resolution: 'dismissed',
         })
+    })
+
+    it('records no accept when the accept skipped the create', async () => {
+        const stream = await mountStreamWithSuggestion()
+        const card = { streamKey: STREAM_KEY, turnIndex: 0, sessionId: 'task', revealDelayMs: 0 }
+        const logic = suggestionActionLogic(card)
+        logic.mount()
+        expect(logic.values.acceptDisabledReason).not.toBeNull()
+
+        await expectLogic(logic, () => {
+            logic.actions.accept()
+        }).toFinishAllListeners()
+
+        expect(logic.values.accepted).toBeNull()
+        expect(turnSuggestionLogic(card).values.completed).toBe(false)
+        expect(stream.values.turnSuggestionAcceptedHere).toBeNull()
+        expect(turnSuggestionsResolveCreate).not.toHaveBeenCalled()
     })
 })

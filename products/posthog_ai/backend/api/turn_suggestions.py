@@ -28,7 +28,7 @@ class ResolveTurnSuggestionSerializer(serializers.Serializer):
 
 class ResolveTurnSuggestionResponseSerializer(serializers.Serializer):
     recorded = serializers.BooleanField(
-        help_text="Whether a suggestion card existed for that turn and its outcome was recorded."
+        help_text="Whether a suggestion card existed for that turn and this call recorded its outcome. A card keeps the first outcome recorded for it."
     )
 
 
@@ -43,7 +43,8 @@ class TurnSuggestionsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(detail=False, methods=["post"], required_scopes=["task:write"])
     def resolve(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         task_id = str(request.validated_data["task_id"])
-        if not task_visible(task_id, self.team_id, request.user.id):
+        # A dismissal mutes the conversation for its creator, so a teammate who can only read it must not resolve cards.
+        if not task_visible(task_id, self.team_id, request.user.id, for_control=True):
             raise NotFound()
         recorded = resolve_turn_suggestion(
             task_id,

@@ -64,6 +64,9 @@ export interface suggestionActionLogicActions {
     markCompleted: () => {
         value: true
     } // turnSuggestionLogic
+    markTurnSuggestionAccepted: (turnIndex: number) => {
+        turnIndex: number
+    } // runStreamLogic
     accept: () => any
     acceptFailure: (
         error: string,
@@ -147,7 +150,12 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
             userLogic,
             ['user'],
         ],
-        actions: [turnSuggestionLogic(props), ['markCompleted']],
+        actions: [
+            turnSuggestionLogic(props),
+            ['markCompleted'],
+            runStreamLogic({ streamKey: props.streamKey }),
+            ['markTurnSuggestionAccepted'],
+        ],
     })),
     actions({
         setCadence: (cadence: ScoutSuggestionCadence) => ({ cadence }),
@@ -261,7 +269,12 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        acceptSuccess: () => {
+        acceptSuccess: ({ accepted }) => {
+            // The loader also succeeds with nothing when it skipped the create, which is not an accept.
+            if (!accepted) {
+                return
+            }
+            actions.markTurnSuggestionAccepted(props.turnIndex)
             actions.markCompleted()
             recordTurnSuggestionResolution(values.currentProjectId, props, 'accepted')
         },
