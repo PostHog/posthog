@@ -69,8 +69,8 @@ pub fn fold_classic_histograms(
         let parts = groups.entry(key).or_default();
         match component {
             HistogramComponent::Bucket(le) => parts.buckets.push((le, row.value, index)),
-            HistogramComponent::Count => parts.count = Some((row.value, index)),
-            HistogramComponent::Sum => parts.sum = Some((row.value, index)),
+            HistogramComponent::Count => parts.counts.push((row.value, index)),
+            HistogramComponent::Sum => parts.sums.push((row.value, index)),
         }
     }
 
@@ -81,16 +81,16 @@ pub fn fold_classic_histograms(
         let Some(histogram) = assemble_histogram(parts) else {
             continue;
         };
-        let Some((_, sum_index)) = parts.sum else {
+        let Some((_, sum_index)) = parts.sums.last() else {
             continue;
         };
         for (_, _, index) in &parts.buckets {
             consumed[*index] = true;
         }
-        for (_, index) in [parts.count, parts.sum].into_iter().flatten() {
-            consumed[index] = true;
+        for (_, index) in parts.counts.iter().chain(&parts.sums) {
+            consumed[*index] = true;
         }
-        let sum_row = &rows[sum_index];
+        let sum_row = &rows[*sum_index];
         let resource_attributes: HashMap<String, String> =
             key.resource_attributes.iter().cloned().collect();
         let attributes: HashMap<String, String> = key.attributes.iter().cloned().collect();
@@ -251,8 +251,8 @@ struct HistogramKey {
 #[derive(Default)]
 struct HistogramParts {
     buckets: Vec<(f64, f64, usize)>,
-    count: Option<(f64, usize)>,
-    sum: Option<(f64, usize)>,
+    counts: Vec<(f64, usize)>,
+    sums: Vec<(f64, usize)>,
 }
 
 struct AssembledHistogram {
@@ -276,7 +276,10 @@ fn sorted_pairs(map: &HashMap<String, String>, skip: Option<&str>) -> Vec<(Strin
 /// Bucket values must be non-negative integers that do not decrease. A present
 /// `_count` value must equal the `+Inf` bucket value.
 fn assemble_histogram(parts: &HistogramParts) -> Option<AssembledHistogram> {
-    let (sum, _) = parts.sum?;
+    let (sum, _) = *parts.sums.last()?;
+    if parts.sums.iter().any(|(value, _)| *value != sum) {
+        return None;
+    }
     let mut buckets: Vec<(f64, f64)> = parts
         .buckets
         .iter()
@@ -294,10 +297,8 @@ fn assemble_histogram(parts: &HistogramParts) -> Option<AssembledHistogram> {
     if !(last_le.is_infinite() && last_le > 0.0) {
         return None;
     }
-    if let Some((count, _)) = parts.count {
-        if count != total_value {
-            return None;
-        }
+    if parts.counts.iter().any(|(count, _)| *count != total_value) {
+        return None;
     }
     let total = integral_count(total_value)?;
     let mut bounds = Vec::with_capacity(buckets.len() - 1);

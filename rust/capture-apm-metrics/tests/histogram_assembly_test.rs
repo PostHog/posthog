@@ -118,6 +118,37 @@ fn folds_complete_classic_histogram_into_one_native_row() {
 }
 
 #[test]
+fn equivalent_duplicate_components_fold_into_one_native_row() {
+    let timestamp = now_ms();
+    let route = &[("route", "/cart")];
+    let rows = fold(WriteRequest {
+        timeseries: vec![
+            bucket("d", route, "+Inf", vec![sample(10.0, timestamp)]),
+            labelled(
+                "d_count",
+                route,
+                vec![sample(10.0, timestamp), sample(10.0, timestamp)],
+            ),
+            labelled(
+                "d_sum",
+                route,
+                vec![sample(12.5, timestamp), sample(12.5, timestamp)],
+            ),
+        ],
+        metadata: vec![],
+    });
+
+    assert_eq!(
+        rows.len(),
+        1,
+        "duplicate components must not remain: {rows:?}"
+    );
+    assert_eq!(rows[0].metric_type, "histogram");
+    assert_eq!(rows[0].count, 10);
+    assert_eq!(rows[0].value, 12.5);
+}
+
+#[test]
 fn folded_histogram_shares_identity_with_the_otlp_path() {
     let timestamp = now_ms();
     let mut request = complete_histogram_request(timestamp);
@@ -321,6 +352,45 @@ fn inconsistent_histograms_stay_plain_rows() {
     ] {
         let rows = fold(request);
         assert!(!rows.is_empty(), "{name}");
+        assert_eq!(plain_rows(&rows).len(), rows.len(), "{name}: {rows:?}");
+    }
+
+    for (name, count_values, sum_values) in [
+        (
+            "conflicting duplicate count",
+            &[11.0, 10.0][..],
+            &[12.5][..],
+        ),
+        ("conflicting duplicate sum", &[10.0][..], &[13.5, 12.5][..]),
+    ] {
+        let rows = fold(WriteRequest {
+            timeseries: vec![
+                bucket("d", route, "+Inf", vec![sample(10.0, timestamp)]),
+                labelled(
+                    "d_count",
+                    route,
+                    count_values
+                        .iter()
+                        .map(|value| sample(*value, timestamp))
+                        .collect(),
+                ),
+                labelled(
+                    "d_sum",
+                    route,
+                    sum_values
+                        .iter()
+                        .map(|value| sample(*value, timestamp))
+                        .collect(),
+                ),
+            ],
+            metadata: vec![],
+        });
+
+        assert_eq!(
+            rows.len(),
+            1 + count_values.len() + sum_values.len(),
+            "{name}: {rows:?}"
+        );
         assert_eq!(plain_rows(&rows).len(), rows.len(), "{name}: {rows:?}");
     }
 }
