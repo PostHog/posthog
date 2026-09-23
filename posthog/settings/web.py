@@ -42,6 +42,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
     "products.ai_training.backend.apps.AiTrainingConfig",
+    "products.ml_inference.backend.apps.MlInferenceConfig",
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",

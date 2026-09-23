@@ -20,7 +20,13 @@ from posthog.models.integration import Integration, is_supported_external_issue_
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
-from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
+from products.signals.backend.contracts import (
+    DEFAULT_NOT_ACTIONABLE_KEY,
+    SCOPE_CONFIG_KEYS,
+    STEERING_KEY,
+    STEERING_MAX_LENGTH,
+    scope_ids_problem,
+)
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
@@ -148,7 +154,11 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "Other sources store these keys without reading them yet; future pipeline stages will consume "
     "the same steering text. "
     "Some sources read additional keys, for example `recording_filters` and `sample_rate` for "
-    "session analysis."
+    "session analysis. "
+    "The Linear issue source (`source_product=linear`, `source_type=issue`) reads "
+    "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
+    "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
+    "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
 )
 
 
@@ -259,6 +269,14 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     )
             if DEFAULT_NOT_ACTIONABLE_KEY in config and not isinstance(config[DEFAULT_NOT_ACTIONABLE_KEY], bool):
                 raise serializers.ValidationError({"config": "default_not_actionable must be a boolean"})
+            scope_key = SCOPE_CONFIG_KEYS.get((source_product, source_type)) if source_product and source_type else None
+            if scope_key is not None and scope_key in config:
+                problem = scope_ids_problem(config[scope_key])
+                if problem is not None:
+                    raise serializers.ValidationError({"config": f"{scope_key} {problem}"})
+                # Stored stripped: emission matches these ids exactly, so a pasted id with a
+                # stray space would select a scope and then read nothing.
+                config[scope_key] = [scope_id.strip() for scope_id in config[scope_key]]
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
