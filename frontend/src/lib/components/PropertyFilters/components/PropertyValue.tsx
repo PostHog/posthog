@@ -140,10 +140,17 @@ export function PropertyValue({
     // options jumping around as the user types, we keep the initially loaded options
     // in state and show those first, then any new options based on user input after
     const [initialSuggestedValues, setInitialSuggestedValues] = useState<{
+        // The property these values were loaded for. The reset effect below runs after the render
+        // that changes `propertyKey`, so a reader must compare the key to know they are stale.
+        propertyKey: string
         set: Set<string>
         orderedKeys: string[]
-    }>({ set: new Set(), orderedKeys: [] })
+    }>({ propertyKey, set: new Set(), orderedKeys: [] })
     const currentSearchInput = useRef<string>('')
+    // Every value the suggestion list has offered for this property. A search replaces the
+    // loaded values, but the dropdown can still show the older list, so a value the user
+    // clicks is not always among the ones loaded now.
+    const offeredValues = useRef<Set<string>>(new Set())
 
     const hasStaticValues = !!staticValues
     const load = useCallback(
@@ -217,22 +224,25 @@ export function PropertyValue({
             setInitialSuggestedValues((prev) => {
                 // Merge new keys into existing ones so that values already shown are never removed
                 // from under the user's cursor when a background refresh arrives with a different list.
-                const merged = [...prev.orderedKeys]
-                const existingSet = new Set(prev.orderedKeys)
+                // Values held for a different property are dropped instead of merged.
+                const isSameProperty = prev.propertyKey === propertyKey
+                const merged = isSameProperty ? [...prev.orderedKeys] : []
+                const existingSet = new Set(merged)
                 for (const key of newKeys) {
                     if (!existingSet.has(key)) {
                         merged.push(key)
                         existingSet.add(key)
                     }
                 }
-                return { set: existingSet, orderedKeys: merged }
+                return { propertyKey, set: existingSet, orderedKeys: merged }
             })
         }
-    }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput])
+    }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput, propertyKey])
 
-    // reset initial suggested values when propertyKey changes
+    // reset the suggested and offered values when propertyKey changes
     useEffect(() => {
-        setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
+        setInitialSuggestedValues({ propertyKey, set: new Set(), orderedKeys: [] })
+        offeredValues.current = new Set()
     }, [propertyKey])
 
     // show suggested values first, then any other available options that aren't in the suggested list
@@ -241,7 +251,9 @@ export function PropertyValue({
             return staticValues
         }
         const options = propertyOptions?.values || []
-        if (initialSuggestedValues.set.size === 0) {
+        // Stale values must not become options, because the offered set below would then keep
+        // them and count them as suggestions of the new property.
+        if (initialSuggestedValues.propertyKey !== propertyKey || initialSuggestedValues.set.size === 0) {
             return options
         }
 
@@ -271,7 +283,13 @@ export function PropertyValue({
         }
 
         return [...suggestedOptions, ...otherOptions]
-    }, [propertyOptions?.values, initialSuggestedValues, staticValues])
+    }, [propertyOptions?.values, initialSuggestedValues, staticValues, propertyKey])
+
+    useEffect(() => {
+        for (const option of displayOptions) {
+            offeredValues.current.add(toString(option.name))
+        }
+    }, [displayOptions])
 
     const onSearchTextChange = (newInput: string): void => {
         const trimmedInput = newInput.trim()
@@ -483,12 +501,18 @@ export function PropertyValue({
                 }
                 onChange={(nextVal) => {
                     // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
-                    // doesn't silently break the filter — the snack display hides the space.
+                    // doesn't silently break the filter — the snack display hides the space. Only
+                    // what the user just typed or pasted is trimmed: a suggested value, and one
+                    // already committed, can end in a space, and flag evaluation matches exactly.
                     // Skip regex operators, where leading/trailing whitespace can be a meaningful
                     // part of the pattern (e.g. `^ foo`, `bar $`).
                     const trimmedVal = isOperatorRegex(operator)
                         ? nextVal
-                        : nextVal.map((v) => (typeof v === 'string' ? v.trim() : v))
+                        : nextVal.map((v) =>
+                              typeof v === 'string' && !offeredValues.current.has(v) && !formattedValues.includes(v)
+                                  ? v.trim()
+                                  : v
+                          )
                     const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
                     if (newValues.length > 0) {
                         const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
