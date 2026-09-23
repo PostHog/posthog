@@ -327,11 +327,13 @@ class Command(BaseCommand):
             self._retire_orphaned_companions(eligible)
 
             self.stdout.write("5/6 setting cdc_ingest_mode=legacy")
-            # `cdc_buffered_before` is set here as well as on the flip, so a source flipped before
-            # this marker existed still carries it once it rolls back — which is the population that
-            # would otherwise be refused a second flip over a `_ph_cdc_seq` column the buffered lane
-            # wrote itself.
-            self._write_job_inputs(source, cdc_ingest_mode="legacy", cdc_buffered_before=True)
+            # `cdc_buffered_before` is set here as well as on the flip, on the source and on each
+            # served table: a source that started buffered, or was flipped before these markers
+            # existed, would otherwise be refused a second flip over a `_ph_cdc_seq` column the
+            # buffered lane wrote itself.
+            with transaction.atomic():
+                self._write_job_inputs(source, cdc_ingest_mode="legacy", cdc_buffered_before=True)
+                self._mark_buffered_before(eligible)
         except BaseException:
             # The mode is still buffered, so the schemas go back to consuming the buffer, which is
             # what they were doing before this command ran. Leaving them paused instead would stop

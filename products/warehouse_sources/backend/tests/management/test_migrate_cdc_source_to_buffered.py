@@ -271,13 +271,16 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         # source that would otherwise be refused its next flip.
         source = self._source(ingest_mode="buffered")
         self._schema(source, "users")
+        history = self._schema(source, "events", table_mode="cdc_only")
 
         with _mocked_side_effects():
             self._run(source, rollback=True)
 
         source.refresh_from_db()
+        history.refresh_from_db()
         assert source.job_inputs["cdc_ingest_mode"] == "legacy"
         assert source.job_inputs["cdc_buffered_before"]
+        assert history.sync_type_config["cdc_buffered_before"] is True
 
     def test_rollback_restores_schedules_even_when_the_extraction_unpause_fails(self):
         # The per-schema restore runs before the single Temporal call that unpauses extraction, so

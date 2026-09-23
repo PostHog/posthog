@@ -11595,6 +11595,7 @@ class TestRepairCDC(APIBaseTest):
             source_id=source.pk,
             sync_type=ExternalDataSchema.SyncType.CDC,
             should_sync=False,
+            initial_sync_complete=True,
             sync_type_config={"cdc_mode": "streaming"},
         )
         non_cdc_schema = ExternalDataSchema.objects.create(
