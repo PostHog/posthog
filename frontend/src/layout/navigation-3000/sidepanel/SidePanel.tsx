@@ -14,6 +14,10 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 const NotebookPanel = lazyWithRetry(() =>
     import('scenes/notebooks/NotebookPanel/NotebookPanel').then((m) => ({ default: m.NotebookPanel }))
 )
+// The support panel renders the ticket editor, which pulls in tiptap extensions and lowlight.
+const SidePanelSupport = lazyWithRetry(() =>
+    import('./panels/support/SidePanelSupport').then((m) => ({ default: m.SidePanelSupport }))
+)
 
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 
@@ -31,7 +35,6 @@ import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussio
 import { SidePanelExports, SidePanelExportsIcon } from './panels/exports/SidePanelExports'
 import { SidePanelInfo, SidePanelInfoIcon } from './panels/info/SidePanelInfo'
 import { SidePanelMax } from './panels/max/SidePanelMax'
-import { SidePanelSupport } from './panels/support/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
 import { SidePanelNavigation } from './SidePanelNavigation'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
