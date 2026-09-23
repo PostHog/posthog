@@ -26,8 +26,10 @@ from products.data_catalog.backend.temporal.weekly_digest.activities import (
     _send_digest_for_user,
 )
 from products.data_catalog.backend.temporal.weekly_digest.email_context import (
+    MAX_PROJECT_SECTIONS,
     build_project_section,
     build_subject,
+    build_template_context,
     catalog_url,
 )
 from products.data_catalog.backend.temporal.weekly_digest.types import (
@@ -55,6 +57,15 @@ def _review(team: Team, metrics: int = 2, certifications: int = 1) -> TeamPendin
         team_name=team.name,
         groups=groups,
         total=metrics + certifications,
+    )
+
+
+def _pending_metrics(team_id: int, count: int, sample_names: list[str], team_name: str = "Acme") -> TeamPendingReview:
+    return TeamPendingReview(
+        team_id=team_id,
+        team_name=team_name,
+        groups=[PendingGroup(kind=PendingKind.METRICS, noun="metric", count=count, sample_names=sample_names)],
+        total=count,
     )
 
 
@@ -87,6 +98,29 @@ class TestEmailContext(SimpleTestCase):
         assert "tab=relationships" in section["review_url"]
         assert section["rows"][0]["omitted_count"] == 0
         assert section["rows"][1]["omitted_count"] == 8
+
+    def test_url_shaped_names_never_reach_the_email(self) -> None:
+        review = _pending_metrics(
+            team_id=7, count=3, sample_names=["revenue", "https://phishing.example"], team_name="www.phishing.example"
+        )
+
+        section = build_project_section(review)
+
+        assert section["team_name"] == "Your project"
+        assert section["rows"][0]["sample_names"] == ["revenue"]
+        assert section["rows"][0]["omitted_count"] == 2
+
+    def test_lists_the_busiest_projects_and_counts_the_rest(self) -> None:
+        counts = range(1, MAX_PROJECT_SECTIONS + 2)
+        reviews = [_pending_metrics(team_id=count, count=count, sample_names=[]) for count in counts]
+
+        context = build_template_context(Organization(name="Acme"), reviews)
+
+        assert [section["total"] for section in context["project_sections"]] == sorted(counts, reverse=True)[
+            :MAX_PROJECT_SECTIONS
+        ]
+        assert context["omitted_project_count"] == 1
+        assert context["total"] == sum(counts)
 
 
 class TestSendDigestForUser(APIBaseTest):

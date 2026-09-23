@@ -29,7 +29,7 @@ from posthog.user_permissions import UserPermissions
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ...logic.pending_review import TeamPendingReview, build_org_pending_reviews
-from .email_context import build_project_section, build_subject, settings_url
+from .email_context import build_subject, build_template_context
 from .types import (
     DATA_CATALOG_DIGEST_EMAIL_UNAVAILABLE_TYPE,
     DataCatalogWeeklyDigestInput,
@@ -163,8 +163,7 @@ def _send_digest_for_user(
     if dry_run:
         return DigestOutcome.DRY_RUN
 
-    accessible.sort(key=lambda review: review.total, reverse=True)
-    total = sum(review.total for review in accessible)
+    template_context = build_template_context(org, accessible)
 
     campaign_key = f"data_catalog_weekly_digest_{org.id}_{user.uuid}_{date_suffix}"
     if test:
@@ -173,14 +172,9 @@ def _send_digest_for_user(
     try:
         message = EmailMessage(
             campaign_key=campaign_key,
-            subject=build_subject(total),
+            subject=build_subject(template_context["total"]),
             template_name=EMAIL_TEMPLATE_NAME,
-            template_context={
-                "organization": org,
-                "total": total,
-                "project_sections": [build_project_section(review) for review in accessible],
-                "settings_url": settings_url(),
-            },
+            template_context=template_context,
         )
         message.add_user_recipient(user)
         message.send()
@@ -232,9 +226,11 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
         return counts
 
     build_start = time.monotonic()
-    reviews = build_org_pending_reviews(list(teams_by_id.values()))
+    build = build_org_pending_reviews(list(teams_by_id.values()))
     counts.build_duration = time.monotonic() - build_start
-    counts.team_count = len(reviews)
+    counts.team_count = len(build.reviews)
+    counts.teams_failed = len(build.failed_team_ids)
+    reviews = build.reviews
 
     if not reviews:
         counts.skipped_reason = "nothing_pending"
@@ -283,6 +279,7 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
         skipped_no_data=counts.skipped_no_data,
         failed=counts.failed,
         team_count=counts.team_count,
+        teams_failed=counts.teams_failed,
     )
     return counts
 
@@ -310,6 +307,7 @@ def _run_digest_batch(input: DigestBatchInput) -> DigestBatchResult:
         totals.emails_skipped_optout += org_counts.skipped_optout
         totals.emails_skipped_no_data += org_counts.skipped_no_data
         totals.emails_failed += org_counts.failed
+        totals.teams_failed += org_counts.teams_failed
         totals.build_duration += org_counts.build_duration
         totals.send_duration += org_counts.send_duration
 
@@ -370,6 +368,13 @@ def _push_digest_metrics(totals: DigestBatchResult, success: bool) -> None:
             ]:
                 emails_gauge.labels(outcome=outcome).set(value)
 
+            teams_failed_gauge = Gauge(
+                "posthog_data_catalog_digest_teams_failed",
+                "Projects whose pending review could not be built in a data catalog digest run",
+                registry=registry,
+            )
+            teams_failed_gauge.set(totals.teams_failed)
+
             success_gauge = Gauge(
                 "posthog_data_catalog_digest_success",
                 "1 if the data catalog digest run completed within failure threshold, else 0",
@@ -425,7 +430,7 @@ def _send_test_digest(email: str) -> None:
         teams_by_id = _project_teams(str(org.id))
         if not teams_by_id:
             continue
-        reviews = build_org_pending_reviews(list(teams_by_id.values()))
+        reviews = build_org_pending_reviews(list(teams_by_id.values())).reviews
         if not reviews:
             continue
         outcome = _send_digest_for_user(

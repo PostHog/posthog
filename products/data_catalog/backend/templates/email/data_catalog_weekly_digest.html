@@ -93,6 +93,14 @@
             </div>
         </div>
     {% endfor %}
+    {% if omitted_project_count %}
+        <p style="font-size: 0.9em;
+                  color: #6b7280;
+                  margin: 0 0 24px 0;
+                  text-align: center">
+            {{ omitted_project_count }} more project{{ omitted_project_count|pluralize }} also {{ omitted_project_count|pluralize:"has,have" }} items waiting for review.
+        </p>
+    {% endif %}
     <div style="margin-bottom: 16px; text-align: center;">
         <a href="{{ settings_url }}"
            style="color: #6b7280;
