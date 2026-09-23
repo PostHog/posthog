@@ -2,7 +2,6 @@ from typing import cast
 
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
-from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Upper
 
 from posthog.models.activity_logging.activity_log import (
@@ -49,18 +48,6 @@ class Comment(UUIDTModel, RootTeamMixin):
     )
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                models.F("team_id"),
-                models.F("item_id"),
-                KeyTextTransform("workflow_dispatch_key", "item_context"),
-                condition=models.Q(
-                    scope="conversations_ticket",
-                    item_context__workflow_dispatch_key__isnull=False,
-                ),
-                name="posthog_comment_workflow_dispatch_uniq",
-            )
-        ]
         indexes = [
             models.Index(fields=["team_id", "scope", "item_id"]),
             # Optimized for conversations polling: filters deleted=False, orders by -created_at

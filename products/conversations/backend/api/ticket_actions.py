@@ -11,7 +11,7 @@ import re
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models.functions import Substr
 from django.utils import timezone
 
@@ -632,7 +632,14 @@ def handle_ticket_message(request: Request, team: Team, ticket_id: str | uuid.UU
         item_context=item_context,
         idempotency_key=idempotency_key,
     )
-    guarded = create_deduplicated(fingerprint, create_comment)
+    # Redis fails open, so serialize the persisted-match check and insert in Postgres too.
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                [f"conversations-workflow-message:{team.id}:{idempotency_key}"],
+            )
+        guarded = create_deduplicated(fingerprint, create_comment)
     comment = guarded.comment
     if guarded.outcome is CreateOutcome.CONFLICT or comment is None:
         return Response({"error": REPLY_IN_PROGRESS_DETAIL}, status=status.HTTP_409_CONFLICT)
