@@ -527,6 +527,9 @@ tools:
     notebooks-widget-snapshot-frame:
         operation: notebooks_widget_snapshot_frame
         enabled: false
+    notebooks-widget-snapshot-publish:
+        operation: notebooks_widget_snapshot_publish
+        enabled: false
     notebooks-widget-snapshot-retrieve:
         operation: notebooks_widget_snapshot_retrieve
         enabled: false
