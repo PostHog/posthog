@@ -21,30 +21,27 @@ from products.signals.backend.models import SignalReportArtefact, SignalReportSu
 logger = structlog.get_logger(__name__)
 
 
+# A tie needs at most a handful of rows, and a report's reviewer history is short, so reading the
+# newest few and grouping in Python costs one query where a timestamp lookup would cost two.
+_TIE_SCAN_LIMIT = 20
+
+
 def _current_reviewer_artefacts(team_id: int, report_id: str) -> list[SignalReportArtefact]:
     """The report's live reviewer artefacts: the newest row, plus any row written at the same
     instant. The predicate this replaces ("no newer row of this type exists") also kept every row
     at the maximum timestamp, so a tie must stay a union rather than become a pick.
     """
-    newest = (
+    newest_first = list(
         SignalReportArtefact.objects.filter(
             team_id=team_id,
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-        )
-        .order_by("-created_at")
-        .first()
+        ).order_by("-created_at")[:_TIE_SCAN_LIMIT]
     )
-    if newest is None:
+    if not newest_first:
         return []
-    return list(
-        SignalReportArtefact.objects.filter(
-            team_id=team_id,
-            report_id=report_id,
-            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            created_at=newest.created_at,
-        )
-    )
+    latest = newest_first[0].created_at
+    return [artefact for artefact in newest_first if artefact.created_at == latest]
 
 
 def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSuggestedReviewer]:
