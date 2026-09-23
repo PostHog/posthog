@@ -213,7 +213,9 @@ class PostgresCDCAdapter:
         # customer-owned publication) don't match the predicate and re-raise immediately.
         consistent_point = _retry_on_connection_dropped(_recreate, _retry_logger)
 
-        return {"cdc_consistent_point": consistent_point}
+        # Every schema is reset to snapshot before this runs, so no change from the dead slot is owed
+        # to the legacy lane: the new slot starts on the buffer, as a new source does.
+        return {"cdc_consistent_point": consistent_point, "cdc_ingest_mode": "buffered"}
 
     def setup_resources(
         self,
@@ -239,6 +241,9 @@ class PostgresCDCAdapter:
             "cdc_management_mode": management_mode,
             "cdc_slot_name": slot_name,
             "cdc_publication_name": pub_name,
+            # Written with the slot, before capture first runs, so no change reaches the buffer that a
+            # legacy batch already delivered.
+            "cdc_ingest_mode": "buffered",
         }
 
         if management_mode == "posthog":

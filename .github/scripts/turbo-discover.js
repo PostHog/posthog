@@ -174,7 +174,9 @@ const DJANGO_MIN_SHARDS = 3
 const DJANGO_MAX_SHARDS = 50
 
 const TURBO_EXEC_OPTS = { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 50 * 1024 * 1024 }
-const TURBO_BIN = './node_modules/.bin/turbo'
+// CI puts turbo on PATH without installing the workspace. A local checkout has it installed.
+const LOCAL_TURBO_BIN = './node_modules/.bin/turbo'
+const TURBO_BIN = fs.existsSync(LOCAL_TURBO_BIN) ? LOCAL_TURBO_BIN : 'turbo'
 
 function runTurbo(args) {
     return execFileSync(TURBO_BIN, args, TURBO_EXEC_OPTS)

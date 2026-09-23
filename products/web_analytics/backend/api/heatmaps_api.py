@@ -248,6 +248,17 @@ def parse_fold_summary_row(row: Any) -> dict[str, Any]:
     }
 
 
+_UNESCAPED_REGEX_CHARS = re.compile(r"\\.|([.*+?^=!:${}()|\[\]/\\])")
+
+
+def literal_wildcard_url_pattern(value: str) -> str:
+    trimmed = re.sub(r"^\^|\$$", "", value.strip()).replace(".*", "*")
+    return "*".join(
+        _UNESCAPED_REGEX_CHARS.sub(lambda m: f"\\{m.group(1)}" if m.group(1) else m.group(0), segment)
+        for segment in trimmed.split("*")
+    )
+
+
 def capture_allowlist_pattern_to_regex(pattern: str) -> str:
     return "^" + re.escape(pattern).replace("\\*", ".*") + "$"
 
@@ -691,8 +702,8 @@ def _renderer_heatmap_query(export_context: dict[str, object]) -> dict[str, obje
         "viewport_width_max": int((width + extra_pixels) + 0.5),
         "limit": 0,
     }
-    if any(character in heatmap_data_url for character in "*+?^${}()|[]\\"):
-        query["url_pattern"] = heatmap_data_url
+    if "*" in heatmap_data_url:
+        query["url_pattern"] = literal_wildcard_url_pattern(heatmap_data_url)
     else:
         query["url_exact"] = heatmap_data_url
 
@@ -1358,11 +1369,8 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
 
-_URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
-
-
 def _reject_url_wildcards(value: str) -> None:
-    if any(c in _URL_PATTERN_CHARS for c in value):
+    if "*" in value:
         raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
 
 
