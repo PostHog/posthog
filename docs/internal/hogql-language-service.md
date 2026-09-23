@@ -421,6 +421,10 @@ Go responses leave `index_usage`, `isUsingIndices`, and `ch_table_names` unset.
 The Django adapter maps Go notices into the existing metadata `notices` list, which the editor displays as hints.
 Older service responses without a `notices` field remain valid and produce an empty list.
 Malformed notices use the same Python fallback and sanitized error reporting as malformed diagnostics.
+The Python validation client parses the Go response into typed diagnostics, notices, table names, and response metadata before mapping it to editor metadata.
+It rejects missing required fields, incorrect field types without coercion, and spans outside the query's UTF-16 length; diagnostic spans may be zero-width.
+It keeps Go offsets in UTF-16 and accepts unknown response fields for forward compatibility.
+An omitted `notices` array becomes empty, and an omitted notice `fix` stays unset.
 Python-only heuristic warnings and actionable index warnings are not added to a successful Go response.
 Index analysis and compiler metadata parity remain separate follow-up work; this routing change does not add a second Python validation pass.
 

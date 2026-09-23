@@ -42,8 +42,10 @@ from posthog.hogql.language_service import (
     CatalogMissing,
     LanguageServiceClient,
     LanguageServiceError,
-    LanguageServiceResult,
+    LanguageServiceValidationResponse,
     MalformedLanguageServiceResponse,
+    RawLanguageServiceResult,
+    ValidationLanguageServiceResult,
     build_catalog,
     coordinate_catalog_publication,
     is_language_service_enabled,
@@ -93,13 +95,18 @@ type _MalformedResponseStage = Literal["http_response", "response_mapping"]
 @frozen
 class _EditorAssistRoute:
     enabled: bool
-    result: LanguageServiceResult | None
+    result: RawLanguageServiceResult | ValidationLanguageServiceResult | None
     reason: _EditorAssistReason
     malformed_stage: _MalformedResponseStage | None = None
 
 
 def _is_alias_capable_catalog_revision(revision: object) -> bool:
     return isinstance(revision, str) and revision.startswith(WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX)
+
+
+def _language_service_catalog_revision(result: RawLanguageServiceResult | ValidationLanguageServiceResult) -> object:
+    body = result.body
+    return body.catalogRevision if isinstance(body, LanguageServiceValidationResponse) else body.get("catalogRevision")
 
 
 def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool:
@@ -129,7 +136,7 @@ def _language_service_call(
     try:
         client = LanguageServiceClient()
 
-        def call() -> LanguageServiceResult:
+        def call() -> RawLanguageServiceResult | ValidationLanguageServiceResult:
             if isinstance(query, HogQLAutocomplete):
                 return client.autocomplete(team.pk, user.pk, query.query, query.endPosition)
             return client.validate(team.pk, user.pk, query.query)
@@ -144,7 +151,7 @@ def _language_service_call(
         return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
 
     if result is not None:
-        if _is_alias_capable_catalog_revision(result.body.get("catalogRevision")):
+        if _is_alias_capable_catalog_revision(_language_service_catalog_revision(result)):
             return _EditorAssistRoute(enabled=True, result=result, reason="served")
 
     publication_succeeded = False
@@ -165,12 +172,12 @@ def _language_service_call(
             client.publish(team.pk, user.pk, revision, catalog)
         publication_succeeded = True
 
-    def check_catalog() -> LanguageServiceResult | None:
+    def check_catalog() -> RawLanguageServiceResult | ValidationLanguageServiceResult | None:
         try:
             current = call()
         except CatalogMissing:
             return None
-        if not _is_alias_capable_catalog_revision(current.body.get("catalogRevision")):
+        if not _is_alias_capable_catalog_revision(_language_service_catalog_revision(current)):
             if publication_succeeded:
                 raise MalformedLanguageServiceResponse("language service returned an incompatible catalog revision")
             return None
@@ -242,9 +249,11 @@ def _record_editor_assist_backend(
 
 
 def _autocomplete_response_from_language_service(
-    language_result: LanguageServiceResult,
+    language_result: RawLanguageServiceResult | ValidationLanguageServiceResult,
 ) -> HogQLAutocompleteResponse:
     body = language_result.body
+    if not isinstance(body, dict):
+        raise TypeError("autocomplete response must be an object")
     if not isinstance(body.get("suggestions"), list):
         raise TypeError("suggestions must be a list")
     kind_map = {
@@ -275,56 +284,35 @@ def _autocomplete_response_from_language_service(
 
 
 def _metadata_response_from_language_service(
-    query: HogQLMetadata, language_result: LanguageServiceResult
+    query: HogQLMetadata, language_result: RawLanguageServiceResult | ValidationLanguageServiceResult
 ) -> HogQLMetadataResponse:
     body = language_result.body
-    if not isinstance(body.get("diagnostics"), list):
-        raise TypeError("diagnostics must be a list")
-    raw_notices = body.get("notices", [])
-    if not isinstance(raw_notices, list):
-        raise TypeError("notices must be a list")
-    query_length_utf16 = len(query.query.encode("utf-16-le", errors="surrogatepass")) // 2
+    if not isinstance(body, LanguageServiceValidationResponse):
+        raise TypeError("validation response must be typed")
     errors: list[HogQLNotice] = []
     warnings: list[HogQLNotice] = []
-    for diagnostic in body["diagnostics"]:
+    for diagnostic in body.diagnostics:
         notice = HogQLNotice(
-            message=diagnostic["message"],
-            start=diagnostic["start"],
-            end=diagnostic["end"],
-            fix=diagnostic["suggestions"][0]["label"] if diagnostic.get("suggestions") else None,
+            message=diagnostic.message,
+            start=diagnostic.start,
+            end=diagnostic.end,
+            fix=diagnostic.suggestions[0].label if diagnostic.suggestions else None,
         )
-        if diagnostic["code"] == "unknown_property":
+        if diagnostic.code == "unknown_property":
             warnings.append(notice)
         else:
             errors.append(notice)
-    notices: list[HogQLNotice] = []
-    for raw_notice in raw_notices:
-        if not isinstance(raw_notice, dict):
-            raise TypeError("notice must be an object")
-        message = raw_notice["message"]
-        start = raw_notice["start"]
-        end = raw_notice["end"]
-        fix = raw_notice.get("fix")
-        if (
-            not isinstance(message, str)
-            or not isinstance(start, int)
-            or isinstance(start, bool)
-            or not isinstance(end, int)
-            or isinstance(end, bool)
-            or start < 0
-            or end <= start
-            or end > query_length_utf16
-            or (fix is not None and not isinstance(fix, str))
-        ):
-            raise TypeError("invalid notice")
-        notices.append(HogQLNotice(message=message, start=start, end=end, fix=fix))
+    notices = [
+        HogQLNotice(message=notice.message, start=notice.start, end=notice.end, fix=notice.fix)
+        for notice in body.notices
+    ]
     return HogQLMetadataResponse(
         isValid=not errors,
         query=query.query,
         errors=errors,
         warnings=warnings,
         notices=notices,
-        table_names=body.get("tableNames", []),
+        table_names=body.tableNames,
     )
 
 
