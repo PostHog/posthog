@@ -78,9 +78,9 @@ class CaseResult:
         if self.judgment is None:
             return Outcome.FAILED
         expectation = self.case.expectation
-        if expectation == Expectation.EITHER:
-            return Outcome.EITHER
         picked = self.picked(show_threshold)
+        if expectation == Expectation.EITHER:
+            return Outcome.EITHER if picked in self.case.acceptable else Outcome.WRONG_KIND
         if expectation == Expectation.NOTHING:
             return Outcome.CORRECT if picked == OfferKind.NONE else Outcome.FALSE_OFFER
         if picked == OfferKind.NONE:

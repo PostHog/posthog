@@ -1,11 +1,14 @@
 # Labeled PostHog AI turns for tuning the turn suggestion thresholds against live Jev.
 # Run them with `python manage.py turn_suggestions_benchmark`.
 #
-# Every case is invented. Do not paste real conversations here, even with names changed.
+# Every question and answer is written from scratch with invented names and ids. The mix of case
+# kinds (openers with no question, dashboard and flag edits, lookups of one person, monitoring asks,
+# investigations) follows the kinds of conversations people have. Do not paste real conversations
+# here, even with names changed.
 #
 # `acceptable` lists every offer that would be a good outcome. `[none]` means the card must stay
-# hidden. A case that lists `none` next to an offer is borderline: either outcome is fine, so it
-# counts toward the offer rate but not toward precision or recall.
+# hidden. A case that lists `none` next to offers is borderline: no card or one of those offers is
+# fine, so only an offer of another kind counts against it.
 #
 # Optional fields: `tool_status` (default completed), `earlier` turns, `insights`, `issues`, and
 # `scouts_available` (default true).
@@ -283,3 +286,246 @@
   question: Which browser do most of our users use?
   tools: [query-trends]
   answer: Chrome leads with 64% of users, then Safari with 21% and Firefox with 8%.
+
+# Openers with no question yet
+- name: greeting-first-turn
+  category: small_talk
+  acceptable: [none]
+  question: hey
+  tools: []
+  answer: Hi! I can look at your product data, build insights and dashboards, or answer questions about PostHog. What would you like to do?
+
+- name: help-request-first-turn
+  category: small_talk
+  acceptable: [none]
+  question: can you help me with something
+  tools: []
+  answer: Sure. What do you need help with?
+
+# Prompts people start from a suggestion
+- name: pirate-funnel-template
+  category: saved_insight
+  acceptable: [subscription, scout, none]
+  question: Build me a pirate metrics funnel
+  tools: [read-data-schema, insight-create]
+  answer: I built an AARRR funnel from $pageview to signed_up, activated, subscription_started and invite_sent. 12% of visitors reach activation and 3% start a subscription. The biggest drop is between signup and activation.
+  insights:
+      - short_id: aar001
+        name: Pirate metrics funnel
+        kind: FunnelsQuery
+
+- name: retention-two-weeks-template
+  category: recurring_metric
+  acceptable: [scout, none]
+  question: How is retention looking over the last two weeks?
+  tools: [query-retention]
+  answer: Of the users active two weeks ago, 38% came back last week and 27% this week. Users who signed up in that window retain worse, at 21% after one week.
+
+- name: dashboard-weekly-review
+  category: recurring_metric
+  acceptable: [scout]
+  question: What changed on my Product overview dashboard this week?
+  tools: [dashboard-get, query-trends, query-funnel, query-trends]
+  answer: Three things stand out this week. Signups are up 11%, the activation funnel fell from 42% to 37%, and mobile sessions grew 19%. The other tiles are flat.
+
+# Explicit monitoring
+- name: campaign-signups-tracking
+  category: recurring_metric
+  acceptable: [scout]
+  question: Keep track of signups coming from the spring launch campaign
+  tools: [query-trends]
+  answer: Signups with utm_campaign=spring_launch reached 64 in the last 7 days, 9 of them yesterday. Most arrive from paid social.
+
+- name: hourly-job-failure-rate
+  category: recurring_metric
+  acceptable: [scout, none]
+  question: What share of export jobs failed each hour today?
+  tools: [execute-sql]
+  answer: Failures peaked at 14% between 10:00 and 11:00 UTC and stayed under 2% after 13:00. The rest of the day averaged 1.5%.
+
+- name: weekly-llm-cost-per-user
+  category: recurring_metric
+  acceptable: [scout]
+  question: Show me LLM cost per active user by week
+  tools: [execute-sql]
+  answer: Cost per weekly active user went from $0.41 to $0.63 over the last 8 weeks. It has risen every week since the summaries feature launched.
+
+- name: weekly-actives-spanish
+  category: recurring_metric
+  acceptable: [scout]
+  question: ¿Cuántos usuarios activos tuvimos esta semana comparado con la anterior?
+  tools: [query-trends]
+  answer: Tuviste 2.310 usuarios activos esta semana, un 6% más que la semana anterior. El crecimiento viene sobre todo de la app móvil.
+
+# Edits and configuration
+- name: build-health-dashboard
+  category: action
+  acceptable: [subscription, scout, none]
+  question: Make a dashboard with daily signups, activation rate and churned accounts
+  tools: [dashboard-create, insight-create, insight-create, insight-create]
+  answer: I created the dashboard Growth health with three tiles, daily signups, activation rate and churned accounts per week, all over the last 30 days.
+  insights:
+      - short_id: gh0001
+        name: Daily signups
+        kind: TrendsQuery
+      - short_id: gh0002
+        name: Activation rate
+        kind: FunnelsQuery
+      - short_id: gh0003
+        name: Churned accounts per week
+        kind: TrendsQuery
+
+- name: dashboard-date-range
+  category: action
+  acceptable: [none]
+  question: Set the default date range on the Engagement dashboard to the last 30 days
+  tools: [dashboard-update]
+  answer: Done. The Engagement dashboard now opens on the last 30 days.
+
+- name: fix-chart-axis
+  category: action
+  acceptable: [none]
+  question: The percent sign shows up twice on this chart's axis, can you fix it?
+  tools: [insight-get, insight-update]
+  answer: Fixed. The y axis now formats values as percentages without the extra suffix.
+  insights:
+      - short_id: fx0001
+        name: Checkout completion rate
+        kind: TrendsQuery
+
+- name: disable-flag
+  category: action
+  acceptable: [none]
+  question: Turn off the new-checkout-flow flag
+  tools: [update-feature-flag]
+  answer: The new-checkout-flow flag is now disabled for everyone.
+
+- name: remove-member
+  category: action
+  acceptable: [none]
+  question: Remove a former teammate from this project
+  tools: []
+  answer: I can't change project members. Go to Settings, then Members, and remove them from there.
+
+- name: drop-noisy-event
+  category: action
+  acceptable: [none]
+  question: Stop ingesting the debug_ping event
+  tools: [create-hog-function]
+  answer: I added a transformation that drops debug_ping events before they are stored. It applies to new events from now on.
+
+- name: exclude-internal-users
+  category: action
+  acceptable: [none]
+  question: Filter out our own team from insights
+  tools: [update-project]
+  answer: I added a test account filter that excludes emails ending in @example.com. Insights with "filter out internal and test users" turned on now skip them.
+
+# Lookups of one person, session or list
+- name: session-id-lookup
+  category: one_off
+  acceptable: [none]
+  question: Find the recording for session 0199d2aa-5b1c-7e00-9f10-00000000c0de
+  tools: [query-session-recordings-list]
+  answer: Here is that recording. It lasts 6 minutes and ends on the checkout page after two failed payment attempts.
+
+- name: feature-users-list
+  category: one_off
+  acceptable: [none]
+  question: Which accounts tried the CSV export last month?
+  tools: [execute-sql]
+  answer: 23 accounts used the CSV export last month. The five heaviest users exported between 40 and 120 files each.
+
+# Experiments
+- name: experiment-significance
+  category: recurring_metric
+  acceptable: [scout, none]
+  question: Is the pricing page experiment significant yet?
+  tools: [experiment-results-get]
+  answer: Not yet. The test variant converts at 4.1% against 3.8% for control, with a 71% chance to beat control. At current traffic it needs about 9 more days.
+
+- name: experiment-variant-lost
+  category: diagnostic
+  acceptable: [notebook, none]
+  question: Why did the test variant lose?
+  tools: [experiment-results-get, query-funnel, query-trends]
+  answer: The test variant added a plan picker before checkout. Users who saw it dropped off 18% more at that step, mostly on mobile, which accounts for nearly all of the gap.
+
+# Costs and data quality
+- name: llm-bill-up-usage-down
+  category: diagnostic
+  acceptable: [notebook, scout]
+  question: Why did our LLM bill go up last week when usage went down?
+  tools: [execute-sql, query-trends]
+  answer: Generations fell 9%, but the average cost per generation doubled after the default model switched to a larger one on Tuesday. That switch explains about 85% of the increase.
+
+- name: duplicate-order-events
+  category: diagnostic
+  acceptable: [notebook, none]
+  question: Why is order_completed firing twice for some users?
+  tools: [execute-sql, query-session-recordings-list]
+  answer: About 6% of orders have two order_completed events less than a second apart. All of them come from the web app when people double-click the pay button. The mobile apps don't have the problem.
+
+- name: ios-data-still-arriving
+  category: recurring_metric
+  acceptable: [scout, none]
+  question: Is data still coming in from the iOS app?
+  tools: [execute-sql]
+  answer: Yes. The iOS app sent 48,000 events in the last hour, in line with the same hour last week. The latest event arrived 20 seconds ago.
+
+# Errors
+- name: top-errors-by-users
+  category: error_tracking
+  acceptable: [scout, none]
+  question: Which errors affect the most users right now?
+  tools: [query-error-tracking-issues-list]
+  answer: The top issue is a NetworkError on file upload, affecting 540 users today. Next is a TypeError on the settings page with 210 users. Both are still active.
+  issues:
+      - id: 0199d2aa-0001-7000-8000-0000000000e1
+        name: 'NetworkError: upload request failed'
+      - id: 0199d2aa-0002-7000-8000-0000000000e2
+        name: 'TypeError: preferences is undefined'
+
+- name: not-found-spike
+  category: diagnostic
+  acceptable: [notebook, scout]
+  question: Which pages are causing the spike in 404s since yesterday?
+  tools: [query-trends, execute-sql]
+  answer: Most new 404s come from /docs/v1/ links, which stopped resolving after yesterday's docs migration at 16:00 UTC. They account for 82% of the spike.
+
+# One-off breakdowns
+- name: top-referrers
+  category: one_off
+  acceptable: [none]
+  question: What are our top referring domains this month?
+  tools: [query-trends]
+  answer: Google leads with 41% of referred visits, then news.example.com with 12% and a partner blog with 7%.
+
+- name: device-split
+  category: one_off
+  acceptable: [none]
+  question: What's the split between mobile and desktop sessions?
+  tools: [query-trends]
+  answer: 58% of sessions in the last 30 days were on mobile and 42% on desktop.
+
+# Advice and setup questions
+- name: kpi-brainstorm
+  category: knowledge
+  acceptable: [none]
+  question: What KPIs should we track for our marketing site each quarter?
+  tools: []
+  answer: A good starting set is unique visitors, signup conversion rate, the share of traffic from organic search, and time to first key action. I can build insights for any of these.
+
+- name: ad-objective-advice
+  category: knowledge
+  acceptable: [none]
+  question: Which campaign objective should I pick for a lead generation ad?
+  tools: []
+  answer: For lead generation, pick the leads objective if you collect details in the ad, or conversions if people sign up on your site. PostHog can then track what those signups do next.
+
+- name: replay-setup
+  category: knowledge
+  acceptable: [none]
+  question: How do I turn on session replay?
+  tools: [docs-search]
+  answer: Go to Settings, then Session replay, and turn on "Record user sessions". Recordings start appearing within a few minutes of the next visit.

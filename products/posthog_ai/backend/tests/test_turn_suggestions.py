@@ -502,13 +502,15 @@ class TestBenchmark(SimpleTestCase):
             result({OfferKind.NONE}, 0.6),
             result({OfferKind.NONE}, 0.1),
             result({OfferKind.SCOUT, OfferKind.NONE}, 0.9),
+            result({OfferKind.NOTEBOOK, OfferKind.NONE}, 0.9),
         ]
 
         low = score(results, 0.5)
         high = score(results, 0.7)
 
-        assert (low.offer_rate, low.precision, low.recall, low.false_offers) == (0.8, 2 / 3, 1.0, 1)
-        assert (high.offer_rate, high.precision, high.recall, high.missed) == (0.4, 1.0, 0.5, 1)
+        assert (low.offer_rate, low.precision, low.recall) == (5 / 6, 0.5, 1.0)
+        assert (low.false_offers, low.wrong_kind) == (1, 1)
+        assert (high.offer_rate, high.precision, high.recall, high.missed) == (0.5, 0.5, 0.5, 1)
         assert best_threshold([low, high]) == low
 
 
