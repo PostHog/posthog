@@ -581,6 +581,12 @@ export interface SignalSourceConfig {
   status: "running" | "completed" | "failed" | null;
 }
 
+/** One team in a Linear workspace, from the integration's `linear_teams` endpoint. */
+export interface LinearTeam {
+  id: string;
+  name: string;
+}
+
 // ── Signals scouts ───────────────────────────────────────────────────────────
 // Backend: posthog `products/signals/backend/scout_harness/views.py`.
 // Endpoints live under /api/projects/{id}/signals/scout/ and require the
@@ -2441,7 +2447,7 @@ export class PostHogAPIClient {
   async updateSignalSourceConfig(
     projectId: number,
     configId: string,
-    updates: { enabled: boolean },
+    updates: { enabled?: boolean; config?: Record<string, unknown> },
   ): Promise<SignalSourceConfig> {
     const urlPath = `/api/projects/${projectId}/signals/source_configs/${configId}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -2463,6 +2469,29 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as SignalSourceConfig;
+  }
+
+  /**
+   * `GET .../integrations/{id}/linear_teams/`: the teams in the Linear workspace the
+   * integration authenticates against. Ids from here go into the Linear source's
+   * `linear_team_ids` config.
+   */
+  async listLinearTeams(
+    projectId: number,
+    integrationId: number,
+  ): Promise<LinearTeam[]> {
+    const urlPath = `/api/environments/${projectId}/integrations/${integrationId}/linear_teams/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch Linear teams: ${response.statusText}`);
+    }
+    const data = (await response.json()) as { teams?: LinearTeam[] };
+    return data.teams ?? [];
   }
 
   private async scoutGet<T>(

@@ -30,6 +30,10 @@ export function useSignalSourceManager() {
     handleSetup: toggles.handleSetup,
     handleSetupComplete: toggles.handleSetupComplete,
     handleSetupCancel: toggles.handleSetupCancel,
+    linearTeamsPicker: toggles.linearTeamsPicker,
+    linearConfig: toggles.linearConfig,
+    openLinearTeamsPicker: toggles.openLinearTeamsPicker,
+    closeLinearTeamsPicker: toggles.closeLinearTeamsPicker,
 
     // Evaluations
     evaluations: evaluations.evaluations,
