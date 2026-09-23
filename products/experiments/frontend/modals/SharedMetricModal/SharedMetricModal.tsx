@@ -10,7 +10,6 @@ import { sharedMetricsLogic } from 'scenes/experiments/SharedMetrics/sharedMetri
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
 import { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
@@ -239,12 +238,7 @@ export function SharedMetricModal({
                                 {
                                     title: 'Type',
                                     key: 'type',
-                                    render: (_, metric: SharedMetric) => {
-                                        if (metric.query.kind === NodeKind.ExperimentMetric) {
-                                            return metric.query.metric_type
-                                        }
-                                        return metric.query.kind === NodeKind.ExperimentTrendsQuery ? 'Trend' : 'Funnel'
-                                    },
+                                    render: (_, metric: SharedMetric) => metric.query.metric_type,
                                 },
                             ]}
                             footer={

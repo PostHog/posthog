@@ -295,7 +295,7 @@ const ExperimentsTable = ({
                                 )}
                                 {experiment.is_legacy && (
                                     <Tooltip
-                                        title="This experiment uses the legacy engine, so some features and improvements may be missing."
+                                        title="This experiment uses the legacy engine, so its results are no longer available."
                                         docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
                                     >
                                         <LemonTag type="warning" className="ml-1">

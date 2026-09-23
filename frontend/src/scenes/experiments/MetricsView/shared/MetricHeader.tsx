@@ -18,7 +18,6 @@ import {
     getExposureEventAndProperty,
     resolvedExposureEvent,
 } from 'scenes/experiments/exposureContract'
-import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { urls } from 'scenes/urls'
 
 import type { Breakdown, EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
@@ -119,16 +118,6 @@ export const MetricHeader = ({
     onDeleteMetricClick?: (metric: ExperimentMetric) => void
     readOnly?: boolean
 }): JSX.Element => {
-    /**
-     * This is necessary for legacy experiments support
-     */
-    const {
-        openPrimaryMetricModal,
-        openSecondaryMetricModal,
-        openPrimarySharedMetricModal,
-        openSecondarySharedMetricModal,
-    } = useActions(modalsLogic)
-
     const { moveMetricsBetweenSections } = useActions(experimentLogic)
     const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { openSharedMetricDetailModal } = useActions(sharedMetricDetailsModalLogic)
@@ -140,23 +129,10 @@ export const MetricHeader = ({
 
     const openEditModal = (): void => {
         if (isSharedMetric) {
-            /**
-             * this is for legacy experiments support
-             */
-            const openSharedModal = isPrimaryMetric ? openPrimarySharedMetricModal : openSecondarySharedMetricModal
-            openSharedModal(metric.sharedMetricId!)
-
             openSharedMetricDetailModal(metric, METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'])
             return
         }
 
-        /**
-         * this is for legacy experiments support
-         */
-        const openMetricModal = isPrimaryMetric ? openPrimaryMetricModal : openSecondaryMetricModal
-        if (metric.uuid) {
-            openMetricModal(metric.uuid)
-        }
         openExperimentMetricModal(METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'], metric)
     }
 

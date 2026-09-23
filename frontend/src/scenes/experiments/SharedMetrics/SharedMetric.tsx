@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconBalance, IconCheckCircle, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, Link, Spinner } from '@posthog/lemon-ui'
+import { IconBalance, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -29,15 +29,13 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { tagsModel } from '~/models/tagsModel'
-import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
 import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
-import { LegacySharedFunnelsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedFunnelsMetricForm'
-import { LegacySharedTrendsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedTrendsMetricForm'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
-import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
+import { isLegacyExperimentQuery } from '../utils'
 import { openDeleteSharedMetricDialog } from './deleteSharedMetricDialog'
 import { SharedMetricLinkedExperiments } from './SharedMetricLinkedExperiments'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
@@ -101,6 +99,12 @@ export function SharedMetric(): JSX.Element {
     const [deleteCheckLoading, setDeleteCheckLoading] = useState(false)
 
     const runningExperiments = (sharedMetric?.linked_experiments || []).filter((experiment) => experiment.is_running)
+    const isLegacy = isLegacyExperimentQuery(sharedMetric?.query)
+    const saveDisabledReason = isLegacy
+        ? 'Legacy shared metrics can no longer be edited'
+        : sharedMetric?.name
+          ? undefined
+          : 'You must give your metric a name'
 
     const handleDelete = async (): Promise<void> => {
         if (!sharedMetric.id || deleteCheckLoading) {
@@ -143,55 +147,6 @@ export function SharedMetric(): JSX.Element {
 
     return (
         <SceneContent>
-            {sharedMetric.query.kind !== NodeKind.ExperimentMetric && (
-                <div className="flex gap-4 mb-4">
-                    <div
-                        className={`flex-1 cursor-pointer p-4 rounded border ${
-                            sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery
-                                ? 'border-accent bg-accent-highlight-secondary'
-                                : 'border-primary'
-                        }`}
-                        onClick={() => {
-                            setSharedMetric({
-                                query: getDefaultTrendsMetric(),
-                            })
-                        }}
-                    >
-                        <div className="font-semibold flex justify-between items-center">
-                            <span>Trend</span>
-                            {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery && (
-                                <IconCheckCircle fontSize={18} color="var(--color-accent)" />
-                            )}
-                        </div>
-                        <div className="text-secondary text-sm leading-relaxed">
-                            Track a single event, action or a property value.
-                        </div>
-                    </div>
-                    <div
-                        className={`flex-1 cursor-pointer p-4 rounded border ${
-                            sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
-                                ? 'border-accent bg-accent-highlight-secondary'
-                                : 'border-primary'
-                        }`}
-                        onClick={() => {
-                            setSharedMetric({
-                                query: getDefaultFunnelsMetric(),
-                            })
-                        }}
-                    >
-                        <div className="font-semibold flex justify-between items-center">
-                            <span>Funnel</span>
-                            {sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery && (
-                                <IconCheckCircle fontSize={18} color="var(--color-accent)" />
-                            )}
-                        </div>
-                        <div className="text-secondary text-sm leading-relaxed">
-                            Analyze conversion rates between sequential steps.
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {sceneMenuBarEnabled && action === 'update' && (
                 <SceneMenuBar>
                     <SceneMenuBarMenu label="File" dataAttr="shared-metric-menubar-file">
@@ -229,7 +184,7 @@ export function SharedMetric(): JSX.Element {
                                 updateSharedMetric(false)
                             }
                         }}
-                        canEdit
+                        canEdit={!isLegacy}
                         tags={sharedMetric.tags}
                         tagsAvailable={allExistingTags}
                         dataAttrKey="shared-metric"
@@ -270,7 +225,7 @@ export function SharedMetric(): JSX.Element {
                         description: newDescription,
                     })
                 }}
-                canEdit
+                canEdit={!isLegacy}
                 forceEdit={!sharedMetric.id}
                 forceBackTo={{
                     name: 'Experiments / shared metrics',
@@ -308,7 +263,7 @@ export function SharedMetric(): JSX.Element {
                             userAccessLevel={sharedMetric.user_access_level}
                         >
                             <LemonButton
-                                disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                                disabledReason={saveDisabledReason}
                                 loading={metricSaving}
                                 size="small"
                                 type="primary"
@@ -323,7 +278,12 @@ export function SharedMetric(): JSX.Element {
 
             <div className="flex flex-col gap-4 @min-[64rem]/main-content:flex-row @min-[64rem]/main-content:items-start">
                 <div className="min-w-0 flex-1 order-2 @min-[64rem]/main-content:order-1">
-                    {sharedMetric.query.kind === NodeKind.ExperimentMetric ? (
+                    {isLegacy ? (
+                        <LemonBanner type="warning">
+                            Legacy shared metrics can no longer be edited. When you migrate an experiment that uses this
+                            metric with PostHog AI, the metric is migrated too.
+                        </LemonBanner>
+                    ) : (
                         <ExperimentMetricForm
                             metric={sharedMetric.query as ExperimentMetric}
                             isSharedMetric={true}
@@ -335,10 +295,6 @@ export function SharedMetric(): JSX.Element {
                             }}
                             filterTestAccounts={currentTeam?.test_account_filters?.length ? true : false}
                         />
-                    ) : sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
-                        <LegacySharedTrendsMetricForm />
-                    ) : (
-                        <LegacySharedFunnelsMetricForm />
                     )}
                 </div>
                 {action === 'update' && (sharedMetric.linked_experiments || []).length > 0 && (
@@ -354,7 +310,7 @@ export function SharedMetric(): JSX.Element {
                     userAccessLevel={sharedMetric.user_access_level}
                 >
                     <LemonButton
-                        disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                        disabledReason={saveDisabledReason}
                         loading={metricSaving}
                         size="medium"
                         type="primary"

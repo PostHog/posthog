@@ -1,10 +1,6 @@
 import { IconClock } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { isLegacyExperimentQuery } from 'scenes/experiments/utils'
-
-import { LegacyErrorChecklist } from 'products/experiments/frontend/legacy'
-
 import { MetricErrorState } from '../new/MetricErrorState'
 import { ErrorChecklist } from './ErrorChecklist'
 
@@ -47,19 +43,6 @@ export function ChartEmptyState({
      */
     if (!error) {
         return null
-    }
-
-    const isLegacyMetric = isLegacyExperimentQuery(metric)
-    /**
-     * if it's a legacy metric, use the legacy error checklist
-     */
-    if (isLegacyMetric) {
-        return (
-            // eslint-disable-next-line react/forbid-dom-props
-            <div className="flex items-center justify-center w-full" style={{ height: `${height}px` }}>
-                <LegacyErrorChecklist error={error} metric={metric} />
-            </div>
-        )
     }
 
     return (

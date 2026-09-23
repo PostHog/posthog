@@ -1,13 +1,11 @@
 import { match } from 'ts-pattern'
 
 import { getSeriesColor } from 'lib/colors'
-import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { uuid } from 'lib/utils/dom'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import {
-    AnyDataWarehouseNode,
     AnyEntityNode,
     CachedNewExperimentQueryResponse,
     EventsNode,
@@ -19,7 +17,6 @@ import {
     ExperimentMetricSource,
     ExperimentMetricType,
     ExperimentTrendsQuery,
-    GroupNode,
     NodeKind,
     ProductKey,
     TrendsQuery,
@@ -39,10 +36,7 @@ import {
     FeatureFlagType,
     FilterType,
     FunnelConversionWindowTimeUnit,
-    FunnelVizType,
     MultivariateFlagVariant,
-    PropertyFilterType,
-    PropertyOperator,
     type InsightModel,
     UniversalFiltersGroupValue,
 } from '~/types'
@@ -53,13 +47,7 @@ import type {
     ExperimentFeatureFlagInputApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-import {
-    EXPOSURE_DEFAULT_EVENT,
-    EXPOSURE_FEATURE_FLAG_PROPERTY,
-    EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
-    featureFlagVariantProperty,
-    resolvedExposureEvent,
-} from './exposureContract'
+import { EXPOSURE_DEFAULT_EVENT, resolvedExposureEvent } from './exposureContract'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5 // on the 0-100 scale (0.5 = 0.5%)
@@ -156,35 +144,6 @@ export function percentageDistribution(variantCount: number): number[] {
 export function isEvenlyDistributed(variants: MultivariateFlagVariant[]): boolean {
     const evenPercentages = percentageDistribution(variants.length)
     return variants.every((variant, index) => variant.rollout_percentage === evenPercentages[index])
-}
-
-function seriesToFilterLegacy(
-    series: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
-    featureFlagKey: string,
-    variantKey: string
-): UniversalFiltersGroupValue | null {
-    if (series.kind === NodeKind.EventsNode) {
-        return {
-            id: series.event as string,
-            name: series.event as string,
-            type: 'events',
-            properties: [
-                {
-                    key: featureFlagVariantProperty(featureFlagKey),
-                    type: PropertyFilterType.Event,
-                    value: [variantKey],
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        }
-    } else if (series.kind === NodeKind.ActionsNode) {
-        return {
-            id: series.id,
-            name: series.name,
-            type: 'actions',
-        }
-    }
-    return null
 }
 
 function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): UniversalFiltersGroupValue | null {
@@ -393,83 +352,6 @@ export function getSessionLinkabilityEventNames(experiment: Experiment): string[
     return Array.from(eventNames)
 }
 
-export function getViewRecordingFiltersLegacy(
-    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-    featureFlagKey: string,
-    variantKey: string
-): UniversalFiltersGroupValue[] {
-    const filters: UniversalFiltersGroupValue[] = []
-    if (metric.kind === NodeKind.ExperimentMetric) {
-        if (isExperimentMeanMetric(metric)) {
-            if (metric.source.kind === NodeKind.EventsNode) {
-                return [
-                    {
-                        id: metric.source.event ?? null,
-                        name: metric.source.event,
-                        type: 'events',
-                        properties: [
-                            {
-                                key: featureFlagVariantProperty(featureFlagKey),
-                                type: PropertyFilterType.Event,
-                                value: [variantKey],
-                                operator: PropertyOperator.Exact,
-                            },
-                        ],
-                    },
-                ]
-            }
-        }
-        return []
-    } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
-        if (metric.exposure_query) {
-            const exposureSeries = metric.exposure_query.series[0]
-            // Experiments don't support GroupNode yet - skip if it's a group
-            if (exposureSeries.kind !== NodeKind.GroupNode) {
-                const exposure_filter = seriesToFilterLegacy(exposureSeries, featureFlagKey, variantKey)
-                if (exposure_filter) {
-                    filters.push(exposure_filter)
-                }
-            }
-        } else {
-            filters.push({
-                id: EXPOSURE_DEFAULT_EVENT,
-                name: EXPOSURE_DEFAULT_EVENT,
-                type: 'events',
-                properties: [
-                    {
-                        key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
-                        type: PropertyFilterType.Event,
-                        value: [variantKey],
-                        operator: PropertyOperator.Exact,
-                    },
-                    {
-                        key: EXPOSURE_FEATURE_FLAG_PROPERTY,
-                        type: PropertyFilterType.Event,
-                        value: featureFlagKey,
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            })
-        }
-        const countSeries = metric.count_query.series[0]
-        // Experiments don't support GroupNode yet - skip if it's a group
-        if (countSeries.kind !== NodeKind.GroupNode) {
-            const count_filter = seriesToFilterLegacy(countSeries, featureFlagKey, variantKey)
-            if (count_filter) {
-                filters.push(count_filter)
-            }
-        }
-        return filters
-    }
-    metric.funnels_query.series.forEach((series) => {
-        const filter = seriesToFilterLegacy(series, featureFlagKey, variantKey)
-        if (filter) {
-            filters.push(filter)
-        }
-    })
-    return filters
-}
-
 // Mirrors the backend eligibility rule (experiment_eligibility_error): multivariate with 2-20 variants
 export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
     const variants = getFlagVariants(featureFlag)
@@ -480,70 +362,6 @@ export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): 
         throw new Error(`Feature flag must have at most ${MAX_EXPERIMENT_VARIANTS} variants.`)
     }
     return true
-}
-
-/**
- * TODO: review. Probably deprecated
- */
-export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
-    return {
-        kind: NodeKind.ExperimentTrendsQuery,
-        uuid: uuid(),
-        count_query: {
-            kind: NodeKind.TrendsQuery,
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    name: '$pageview',
-                    event: '$pageview',
-                },
-            ],
-            interval: 'day',
-            dateRange: {
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                explicitDate: true,
-            },
-            trendsFilter: {
-                display: ChartDisplayType.ActionsLineGraph,
-            },
-            filterTestAccounts: true,
-        },
-    }
-}
-
-export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
-    return {
-        kind: NodeKind.ExperimentFunnelsQuery,
-        uuid: uuid(),
-        funnels_query: {
-            kind: NodeKind.FunnelsQuery,
-            filterTestAccounts: true,
-            dateRange: {
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                explicitDate: true,
-            },
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$pageview',
-                    name: '$pageview',
-                },
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$pageview',
-                    name: '$pageview',
-                },
-            ],
-            funnelsFilter: {
-                funnelVizType: FunnelVizType.Steps,
-                funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
-                funnelWindowInterval: 14,
-                layout: FunnelLayout.horizontal,
-            },
-        },
-    }
 }
 
 /**

@@ -7,7 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import experimentMetricResultsErrorJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_error.json'
 import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
 import { useMocks } from '~/mocks/jest'
@@ -283,6 +283,30 @@ describe('experimentLogic', () => {
             // Verify loading states are properly reset after refresh completes
             expect(logic.values.primaryMetricsResultsLoading).toBe(false)
             expect(logic.values.secondaryMetricsResultsLoading).toBe(false)
+        })
+
+        it('sends no queries for a legacy experiment', async () => {
+            const queryHandler = jest.fn(() => [200, {}])
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': queryHandler,
+                    '/api/environments/:team/query/:kind': queryHandler,
+                },
+            })
+            logic.actions.setExperiment({
+                ...experiment,
+                metrics: [
+                    {
+                        kind: NodeKind.ExperimentTrendsQuery,
+                        uuid: 'legacy-metric',
+                        count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                    },
+                ],
+            } as Experiment)
+
+            await logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+            expect(queryHandler).not.toHaveBeenCalled()
         })
 
         it('defers the refresh until feature flags arrive, then replays it once', async () => {

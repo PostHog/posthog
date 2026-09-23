@@ -1,14 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_WITH_TRENDS_QUERY from '~/mocks/fixtures/api/experiments/experiment_with_trends_query.json'
-import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
-import TRENDS_QUERY_RESULT from '~/mocks/fixtures/api/experiments/trends_query_result.json'
-import { NodeKind } from '~/queries/schema/schema-general'
 
 const meta: Meta = {
     component: App,
@@ -30,17 +26,6 @@ const meta: Meta = {
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_TRENDS_QUERY.feature_flag.id}/status/`]: {},
                 [`/api/environments/:team_id/default_release_conditions/`]: [],
             },
-            post: {
-                '/api/environments/:team_id/query/:kind': async ({ request }) => {
-                    const body = (await request.json()) as Record<string, any>
-
-                    if (body.query.kind === NodeKind.ExperimentExposureQuery) {
-                        return [200, EXPOSURE_QUERY_RESULT]
-                    }
-
-                    return [200, TRENDS_QUERY_RESULT]
-                },
-            },
         }),
     ],
 }
@@ -48,5 +33,4 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// Small delay to ensure charts render completely
-export const ExperimentWithLegacyTrendsQuery: Story = { play: makeDelay(500) }
+export const ExperimentWithLegacyTrendsQuery: Story = {}
