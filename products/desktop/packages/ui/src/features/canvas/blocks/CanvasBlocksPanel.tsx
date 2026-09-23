@@ -28,7 +28,7 @@ import { beginSourceDrag } from "@posthog/ui/features/canvas/blocks/sourceDrag";
 import { useCanvasSourceActions } from "@posthog/ui/features/canvas/blocks/useCanvasSourceActions";
 import { SearchInput } from "@posthog/ui/primitives/SearchInput";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 interface SaveStatus {
   saving: boolean;
@@ -196,6 +196,41 @@ function Library({
   );
 }
 
+const NOTICE_TONES = {
+  error: { surface: "bg-destructive/5", icon: "text-destructive" },
+  warning: { surface: "bg-muted/40", icon: "text-warning-foreground" },
+};
+
+function PanelNotice({
+  tone,
+  title,
+  detail,
+  children,
+}: {
+  tone: keyof typeof NOTICE_TONES;
+  title: string;
+  detail: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`flex flex-col gap-2 border-border border-b px-3 py-2.5 ${NOTICE_TONES[tone].surface}`}
+    >
+      <div className="flex items-start gap-2">
+        <WarningCircle
+          size={14}
+          className={`mt-px shrink-0 ${NOTICE_TONES[tone].icon}`}
+        />
+        <div className="min-w-0 text-[11.5px] leading-snug">
+          <div className="font-medium text-foreground">{title}</div>
+          <div className="break-words text-muted-foreground">{detail}</div>
+        </div>
+      </div>
+      <div className="flex gap-1.5 pl-5">{children}</div>
+    </div>
+  );
+}
+
 export function CanvasBlocksPanel({
   canvasId,
   onAskAgent,
@@ -284,80 +319,55 @@ export function CanvasBlocksPanel({
         <SaveIndicator status={status} />
       </div>
       {entry.saveError ? (
-        <div className="flex flex-col gap-2 border-border border-b bg-destructive/5 px-3 py-2.5">
-          <div className="flex items-start gap-2">
-            <WarningCircle
-              size={14}
-              className="mt-px shrink-0 text-destructive"
-            />
-            <div className="min-w-0 text-[11.5px] leading-snug">
-              <div className="font-medium text-foreground">
-                Your changes are not saved
-              </div>
-              <div className="break-words text-muted-foreground">
-                {entry.saveError}
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-1.5 pl-5">
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={() => store.setSaving(canvasId, false, null)}
-            >
-              Try again
-            </Button>
-            {onAskAgent ? (
-              <Button
-                variant="default"
-                size="xs"
-                onClick={() =>
-                  onAskAgent(
-                    `Saving this canvas fails with: "${entry.saveError}". Fix the canvas source so it passes validation.`,
-                  )
-                }
-              >
-                <Sparkle size={11} />
-                Ask the agent to fix
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-      {entry.conflict ? (
-        <div className="flex flex-col gap-2 border-border border-b bg-muted/40 px-3 py-2.5">
-          <div className="flex items-start gap-2">
-            <WarningCircle
-              size={14}
-              className="mt-px shrink-0 text-warning-foreground"
-            />
-            <div className="min-w-0 text-[11.5px] leading-snug">
-              <div className="font-medium text-foreground">
-                This canvas changed somewhere else
-              </div>
-              <div className="text-muted-foreground">
-                A newer version was saved while you edited. Load it and drop
-                your unsaved edits, or keep your edits and replace it.
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-1.5 pl-5">
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={() => store.resolveConflict(canvasId, false)}
-            >
-              Load the latest
-            </Button>
+        <PanelNotice
+          tone="error"
+          title="Your changes are not saved"
+          detail={entry.saveError}
+        >
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => store.setSaving(canvasId, false, null)}
+          >
+            Try again
+          </Button>
+          {onAskAgent ? (
             <Button
               variant="default"
               size="xs"
-              onClick={() => store.resolveConflict(canvasId, true)}
+              onClick={() =>
+                onAskAgent(
+                  `Saving this canvas fails with: "${entry.saveError}". Fix the canvas source so it passes validation.`,
+                )
+              }
             >
-              Keep my edits
+              <Sparkle size={11} />
+              Ask the agent to fix
             </Button>
-          </div>
-        </div>
+          ) : null}
+        </PanelNotice>
+      ) : null}
+      {entry.conflict ? (
+        <PanelNotice
+          tone="warning"
+          title="This canvas changed somewhere else"
+          detail="A newer version was saved while you edited. Load it and drop your unsaved edits, or keep your edits and replace it."
+        >
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => store.resolveConflict(canvasId, false)}
+          >
+            Load the latest
+          </Button>
+          <Button
+            variant="default"
+            size="xs"
+            onClick={() => store.resolveConflict(canvasId, true)}
+          >
+            Keep my edits
+          </Button>
+        </PanelNotice>
       ) : null}
       {inspecting && selection ? (
         <div className="min-h-0 flex-1 overflow-y-auto">

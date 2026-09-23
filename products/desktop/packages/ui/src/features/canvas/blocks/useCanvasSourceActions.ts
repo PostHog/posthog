@@ -150,15 +150,9 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
         insert(blockType, { ...firstData, place: "before" });
         return;
       }
-      const inRoot: SourceDropTarget | null = root
-        ? { ...root, place: "inside" }
-        : null;
-      if (
-        inRoot &&
-        entry.mountedRev === entry.rev &&
-        placeableTarget(entry, inRoot)
-      )
-        insert(blockType, inRoot);
+      if (!root || entry.mountedRev !== entry.rev) return;
+      const inRoot: SourceDropTarget = { ...root, place: "inside" };
+      if (placeableTarget(entry, inRoot)) insert(blockType, inRoot);
     };
 
     const drop = (source: SourceDragSource, hit: SourceDropHit) => {
