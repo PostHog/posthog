@@ -1,9 +1,40 @@
+import gc
+import sys
 import random
+import asyncio
+import threading
+
+import pytest
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
+
+
+# TEMPORARY: find the test that hangs on the native-JSON events table in CI. Remove before merge.
+@pytest.fixture(autouse=True)
+def _dump_asyncio_tasks_on_hang(request):
+    capture_manager = request.config.pluginmanager.getplugin("capturemanager")
+
+    def dump() -> None:
+        loops = [obj for obj in gc.get_objects() if isinstance(obj, asyncio.AbstractEventLoop) and obj.is_running()]
+        capture_manager.suspend_global_capture(in_=False)
+        try:
+            sys.stderr.write(f"\n=== HANG DUMP {request.node.nodeid}: {len(loops)} running loop(s) ===\n")
+            for loop in loops:
+                for task in asyncio.all_tasks(loop):
+                    sys.stderr.write(f"--- {task!r}\n")
+                    task.print_stack(file=sys.stderr)
+            sys.stderr.flush()
+        finally:
+            capture_manager.resume_global_capture()
+
+    timer = threading.Timer(240, dump)
+    timer.daemon = True
+    timer.start()
+    yield
+    timer.cancel()
 
 
 @pytest_asyncio.fixture
