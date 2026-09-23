@@ -6,7 +6,12 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import psycopg
-from psycopg import sql as psql
+from prometheus_client import Counter
+from psycopg import (
+    InterfaceError,
+    OperationalError,
+    sql as psql,
+)
 from psycopg.conninfo import make_conninfo
 
 from posthog.hogql.database.s3_table import S3Table, parse_duckdb_s3_source
@@ -21,6 +26,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeQueryResult,
     DuckLakeS3Secret,
     DuckLakeTableResult,
+    ManagedWarehouseQueryConnectionError,
 )
 from products.managed_warehouse.backend.service_credentials import ServiceCredential
 from products.managed_warehouse.backend.table_binding import bind_tables_to_ducklake
@@ -34,6 +40,61 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
 logger = logging.getLogger(__name__)
+
+DUCKLAKE_QUERY_CONNECTION_FAILURE_TOTAL = Counter(
+    "managed_warehouse_ducklake_query_connection_failure_total",
+    "Managed warehouse DuckLake query connection failures by phase and stable reason code.",
+    labelnames=["phase", "reason"],
+)
+
+# Matched against the lowercased driver message, first hit wins.
+_CONNECTION_FAILURE_REASONS: tuple[tuple[str, str], ...] = (
+    ("activate tenant", "tenant_activation"),
+    ("attachment failed", "tenant_activation"),
+    ("timeout", "timeout"),
+    ("timed out", "timeout"),
+    ("too many clients", "capacity"),
+    ("connection refused", "unreachable"),
+    ("could not connect", "unreachable"),
+    ("could not translate host name", "unreachable"),
+    ("server closed the connection", "connection_lost"),
+    ("connection is closed", "connection_lost"),
+    ("authentication", "auth"),
+)
+
+_CONNECTION_FAILURE_MESSAGES: dict[str, str] = {
+    "connect": (
+        "Couldn't connect to the managed warehouse. Try the query again, and contact support if it keeps happening."
+    ),
+    "execute": (
+        "Lost the connection to the managed warehouse while the query was running. "
+        "Try the query again, and contact support if it keeps happening."
+    ),
+}
+
+
+def _connection_failure_reason(exc: Exception) -> str:
+    message = str(exc).lower()
+    for pattern, reason in _CONNECTION_FAILURE_REASONS:
+        if pattern in message:
+            return reason
+    return "unknown"
+
+
+def _clean_connection_error(exc: Exception, *, phase: str, team_id: int) -> ManagedWarehouseQueryConnectionError:
+    """Classify a duckgres connection failure, keep its detail server-side, and build the
+    error to raise in its place."""
+    reason = _connection_failure_reason(exc)
+    DUCKLAKE_QUERY_CONNECTION_FAILURE_TOTAL.labels(phase=phase, reason=reason).inc()
+    logger.exception(
+        "ducklake_query_connection_failed",
+        extra={"team_id": team_id, "phase": phase, "reason": reason, "error": str(exc)},
+    )
+    return ManagedWarehouseQueryConnectionError(
+        _CONNECTION_FAILURE_MESSAGES[phase],
+        phase=phase,
+        reason=reason,
+    )
 
 
 def make_duckgres_conninfo(
@@ -308,19 +369,24 @@ def execute_ducklake_query(
 
     assert sql is not None
 
+    phase = "connect"
     conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id, application_name="endpoints-shadow")
     _connect_start = time.monotonic()
-    with psycopg.connect(conninfo) as conn:
-        connect_ms = (time.monotonic() - _connect_start) * 1000
-        _configure_s3_secrets(conn, s3_secrets)
-        _set_search_path(conn)
-        with conn.cursor() as cur:
-            _query_start = time.monotonic()
-            cur.execute(sql, values or None)
-            columns = [desc.name for desc in cur.description] if cur.description else []
-            types = [str(desc.type_code) for desc in cur.description] if cur.description else []
-            rows = cur.fetchall()
-            query_ms = (time.monotonic() - _query_start) * 1000
+    try:
+        with psycopg.connect(conninfo) as conn:
+            connect_ms = (time.monotonic() - _connect_start) * 1000
+            phase = "execute"
+            _configure_s3_secrets(conn, s3_secrets)
+            _set_search_path(conn)
+            with conn.cursor() as cur:
+                _query_start = time.monotonic()
+                cur.execute(sql, values or None)
+                columns = [desc.name for desc in cur.description] if cur.description else []
+                types = [str(desc.type_code) for desc in cur.description] if cur.description else []
+                rows = cur.fetchall()
+                query_ms = (time.monotonic() - _query_start) * 1000
+    except (OperationalError, InterfaceError) as exc:
+        raise _clean_connection_error(exc, phase=phase, team_id=team_id) from exc
     return DuckLakeQueryResult(
         columns=columns,
         types=types,
