@@ -1755,6 +1755,34 @@ class TestBuildPipeline:
         with pytest.raises(psycopg.OperationalError):
             impl.build_pipeline(_make_config(), _make_inputs())
 
+    def test_retries_once_on_transient_connection_drop_opening_the_streaming_connection(
+        self, build_pipeline_mocks, mocker
+    ):
+        # Regression: unlike the metadata connect above, opening the streaming connection had no
+        # in-process retry. Nothing has been read yet at that point, so a drop there is exactly as
+        # safe to retry as a setup-phase drop — but without the retry it fell straight through to a
+        # full Temporal activity retry that restarts the whole sync.
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.time.sleep")
+        mock_connect, streaming_cursor = build_pipeline_mocks
+        real_side_effect = mock_connect.side_effect
+        attempts = {"n": 0}
+
+        def flaky_streaming_connect(*args, **kwargs):
+            attempts["n"] += 1
+            # Call 1 is the metadata connect; call 2 is the first streaming connect attempt.
+            if attempts["n"] == 2:
+                raise psycopg.OperationalError("the connection is lost")
+            return real_side_effect(*args, **kwargs)
+
+        mock_connect.side_effect = flaky_streaming_connect
+
+        impl = RedshiftImplementation()
+        response = impl.build_pipeline(_make_config(), _make_inputs())
+        list(response.items())  # type: ignore[arg-type]
+
+        assert attempts["n"] == 3
+        assert streaming_cursor.execute.called
+
     def test_returns_source_response(self, build_pipeline_mocks):
         mock_connect, _ = build_pipeline_mocks
         impl = RedshiftImplementation()
