@@ -15,8 +15,9 @@ from posthog.interval_specs import ORDERED_INTERVALS, PERIOD_MAP, IntervalLitera
 from posthog.models.team import Team, WeekStartDay
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
-# Matches the date-only forms `relative_date_parse_with_delta_mapping` accepts, padded or not.
-CALENDAR_DAY_RE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}")
+# Matches a calendar day with no time of day: the extended form (`2021-04-25`, padding optional)
+# and the basic form (`20210425`), both of which `relative_date_parse_with_delta_mapping` parses.
+CALENDAR_DAY_RE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}|\d{8}")
 
 
 @frozen

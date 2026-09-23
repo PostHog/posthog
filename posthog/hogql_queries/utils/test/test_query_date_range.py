@@ -315,8 +315,10 @@ class TestQueryDateRange(APIBaseTest):
             (QueryDateRange, IntervalType.DAY, "2021-04-25", "2021-04-25T23:59:59.999999Z"),
             (QueryDateRange, IntervalType.HOUR, "2021-04-25", "2021-04-25T00:00:00Z"),
             (QueryDateRange, IntervalType.MINUTE, "2021-04-25", "2021-04-25T00:00:00Z"),
+            (QueryDateRange, IntervalType.MINUTE, "20210425", "2021-04-25T00:00:00Z"),
             (CalendarDayInclusiveDateRange, IntervalType.MINUTE, "2021-04-25", "2021-04-25T23:59:59.999999Z"),
             (CalendarDayInclusiveDateRange, IntervalType.MINUTE, "2021-4-25", "2021-04-25T23:59:59.999999Z"),
+            (CalendarDayInclusiveDateRange, IntervalType.MINUTE, "20210425", "2021-04-25T23:59:59.999999Z"),
             (CalendarDayInclusiveDateRange, IntervalType.MINUTE, "2021-04-25T10:30:00Z", "2021-04-25T10:30:00Z"),
         ]
     )
