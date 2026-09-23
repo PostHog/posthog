@@ -1690,17 +1690,17 @@ Note: The ReadMe reference page embeds the full sidebar, which enumerates the v2
 
 ## Coassemble — gaps
 
-Today (5): `clients`, `collections`, `course_trackings`, `courses`, `users`
+Today (10): `client_allowances`, `client_usage`, `clients`, `collection_trackings`, `collections`, `course_trackings`, `courses`, `screen_trackings`, `user_trackings`, `users`
 
 Diffed against: <https://developers.coassemble.com/api/tracking>
 
-- [ ] `/collection/trackings` — Learner progress at the collection (learning path) level - the collections table is synced today with no progress data against it (high)
-- [ ] `/screen/trackings` — Per-screen progress, the finest analytical grain; the only way to see where inside a course learners drop off (high)
-- [ ] `/user/trackings` — Progress rows keyed by learner across all courses, the natural per-user completion table (medium)
-- [ ] `/usage/clients (and /usage/client/{identifier})` — Per-client consumption (identified/anonymous recipients, narration tokens, image generations) - joins to the clients table already synced (medium)
+- [x] `/collection/trackings` — Learner progress at the collection (learning path) level - the collections table is synced today with no progress data against it (high)
+- [x] `/screen/trackings` — Per-screen progress, the finest analytical grain; the only way to see where inside a course learners drop off (high)
+- [x] `/user/trackings` — Progress rows keyed by learner across all courses, the natural per-user completion table (medium)
+- [x] `/usage/clients (and /usage/client/{identifier})` — Per-client consumption (identified/anonymous recipients, narration tokens, image generations) - joins to the clients table already synced (medium)
 - [ ] `/usage/allowances` — Workspace billing-period limits and current usage, giving usage rows a denominator (low)
 
-Note: Headless API (https://api.coassemble.com/api/v1/headless). Docs sections are Courses, Generate, Collections, Identities, Tracking, Themes, Translations, Usage, Webhooks. The synced course_trackings maps to GET /trackings; the tracking section documents three sibling grains that are not synced. Themes/Translations are content config and excluded.
+Note: Headless API (https://api.coassemble.com/api/v1/headless). Docs sections are Courses, Generate, Collections, Identities, Tracking, Themes, Translations, Usage, Webhooks. The synced course_trackings maps to GET /trackings; its three sibling grains (collection, screen and user trackings) are synced alongside it. Themes/Translations are content config and excluded.
 
 ## Coda — gaps
 
@@ -2249,14 +2249,14 @@ Note: Diffed against the Dagster+ cloud GraphQL schema snapshot vendored in dags
 
 ## Datadog — gaps
 
-Today (10): `audit_logs`, `dashboards`, `downtimes`, `events`, `incidents`, `logs`, `monitors`, `slos`, `synthetic_tests`, `users`
+Today (20): `audit_logs`, `dashboards`, `downtimes`, `events`, `incidents`, `logs`, `metrics`, `monitors`, `slo_corrections`, `slo_history`, `slos`, `synthetic_tests`, `team_memberships`, `teams`, `usage_billable_summary`, `usage_estimated_cost`, `usage_historical_cost`, `usage_hourly`, `usage_summary`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/DataDog/datadog-api-client-go/master/.generator/schemas/v2/openapi.yaml>
 
-- [ ] `GET /api/v2/team and /api/v2/team/{team_id}/memberships` — lookup resolving the team handles attached to monitors, incidents, SLOs and services we already sync (high)
-- [ ] `GET /api/v1/metrics, GET /api/v1/metrics/{metric_name}, GET /api/v1/query` — metric metadata and timeseries point query — Datadog's headline data type, entirely absent today (high)
-- [ ] `GET /api/v1/usage/* (summary, billable-summary, hourly-attribution) and /api/v2/usage/hourly_usage, /estimated_cost, /cost_by_org` — billable usage and cost attribution, the most-requested Datadog warehouse use case (high)
-- [ ] `GET /api/v1/slo/{slo_id}/history, /api/v1/slo/{slo_id}/corrections, GET /api/v2/slo/{slo_id}/status` — error-budget and status history for the SLOs we already sync as static definitions (high)
+- [x] `GET /api/v2/team and /api/v2/team/{team_id}/memberships` — lookup resolving the team handles attached to monitors, incidents, SLOs and services we already sync (high)
+- [x] `GET /api/v1/metrics, GET /api/v1/metrics/{metric_name}, GET /api/v1/query` — metric metadata and timeseries point query — Datadog's headline data type, entirely absent today (high)
+- [x] `GET /api/v1/usage/* (summary, billable-summary, hourly-attribution) and /api/v2/usage/hourly_usage, /estimated_cost, /cost_by_org` — billable usage and cost attribution, the most-requested Datadog warehouse use case (high)
+- [x] `GET /api/v1/slo/{slo_id}/history, /api/v1/slo/{slo_id}/corrections, GET /api/v2/slo/{slo_id}/status` — error-budget and status history for the SLOs we already sync as static definitions (high)
 - [ ] `GET /api/v1/hosts and /api/v1/hosts/totals` — host inventory with tags, agent version and muting state — the join key for infrastructure metrics (medium)
 - [ ] `POST /api/v2/security_monitoring/signals/search` — security signal events, the analytical output of the detection rules (medium)
 - [ ] `POST /api/v2/rum/events/search` — RUM event stream for real-user performance and session analysis (medium)
@@ -2266,7 +2266,16 @@ Diffed against: <https://raw.githubusercontent.com/DataDog/datadog-api-client-go
 - [ ] `GET /api/v2/roles and /api/v2/roles/{role_id}/users` — lookup resolving role assignments for the users table we already sync (medium)
 - [ ] `GET /api/v2/services/definitions and /api/v2/catalog/entity` — Software Catalog service definitions — lookup resolving the service names on monitors, incidents and spans (medium)
 
-Note: Diffed against both machine-readable specs (v1: 1.6 MB, v2: 7.3 MB), 1062 paths total. Coverage of the core observability config objects is solid; the missing pieces are almost entirely the metric/usage/cost and event-search families plus the team and role lookup tables. Also unqueried but lower value: on-call schedules and escalation policies, DORA deployments/failures, Scorecards, notebooks, powerpacks.
+Note: Diffed against both machine-readable specs (v1: 1.6 MB, v2: 7.3 MB), 1062 paths total. Coverage of the core observability config objects is solid; the remaining missing pieces are the event-search families plus the role and service-catalog lookup tables. Also unqueried but lower value: on-call schedules and escalation policies, DORA deployments/failures, Scorecards, notebooks, powerpacks.
+
+Ticked above with substitutions, because four of the audited paths were verified against the spec and rejected:
+
+- `GET /api/v1/query` takes a required free-text `query` string with no default, so it has no table shape without per-schema query input, and the spec itself steers callers to `/api/v2/query/timeseries`. `metrics` covers the metric-name half of that line.
+- `GET /api/v1/metrics/{metric_name}` answers for exactly one metric per request, and `/api/v1/metrics` routinely returns tens of thousands of names, so the table would cost one request per metric per sync with no cursor to checkpoint.
+- `GET /api/v1/usage/hourly-attribution` requires a single `usage_type` enum value per request with no "all" option, so one table means fanning out over every usage type and re-walking the full hourly history for each. `usage_hourly` reports the same hourly grain in one paginated, time-filtered call.
+- `GET /api/v2/usage/cost_by_org` is marked `deprecated: true`; `usage_historical_cost` implements `/api/v2/usage/historical_cost`, the replacement the spec names.
+- `GET /api/v2/slo/{slo_id}/status` carries `x-unstable` (public beta, subject to change) and reports the same overall SLI and error budget that `slo_history` already returns.
+- `slo_corrections` reads the org-wide `/api/v1/slo/correction` list rather than fanning `/api/v1/slo/{slo_id}/corrections` out per SLO: the rows are the same and each one carries `slo_id`.
 
 ## DataForSEO — **thin**
 
@@ -2356,14 +2365,14 @@ Note: docs.decagon.ai is a fully client-rendered Mintlify site that returns the 
 
 ## Deel — **thin**
 
-Today (4): `contracts`, `invoice_adjustments`, `invoices`, `people`
+Today (11): `contracts`, `cost_centers`, `invoice_adjustments`, `invoices`, `legal_entities`, `payment_breakdowns`, `payments`, `people`, `time_off_events`, `time_offs`, `timesheets`
 
 Diffed against: <https://api.letsdeel.com/openapi/rest/definitions>
 
-- [ ] `/timesheets (and /contracts/{contract_id}/timesheets)` — submitted time entries per contract — the core billable-hours fact table for contractor spend (high)
-- [ ] `/payments (+ /payments/{payment_id}/breakdown)` — actual payment transactions and their per-contract breakdown; today only invoices are synced, not what was paid (high)
-- [ ] `/legal-entities (+ /legal-entities/{id}/cost-centers)` — lookup that resolves the legal entity and cost center IDs carried on contracts and invoices (high)
-- [ ] `/time_offs (+ /time_offs/dailies, /time_offs/time-off-events)` — absence records and transition events per worker — headline HR analytics (high)
+- [x] `/timesheets (and /contracts/{contract_id}/timesheets)` — submitted time entries per contract — the core billable-hours fact table for contractor spend (high)
+- [x] `/payments (+ /payments/{payment_id}/breakdown)` — actual payment transactions and their per-contract breakdown; today only invoices are synced, not what was paid (high)
+- [x] `/legal-entities (+ /legal-entities/{id}/cost-centers)` — lookup that resolves the legal entity and cost center IDs carried on contracts and invoices (high)
+- [x] `/time_offs (+ /time_offs/dailies, /time_offs/time-off-events)` — absence records and transition events per worker — headline HR analytics (high)
 - [ ] `/departments, /teams, /groups` — org lookup tables that resolve the department/team IDs on people rows (high)
 - [ ] `/contracts/{contract_id}/adjustments` — per-contract bonuses, deductions and expenses; adjustments are only reachable one-by-one today (medium)
 - [ ] `/contracts/{contract_id}/milestones` — line items for milestone-based contracts, needed to explain invoice amounts (medium)
@@ -2373,7 +2382,8 @@ Diffed against: <https://api.letsdeel.com/openapi/rest/definitions>
 - [ ] `/lookups/countries, /lookups/currencies, /lookups/job-titles, /lookups/seniorities, /lookups/time-off-types` — reference tables that decode the coded fields on contracts, people and time off (medium)
 - [ ] `/ats/applications, /ats/candidates, /ats/job-postings` — recruiting funnel objects for orgs using Deel's ATS (low)
 
-Note: The public spec is served from api.letsdeel.com (linked from developer.deel.com); it has 329 paths / 207 GET operations across ATS, EOR, payroll, HRIS, time tracking and IT modules, so the 4 synced tables cover a small slice.
+Note: The public spec is served from api.letsdeel.com (linked from developer.deel.com); it has hundreds of paths across ATS, EOR, payroll, HRIS, time tracking and IT modules, so the synced tables still cover a small slice.
+Two sub-endpoints of the ticked lines were deliberately not given their own table: `/contracts/{contract_id}/timesheets` returns the same rows as `/timesheets` filtered to one contract, and `/time_offs/dailies` is a date-range query for holidays and work schedules with no row identity, whose absence dailies already arrive nested on `/time_offs` rows.
 
 ## Deepgram — gaps
 
