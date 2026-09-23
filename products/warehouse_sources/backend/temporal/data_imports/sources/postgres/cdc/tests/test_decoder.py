@@ -537,25 +537,38 @@ class TestTransactionBufferGuard:
         decoder.decode_message(_make_relation(1, "public", "users", self._COLUMNS), "0/1")
         return decoder
 
-    def _decode_transaction(self, decoder: PgOutputDecoder, ids: range) -> list[ChangeEvent]:
+    def _row(self, i: int) -> list[tuple[str, str] | None]:
+        return [("t", str(i)), None if i % 2 else ("t", f"用户 {i}"), ("t", "t"), ("t", f"{i}.5")]
+
+    def _decode(self, decoder: PgOutputDecoder, messages: list[bytes]) -> list[ChangeEvent]:
         decoder.decode_message(_make_begin(), "0/1")
-        for i in ids:
-            row = [("t", str(i)), None if i % 2 else ("t", f"user {i}"), ("t", "t"), ("t", f"{i}.5")]
-            assert list(decoder.decode_message(_make_insert(1, row), "0/1")) == []
+        for message in messages:
+            assert list(decoder.decode_message(message, "0/1")) == []
         return list(decoder.decode_message(_make_commit(end_lsn=0x500), "0/2"))
 
-    @parameterized.expand([("spills_whole_chunks", 7), ("spills_with_a_tail", 2)])
+    def _mixed_transaction(self) -> list[bytes]:
+        retyped = [("id", _OID_INT4, -1), ("name", _OID_TEXT, -1), ("active", _OID_BOOL, -1), ("score", _OID_TEXT, -1)]
+        return [
+            *(_make_insert(1, self._row(i)) for i in range(4)),
+            _make_update(1, [("t", "2"), ("u", ""), ("t", "f"), ("t", "9.5")]),
+            _make_relation(1, "public", "users", retyped),
+            *(_make_insert(1, self._row(i)) for i in range(4, 7)),
+        ]
+
+    @parameterized.expand([("spills_whole_chunks", 4), ("spills_with_a_tail", 3)])
     def test_a_spilled_transaction_comes_back_identical_at_the_commit_position(self, _name: str, chunk: int) -> None:
-        with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 10):
-            in_memory = self._decode_transaction(self._decoder_with_relation(), range(7))
+        with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 100):
+            in_memory = self._decode(self._decoder_with_relation(), self._mixed_transaction())
         with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", chunk):
             decoder = self._decoder_with_relation()
-            spilled = self._decode_transaction(decoder, range(7))
-            follow_up = self._decode_transaction(decoder, range(100, 103))
+            spilled = self._decode(decoder, self._mixed_transaction())
+            follow_up = self._decode(decoder, [_make_insert(1, self._row(100))])
 
         assert spilled == in_memory
         assert {e.position_serialized for e in spilled} == {"0/500"}
-        assert [e.columns["id"] for e in follow_up] == [100, 101, 102]
+        assert spilled[4].omitted_columns == frozenset({"name"})
+        assert spilled[0].column_types != spilled[-1].column_types
+        assert [e.columns["id"] for e in follow_up] == [100]
 
     @parameterized.expand([("change_count", "MAX_TX_BUFFER_EVENTS", 3), ("spill_bytes", "MAX_TX_SPILL_BYTES", 1)])
     def test_raises_when_transaction_exceeds_a_cap(self, _name: str, cap: str, value: int) -> None:
@@ -568,7 +581,20 @@ class TestTransactionBufferGuard:
             with pytest.raises(CDCTransactionTooLargeError):
                 decoder.decode_message(_make_insert(1, [("t", "99"), None, None, None]), "0/1")
 
-    def test_close_releases_the_spill_of_a_transaction_that_never_committed(self) -> None:
+    def test_raises_when_decoding_a_transaction_outlasts_the_time_limit(self) -> None:
+        clock = iter([0.0, 3601.0])
+        with (
+            patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 1),
+            patch(f"{_DECODER_MODULE}.time.monotonic", side_effect=lambda: next(clock)),
+        ):
+            decoder = self._decoder_with_relation()
+            decoder.decode_message(_make_begin(), "0/1")
+
+            with pytest.raises(CDCTransactionTooLargeError):
+                decoder.decode_message(_make_insert(1, [("t", "1"), None, None, None]), "0/1")
+
+    @parameterized.expand([("before_commit", False), ("mid_replay", True)])
+    def test_close_releases_the_spill(self, _name: str, committed: bool) -> None:
         spill = io.BytesIO()
         with (
             patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 1),
@@ -577,6 +603,9 @@ class TestTransactionBufferGuard:
             decoder = self._decoder_with_relation()
             decoder.decode_message(_make_begin(), "0/1")
             decoder.decode_message(_make_insert(1, [("t", "1"), None, None, None]), "0/1")
+            decoder.decode_message(_make_insert(1, [("t", "2"), None, None, None]), "0/1")
+            if committed:
+                next(iter(decoder.decode_message(_make_commit(), "0/2")))
 
             decoder.close()
 

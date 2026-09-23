@@ -21,6 +21,7 @@ Message types handled:
 from __future__ import annotations
 
 import json
+import time
 import struct
 import logging
 import tempfile
@@ -51,6 +52,9 @@ TX_SPILL_CHUNK_EVENTS = 50_000
 # CDCTransactionTooLargeError as a non-retryable failure.
 MAX_TX_BUFFER_EVENTS = 50_000_000
 MAX_TX_SPILL_BYTES = 64 * 1024**3
+# A transaction must finish inside one capture attempt, which a timeout would retry from the start
+# forever, so decoding one that runs past this fails it as too large instead.
+MAX_TX_DECODE_SECONDS = 60 * 60
 
 # PostgreSQL epoch: 2000-01-01 00:00:00 UTC
 # Timestamps in pgoutput are microseconds since this epoch
@@ -126,6 +130,9 @@ class PgOutputDecoder:
         self._tx_buffer: list[ChangeEvent] = []
         self._tx_spill: IO[bytes] | None = None
         self._tx_spill_bytes = 0
+        self._tx_started_at = 0.0
+        # The spill a committed transaction is still replaying from, so close() can release it.
+        self._replay_spill: IO[bytes] | None = None
         # Column types are shared per relation, so a spilled line stores an index into this list.
         self._tx_spill_types: list[Mapping[str, pa.DataType] | None] = []
         self._tx_event_count = 0
@@ -190,6 +197,7 @@ class PgOutputDecoder:
 
         self._tx_timestamp = _pg_timestamp_to_datetime(timestamp_us)
         self._reset_transaction()
+        self._tx_started_at = time.monotonic()
 
     def _handle_commit(self, payload: bytes) -> Iterable[ChangeEvent]:
         """C message: flags(1) + commit_lsn(8) + end_lsn(8) + timestamp(8)
@@ -207,11 +215,15 @@ class PgOutputDecoder:
         self._tx_timestamp = None
         if spill is None:
             return [dataclass_replace(e, position_serialized=end_lsn) for e in tail]
+        self._replay_spill = spill
         return _replay_spilled_transaction(spill, types, tail, end_lsn)
 
     def close(self) -> None:
-        """Release a spill file left by a read that failed before its transaction committed."""
+        """Release a spill file left by a read that failed before its transaction committed or finished replaying."""
         self._reset_transaction()
+        if self._replay_spill is not None:
+            self._replay_spill.close()
+            self._replay_spill = None
 
     def _reset_transaction(self) -> None:
         if self._tx_spill is not None:
@@ -444,6 +456,9 @@ class PgOutputDecoder:
 
         Decoded values are only bool, int, float, str or None, so JSON round-trips them exactly.
         """
+        if time.monotonic() - self._tx_started_at > MAX_TX_DECODE_SECONDS:
+            self._reset_transaction()
+            raise CDCTransactionTooLargeError(f"Transaction took more than {MAX_TX_DECODE_SECONDS}s to decode")
         if self._tx_spill is None:
             self._tx_spill = tempfile.TemporaryFile()
         type_index = {id(types): i for i, types in enumerate(self._tx_spill_types)}
@@ -461,7 +476,9 @@ class PgOutputDecoder:
                         event.columns,
                         sorted(event.omitted_columns),
                         type_index[key],
-                    ]
+                    ],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
                 ).encode()
                 + b"\n"
             )
