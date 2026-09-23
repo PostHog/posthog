@@ -333,7 +333,7 @@ class Command(BaseCommand):
             # buffered lane wrote itself.
             with transaction.atomic():
                 self._write_job_inputs(source, cdc_ingest_mode="legacy", cdc_buffered_before=True)
-                self._mark_buffered_before(eligible)
+                self._mark_buffered_before([s for s in cdc_schemas if serves_buffered_lane(s)])
         except BaseException:
             # The mode is still buffered, so the schemas go back to consuming the buffer, which is
             # what they were doing before this command ran. Leaving them paused instead would stop
