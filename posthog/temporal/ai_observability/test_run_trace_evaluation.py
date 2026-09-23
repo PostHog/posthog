@@ -376,17 +376,14 @@ class TestFetchTraceForEvaluation:
         assert outcome.trace is trace
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize(
-        "window_end,expected_skip",
-        [(FROZEN_NOW + timedelta(minutes=30), "trace_not_found"), (None, None)],
-    )
-    def test_a_backfilled_trace_left_with_no_events_is_skipped(self, setup_data, window_end, expected_skip):
+    @pytest.mark.parametrize("window_end", [None, FROZEN_NOW + timedelta(minutes=30)])
+    def test_a_trace_left_with_nothing_to_grade_is_skipped(self, setup_data, window_end):
         team = setup_data["team"]
         empty_trace = create_trace([])
 
         # The count preflight sees the `$ai_trace` root row, which never reaches `events`, so the
-        # bounded runner can return a trace row with no transcript to grade. A live run keeps
-        # whatever it did with that row before, so only the backfilled run skips.
+        # runner can return a trace row whose transcript is the trace name alone. Both the live and
+        # the backfilled run must skip it rather than let the judge grade nothing.
         with (
             time_machine.travel(FROZEN_NOW, tick=False),
             patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=2),
@@ -395,8 +392,50 @@ class TestFetchTraceForEvaluation:
             mock_runner.return_value.calculate.return_value = MagicMock(results=[empty_trace])
             outcome = fetch_trace_for_evaluation(team.id, "trace-123", FROZEN_NOW, window_end)
 
-        assert outcome.skip_reason == expected_skip
-        assert outcome.trace is (None if expected_skip else empty_trace)
+        assert outcome.skip_reason == "trace_not_found"
+        assert outcome.trace is None
+
+    @pytest.mark.django_db(transaction=True)
+    def test_an_event_less_trace_with_trace_level_state_is_graded(self, setup_data):
+        team = setup_data["team"]
+        # The formatter renders the trace-level input and output when the hierarchy is empty, so
+        # this trace still gives the judge something to read.
+        root_only_trace = create_trace([], inputState="what is the weather?", outputState="it is sunny")
+
+        with (
+            time_machine.travel(FROZEN_NOW, tick=False),
+            patch(
+                "posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events",
+                side_effect=lambda *args, renderable_only=False, **kwargs: 0 if renderable_only else 1,
+            ),
+            patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
+        ):
+            mock_runner.return_value.calculate.return_value = MagicMock(results=[root_only_trace])
+            outcome = fetch_trace_for_evaluation(team.id, "trace-123", FROZEN_NOW)
+
+        assert outcome.skip_reason is None
+        assert outcome.trace is root_only_trace
+
+    @pytest.mark.django_db(transaction=True)
+    def test_a_partial_read_is_skipped_rather_than_graded(self, setup_data):
+        team = setup_data["team"]
+        root_only_trace = create_trace([], inputState="what is the weather?")
+
+        # The count finds generations the fetch did not return, so the read missed part of the
+        # trace. Grading the remainder would hide the missing generations from the judge.
+        with (
+            time_machine.travel(FROZEN_NOW, tick=False),
+            patch(
+                "posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events",
+                side_effect=lambda *args, renderable_only=False, **kwargs: 3 if renderable_only else 1,
+            ),
+            patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
+        ):
+            mock_runner.return_value.calculate.return_value = MagicMock(results=[root_only_trace])
+            outcome = fetch_trace_for_evaluation(team.id, "trace-123", FROZEN_NOW)
+
+        assert outcome.skip_reason == "trace_not_found"
+        assert outcome.trace is None
 
 
 class TestRunHogEvalOverRecentTraces:

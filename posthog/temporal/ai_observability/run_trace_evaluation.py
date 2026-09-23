@@ -114,6 +114,18 @@ WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$a
 HAVING event_count > 0
 """
 
+# Same count over the events that can reach `LLMTrace.events`. The `$ai_trace` root row is left out
+# because the runner drops it, so it can never contribute a line to the judge transcript.
+_RENDERABLE_TRACE_EVENT_COUNT_SQL = """
+SELECT count() AS event_count
+FROM posthog.ai_events AS ai_events
+WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback')
+  AND trace_id = {trace_id}
+  AND timestamp >= {date_from}
+  AND timestamp <= {date_to}
+HAVING event_count > 0
+"""
+
 _SKIP_REASONING = {
     "trace_not_found": "No trace events were found within the evaluation window; evaluation skipped.",
     "trace_too_large": (
@@ -171,9 +183,11 @@ class TraceFetchOutcome:
     event_count: int
 
 
-def _count_trace_events(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> int:
+def _count_trace_events(
+    team: Team, trace_id: str, date_from: datetime, date_to: datetime, *, renderable_only: bool = False
+) -> int:
     result = query_ai_events(
-        query=parse_select(_TRACE_EVENT_COUNT_SQL),
+        query=parse_select(_RENDERABLE_TRACE_EVENT_COUNT_SQL if renderable_only else _TRACE_EVENT_COUNT_SQL),
         placeholders={
             "trace_id": ast.Constant(value=trace_id),
             "date_from": ast.Constant(value=date_from),
@@ -213,6 +227,24 @@ def _sum_trace_payload_bytes(team: Team, trace_id: str, date_from: datetime, dat
     if not result.results:
         return 0
     return int(result.results[0][0] or 0)
+
+
+def _nothing_to_grade(team: Team, trace: LLMTrace, trace_id: str, date_from: datetime, date_to: datetime) -> bool:
+    """Decide whether a trace that came back with no events still carries something to grade.
+
+    The count preflight includes the `$ai_trace` root row, which the runner drops from `events`, so
+    a non-zero count does not promise a transcript. The formatter falls back to the trace-level
+    input and output when the hierarchy is empty, so a root-only trace grades fine. Without either,
+    the judge would receive the trace name alone and grade nothing.
+
+    A renderable event the fetch did not return means `ai_events` served a partial trace: the count
+    falls back to the shared events table when `ai_events` holds no renderable row, so the two reads
+    disagree only when the generations exist somewhere the fetch did not look. Those generations are
+    what the judge needs, so a partial read counts as a miss rather than an answer.
+    """
+    if not trace.inputState and not trace.outputState:
+        return True
+    return _count_trace_events(team, trace_id, date_from, date_to, renderable_only=True) > 0
 
 
 def _fetch_trace(
@@ -256,10 +288,7 @@ def _fetch_trace(
     if not response.results:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     trace = response.results[0]
-    if bound_to_date_to and not trace.events:
-        # The count preflight includes the `$ai_trace` root row, which never reaches `events`, so a
-        # non-zero count does not promise a transcript. Once the bound applies, an empty one must
-        # skip rather than let the judge grade nothing. A live run keeps its own handling of this.
+    if not trace.events and _nothing_to_grade(team, trace, trace_id, date_from, date_to):
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     return TraceFetchOutcome(trace=trace, skip_reason=None, event_count=event_count)
 
