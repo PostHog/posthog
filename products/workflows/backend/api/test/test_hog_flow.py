@@ -18,6 +18,7 @@ from rest_framework import status
 from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.cdp.validation import MASKED_SECRET_VALUE
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -517,6 +518,46 @@ class TestHogFlowAPI(APIBaseTest):
         assert web_response.status_code == 200, web_response.json()
         assert "actions" in web_response.json()["results"][0]
         assert secret in web_response.content.decode()
+
+    def test_mcp_retrieve_masks_credential_headers_and_a_resend_keeps_them(self):
+        # `headers` is a plain dictionary input, so the template does not mark it secret and the
+        # masking that covers secret inputs never reaches an Authorization value inside it.
+        secret = "Bearer webhook-token-abc123"
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                    "headers": {"value": {"Authorization": secret, "X-Trace-Id": "abc"}},
+                },
+            }
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        mcp_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", HTTP_X_POSTHOG_CLIENT="mcp")
+        assert mcp_response.status_code == 200, mcp_response.json()
+        assert secret not in mcp_response.content.decode()
+        mcp_headers = mcp_response.json()["actions"][1]["config"]["inputs"]["headers"]["value"]
+        # The key survives, so an agent can still tell that authentication is configured, and a
+        # non-credential header is untouched.
+        assert mcp_headers == {"Authorization": MASKED_SECRET_VALUE, "X-Trace-Id": "abc"}
+
+        # The web builder renders and edits this input, so it keeps the real value.
+        web_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+        assert web_response.status_code == 200, web_response.json()
+        assert web_response.json()["actions"][1]["config"]["inputs"]["headers"]["value"]["Authorization"] == secret
+
+        # Resending what MCP read back must keep the stored credential, not persist the mask - an
+        # action authenticating with the mask has every request it makes rejected.
+        resent = deepcopy(mcp_response.json()["actions"])
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": resent, "edges": []}
+        )
+        assert patch_response.status_code == 200, patch_response.json()
+        stored = HogFlow.objects.get(id=flow_id)
+        assert stored.actions[1]["config"]["inputs"]["headers"]["value"]["Authorization"] == secret
 
     def test_mcp_update_rejects_graph_replacement(self):
         # A partial actions list through a plain update silently drops every step it omits -
