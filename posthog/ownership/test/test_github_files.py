@@ -59,8 +59,14 @@ class _FakeGitHub:
         self.file_calls = 0
         self.head_calls = 0
         self.file_shas: list[str] = []
+        self.compare_calls = 0
+        self.compare: Callable[[str, str], _Response] = lambda base, _head: _compared(base, [])
 
-    def __call__(self, _method: str, _url: str, **kwargs: Any) -> _Response:
+    def __call__(self, _method: str, url: str, **kwargs: Any) -> _Response:
+        if "/compare/" in url:
+            self.compare_calls += 1
+            base, head = url.rsplit("/", 1)[1].split("...")
+            return self.compare(base, head)
         payload = kwargs["json"]
         query, variables = payload["query"], payload["variables"]
         if "defaultBranchRef" in query:
@@ -83,6 +89,12 @@ class _FakeGitHub:
             else:
                 field[f"f{name[1:]}"] = {"text": body} if "text" in query else {"__typename": "Blob"}
         return _Response(200, {"data": {"repository": field}})
+
+
+def _compared(
+    base: str, files: list[dict[str, str]], *, status: str = "ahead", merge_base: str | None = None
+) -> _Response:
+    return _Response(200, {"status": status, "merge_base_commit": {"sha": merge_base or base}, "files": files})
 
 
 class _ScriptedGitHub:
@@ -302,11 +314,40 @@ class TestAuthenticatedRepoFiles(SimpleTestCase):
         assert github.file_shas == [expected_sha]
         assert cache.get(key) == expected_sha
 
-    @parameterized.expand([("present", _ROOT_OWNERS), ("absent", None)])
-    def test_a_commit_is_read_once_and_a_new_commit_is_read_again(self, _name: str, body: str | None) -> None:
-        # The cache is keyed by commit, so a merge has to be visible once the head lookup expires,
-        # and an absent file must not be refetched on every batch until then.
+    @parameterized.expand(
+        [
+            ("unrelated_merge", lambda base, _head: _compared(base, [{"filename": "src/app.py"}]), 1, False),
+            ("unrelated_merge_absent_file", lambda base, _head: _compared(base, []), 1, False, None),
+            ("file_edited", lambda base, _head: _compared(base, [{"filename": "owners.yaml"}]), 2, True),
+            (
+                "file_renamed_away",
+                lambda base, _head: _compared(base, [{"filename": "team.yaml", "previous_filename": "owners.yaml"}]),
+                2,
+                True,
+            ),
+            # A force-push or a rewind: the old head is not an ancestor, so nothing is proven unchanged.
+            ("diverged", lambda base, _head: _compared(base, [], status="diverged"), 2, True),
+            ("merge_base_elsewhere", lambda base, _head: _compared(base, [], merge_base="c" * 40), 2, True),
+            (
+                "file_list_cut_short",
+                lambda base, _head: _compared(base, [{"filename": f"src/{index}.py"} for index in range(300)]),
+                2,
+                True,
+            ),
+            ("compare_failed", lambda _base, _head: _Response(502, None), 2, True),
+        ]
+    )
+    def test_a_new_commit_reuses_only_what_the_compare_proves_unchanged(
+        self,
+        _name: str,
+        compare: Callable[[str, str], _Response],
+        file_calls: int,
+        sees_edit: bool,
+        body: str | None = _ROOT_OWNERS,
+    ) -> None:
         github = _FakeGitHub({"owners.yaml": body} if body is not None else {})
+        github.compare = compare
+        edited = "version: 1\nowners: [team-new]\n"
         with (
             patch("posthog.ownership.github_files._HEAD_CACHE_TTL_SECONDS", 0),
             patch("posthog.ownership.github_files.github_request", side_effect=github),
@@ -314,9 +355,13 @@ class TestAuthenticatedRepoFiles(SimpleTestCase):
             assert self._files().read("owners.yaml") == body
             assert self._files().read("owners.yaml") == body
             assert github.file_calls == 1
-            github.sha = "b" * 40
-            assert self._files().read("owners.yaml") == body
-            assert github.file_calls == 2
+            github.sha = _NEW_SHA
+            if sees_edit:
+                github.blobs = {"owners.yaml": edited}
+            assert self._files().read("owners.yaml") == (edited if sees_edit else body)
+            assert self._files().read("owners.yaml") == (edited if sees_edit else body)
+        assert github.file_calls == file_calls
+        assert github.compare_calls == 1
 
 
 class TestFetcherForTeam(BaseTest):

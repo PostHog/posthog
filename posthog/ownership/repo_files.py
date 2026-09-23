@@ -138,6 +138,11 @@ def _cache_get_many(keys: list[str]) -> dict[str, Any]:
         return {}
 
 
+def _cached_by_path(path_by_key: dict[str, str]) -> dict[str, Any]:
+    """The cached values of these keys, by the path each key stands for."""
+    return {path_by_key[key]: value for key, value in _cache_get_many(list(path_by_key)).items()}
+
+
 def _cache_set_many(values: dict[str, Any], ttl: int) -> None:
     try:
         cache.set_many(values, ttl)
@@ -176,8 +181,7 @@ class CachedRepoFiles:
         todo = list(dict.fromkeys(paths))
         if not todo:
             return {}
-        by_key = {self._cache_key(kind, path): path for path in todo}
-        known = {by_key[key]: value for key, value in _cache_get_many(list(by_key)).items()}
+        known = _cached_by_path({self._cache_key(kind, path): path for path in todo})
         missing = [path for path in todo if path not in known]
         if missing:
             fetched = fetch(missing)

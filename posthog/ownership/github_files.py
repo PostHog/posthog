@@ -12,7 +12,7 @@ the ref `HEAD` and keeps its own cache and its own six-hour staleness window.
 
 import json
 from collections.abc import Callable, Sequence
-from functools import partial
+from functools import cached_property, partial
 from http import HTTPStatus
 from typing import Any
 
@@ -25,13 +25,15 @@ from posthog.egress.observability.observability import scope_fingerprint
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
-from posthog.models.integration.github import _is_safe_github_repo_path
+from posthog.models.integration.github import _is_safe_github_repo_path, _is_safe_github_sha
 from posthog.ownership.repo_files import (
     _ABSENT,
     _MAX_FILE_BYTES,
     CachedRepoFiles,
     GitHubRepoFiles,
     OwnershipUnavailable,
+    _cache_set_many,
+    _cached_by_path,
     _fetch_all,
     capped_text,
     pooled_session,
@@ -47,6 +49,7 @@ _GRAPHQL_URL = f"{_API_HOST}/graphql"
 EGRESS_SOURCE = "ownership_github_api"
 _HEAD_ENDPOINT = "/graphql:ownershipHeadCommit"
 _FILES_ENDPOINT = "/graphql:ownershipFiles"
+_COMPARE_ENDPOINT = "/repos/{owner}/{repo}/compare/{basehead}"
 _TIMEOUT_SECONDS = 10.0
 
 # GitHub charges one rate-limit point for a whole aliased query, so the files of a batch cost one
@@ -54,6 +57,8 @@ _TIMEOUT_SECONDS = 10.0
 # hundred files in a few seconds and refuses four hundred with a 502.
 _CHUNK_FILES = 100
 
+# Unchanged entries are copied from one commit to the next, so an entry can outlive the code that
+# wrote it by any number of commits. A change to what an entry means must change this prefix.
 _CACHE_PREFIX = "ownership:github_api"
 # A commit's content is immutable, so the TTL only releases memory. Nothing reads a commit's entries
 # after the head moves past it, so a longer TTL only keeps dead keys in the shared cache.
@@ -74,6 +79,11 @@ _NO_COVERING_INTEGRATION = 0
 # file is a few kilobytes, so a whole chunk of them is tens of kilobytes; this leaves that room many
 # times over and still bounds what one answer can cost.
 _MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+# GitHub lists at most this many changed files for a whole comparison and pages no further, so a
+# list this long can hide a changed ownership file.
+_MAX_COMPARE_FILES = 300
+# A compare that cannot prove reuse gives the same answer for the same two commits every time.
+_UNPROVABLE = "unprovable"
 
 _HEAD_QUERY = """
 query($owner: String!, $name: String!) {
@@ -199,7 +209,7 @@ class GitHubFilesFetcher:
         self._priority = priority
         self._session = pooled_session(_API_HOST)
 
-    def head_commit_sha(self, repository: str) -> str | None:
+    def head_commit_sha(self, repository: str, deadline: float | None = None) -> str | None:
         """The commit at the head of the repository's default branch, or None when there is none.
 
         A repository with no commits has no default branch, and GitHub answers that with a null
@@ -207,7 +217,7 @@ class GitHubFilesFetcher:
         an unreadable one: a caller that fails it instead would take down every repository it reads
         beside this one.
         """
-        field = self._graphql(repository, _HEAD_QUERY, {}, endpoint=_HEAD_ENDPOINT)
+        field = self._graphql(repository, _HEAD_QUERY, {}, endpoint=_HEAD_ENDPOINT, deadline=deadline)
         ref = field.get("defaultBranchRef")
         if ref is None:
             return None
@@ -227,6 +237,42 @@ class GitHubFilesFetcher:
         return self._read_chunks(
             repository, sha, paths, deadline, _EXISTS_SELECTION, lambda _path, entry: _is_blob(entry)
         )
+
+    def changed_paths(self, repository: str, base: str, head: str, deadline: float) -> frozenset[str] | None:
+        """Every path that a change between the two commits added, removed, modified or renamed.
+
+        None means the answer cannot prove that the other paths are unchanged: ``head`` does not
+        descend from ``base`` (a force-push or a rewind), or GitHub cut the file list short.
+        """
+        if not (_is_safe_github_repo_path(repository) and _is_safe_github_sha(base) and _is_safe_github_sha(head)):
+            raise OwnershipUnavailable(f"unsafe compare for {repository!r}: {base!r}...{head!r}")
+        status, body = self._answer(
+            repository,
+            "GET",
+            f"{_API_HOST}/repos/{repository}/compare/{base}...{head}",
+            endpoint=_COMPARE_ENDPOINT,
+            deadline=deadline,
+            # The file list comes on the first page whatever the page size, and the commits are not needed.
+            params={"per_page": 1},
+        )
+        if status != HTTPStatus.OK or not isinstance(body, dict):
+            raise OwnershipUnavailable(f"{repository} answered {status} for {_COMPARE_ENDPOINT}")
+        merge_base = body.get("merge_base_commit")
+        if body.get("status") not in ("ahead", "identical") or not isinstance(merge_base, dict):
+            return None
+        if merge_base.get("sha") != base:
+            return None
+        files = body.get("files")
+        if not isinstance(files, list) or len(files) >= _MAX_COMPARE_FILES:
+            return None
+        changed: set[str] = set()
+        for file in files:
+            if not isinstance(file, dict) or not isinstance(file.get("filename"), str):
+                return None
+            changed.add(file["filename"])
+            if isinstance(file.get("previous_filename"), str):
+                changed.add(file["previous_filename"])
+        return frozenset(changed)
 
     def _text(self, path: str, entry: dict[str, Any] | None) -> str:
         if entry is None:
@@ -284,12 +330,16 @@ class GitHubFilesFetcher:
             raise OwnershipUnavailable(f"unsafe repository path: {repository!r}")
         owner, name = repository.split("/", 1)
         payload = {"query": query, "variables": {"owner": owner, "name": name, **variables}}
-        status, body = self._answer(repository, payload, endpoint=endpoint, deadline=deadline)
+        status, body = self._answer(
+            repository, "POST", _GRAPHQL_URL, endpoint=endpoint, deadline=deadline, json=payload
+        )
         if status == HTTPStatus.UNAUTHORIZED and self._refresh is not None:
             # The token was revoked or rotated under the batch, and it stays memoized, so every
             # later read would fail with it too. A 401 means nothing ran, so the retry is safe.
             self._refresh_token(repository)
-            status, body = self._answer(repository, payload, endpoint=endpoint, deadline=deadline)
+            status, body = self._answer(
+                repository, "POST", _GRAPHQL_URL, endpoint=endpoint, deadline=deadline, json=payload
+            )
         if status != HTTPStatus.OK:
             raise OwnershipUnavailable(f"{repository} answered {status} for {endpoint}")
         errors = body.get("errors") if isinstance(body, dict) else None
@@ -306,11 +356,11 @@ class GitHubFilesFetcher:
         return field
 
     def _answer(
-        self, repository: str, payload: dict[str, Any], *, endpoint: str, deadline: float | None
+        self, repository: str, method: str, url: str, *, endpoint: str, deadline: float | None, **kwargs: Any
     ) -> tuple[int, Any]:
-        """One POST's status and decoded body, read under the response cap and closed before it
+        """One request's status and decoded body, read under the response cap and closed before it
         returns."""
-        with self._post(repository, payload, endpoint=endpoint) as response:
+        with self._send(repository, method, url, endpoint=endpoint, **kwargs) as response:
             if response.status_code != HTTPStatus.OK:
                 return response.status_code, None
             text = capped_text(
@@ -324,21 +374,21 @@ class GitHubFilesFetcher:
         except ValueError as e:
             raise OwnershipUnavailable(f"{repository} answered with no JSON for {endpoint}") from e
 
-    def _post(self, repository: str, payload: dict[str, Any], *, endpoint: str) -> requests.Response:
+    def _send(self, repository: str, method: str, url: str, *, endpoint: str, **kwargs: Any) -> requests.Response:
         try:
             response = github_request(
-                "POST",
-                _GRAPHQL_URL,
+                method,
+                url,
                 source=EGRESS_SOURCE,
                 headers={"Authorization": f"Bearer {self._token_value()}"},
                 installation_id=self._installation_id,
                 priority=self._priority,
                 endpoint=endpoint,
-                json=payload,
                 timeout=_TIMEOUT_SECONDS,
                 session=self._session,
                 # The body is read under a cap in _answer, so it must not be buffered whole first.
                 stream=True,
+                **kwargs,
             )
             # A rate limit answers 403 or 429, which would otherwise read as a plain refusal. It is
             # still fail-closed, but the failure says which of the two it was.
@@ -371,46 +421,96 @@ class AuthenticatedRepoFiles(CachedRepoFiles):
     ``fresh_head`` asks GitHub for the head on this run rather than reading the shared head cache,
     for a caller that derives a decision it never stores and so cannot correct later. It still
     writes the head cache, and blob reads stay cached because content at a commit never changes.
+
+    A busy repository moves its head between most reads, and a new commit starts with an empty
+    cache. So a reader that sees a new head records the head it replaced, and a miss at the new
+    commit asks GitHub once which paths changed between the two. An entry for a path that did not
+    change is copied from the previous commit instead of read again.
     """
 
     def __init__(self, repository: str, fetcher: GitHubFilesFetcher, *, fresh_head: bool = False) -> None:
         super().__init__(repository)
         self._fetcher = fetcher
         self._fresh_head = fresh_head
-        self._sha: str | None = None
 
-    def _head_commit_sha(self) -> str | None:
-        if self._sha is None:
-            key = f"{_CACHE_PREFIX}:head:{self._fetcher.audience}:{self.repository}"
-            cached = None if self._fresh_head else get_safe_cache(key)
-            if isinstance(cached, str) and cached:
-                self._sha = cached
-            else:
-                self._sha = self._fetcher.head_commit_sha(self.repository)
-                if self._sha is not None:
-                    safe_cache_set(key, self._sha, _HEAD_CACHE_TTL_SECONDS)
-        return self._sha
+    def _scoped_key(self, kind: str) -> str:
+        return f"{_CACHE_PREFIX}:{kind}:{self._fetcher.audience}:{self.repository}"
 
-    def _commit(self) -> str:
-        sha = self._head_commit_sha()
-        if sha is None:
-            raise OwnershipUnavailable(f"{self.repository} has no commits")
+    def _key_at(self, kind: str, path: str, sha: str) -> str:
+        return f"{self._scoped_key(kind)}:{sha}:{path}"
+
+    def _remember_head(self, sha: str) -> None:
+        # The head entry expires within minutes, so the head it replaced lives in an entry of its
+        # own, as long as the entries it would let a new commit reuse.
+        last = get_safe_cache(self._scoped_key("last_head"))
+        remembered = {self._scoped_key("last_head"): sha}
+        if isinstance(last, str) and last and last != sha:
+            remembered[f"{self._scoped_key('previous')}:{sha}"] = last
+        _cache_set_many(remembered, _BLOB_CACHE_TTL_SECONDS)
+        safe_cache_set(self._scoped_key("head"), sha, _HEAD_CACHE_TTL_SECONDS)
+
+    @cached_property
+    def _head_sha(self) -> str | None:
+        cached = None if self._fresh_head else get_safe_cache(self._scoped_key("head"))
+        if isinstance(cached, str) and cached:
+            return cached
+        sha = self._fetcher.head_commit_sha(self.repository, self._deadline)
+        if sha is not None:
+            self._remember_head(sha)
         return sha
 
+    def _commit(self) -> str:
+        if self._head_sha is None:
+            raise OwnershipUnavailable(f"{self.repository} has no commits")
+        return self._head_sha
+
     def _cache_key(self, kind: str, path: str) -> str:
-        return f"{_CACHE_PREFIX}:{kind}:{self._fetcher.audience}:{self.repository}:{self._commit()}:{path}"
+        return self._key_at(kind, path, self._commit())
 
     def _cache_ttl(self) -> int:
         return _BLOB_CACHE_TTL_SECONDS
 
+    @cached_property
+    def _unchanged_since_previous_head(self) -> tuple[str, frozenset[str]] | None:
+        """The previous head and the paths changed since it, or None when no entry can be reused."""
+        sha = self._commit()
+        previous = get_safe_cache(f"{self._scoped_key('previous')}:{sha}")
+        if not isinstance(previous, str) or not previous:
+            return None
+        key = f"{self._scoped_key('changed')}:{previous}:{sha}"
+        cached = get_safe_cache(key)
+        if cached == _UNPROVABLE:
+            return None
+        if isinstance(cached, list):
+            return previous, frozenset(cached)
+        try:
+            changed = self._fetcher.changed_paths(self.repository, previous, sha, self._deadline)
+        except OwnershipUnavailable:
+            # A failed compare only costs the reuse. The full read that follows fails closed on its own.
+            logger.warning("ownership_compare_unavailable", repository=self.repository, exc_info=True)
+            return None
+        safe_cache_set(key, _UNPROVABLE if changed is None else sorted(changed), _BLOB_CACHE_TTL_SECONDS)
+        return None if changed is None else (previous, changed)
+
+    def _reuse_unchanged(self, kind: str, paths: list[str]) -> dict[str, Any]:
+        """The previous head's entries for the paths that did not change since it."""
+        if self._unchanged_since_previous_head is None:
+            return {}
+        previous, changed = self._unchanged_since_previous_head
+        return _cached_by_path({self._key_at(kind, path, previous): path for path in paths if path not in changed})
+
     def _read_missing(self, paths: list[str]) -> dict[str, str]:
-        return self._fetcher.read_files(self.repository, self._commit(), paths, self._deadline)
+        reused = self._reuse_unchanged("text", paths)
+        rest = [path for path in paths if path not in reused]
+        return {**reused, **self._fetcher.read_files(self.repository, self._commit(), rest, self._deadline)}
 
     def _probe_missing(self, paths: list[str]) -> dict[str, bool]:
-        return self._fetcher.files_exist(self.repository, self._commit(), paths, self._deadline)
+        reused = self._reuse_unchanged("exists", paths)
+        rest = [path for path in paths if path not in reused]
+        return {**reused, **self._fetcher.files_exist(self.repository, self._commit(), rest, self._deadline)}
 
     def read_all(self, paths: list[str]) -> None:
-        if self._head_commit_sha() is None:
+        if self._head_sha is None:
             # A repository with no commits holds no file. There is no commit to key a cache entry
             # by, so the absence is answered per batch rather than written to the cache.
             self._bodies.update({path: _ABSENT for path in paths if path not in self._bodies})
@@ -418,7 +518,7 @@ class AuthenticatedRepoFiles(CachedRepoFiles):
         super().read_all(paths)
 
     def exists_all(self, paths: list[str]) -> dict[str, bool]:
-        if self._head_commit_sha() is None:
+        if self._head_sha is None:
             return dict.fromkeys(paths, False)
         return super().exists_all(paths)
 
