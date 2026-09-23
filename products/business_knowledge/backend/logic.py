@@ -11,6 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from functools import reduce
 from operator import or_
+from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -79,6 +80,7 @@ from .constants import (
 )
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
+    AddedBy,
     CrawlMode,
     GapStatus,
     KnowledgeChunk,
@@ -97,6 +99,8 @@ logger = structlog.get_logger(__name__)
 
 GENERATED_KNOWLEDGE_ORIGIN = "support_ticket"
 GENERATED_SOURCE_DISABLED_MESSAGE = "Generated source is disabled."
+SUPERSEDED_SOURCE_MESSAGE = "This source was replaced by a newer answer from a later support ticket."
+EVIDENCE_REVISION_AT_KEY = "evidence_revision_at"
 GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE = (
     "This learned source has more than one document, so it cannot be edited. "
     "Delete it, then let PostHog learn from the ticket again."
@@ -160,6 +164,8 @@ class CreateGeneratedKnowledgeDocument:
     analysis_version: str
     title: str
     content: str
+    # When the reply this answer comes from was last edited. Recency compares two of these.
+    evidence_revision_at: datetime.datetime
 
 
 @frozen
@@ -181,6 +187,31 @@ class _ValidatedGeneratedDocumentInput:
 class _LearnedSourceCreateStatus:
     status: SourceStatus
     error_message: str
+
+
+# After "already_superseded" or "source_has_other_documents" the caller must drop its replacement,
+# or search keeps two answers to the same question.
+SupersessionOutcome = Literal[
+    "applied",
+    "already_superseded",
+    "source_has_other_documents",
+    "source_not_generated",
+    # The caller writes its new answer for these two: "same_source" means the answer it publishes
+    # already lives in the conflicting source, and "nothing_to_supersede" means the older source is
+    # gone, so neither leaves a second answer in search.
+    "same_source",
+    "nothing_to_supersede",
+]
+
+
+@frozen
+class KnowledgeSourceSupersession:
+    outcome: SupersessionOutcome
+    previous_ticket_number: int | None = None
+
+    @property
+    def applied(self) -> bool:
+        return self.outcome == "applied"
 
 
 class EmptyContentError(Exception):
@@ -319,6 +350,14 @@ def _require_single_generated_document(*, team_id: int, source_id: UUID) -> Know
 
 def _is_generated_source_disabled(source: KnowledgeSource) -> bool:
     return source.is_generated and source.error_message == GENERATED_SOURCE_DISABLED_MESSAGE
+
+
+def _is_superseded_source(source: KnowledgeSource) -> bool:
+    return source.error_message == SUPERSEDED_SOURCE_MESSAGE
+
+
+def _is_source_kept_out_of_search(source: KnowledgeSource) -> bool:
+    return _is_generated_source_disabled(source) or _is_superseded_source(source)
 
 
 # Advisory-lock namespace so we don't collide with other lock users.
@@ -515,11 +554,16 @@ def list_for_team(
     *,
     search: str | None = None,
     source_type: str | None = None,
+    added_by: str | None = None,
 ) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
     queryset = KnowledgeSource.objects.filter(team_id=team_id)
     if source_type:
         queryset = queryset.filter(source_type=source_type)
+    if added_by == AddedBy.HUMAN:
+        queryset = queryset.filter(is_generated=False)
+    elif added_by == AddedBy.LEARNED:
+        queryset = queryset.filter(is_generated=True)
     if search:
         term = search.strip()
         if term:
@@ -534,6 +578,21 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
         return KnowledgeSource.objects.annotate(**_source_list_annotations()).get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
+
+
+@with_team_scope(canonical=True)
+def list_live_documents_for_source(source_id: UUID, team_id: int) -> list[KnowledgeDocument] | None:
+    if not KnowledgeSource.objects.filter(id=source_id, team_id=team_id).exists():
+        return None
+    return list(
+        KnowledgeDocument.objects.filter(
+            team_id=team_id,
+            source_id=source_id,
+            tombstoned_at__isnull=True,
+        )
+        .only("id", "url", "title", "safety_verdict")
+        .order_by("url", "id")
+    )
 
 
 @with_team_scope(canonical=True)
@@ -663,6 +722,9 @@ def set_generated_knowledge_source_ready(team_id: int, *, ready: bool) -> bool:
         if not sources.exists():
             return False
         now = timezone.now()
+        # A superseded source keeps its own message either way, so turning learning back on
+        # does not put a replaced answer into search.
+        sources = sources.exclude(error_message=SUPERSEDED_SOURCE_MESSAGE)
         if ready:
             sources.update(status=SourceStatus.READY, error_message="", updated_at=now)
         else:
@@ -672,6 +734,76 @@ def set_generated_knowledge_source_ready(team_id: int, *, ready: bool) -> bool:
                 updated_at=now,
             )
         return True
+
+
+@with_team_scope(canonical=True)
+def supersede_knowledge_source(
+    *,
+    team_id: int,
+    source_id: UUID,
+    document_id: UUID,
+    superseded_by_ticket_id: UUID,
+    superseded_by_ticket_number: int,
+    superseded_by_source_id: UUID | None = None,
+) -> KnowledgeSourceSupersession:
+    """Soft-disable one learned source so search stops returning it. Content stays so the change can be reversed."""
+    if superseded_by_source_id is not None and superseded_by_source_id == source_id:
+        # A retry of the same reply resolves to the source it would replace.
+        return KnowledgeSourceSupersession(outcome="same_source")
+
+    with transaction.atomic():
+        try:
+            # The row lock serializes two replies that reach the same source, so only one replaces it.
+            source = KnowledgeSource.objects.select_for_update().get(id=source_id, team_id=team_id)
+        except KnowledgeSource.DoesNotExist:
+            return KnowledgeSourceSupersession(outcome="nothing_to_supersede")
+
+        if not source.is_generated:
+            # Learning may retire what it wrote. Only a person may retire what a person wrote.
+            return KnowledgeSourceSupersession(outcome="source_not_generated")
+
+        documents = list(
+            KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")[:2]
+        )
+        if [existing.id for existing in documents] != [document_id]:
+            # Disabling the source would take every other document in it out of search too.
+            return KnowledgeSourceSupersession(outcome="source_has_other_documents")
+        document = documents[0]
+        raw_ticket_number = (document.metadata or {}).get("ticket_number")
+        previous_ticket_number = raw_ticket_number if isinstance(raw_ticket_number, int) else None
+        if _is_superseded_source(source):
+            return KnowledgeSourceSupersession(
+                outcome="already_superseded", previous_ticket_number=previous_ticket_number
+            )
+
+        provenance = {
+            **(document.metadata or {}),
+            "superseded_by_ticket_id": str(superseded_by_ticket_id),
+            "superseded_by_ticket_number": superseded_by_ticket_number,
+        }
+        if superseded_by_source_id is not None:
+            provenance["superseded_by_source_id"] = str(superseded_by_source_id)
+        document.metadata = provenance
+        document.save(update_fields=["metadata", "updated_at"])
+        source.status = SourceStatus.ERROR
+        source.error_message = SUPERSEDED_SOURCE_MESSAGE
+        source.save(update_fields=["status", "error_message", "updated_at"])
+    return KnowledgeSourceSupersession(outcome="applied", previous_ticket_number=previous_ticket_number)
+
+
+@with_team_scope(canonical=True)
+def get_knowledge_fact_recorded_at(*, team_id: int, document_id: UUID) -> datetime.datetime | None:
+    """When the answer in this document was written, so two facts can be compared by age."""
+    document = KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).only("metadata", "created_at").first()
+    if document is None:
+        return None
+    raw_recorded_at = (document.metadata or {}).get(EVIDENCE_REVISION_AT_KEY)
+    if isinstance(raw_recorded_at, str):
+        try:
+            return datetime.datetime.fromisoformat(raw_recorded_at)
+        except ValueError:
+            pass
+    return document.created_at
 
 
 @transaction.atomic
@@ -745,6 +877,7 @@ def _create_generated_knowledge_document(
             "source_team_id": document_input.source_team_id,
             "resolution_comment_id": str(document_input.resolution_comment_id),
             "analysis_version": validated_input.analysis_version,
+            EVIDENCE_REVISION_AT_KEY: document_input.evidence_revision_at.isoformat(),
         },
         content_hash=sha256_of(validated_input.content),
         safety_verdict=SafetyVerdict.UNKNOWN,
@@ -926,8 +1059,8 @@ def update_text_source(
                 safety_verdict=SafetyVerdict.UNKNOWN,
             )
         _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
-        # Editing must not put a disabled generated source back into search.
-        source.status = SourceStatus.ERROR if _is_generated_source_disabled(source) else SourceStatus.READY
+        # Editing must not put a disabled or superseded source back into search.
+        source.status = SourceStatus.ERROR if _is_source_kept_out_of_search(source) else SourceStatus.READY
         source.save(update_fields=["status", "updated_at"])
     elif name is not None or always_include is not None:
         update_fields = ["updated_at"]

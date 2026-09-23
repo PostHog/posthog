@@ -15,13 +15,13 @@ import {
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { ApiConfig, ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, DataModelingEdge, DataModelingNode } from '~/types'
 
 import { validateMetricName } from './common'
 import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
@@ -43,7 +43,29 @@ export interface DataCatalogMetricSceneLogicProps {
     name: string
 }
 
-export type MetricSceneTab = 'definition' | 'tests'
+export type MetricSceneTab = 'definition' | 'tests' | 'lineage'
+
+/** What stopped the lineage load, in the terms the tab has a screen for. */
+export type LineageLoadProblem = 'not_ready' | 'no_warehouse_access' | 'failed'
+
+export interface MetricLineage {
+    nodes: DataModelingNode[]
+    edges: DataModelingEdge[]
+}
+
+/** A node written moments ago may not exist yet, so one silent retry covers the common case. */
+export const LINEAGE_RETRY_MS = 3000
+
+function lineageProblem(error: unknown): LineageLoadProblem {
+    const status = error instanceof ApiError ? error.status : undefined
+    if (status === 404) {
+        return 'not_ready'
+    }
+    if (status === 403) {
+        return 'no_warehouse_access'
+    }
+    return 'failed'
+}
 
 function projectId(): string {
     return String(ApiConfig.getCurrentTeamId())
@@ -58,6 +80,17 @@ function isInvalidMetricName(name: string): boolean {
 
 function apiErrorDetail(error: unknown): string | null {
     return error instanceof ApiError ? error.detail : null
+}
+
+/** A metric with no query definition has no lineage to fetch; the tab says so without asking. */
+export function metricHasExecutableDefinition(metric: DataCatalogMetricApi | null): boolean {
+    return !!metric?.definition_kind && metric.definition_kind !== 'MarkdownDefinition'
+}
+
+// What a lineage graph was computed for. The upstream tables follow from the metric and its
+// definition, so a reload that returns the same key returns the same graph.
+function lineageMetricKey(metric: DataCatalogMetricApi | null): string | null {
+    return metric ? `${metric.id}:${JSON.stringify(metric.definition ?? null)}` : null
 }
 
 export function definitionField(metric: DataCatalogMetricApi | null, field: string): string {
@@ -91,6 +124,12 @@ export interface dataCatalogMetricSceneLogicValues {
     draftMarkdown: string
     draftSql: string
     editingDefinition: boolean
+    lineage: MetricLineage | null
+    lineageLoading: boolean
+    lineageProblem: LineageLoadProblem | null
+    lineageRequestedFor: string | null
+    lineageRetried: boolean
+    lineageStale: boolean
     metric: DataCatalogMetricApi | null
     metricChecksEnabled: boolean
     metricLoading: boolean
@@ -110,6 +149,36 @@ export interface dataCatalogMetricSceneLogicActions {
     }
     deleteMetric: () => {
         value: true
+    }
+    loadLineage: () => {
+        value: true
+    }
+    loadLineageFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLineageIfNeeded: () => {
+        value: true
+    }
+    loadLineageSuccess: (
+        lineage: {
+            edges: DataModelingEdge[]
+            nodes: DataModelingNode[]
+        } | null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        lineage: {
+            edges: DataModelingEdge[]
+            nodes: DataModelingNode[]
+        } | null
+        payload?: {
+            value: true
+        }
     }
     loadMetric: () => {
         value: true
@@ -147,6 +216,9 @@ export interface dataCatalogMetricSceneLogicActions {
         runResult: DataCatalogMetricRunApi
         payload?: any
     }
+    markLineageStale: () => {
+        value: true
+    }
     refreshMetricFromInsight: () => {
         value: true
     }
@@ -167,6 +239,12 @@ export interface dataCatalogMetricSceneLogicActions {
     }
     setEditingDefinition: (editingDefinition: boolean) => {
         editingDefinition: boolean
+    }
+    setLineageRequestedFor: (key: string | null) => {
+        key: string | null
+    }
+    setLineageRetried: (lineageRetried: boolean) => {
+        lineageRetried: boolean
     }
     setMetric: (metric: DataCatalogMetricApi) => {
         metric: DataCatalogMetricApi
@@ -234,6 +312,11 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         // Declared here as well as by the loader: the loader takes a breakpoint, so without this the
         // generated action would require a payload every call site has to pass.
         loadMetric: true,
+        loadLineage: true,
+        loadLineageIfNeeded: true,
+        markLineageStale: true,
+        setLineageRequestedFor: (key: string | null) => ({ key }),
+        setLineageRetried: (lineageRetried: boolean) => ({ lineageRetried }),
         setMetric: (metric: DataCatalogMetricApi) => ({ metric }),
         approveMetric: true,
         refreshMetricFromInsight: true,
@@ -265,6 +348,20 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 setMetric: ({ metric }) => metric,
             },
         ],
+        lineage: [
+            null as MetricLineage | null,
+            {
+                loadLineage: async (_, breakpoint) => {
+                    const metricId = dataCatalogMetricSceneLogic.findMounted(props)?.values.metric?.id
+                    if (!metricId) {
+                        return null
+                    }
+                    const lineage = await api.dataModelingNodes.lineage({ metricId })
+                    breakpoint()
+                    return lineage
+                },
+            },
+        ],
         runResult: [
             null as DataCatalogMetricRunApi | null,
             {
@@ -284,6 +381,37 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             {
                 setActiveTab: (state: MetricSceneTab[], { activeTab }: { activeTab: MetricSceneTab }) =>
                     state.includes(activeTab) ? state : [...state, activeTab],
+            },
+        ],
+        lineageProblem: [
+            null as LineageLoadProblem | null,
+            {
+                loadLineage: () => null,
+                loadLineageSuccess: () => null,
+                loadLineageFailure: (_, { errorObject }: { errorObject?: unknown }) => lineageProblem(errorObject),
+            },
+        ],
+        lineageStale: [
+            false,
+            {
+                setMetric: () => true,
+                markLineageStale: () => true,
+                loadLineageSuccess: () => false,
+                loadLineageFailure: () => false,
+            },
+        ],
+        lineageRequestedFor: [
+            null as string | null,
+            {
+                setLineageRequestedFor: (_, { key }) => key,
+            },
+        ],
+        lineageRetried: [
+            false,
+            {
+                setLineageRetried: (_, { lineageRetried }) => lineageRetried,
+                loadLineageSuccess: () => false,
+                setMetric: () => false,
             },
         ],
         mutating: [
@@ -381,6 +509,51 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 actions.setPendingDefinitionEdit(false)
                 actions.startEditingMarkdown()
             }
+            // A reload can carry a definition the agent rewrote, so an open tab is no evidence that
+            // the graph is current. Compare what the graph was requested for instead, because every
+            // tab switch reloads the metric and an unchanged reload must not ask for it again.
+            if (values.activeTab !== 'lineage' || lineageMetricKey(metric) !== values.lineageRequestedFor) {
+                actions.markLineageStale()
+            }
+            actions.loadLineageIfNeeded()
+        },
+        setActiveTab: () => {
+            actions.loadLineageIfNeeded()
+        },
+        loadLineageIfNeeded: () => {
+            if (values.activeTab !== 'lineage' || values.lineageLoading) {
+                return
+            }
+            if (!metricHasExecutableDefinition(values.metric)) {
+                return
+            }
+            // The request for this metric has settled and the tab shows what it returned, so asking
+            // again would repeat it. After a failure the scheduled retry owns the next attempt.
+            if (!values.lineageStale && lineageMetricKey(values.metric) === values.lineageRequestedFor) {
+                return
+            }
+            actions.setLineageRequestedFor(lineageMetricKey(values.metric))
+            actions.loadLineage()
+        },
+        loadLineageSuccess: () => {
+            // One request runs at a time, so a metric change during a request cannot start its own.
+            // The graph that lands is then the previous metric's, and this asks for the current one.
+            // The guard above returns for a graph that already matches, so a normal load stops here.
+            actions.loadLineageIfNeeded()
+        },
+        loadLineageFailure: async (_, breakpoint) => {
+            if (values.lineageProblem !== 'not_ready' || values.lineageRetried) {
+                return
+            }
+            actions.setLineageRetried(true)
+            await breakpoint(LINEAGE_RETRY_MS)
+            // A refresh or a reload can load the graph inside the window, so ask again only while
+            // the node is still missing. The retry finishes even off the tab, so the graph is there
+            // when the user returns.
+            if (values.lineageProblem !== 'not_ready' || values.lineageLoading) {
+                return
+            }
+            actions.loadLineage()
         },
         loadMetricFailure: () => {
             // The draft is handed over for the load this instance just issued. Dropping it on a
@@ -390,6 +563,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         setMetric: ({ metric }) => {
             actions.setDraftSql(definitionField(metric, 'query'))
             actions.setDraftMarkdown(definitionField(metric, 'markdown'))
+            actions.loadLineageIfNeeded()
         },
         setEditingDefinition: ({ editingDefinition }) => {
             // Closing the editor discards the draft, otherwise the next edit session starts from stale text.
@@ -503,7 +677,8 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             if (name !== props.name) {
                 return
             }
-            const requestedTab = searchParams.tab === 'tests' ? 'tests' : 'definition'
+            const requestedTab: MetricSceneTab =
+                searchParams.tab === 'tests' || searchParams.tab === 'lineage' ? searchParams.tab : 'definition'
             const activeTab = requestedTab === 'tests' && !values.metricChecksEnabled ? 'definition' : requestedTab
             if (activeTab !== requestedTab) {
                 // Drop the param so a refresh or a back navigation does not ask for the tab again.

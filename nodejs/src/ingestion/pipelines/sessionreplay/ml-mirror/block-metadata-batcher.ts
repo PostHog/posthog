@@ -8,7 +8,7 @@ import { isWellFormedRow, selectBlockMetadataFields } from './block-metadata-col
 import { parseBlockMetadataMessages } from './block-metadata-message'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
-import { MlEncryptedEnvelope, encryptEnvelope } from './keys/crypto'
+import { MlEncryptedEnvelope, encryptEnvelopeJson } from './keys/crypto'
 import { MlDecodedMessage, MlKafkaTransport, ingestionVersion } from './keys/transport'
 import { MlParquetSinkMetrics } from './metrics'
 import { EncryptedReplayIndex, encryptReplayIndex } from './replay-index'
@@ -74,11 +74,7 @@ export class BlockMetadataBatcher {
                 }
                 if (isWellFormedRow(row)) {
                     const selected = selectBlockMetadataFields(row)
-                    this.encrypted.push(
-                        parseJSON(
-                            encryptEnvelope(key, 'metadata', Buffer.from(JSON.stringify(selected))).toString()
-                        ) as MlEncryptedEnvelope
-                    )
+                    this.encrypted.push(encryptEnvelopeJson(key, 'metadata', Buffer.from(JSON.stringify(selected))))
                     encryptedRows++
                     const index = encryptReplayIndex(selected, key)
                     this.encryptedIndex.push(...index)

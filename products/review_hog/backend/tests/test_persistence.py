@@ -11,6 +11,7 @@ from parameterized import parameterized
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ChunkSetArtefact,
+    PerspectiveResultArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
     parse_artefact_content,
@@ -886,22 +887,50 @@ class TestWorkingState(BaseTest):
 
         assert load_chunk_set(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa") is None
 
-    def test_perspective_results_round_trip_keyed_by_pass_chunk_and_model(self) -> None:
+    def test_perspective_results_round_trip_keyed_by_pass_chunk_and_arm(self) -> None:
         results = {
             (1, 1): IssuesReview(issues=[_issue("1-1-1")]),
             (2, 1): IssuesReview(issues=[_issue("2-1-1")]),
         }
+        ReviewReportArtefact.add_working_state(
+            team_id=self.team.id,
+            report_id=self.report_id,
+            content=PerspectiveResultArtefact(
+                head_sha="sha-aaa", pass_number=1, chunk_id=1, review=results[(1, 1)], review_model=FLASH_ARM.model
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        assert (
+            load_perspective_results(
+                team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_arm=FLASH_ARM
+            )
+            == {}
+        )
         persist_perspective_results(
-            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", results=results, review_model="sol"
+            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", results=results, review_arm=FLASH_ARM
+        )
+        stronger_arm = replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
+        assert (
+            load_perspective_results(
+                team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_arm=stronger_arm
+            )
+            == {}
+        )
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=self.report_id,
+            head_sha="sha-aaa",
+            results={(1, 1): IssuesReview(issues=[_issue("1-1-xhigh")])},
+            review_arm=stronger_arm,
         )
         loaded = load_perspective_results(
-            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_model="sol"
+            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_arm=FLASH_ARM
         )
         assert set(loaded.keys()) == {(1, 1), (2, 1)}
         assert loaded[(1, 1)].issues[0].id == "1-1-1"
         assert (
             load_perspective_results(
-                team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb", review_model="sol"
+                team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb", review_arm=FLASH_ARM
             )
             == {}
         )
@@ -909,10 +938,15 @@ class TestWorkingState(BaseTest):
         # turn's rows (it would skip its own reviewer entirely), and the reverse holds too.
         assert (
             load_perspective_results(
-                team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_model="glm"
+                team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_arm=DEFAULT_REVIEW_ARM
             )
             == {}
         )
+        stronger_results = load_perspective_results(
+            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_arm=stronger_arm
+        )
+        assert set(stronger_results) == {(1, 1)}
+        assert stronger_results[(1, 1)].issues[0].id == "1-1-xhigh"
 
 
 class TestPersistCommitSnapshot(BaseTest):

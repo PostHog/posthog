@@ -731,7 +731,7 @@ def test_a_go_gateway_url_without_a_key_fails_closed(team, user, stamphog_chain:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_scoped_token_is_scrubbed_from_persisted_reviewer_output(team, stamphog_chain: StamphogChain) -> None:
-    # The per-run phe_ is not in the worker env, so _llm_env_secrets cannot catch it; the explicit
+    # The per-run phe_ is not in the worker env, so llm_env_secrets cannot catch it; the explicit
     # gateway_token scrub must keep it out of ReviewRun.output.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 117, "sha117a")
@@ -1712,7 +1712,7 @@ def test_unreadable_owners_registry_posts_nothing(team, stamphog_chain: Stamphog
     assert fakes.FakeSlackIntegration.posted_messages == []
 
 
-# posthog_owners validates the whole document, so the registry has to arrive inside a real one.
+# owners_yaml validates the whole document, so the registry has to arrive inside a real one.
 _OWNERS_YAML_HEAD = "version: 1\nowners: []\n"
 
 

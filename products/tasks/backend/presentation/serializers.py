@@ -14,14 +14,17 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
+from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
+from posthog.oauth_provenance import get_oauth_client_id, is_interactive_desktop_grant
 from posthog.object_tags.kinds import OBJECT_KINDS
 from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
+from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
@@ -34,6 +37,10 @@ from products.tasks.backend.facade.contracts import (
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     SlackThreadReferenceDTO,
+    SpaceFeatureRequest,
+    SpaceGoalRequest,
+    SpaceSetupRequest,
+    SpaceSetupStartedDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
     TaskCreateResponseDTO,
@@ -99,6 +106,10 @@ def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
     return task_runtime == tasks_facade.TaskRuntime.PI
 
 
+def _is_desktop_app_grant(request: Request) -> bool:
+    return get_oauth_client_id(request) in POSTHOG_CODE_OAUTH_APP_CLIENT_IDS and is_interactive_desktop_grant(request)
+
+
 def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]) -> None:
     request = context.get("request")
     if request is None:
@@ -115,8 +126,15 @@ def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]
                 raise serializers.ValidationError(
                     {"claude_model_access": "Open PostHog Desktop to resume this run with your Claude plan."}
                 )
-    if access == "own-subscription" and is_sandbox_oauth_request(request):
-        raise serializers.ValidationError({"claude_model_access": "Only a user can select a Claude subscription."})
+    if access == "own-subscription" and not _is_desktop_app_grant(request):
+        raise serializers.ValidationError(
+            {
+                "claude_model_access": (
+                    "Only PostHog Desktop can start a run on your Claude plan. "
+                    "Start the task from Desktop, or drop this setting to use PostHog credits."
+                )
+            }
+        )
 
 
 def request_distinct_id(context: dict[str, Any]) -> str | None:
@@ -883,11 +901,15 @@ class TaskWriteSerializer(serializers.Serializer):
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
         reserved_origins = {
+            tasks_facade.TaskOriginProduct.SPACE_SETUP,
             tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
             tasks_facade.TaskOriginProduct.EXPERIMENTS,
             tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
             tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
             tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
+            # Only the autoresearch training loop creates these, in-process. Nothing legitimately
+            # sets the origin from outside, so reserve it before anything starts depending on it.
+            tasks_facade.TaskOriginProduct.AUTORESEARCH,
             # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
             # forged origin would be free model access. Only create_wizard_cloud_run sets it,
             # behind its own rate limits and daily cap.
@@ -2521,6 +2543,118 @@ class ChannelContextGenerationSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(allow_null=True)
 
 
+class SpaceSetupKind(models.TextChoices):
+    GOAL = "goal", "Goal"
+    FEATURE = "feature", "Feature"
+
+
+class SpaceGoalDirection(models.TextChoices):
+    AT_LEAST = "at_least", "At least"
+    AT_MOST = "at_most", "At most"
+
+
+class SpaceGoalPeriod(models.TextChoices):
+    DAY = "day", "Day"
+    WEEK = "week", "Week"
+    MONTH = "month", "Month"
+
+
+class SpaceGoalWriteSerializer(serializers.Serializer):
+    """The metric a goal space should move."""
+
+    statement = serializers.CharField(
+        max_length=2000, help_text="The goal in one or two sentences, e.g. 'Increase the weekly activation rate'."
+    )
+    period = serializers.ChoiceField(
+        choices=SpaceGoalPeriod.choices, default=SpaceGoalPeriod.WEEK, help_text="How often the metric is measured."
+    )
+    direction = serializers.ChoiceField(
+        choices=SpaceGoalDirection.choices,
+        default=SpaceGoalDirection.AT_LEAST,
+        help_text="Whether the target is a floor ('at_least') or a ceiling ('at_most').",
+    )
+    target = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Target value as typed, e.g. '20%' or '1500'.",
+    )
+    deadline = serializers.DateField(required=False, allow_null=True, help_text="Date the target should be reached.")
+    insight_short_id = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Short id of an existing insight that measures the goal, when there is one.",
+    )
+
+
+class SpaceFeatureWriteSerializer(serializers.Serializer):
+    """The feature a feature space is set up around."""
+
+    name = serializers.CharField(max_length=200, help_text="Feature name as people call it.")
+    description = serializers.CharField(
+        max_length=2000, required=False, allow_blank=True, default="", help_text="What the feature does, in a sentence."
+    )
+    flag_key = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Key of the feature flag that gates it, if any.",
+    )
+
+
+def _blank_to_none(data: dict, *, keep: frozenset[str] = frozenset()) -> dict:
+    """Optional text fields arrive as "" from a form; the contracts use None for "not given"."""
+    return {key: (None if value == "" and key not in keep else value) for key, value in data.items()}
+
+
+class ChannelSetupWriteSerializer(serializers.Serializer):
+    """Request body for starting the task that sets a space up for a goal or a feature."""
+
+    kind = serializers.ChoiceField(choices=SpaceSetupKind.choices, help_text="What the space is set up for.")
+    goal = SpaceGoalWriteSerializer(required=False, help_text="Required when kind is 'goal'.")
+    feature = SpaceFeatureWriteSerializer(required=False, help_text="Required when kind is 'feature'.")
+    repository = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Repository the loops work in, as 'owner/name'. Defaults to the channel's first repository.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        kind = attrs["kind"]
+        if kind == SpaceSetupKind.GOAL and not attrs.get("goal"):
+            raise serializers.ValidationError({"goal": "A goal setup needs a goal."})
+        if kind == SpaceSetupKind.FEATURE and not attrs.get("feature"):
+            raise serializers.ValidationError({"feature": "A feature setup needs a feature."})
+        return attrs
+
+    def to_request(self) -> SpaceSetupRequest:
+        data = self.validated_data
+        goal = data.get("goal")
+        feature = data.get("feature")
+        return SpaceSetupRequest(
+            kind=data["kind"],
+            goal=SpaceGoalRequest(**_blank_to_none(goal)) if goal else None,
+            feature=SpaceFeatureRequest(**_blank_to_none(feature, keep=frozenset({"description"})))
+            if feature
+            else None,
+            repository=data.get("repository") or None,
+        )
+
+
+class ChannelSetupResponseSerializer(DataclassSerializer):
+    """The setup task that was started for the channel."""
+
+    class Meta:
+        dataclass = SpaceSetupStartedDTO
+        fields = ["task_id"]
+
+
 class ChannelStarWriteSerializer(serializers.Serializer):
     """Request body for starring/unstarring a channel for the requesting user."""
 
@@ -3223,8 +3357,9 @@ class TaskRunPreferencesFieldMixin(serializers.Serializer):
         help_text=(
             "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
             "request a Claude token from the creating PostHog Desktop at run start; the token is "
-            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
-            "keep their billing choice and new runs use the PostHog gateway."
+            "sent in flight and never stored on PostHog servers. Only PostHog Desktop can select "
+            "'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep "
+            "their billing choice and new runs use the PostHog gateway."
         ),
     )
 
@@ -3705,6 +3840,22 @@ class WarmTaskRequestSerializer(serializers.Serializer):
             "cold Run. Omit to take the runtime's default."
         ),
     )
+    signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=Integration.objects.none(),
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text=(
+            "Inbox report the warm discussion is about. Required with origin_product `signal_report`, where the "
+            "warm Run boots repo-less and the submit that creates the report's discussion task activates it."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        cast(
+            serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
+        ).queryset = tasks_facade.signal_report_queryset()
 
     def validate_repository(self, value: str | None) -> str | None:
         if value is None:
@@ -3715,7 +3866,22 @@ class WarmTaskRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("Repository must be in the format organization/repository")
         return normalized
 
+    def validate_signal_report(self, value):
+        if value and value.team_id != self.context["team"].id:
+            raise serializers.ValidationError("Signal report must belong to the same team")
+        return value
+
     def validate(self, attrs):
+        if attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
+            if not attrs.get("signal_report"):
+                raise serializers.ValidationError({"signal_report": "Requires signal_report when set."})
+            if attrs.get("repository") or attrs.get("repositories") or attrs.get("github_integration"):
+                raise serializers.ValidationError(
+                    {"repository": "Signal report tasks resolve their repository server-side."}
+                )
+        elif attrs.get("signal_report"):
+            raise serializers.ValidationError({"signal_report": "Requires origin_product signal_report when set."})
+
         # A repository needs an integration to clone with. The reverse is allowed: the create path
         # accepts and stores an integration on a repo-less task, and the sandbox uses it to mint a
         # GitHub token, so a repo-less warm must carry the same integration to boot with the same

@@ -1387,6 +1387,7 @@ def _get_merge_settings(
 class BigQueryInsertInputs(BatchExportInsertInputs):
     """Inputs for BigQuery."""
 
+    data_interval_end: str
     dataset_id: str
     table_id: str
     project_id: str | None = None

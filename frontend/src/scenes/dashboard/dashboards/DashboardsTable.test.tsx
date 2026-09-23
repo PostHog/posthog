@@ -50,7 +50,12 @@ describe('DashboardsTable move to folder', () => {
         })
     })
 
-    const renderTable = (rows: number[], selectedKeys: number[] = [], filedRows: number[] = rows): void => {
+    const renderTable = (
+        rows: number[],
+        selectedKeys: number[] = [],
+        filedRows: number[] = rows,
+        tags?: string[]
+    ): void => {
         ;(useValues as jest.Mock).mockReturnValue({
             tableSorting: null,
             filters: { search: '' },
@@ -64,6 +69,7 @@ describe('DashboardsTable move to folder', () => {
                     rows.map((id) => ({
                         id,
                         name: `Dashboard ${id}`,
+                        tags,
                         user_access_level: AccessControlLevel.Editor,
                     })) as any
                 }
@@ -143,7 +149,7 @@ describe('DashboardsTable move to folder', () => {
         expect(setFilters).toHaveBeenCalledWith({ tags: ['finance'] })
     })
 
-    it('shows overflow tags in a popover and filters by them', () => {
+    it('shows all tags and filters by them', () => {
         const setFilters = jest.fn()
         ;(useActions as jest.Mock).mockReturnValue({
             unpinDashboard: jest.fn(),
@@ -168,7 +174,7 @@ describe('DashboardsTable move to folder', () => {
                         {
                             id: 1,
                             name: 'Dashboard 1',
-                            tags: ['alpha', 'beta', 'gamma', 'delta', 'epsilon', '', 'zeta'],
+                            tags: ['analytics-platform', 'beta', 'gamma', 'delta', 'epsilon', '', 'zeta'],
                             user_access_level: AccessControlLevel.Editor,
                         },
                     ] as any
@@ -177,8 +183,9 @@ describe('DashboardsTable move to folder', () => {
             />
         )
 
-        expect(screen.getByText('+1')).toBeInTheDocument()
-        fireEvent.click(screen.getByText('+1'))
+        expect(document.querySelector('[data-attr="dashboard-tags"]')).toHaveClass('max-w-full')
+        expect(screen.getByText('analytics-platform')).toHaveClass('LemonTag--wrap')
+        expect(screen.getByText('beta')).toBeInTheDocument()
         fireEvent.click(screen.getByText('zeta'))
 
         expect(setFilters).toHaveBeenCalledWith({ tags: ['zeta'] })

@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from posthog.hogql.timings import HogQLTimings
 
     from posthog.clickhouse.client.connection import Workload
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 
 class AIEventsUnavailableError(Exception):
@@ -75,6 +75,7 @@ def query_ai_events(
     team: Team,
     query_type: str,
     *,
+    user: User | None = None,
     fall_back_to_events: bool = False,
     fallback_placeholders: dict[str, ast.Expr] | None = None,
     timings: HogQLTimings | None = None,
@@ -102,13 +103,16 @@ def query_ai_events(
     ``fallback_placeholders`` lets callers keep predicates required by shared events out of
     the dedicated table query. They use the ai_events schema and are rewritten before execution.
 
+    Pass the requesting ``user`` for interactive reads so member and role property rules
+    apply on every read path. Userless background reads apply the project's default rules.
+
     `workload` should be specified explicitly for batch / scheduled callers (e.g. usage
     reports). Inside a Celery task the `task_prerun` signal sets `Workload.OFFLINE` on
     the thread default, but outside Celery (Django shell, pytest, management commands)
     that signal does not fire — so callers that must run on a specific pool should not
     rely on it implicitly.
     """
-    kwargs: dict[str, Any] = {"query_type": query_type, "team": team}
+    kwargs: dict[str, Any] = {"query_type": query_type, "team": team, "user": user}
     if timings is not None:
         kwargs["timings"] = timings
     if modifiers is not None:
@@ -139,6 +143,7 @@ def query_ai_events(
             **kwargs,
             "context": HogQLContext(
                 team_id=team.pk,
+                user=user,
                 use_new_events_schema=events_schema,
                 property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
             ),

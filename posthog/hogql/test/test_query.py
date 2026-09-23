@@ -69,6 +69,23 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
     allow_dual_schema_snapshots = True
 
+    @parameterized.expand(
+        [
+            ("having", "GROUP BY trace_id HAVING trace_id < 'c'", [("a", 1)]),
+            ("having_all", "GROUP BY ALL HAVING trace_id < 'c'", [("a", 1)]),
+            ("order_by", "GROUP BY trace_id ORDER BY trace_id < 'c' DESC", [("a", 1), ("z", 1)]),
+        ]
+    )
+    def test_grouped_property_comparisons(self, _name: str, clause: str, expected: list[tuple[str, int]]) -> None:
+        for trace_id in ("a", "z"):
+            _create_event(team=self.team, event="test", distinct_id=trace_id, properties={"$ai_trace_id": trace_id})
+        response = execute_hogql_query(
+            "SELECT properties.$ai_trace_id AS trace_id, count() FROM events " + clause, team=self.team
+        )
+        self.assertEqual(response.results, expected)
+        assert response.clickhouse is not None
+        self.assertNotIn("toJSONString(events.properties)", response.clickhouse)
+
     def _schema_snapshot(self, use_new_events_schema_snapshot: bool = False) -> Any:
         if not (use_new_events_schema_snapshot or getattr(self, "_use_new_events_schema_snapshots", False)):
             self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
@@ -2396,7 +2413,7 @@ class TestQueryStatsRecording(BaseTest):
             record(rows_read=42, duration_ms=1.0)
             return ([[0]], [("count()", "UInt64")])
 
-        with query_stats_scope() as stats:
+        with query_stats_scope(retain_ast=True) as stats:
             with mock.patch("posthog.hogql.query.sync_execute", side_effect=ok):
                 execute_hogql_query("select count() from events", team=self.team, query_type="test")
         assert len(stats.executions) == 1
@@ -2409,7 +2426,7 @@ class TestQueryStatsRecording(BaseTest):
             record(rows_read=90, duration_ms=1.0)
             raise ClickHouseQueryMemoryLimitExceeded()
 
-        with query_stats_scope() as killed_stats:
+        with query_stats_scope(retain_ast=True) as killed_stats:
             with self.assertRaises(ClickHouseQueryMemoryLimitExceeded):
                 with mock.patch("posthog.hogql.query.sync_execute", side_effect=killed):
                     execute_hogql_query("select count() from events", team=self.team, query_type="test")
