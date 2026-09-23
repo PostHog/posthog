@@ -87,7 +87,7 @@ path-filtered to `rust/deltalite/**`.
 Mirrors `hogql-parser-rs` (see `.github/workflows/build-hogql-parser-rs.yml`):
 
 - maturin builds a single `cp312-abi3` wheel per platform that works on every
-  Python 3.12+ (including the pinned prod 3.13). `[project] name = "deltalite"`,
+  Python 3.12+ (including the pinned prod 3.14). `[project] name = "deltalite"`,
   module name `deltalite`.
 - When a release is cut, a `build-deltalite` workflow (to be cloned from
   `build-hogql-parser-rs.yml` at rollout time: version-bump detection on
