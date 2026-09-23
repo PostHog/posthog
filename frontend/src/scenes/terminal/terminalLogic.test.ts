@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
+import { PosthogFilesystem } from './posthogFilesystem'
 import { terminalDockLogic } from './terminalDockLogic'
 import { terminalLogic } from './terminalLogic'
 import { TerminalRuntime } from './terminalRuntime'
@@ -51,6 +52,7 @@ describe('terminal lifecycle', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: true })
         terminalLogic.actions.start()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        expect(jest.mocked(PosthogFilesystem).mock.results[0].value.load).not.toHaveBeenCalled()
         const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false })
         expect(runtime.dispose).toHaveBeenCalledTimes(1)

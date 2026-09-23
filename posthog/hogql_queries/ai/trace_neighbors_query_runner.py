@@ -33,6 +33,7 @@ class TraceNeighborsQueryRunner(AnalyticsQueryRunner[TraceNeighborsQueryResponse
             query=self._build_query(),
             placeholders=self._get_placeholders(),
             team=self.team,
+            user=self.user,
             query_type="TraceNeighborsQuery",
             fall_back_to_events=True,
             timings=self.timings,
