@@ -4,15 +4,13 @@ import { isChunkLoadError, isGenericNetworkTypeError, markAsChunkLoadError } fro
 
 /**
  * A chunk that loads but then evaluates against a cross-chunk binding from a previous deploy
- * throws on a minified local, so the message names a bundler identifier instead of anything in
- * our source. Each engine words that differently:
+ * throws on a minified local, which each engine words differently:
  *   - V8 call shape: `g is not a function`
  *   - Firefox property access: `can't access property "message", _ is undefined`
- * Both patterns require a single-character subject, which is what makes them specific to a
- * bundler local. V8's property-access wording (`Cannot read properties of undefined (reading
- * 'message')`) names no subject at all, so it also matches an ordinary bug in a module's
- * top-level code — it stays out, because classifying one of those would reload the page
- * instead of reporting the bug.
+ * Both patterns require a single-character subject, which is what ties them to a bundler local.
+ * V8's property-access wording (`Cannot read properties of undefined (reading 'message')`) names
+ * no subject, so it matches an ordinary bug in a module's top-level code just as well. It stays
+ * out: classifying one of those would reload the page instead of reporting the bug.
  */
 const MINIFIED_MODULE_EVALUATION_MESSAGES = [
     /^[A-Za-z_$] is not a function$/,
@@ -48,8 +46,7 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
         return await factory()
     } catch (error) {
         if (isMinifiedModuleEvaluationError(error)) {
-            // The chunk already loaded, so a re-attempt evaluates the same stale binding again.
-            // Classify it for ChunkLoadErrorBoundary and give up on this attempt.
+            // No retry: the chunk already loaded, so a re-attempt evaluates the same stale binding.
             markAsChunkLoadError(error)
             throw error
         }
