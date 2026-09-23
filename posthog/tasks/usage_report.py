@@ -6,7 +6,7 @@ import base64
 import logging
 import dataclasses
 from collections import Counter, defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
@@ -85,6 +85,8 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSchemaSt
 
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
+
+TEAM_BATCH_SIZE = 1000
 
 # AI events dynamically generated from AIEventType TS enum
 # Changes to the AIEventType enum will impact usage reporting
@@ -3205,20 +3207,31 @@ def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetim
     return all_data
 
 
-def _get_teams_for_usage_reports() -> Sequence[Team]:
-    # Subquery on the for_internal_metrics partial index, so Postgres does not read every organization row.
-    return list(
-        Team.objects.select_related("organization")
-        .exclude(is_demo=True)
+def _get_teams_for_usage_reports() -> Iterator[Team]:
+    """Yield the teams a usage report covers, each with its organization attached.
+
+    A join copies the organization columns onto every one of its teams, so the organizations are
+    read once and attached in Python instead. The subquery hits the for_internal_metrics partial
+    index, so Postgres does not read every organization row to exclude the internal ones.
+    """
+    organizations_by_id = {
+        organization.id: organization
+        for organization in Organization.objects.exclude(for_internal_metrics=True).only("id", "name", "created_at")
+    }
+    teams = (
+        Team.objects.exclude(is_demo=True)
         .exclude(organization_id__in=Organization.objects.filter(for_internal_metrics=True).values("id"))
-        .only(
-            "id",
-            "name",
-            "organization__id",
-            "organization__name",
-            "organization__created_at",
-        )
+        .only("id", "name", "organization_id")
+        .order_by("id")
     )
+    for team in teams.iterator(chunk_size=TEAM_BATCH_SIZE):
+        organization = organizations_by_id.get(team.organization_id)
+        if organization is None:
+            # The organization was created after the snapshot above, so it has no usage yet and the
+            # next run covers it.
+            continue
+        team.organization = organization
+        yield team
 
 
 def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounters:
@@ -3491,21 +3504,17 @@ def _get_all_org_reports(*, period: DayRange) -> dict[str, OrgReport]:
 
     all_data = _get_all_usage_data_as_team_rows(period.start, period.end)
 
-    logger.info("Querying all teams")
-
-    teams = _get_teams_for_usage_reports()
-
-    logger.info("Querying all teams complete", teams_count=len(teams))
-
-    org_reports: dict[str, OrgReport] = {}
-
     logger.info("Generating org reports")
 
-    for team in teams:
+    org_reports: dict[str, OrgReport] = {}
+    teams_count = 0
+
+    for team in _get_teams_for_usage_reports():
+        teams_count += 1
         team_report = _get_team_report(all_data, team)
         _add_team_report_to_org_reports(org_reports, team, team_report, period.start)
 
-    logger.info("Generating org reports complete", org_reports_count=len(org_reports))
+    logger.info("Generating org reports complete", teams_count=teams_count, org_reports_count=len(org_reports))
 
     return org_reports
 
