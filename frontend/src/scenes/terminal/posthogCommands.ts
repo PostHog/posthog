@@ -21,6 +21,7 @@ import { insightsList, insightsRetrieve } from 'products/product_analytics/front
 
 import { markdownNode, PosthogFilesystem, terminalFilename } from './posthogFilesystem'
 import { RUN_HELP, TerminalCommands } from './terminalCommands'
+import { parseRemovalArguments, RM_SCRIPT } from './terminalRemove'
 import { terminalQueryTable } from './terminalSql'
 
 interface Command {
@@ -263,6 +264,7 @@ export class PosthogCommands {
             this.register(tool)
         }
         new TerminalCommands(filesystem, (argv, cwd) => this.execute(argv, cwd))
+        filesystem.text('rm', filesystem.directory('bin', filesystem.root), RM_SCRIPT)
     }
 
     private register(tool: Command): void {
@@ -443,6 +445,18 @@ export class PosthogCommands {
             }
             return terminalQueryTable(result, format === '--csv' ? 'csv' : format === '--tsv' ? 'tsv' : 'markdown')
         }
+        if (name === 'terminal-remove') {
+            if (rest.length !== 2 || rest[0] !== '--json') {
+                throw new Error('Use rm to delete PostHog files.')
+            }
+            const request = z
+                .object({ argv: z.array(z.string()).max(1000) })
+                .strict()
+                .parse(JSON.parse(rest[1]))
+            const { paths, recursive, force } = parseRemovalArguments(request.argv)
+            await this.filesystem.removePaths(paths, recursive, force)
+            return null
+        }
         if (name === 'open') {
             if (rest.length > 1) {
                 throw new Error('Use open with one file or folder path. Quote paths containing spaces.')
@@ -489,7 +503,17 @@ export class PosthogCommands {
             const { invoke: _, ...description } = tool
             return description
         }
-        return tool.invoke(await this.parseArguments(tool, rest, cwd))
+        const args = await this.parseArguments(tool, rest, cwd)
+        if (tool.name.includes('/') || tool.name === 'notebooks-destroy' || args.deleted) {
+            await this.filesystem.confirmOperation({
+                title: tool.name.includes('/') ? 'Run a connected tool?' : 'Delete a PostHog object?',
+                description: tool.name.includes('/')
+                    ? `Run ${tool.name} from project ${this.projectId}. Connected tools can change or delete data in external services. Review the tool and its arguments before continuing.`
+                    : `Run ${tool.name} in project ${this.projectId}. This deletes the specified notebook for everyone in the project.`,
+                items: [tool.description, JSON.stringify(args, null, 2)],
+            })
+        }
+        return tool.invoke(args)
     }
 
     private async find(name: string): Promise<Command> {

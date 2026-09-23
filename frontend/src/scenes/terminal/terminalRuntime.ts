@@ -180,6 +180,8 @@ export class TerminalRuntime {
                         'cp /posthog/bin/ph /usr/bin/ph && chmod +x /usr/bin/ph || exit',
                         'cp /posthog/bin/run /usr/bin/run && chmod +x /usr/bin/run || exit',
                         '[ -e /dev/fd ] || ln -s /proc/self/fd /dev/fd',
+                        'mkdir -p /usr/local/bin && cp /posthog/bin/rm /usr/local/bin/rm && chmod +x /usr/local/bin/rm || exit',
+                        'export PATH=/usr/local/bin:$PATH',
                         'cp /posthog/bin/open /usr/bin/open && chmod +x /usr/bin/open || exit',
                         ...Object.values(packageManifest.packages).flatMap((pkg) =>
                             Object.keys(pkg.commands).map(
