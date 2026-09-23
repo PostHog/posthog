@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
+import { isEmail } from 'lib/utils/url'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -361,16 +362,22 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 return errors
             },
             submit: async (testInvocation: HogflowTestInvocation) => {
+                // Run test is disabled for a blank address, but Enter still submits this form.
+                // The form globals still hold the person's email, so stop here or that address is sent.
+                if (!isEmail(values.emailInput)) {
+                    lemonToast.error('Must enter a valid email address')
+                    throw new Error('Must enter a valid email address')
+                }
+
                 try {
                     const parsedGlobals = JSON.parse(testInvocation.globals)
 
-                    const emailToUse = values.emailInput
-                    if (emailToUse && parsedGlobals.person) {
+                    if (parsedGlobals.person) {
                         parsedGlobals.person = {
                             ...parsedGlobals.person,
                             properties: {
                                 ...parsedGlobals.person.properties,
-                                email: emailToUse,
+                                email: values.emailInput,
                             },
                         }
                     }
