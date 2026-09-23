@@ -318,6 +318,18 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     is_owner = serializers.SerializerMethodField(
         help_text="True when the requesting user owns this installation. Lets clients gate owner-only controls instead of surfacing 403s."
     )
+    last_synced_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When this installation's tool list was last loaded from the upstream server. "
+        "Null if it has never succeeded.",
+    )
+    last_sync_error = serializers.CharField(
+        read_only=True,
+        help_text="Why the last attempt to load the tool list failed. Empty when the last attempt "
+        "succeeded. A connection can be authorized and still fail here, so check this before "
+        "treating an empty tool list as 'this server has no tools'.",
+    )
 
     class Meta:
         model = MCPServerInstallation
@@ -338,6 +350,8 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "pending_oauth",
             "proxy_url",
             "tool_count",
+            "last_synced_at",
+            "last_sync_error",
             "created_at",
             "updated_at",
         ]
@@ -2257,10 +2271,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             logger.warning(
                 "Tools refresh failed",
                 installation_id=str(installation.id),
+                url=installation.url,
                 error=str(exc),
             )
             return Response(
-                {"detail": "Could not refresh tools from the upstream MCP server"},
+                {"detail": f"Could not refresh tools from the upstream MCP server: {exc}"},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 

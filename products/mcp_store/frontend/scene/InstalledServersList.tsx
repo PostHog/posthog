@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonTag } from '@posthog/lemon-ui'
+import { LemonCard, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { mcpStoreLogic } from '../mcpStoreLogic'
 import { ServerIcon } from './icons'
@@ -34,6 +34,12 @@ export function InstalledServersList(): JSX.Element | null {
                             <LemonTag type="muted" size="small">
                                 Disabled
                             </LemonTag>
+                        ) : installation.last_sync_error ? (
+                            <Tooltip title={installation.last_sync_error}>
+                                <LemonTag type="warning" size="small">
+                                    Tools unavailable
+                                </LemonTag>
+                            </Tooltip>
                         ) : (
                             <LemonTag type="success" size="small">
                                 Connected

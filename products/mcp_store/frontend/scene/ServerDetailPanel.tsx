@@ -5,6 +5,7 @@ import { IconCheck, IconChevronLeft, IconRefresh, IconShare, IconShieldLock, Ico
 import { LemonButton, LemonDialog, LemonDivider, LemonSnack, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
@@ -94,6 +95,11 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
                 <div className="flex items-center gap-2">
                     <h3 className="mb-0">Tools</h3>
                     <LemonSnack>{tools.length}</LemonSnack>
+                    {installation.last_synced_at && (
+                        <span className="text-xs text-secondary">
+                            Last loaded <TZLabel time={installation.last_synced_at} />
+                        </span>
+                    )}
                 </div>
                 <LemonButton
                     size="small"
@@ -173,9 +179,16 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
 
             {visibleTools.length === 0 ? (
                 <div className="text-center py-8 text-secondary text-sm border border-dashed border-primary rounded">
-                    {installationToolsLoading
-                        ? 'Loading tools…'
-                        : 'No tools reported yet. Click "Refresh tools" after connecting.'}
+                    {installationToolsLoading ? (
+                        'Loading tools…'
+                    ) : installation.last_sync_error ? (
+                        <>
+                            <div>{`Couldn't load tools from this server: ${installation.last_sync_error}`}</div>
+                            <div className="mt-1">Try "Refresh tools" once the server is reachable.</div>
+                        </>
+                    ) : (
+                        'No tools reported yet. Click "Refresh tools" after connecting.'
+                    )}
                 </div>
             ) : (
                 <div className="border border-primary rounded overflow-hidden">
@@ -277,9 +290,17 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                         <h1 className="mb-0">{name}</h1>
-                        {installation && !installation.pending_oauth && !installation.needs_reauth && (
-                            <LemonTag type="success">Connected</LemonTag>
-                        )}
+                        {installation &&
+                            !installation.pending_oauth &&
+                            !installation.needs_reauth &&
+                            // A healthy credential does not mean the server answers.
+                            (installation.last_sync_error ? (
+                                <Tooltip title={installation.last_sync_error}>
+                                    <LemonTag type="warning">Tools unavailable</LemonTag>
+                                </Tooltip>
+                            ) : (
+                                <LemonTag type="success">Connected</LemonTag>
+                            ))}
                         {installation?.needs_reauth && <LemonTag type="danger">Reconnect required</LemonTag>}
                         {installation?.pending_oauth && <LemonTag type="warning">Pending OAuth</LemonTag>}
                         {authType && <LemonSnack>{authType === 'oauth' ? 'OAuth' : 'API key'}</LemonSnack>}
