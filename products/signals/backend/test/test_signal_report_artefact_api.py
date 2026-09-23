@@ -1007,6 +1007,18 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             SignalReportSuggestedReviewer.all_teams.filter(report_id=report.id).values_list("github_login", flat=True)
         ) == ["alice"]
 
+    def test_filter_still_matches_when_a_reviewer_login_is_longer_than_the_index_column(self):
+        # A scout supplies `github_login` as free text. A login too long for the index column must
+        # not fail the write and take every reviewer on the report down with it.
+        alice = self._create_org_member("alice@example.com", github_login="alice")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(alice.uuid), "github_login": "a" * 300}])
+
+        assert self._reviewer_filter_matches(report, alice)
+        assert list(
+            SignalReportSuggestedReviewer.all_teams.filter(report_id=report.id).values_list("github_login", flat=True)
+        ) == [None]
+
     def test_artefact_content_that_is_not_a_list_indexes_nobody(self):
         report = self._create_report()
         self._create_artefact(report, content={"github_login": "alice"})
