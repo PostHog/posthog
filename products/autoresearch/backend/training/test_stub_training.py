@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -40,7 +42,7 @@ class TestStubTraining(TeamScopedTestMixin, BaseTest):
         assert "feature_sql" in champion.model_recipe
         # The stub must not count autoresearch's own prediction events — they feed the
         # model its own output once scoring starts.
-        assert "NOT LIKE 'autoresearch_%'" in champion.model_recipe["feature_sql"]
+        assert "NOT startsWith(event, 'autoresearch_')" in champion.model_recipe["feature_sql"]
 
     def test_creates_one_iteration(self):
         pipeline = self._make_pipeline()
@@ -61,8 +63,33 @@ class TestStubTraining(TeamScopedTestMixin, BaseTest):
         new_champion = AutoresearchModel.objects.get(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
         assert new_champion.pk != old_champion.pk
 
-    def test_pipeline_status_set_to_running(self):
-        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.DRAFT)
+    def test_a_stronger_trained_champion_survives_a_stub_run(self):
+        pipeline = self._make_pipeline()
+        trained = AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            role=AutoresearchModel.Role.CHAMPION,
+            recipe_hash="trained",
+            model_recipe={},
+            holdout_score=0.9,
+        )
+
+        training_run = run_stub_training(pipeline=pipeline, iteration_budget=10)
+
+        trained.refresh_from_db()
+        assert trained.role == AutoresearchModel.Role.CHAMPION
+        stub_model = AutoresearchModel.objects.get(source_training_run=training_run)
+        assert stub_model.role == AutoresearchModel.Role.CHALLENGER
+
+    @parameterized.expand(
+        [
+            ("draft", AutoresearchPipeline.Status.DRAFT, AutoresearchPipeline.Status.RUNNING),
+            ("bootstrapping", AutoresearchPipeline.Status.BOOTSTRAPPING, AutoresearchPipeline.Status.RUNNING),
+            ("paused", AutoresearchPipeline.Status.PAUSED, AutoresearchPipeline.Status.PAUSED),
+            ("archived", AutoresearchPipeline.Status.ARCHIVED, AutoresearchPipeline.Status.ARCHIVED),
+        ]
+    )
+    def test_pipeline_status_after_stub_run(self, _name, before, after):
+        pipeline = self._make_pipeline(status=before)
         run_stub_training(pipeline=pipeline, iteration_budget=10)
         pipeline.refresh_from_db()
-        assert pipeline.status == AutoresearchPipeline.Status.RUNNING
+        assert pipeline.status == after

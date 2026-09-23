@@ -12,6 +12,7 @@ import json
 import hashlib
 from datetime import date
 
+from django.db import transaction
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -22,6 +23,7 @@ from products.autoresearch.backend.models import (
     AutoresearchPipeline,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.training.promotion import CHAMPION_PROMOTION_MARGIN
 
 logger = structlog.get_logger(__name__)
 
@@ -42,7 +44,8 @@ SELECT
 FROM events
 WHERE person_id IS NOT NULL
   AND timestamp >= now() - toIntervalDay({max_lookback})
-  AND event NOT LIKE 'autoresearch_%'
+  AND timestamp < now()
+  AND NOT startsWith(event, 'autoresearch_')
 GROUP BY person_id
 """.strip()
 
@@ -75,6 +78,92 @@ def _recipe_hash(recipe: dict) -> str:
     return hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()
 
 
+def _record_stub_result(
+    pipeline: AutoresearchPipeline, training_run: AutoresearchTrainingRun, iteration_budget: int
+) -> AutoresearchModel:
+    recipe = _build_stub_recipe(pipeline)
+    recipe_hash = _recipe_hash(recipe)
+    holdout_score = recipe["holdout_score"]
+    now = django_timezone.now()
+
+    AutoresearchIteration.objects.create(
+        pipeline=pipeline,
+        training_run=training_run,
+        iteration_number=1,
+        recipe_hash=recipe_hash,
+        recipe_snapshot={
+            "model_class": recipe["model_class"],
+            "model_params": recipe["model_params"],
+            "holdout_score": holdout_score,
+        },
+        model_spec={
+            "model_class": recipe["model_class"],
+            "model_params": recipe["model_params"],
+        },
+        train_score=holdout_score,
+        holdout_score=holdout_score,
+        status=AutoresearchIteration.Status.KEPT,
+        agent_description=recipe["agent_description"],
+        agent_confidence=0.5,
+    )
+
+    # A stub replaces an earlier stub freely, so local runs can repeat. A trained champion
+    # is replaced only on the margin promotion applies, so the stub cannot demote it.
+    incumbent = (
+        AutoresearchModel.objects.select_for_update()
+        .filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
+        .first()
+    )
+    promote = (
+        incumbent is None
+        or bool((incumbent.metrics or {}).get("stub"))
+        or incumbent.holdout_score is None
+        or holdout_score >= incumbent.holdout_score + CHAMPION_PROMOTION_MARGIN
+    )
+    if promote and incumbent is not None:
+        incumbent.role = AutoresearchModel.Role.ARCHIVED
+        incumbent.archived_at = now
+        incumbent.save(update_fields=["role", "archived_at"])
+
+    model = AutoresearchModel.objects.create(
+        pipeline=pipeline,
+        role=AutoresearchModel.Role.CHAMPION if promote else AutoresearchModel.Role.CHALLENGER,
+        recipe_hash=recipe_hash,
+        model_recipe=recipe,
+        model_explanation={
+            "top_features": [
+                {"name": "events_total", "importance": 0.35, "direction": "positive"},
+                {"name": "days_since_last_seen", "importance": 0.28, "direction": "negative"},
+                {"name": "distinct_event_types", "importance": 0.20, "direction": "positive"},
+                {"name": "pageviews", "importance": 0.17, "direction": "positive"},
+            ],
+            "note": "Stub explanations — replace with real SHAP values once training is live.",
+        },
+        holdout_score=holdout_score,
+        metrics={"holdout_auc": holdout_score, "stub": True},
+        source_training_run=training_run,
+        agent_description=recipe["agent_description"],
+        trained_on_start=date.today(),
+        trained_on_end=date.today(),
+        is_preliminary=True,
+    )
+
+    training_run.iteration_count = 1
+    training_run.best_holdout_score = holdout_score
+    training_run.status = AutoresearchTrainingRun.Status.COMPLETED
+    training_run.completed_at = django_timezone.now()
+    training_run.save(update_fields=["iteration_count", "best_holdout_score", "status", "completed_at"])
+
+    update_fields = ["iteration_budget_remaining", "updated_at"]
+    # Only a pipeline with no live champion yet starts running; a paused or archived one stays as it is.
+    if promote and pipeline.status in (AutoresearchPipeline.Status.DRAFT, AutoresearchPipeline.Status.BOOTSTRAPPING):
+        pipeline.status = AutoresearchPipeline.Status.RUNNING
+        update_fields.append("status")
+    pipeline.iteration_budget_remaining = max(0, (pipeline.iteration_budget_remaining or 0) - iteration_budget)
+    pipeline.save(update_fields=update_fields)
+    return model
+
+
 def run_stub_training(
     pipeline: AutoresearchPipeline,
     iteration_budget: int = 1,
@@ -83,90 +172,25 @@ def run_stub_training(
     Run a single stub training iteration:
     1. Create a TrainingRun record.
     2. Generate the hand-authored recipe.
-    3. Create one Iteration (kept) and one AutoresearchModel (champion).
-    4. Archive any previous champion.
-    5. Mark the pipeline as Running.
+    3. Create one Iteration (kept) and one AutoresearchModel.
+    4. Make it champion unless a trained champion beats it by the promotion margin.
+    5. Mark a Draft or Bootstrapping pipeline as Running.
     """
-    now = django_timezone.now()
-
     training_run = AutoresearchTrainingRun.objects.create(
         pipeline=pipeline,
         status=AutoresearchTrainingRun.Status.RUNNING,
         iteration_budget=iteration_budget,
-        started_at=now,
+        started_at=django_timezone.now(),
     )
 
     try:
-        recipe = _build_stub_recipe(pipeline)
-        recipe_hash = _recipe_hash(recipe)
-        holdout_score = recipe["holdout_score"]
-
-        # Record the single iteration
-        AutoresearchIteration.objects.create(
-            pipeline=pipeline,
-            training_run=training_run,
-            iteration_number=1,
-            recipe_hash=recipe_hash,
-            recipe_snapshot={
-                "model_class": recipe["model_class"],
-                "model_params": recipe["model_params"],
-                "holdout_score": holdout_score,
-            },
-            model_spec={
-                "model_class": recipe["model_class"],
-                "model_params": recipe["model_params"],
-            },
-            train_score=holdout_score,
-            holdout_score=holdout_score,
-            status=AutoresearchIteration.Status.KEPT,
-            agent_description=recipe["agent_description"],
-            agent_confidence=0.5,
-        )
-
-        # Archive any existing champion
-        AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).update(
-            role=AutoresearchModel.Role.ARCHIVED, archived_at=now
-        )
-
-        # Persist as new champion
-        champion = AutoresearchModel.objects.create(
-            pipeline=pipeline,
-            role=AutoresearchModel.Role.CHAMPION,
-            recipe_hash=recipe_hash,
-            model_recipe=recipe,
-            model_explanation={
-                "top_features": [
-                    {"name": "events_total", "importance": 0.35, "direction": "positive"},
-                    {"name": "days_since_last_seen", "importance": 0.28, "direction": "negative"},
-                    {"name": "distinct_event_types", "importance": 0.20, "direction": "positive"},
-                    {"name": "pageviews", "importance": 0.17, "direction": "positive"},
-                ],
-                "note": "Stub explanations — replace with real SHAP values once training is live.",
-            },
-            holdout_score=holdout_score,
-            metrics={"holdout_auc": holdout_score, "stub": True},
-            source_training_run=training_run,
-            agent_description=recipe["agent_description"],
-            trained_on_start=date.today(),
-            trained_on_end=date.today(),
-            is_preliminary=True,
-        )
-
-        training_run.iteration_count = 1
-        training_run.best_holdout_score = holdout_score
-        training_run.status = AutoresearchTrainingRun.Status.COMPLETED
-        training_run.completed_at = django_timezone.now()
-        training_run.save(update_fields=["iteration_count", "best_holdout_score", "status", "completed_at"])
-
-        pipeline.status = AutoresearchPipeline.Status.RUNNING
-        pipeline.iteration_budget_remaining = max(0, (pipeline.iteration_budget_remaining or 0) - iteration_budget)
-        pipeline.save(update_fields=["status", "iteration_budget_remaining", "updated_at"])
-
+        with transaction.atomic():
+            model = _record_stub_result(pipeline, training_run, iteration_budget)
         logger.info(
             "autoresearch_stub_training_complete",
             pipeline_id=str(pipeline.pk),
-            model_id=str(champion.pk),
-            holdout_score=holdout_score,
+            model_id=str(model.pk),
+            role=model.role,
         )
         return training_run
 

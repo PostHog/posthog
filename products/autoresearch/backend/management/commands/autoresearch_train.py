@@ -26,22 +26,31 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.autoresearch.backend.access import has_autoresearch_access
+from products.autoresearch.backend.facade.api import output_person_property_taken
 from products.autoresearch.backend.management.scoping import resolve_pipeline
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.training.runner import run_training
 from products.autoresearch.backend.training.stub import run_stub_training
+
+# The bounds the API applies to the same fields.
+MAX_HORIZON_DAYS = 365
+MAX_ITERATION_BUDGET = 500
+# AutoresearchPipeline.output_person_property is a 255-character column.
+MAX_OUTPUT_PROPERTY_CHARS = 255
 
 
 class Command(BaseCommand):
     help = "Run training for an autoresearch pipeline."
 
     def add_arguments(self, parser):
-        parser.add_argument("--pipeline-id", type=str, help="UUID of an existing pipeline.")
+        source = parser.add_mutually_exclusive_group()
+        source.add_argument("--pipeline-id", type=str, help="UUID of an existing pipeline.")
         parser.add_argument("--team-id", type=int, help="Team ID (required with --create).")
         parser.add_argument("--target", help="Target event name (required with --create).")
         parser.add_argument("--name", default="Dev pipeline", help="Pipeline name (used with --create).")
         parser.add_argument("--horizon", type=int, default=7, help="Horizon days (used with --create).")
-        parser.add_argument(
+        source.add_argument(
             "--create",
             action="store_true",
             help="Create a draft pipeline on the fly before training.",
@@ -65,8 +74,13 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if not 1 <= options["iterations"] <= MAX_ITERATION_BUDGET:
+            raise CommandError(f"--iterations must be between 1 and {MAX_ITERATION_BUDGET}.")
+
         if options["pipeline_id"]:
             pipeline = resolve_pipeline(options["pipeline_id"])
+            if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+                raise CommandError(f"Pipeline {pipeline.pk} is archived.")
             with team_scope(pipeline.team_id):
                 self._run(pipeline, options)
             return
@@ -76,6 +90,8 @@ class Command(BaseCommand):
                 raise CommandError("--team-id is required with --create.")
             if not options["target"]:
                 raise CommandError("--target is required with --create.")
+            if not 1 <= options["horizon"] <= MAX_HORIZON_DAYS:
+                raise CommandError(f"--horizon must be between 1 and {MAX_HORIZON_DAYS}.")
             try:
                 team = Team.objects.get(pk=options["team_id"])
             except Team.DoesNotExist:
@@ -83,12 +99,14 @@ class Command(BaseCommand):
 
             # The creator is who every later fit and scheduled score runs as, so a pipeline
             # without one has a champion that can never be fitted.
-            try:
-                creator = User.objects.get(pk=options["user_id"])
-            except User.DoesNotExist:
-                raise CommandError(f"User {options['user_id']} not found. Use --user-id to specify a valid user.")
+            creator = self._team_user(team, options["user_id"])
 
             safe_name = options["target"].lstrip("$").replace(" ", "_").lower()
+            suffix = f"_{options['horizon']}d"
+            output_property = f"predicted_p_{safe_name}"[: MAX_OUTPUT_PROPERTY_CHARS - len(suffix)] + suffix
+            # Two pipelines on one property overwrite each other's scores.
+            if output_person_property_taken(team.id, output_property):
+                raise CommandError(f"Output property {output_property} is taken; pass --pipeline-id to reuse it.")
             with team_scope(team.id):
                 pipeline = AutoresearchPipeline.objects.create(
                     team=team,
@@ -99,7 +117,7 @@ class Command(BaseCommand):
                     horizon_days=options["horizon"],
                     training_population={},
                     inference_population={},
-                    output_person_property=f"predicted_p_{safe_name}_{options['horizon']}d",
+                    output_person_property=output_property,
                     status=AutoresearchPipeline.Status.DRAFT,
                 )
                 self.stdout.write(self.style.SUCCESS(f"Created pipeline {pipeline.pk} ({pipeline.name})"))
@@ -107,6 +125,13 @@ class Command(BaseCommand):
             return
 
         raise CommandError("Provide --pipeline-id or use --create to make a new pipeline.")
+
+    def _team_user(self, team: Team, user_id: int) -> User:
+        # The sandbox token is minted for this user on the pipeline's team, so the user must already have access to it.
+        user = team.all_users_with_access().filter(pk=user_id).first()
+        if user is None:
+            raise CommandError(f"User {user_id} has no access to team {team.pk}. Use --user-id to pick a member.")
+        return user
 
     def _run(self, pipeline: AutoresearchPipeline, options) -> None:
         if options["stub"]:
@@ -117,11 +142,13 @@ class Command(BaseCommand):
 
             training_run = run_stub_training(pipeline=pipeline)
         else:
-            user_id = options["user_id"]
-            try:
-                User.objects.get(pk=user_id)
-            except User.DoesNotExist:
-                raise CommandError(f"User {user_id} not found. Use --user-id to specify a valid user.")
+            user = self._team_user(pipeline.team, options["user_id"])
+            user_id = user.pk
+            # This command skips the flag, but the sandbox agent calls the flag-gated API.
+            if not has_autoresearch_access(user, team_id=pipeline.team_id):
+                raise CommandError(
+                    f"The autoresearch flag is off for team {pipeline.team_id}, so the agent's API calls would be refused."
+                )
 
             iteration_budget = options["iterations"]
             self.stdout.write(f"\nLaunching real agent training for pipeline '{pipeline.name}' ({pipeline.pk})")
