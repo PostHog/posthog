@@ -14,8 +14,10 @@ MAX_SEARCH_TERMS = 8
 # Everything that is not a letter or a digit separates terms. This is what makes `$web_vitals`
 # find a report titled "Web Vitals", and a report titled "$web_vitals" findable by "web vitals":
 # both sides reduce to the same terms, so the punctuation an event name or an identifier carries
-# stops deciding whether the report is found.
-_TERM_SEPARATORS = re.compile(r"[^0-9A-Za-z]+")
+# stops deciding whether the report is found. "Letter" means any letter, so an accented word stays
+# one term instead of fragments that match almost anything. The underscore is listed on its own
+# because `\W` counts it as a letter, and it is a LIKE wildcard that must not reach a term.
+_TERM_SEPARATORS = re.compile(r"[\W_]+")
 
 
 def report_search_terms(search: str) -> list[str]:

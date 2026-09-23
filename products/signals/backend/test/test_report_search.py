@@ -1,13 +1,30 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from products.signals.backend.artefact_schemas import NoteArtefact
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_search import report_search_terms
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_search_terms
 
 VIEWS_FETCH_BY_SEARCH = "products.signals.backend.views.fetch_report_ids_for_search_terms"
+
+
+class TestReportSearchTerms(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # An accented word is one word to the person who typed it. Splitting it leaves
+            # single-letter fragments, and a fragment that short matches nearly every report.
+            ("an accented word", "Müller", ["Müller"]),
+            # Terms a reader can see are terms, whatever the script.
+            ("a script without spaces between words", "東京 登録", ["東京", "登録"]),
+        ]
+    )
+    def test_a_word_stays_one_term(self, _name: str, search: str, expected: list[str]) -> None:
+        assert report_search_terms(search) == expected
 
 
 class TestReportIdsForSearchTerms(APIBaseTest):
