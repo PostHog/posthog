@@ -19446,6 +19446,126 @@ export namespace Schemas {
     }
 
     /**
+     * * `goal` - Goal
+     * * `feature` - Feature
+     */
+    export type SpaceSetupKindEnum = typeof SpaceSetupKindEnum[keyof typeof SpaceSetupKindEnum];
+
+
+    export const SpaceSetupKindEnum = {
+      Goal: 'goal',
+      Feature: 'feature',
+    } as const;
+
+    /**
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month
+     */
+    export type SpaceGoalPeriodEnum = typeof SpaceGoalPeriodEnum[keyof typeof SpaceGoalPeriodEnum];
+
+
+    export const SpaceGoalPeriodEnum = {
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+    } as const;
+
+    /**
+     * * `at_least` - At least
+     * * `at_most` - At most
+     */
+    export type SpaceGoalDirectionEnum = typeof SpaceGoalDirectionEnum[keyof typeof SpaceGoalDirectionEnum];
+
+
+    export const SpaceGoalDirectionEnum = {
+      AtLeast: 'at_least',
+      AtMost: 'at_most',
+    } as const;
+
+    /**
+     * The metric a goal space should move.
+     */
+    export interface SpaceGoalWrite {
+      /**
+         * The goal in one or two sentences, e.g. 'Increase the weekly activation rate'.
+         * @maxLength 2000
+         */
+      statement: string;
+      /** How often the metric is measured.
+       *
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      period?: SpaceGoalPeriodEnum;
+      /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
+       *
+       * * `at_least` - At least
+       * * `at_most` - At most */
+      direction?: SpaceGoalDirectionEnum;
+      /**
+         * Target value as typed, e.g. '20%' or '1500'.
+         * @maxLength 64
+         * @nullable
+         */
+      target?: string | null;
+      /**
+         * Date the target should be reached.
+         * @nullable
+         */
+      deadline?: string | null;
+      /**
+         * Short id of an existing insight that measures the goal, when there is one.
+         * @maxLength 64
+         * @nullable
+         */
+      insight_short_id?: string | null;
+    }
+
+    /**
+     * The feature a feature space is set up around.
+     */
+    export interface SpaceFeatureWrite {
+      /**
+         * Feature name as people call it.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * What the feature does, in a sentence.
+         * @maxLength 2000
+         */
+      description?: string;
+      /**
+         * Key of the feature flag that gates it, if any.
+         * @maxLength 400
+         * @nullable
+         */
+      flag_key?: string | null;
+    }
+
+    /**
+     * Request body for starting the task that sets a space up for a goal or a feature.
+     */
+    export interface ChannelSetupWrite {
+      /** What the space is set up for.
+       *
+       * * `goal` - Goal
+       * * `feature` - Feature */
+      kind: SpaceSetupKindEnum;
+      /** Required when kind is 'goal'. */
+      goal?: SpaceGoalWrite;
+      /** Required when kind is 'feature'. */
+      feature?: SpaceFeatureWrite;
+      /**
+         * Repository the loops work in, as 'owner/name'. Defaults to the channel's first repository.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+    }
+
+    /**
      * Request body for starring/unstarring a channel for the requesting user.
      */
     export interface ChannelStarWrite {
@@ -48251,10 +48371,10 @@ export namespace Schemas {
      * * `minute` - minute
      * * `hour` - hour
      */
-    export type PeriodEnum = typeof PeriodEnum[keyof typeof PeriodEnum];
+    export type HogFlowEmailSendingRateLimitPeriodEnum = typeof HogFlowEmailSendingRateLimitPeriodEnum[keyof typeof HogFlowEmailSendingRateLimitPeriodEnum];
 
 
-    export const PeriodEnum = {
+    export const HogFlowEmailSendingRateLimitPeriodEnum = {
       Minute: 'minute',
       Hour: 'hour',
     } as const;
@@ -48270,7 +48390,7 @@ export namespace Schemas {
        *
        * * `minute` - minute
        * * `hour` - hour */
-      period: PeriodEnum;
+      period: HogFlowEmailSendingRateLimitPeriodEnum;
     }
 
     /**
@@ -53703,6 +53823,35 @@ export namespace Schemas {
       /** @nullable */
       readonly file_size_bytes: number | null;
       readonly always_include: boolean;
+    }
+
+    /**
+     * * `unknown` - Unknown
+     * * `safe` - Safe
+     * * `unsafe` - Unsafe
+     */
+    export type SafetyVerdictEnum = typeof SafetyVerdictEnum[keyof typeof SafetyVerdictEnum];
+
+
+    export const SafetyVerdictEnum = {
+      Unknown: 'unknown',
+      Safe: 'safe',
+      Unsafe: 'unsafe',
+    } as const;
+
+    export interface KnowledgeSourceDocument {
+      /** Document id. */
+      readonly id: string;
+      /** Fetched page URL after redirects. Empty for text and file documents. */
+      readonly url: string;
+      /** Page title extracted while indexing. Falls back to empty when the page had none. */
+      readonly title: string;
+      /** Content-safety verdict. Only `safe` documents are included in search. `unknown` is still waiting on classification.
+       *
+       * * `unknown` - Unknown
+       * * `safe` - Safe
+       * * `unsafe` - Unsafe */
+      readonly safety_verdict: SafetyVerdictEnum;
     }
 
     export interface KustomerConversationSignalExtra {
@@ -60659,18 +60808,6 @@ export namespace Schemas {
       Number9: 9,
     } as const;
 
-    /**
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist
-     */
-    export type OrganizationDefaultExperimentStatsMethodEnum = typeof OrganizationDefaultExperimentStatsMethodEnum[keyof typeof OrganizationDefaultExperimentStatsMethodEnum];
-
-
-    export const OrganizationDefaultExperimentStatsMethodEnum = {
-      Bayesian: 'bayesian',
-      Frequentist: 'frequentist',
-    } as const;
-
     export interface Organization {
       readonly id: string;
       /** @maxLength 64 */
@@ -60735,11 +60872,6 @@ export namespace Schemas {
       readonly is_ai_training_cta_shown: boolean | null;
       /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
       readonly has_signed_baa: boolean;
-      /** Default statistical method for new experiments in this organization.
-       *
-       * * `bayesian` - Bayesian
-       * * `frequentist` - Frequentist */
-      default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnum | BlankEnum | null;
       /** Default setting for 'Discard client IP data' for new projects in this organization. */
       default_anonymize_ips?: boolean;
       /**
@@ -62565,6 +62697,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: KnowledgeGapSuggestion[];
+    }
+
+    export interface PaginatedKnowledgeSourceDocumentList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: KnowledgeSourceDocument[];
     }
 
     export interface PaginatedKnowledgeSourceList {
@@ -65340,7 +65481,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint.
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -65349,7 +65490,7 @@ export namespace Schemas {
       source_product: SignalSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
       config?: SignalSourceConfigConfig;
       readonly created_at: string;
       readonly updated_at: string;
@@ -73304,11 +73445,6 @@ export namespace Schemas {
       readonly is_ai_training_cta_shown?: boolean | null;
       /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
       readonly has_signed_baa?: boolean;
-      /** Default statistical method for new experiments in this organization.
-       *
-       * * `bayesian` - Bayesian
-       * * `frequentist` - Frequentist */
-      default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnum | BlankEnum | null;
       /** Default setting for 'Discard client IP data' for new projects in this organization. */
       default_anonymize_ips?: boolean;
       /**
@@ -75378,7 +75514,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint.
      */
     export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -75387,7 +75523,7 @@ export namespace Schemas {
       source_product?: SignalSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
       config?: PatchedSignalSourceConfigConfig;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -76417,6 +76553,7 @@ export namespace Schemas {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
+     * * `space_setup` - Space Setup
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -76443,6 +76580,7 @@ export namespace Schemas {
       SignalsChat: 'signals_chat',
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
+      SpaceSetup: 'space_setup',
     } as const;
 
     /**
@@ -76499,7 +76637,8 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
-       * * `workflow` - Workflow */
+       * * `workflow` - Workflow
+       * * `space_setup` - Space Setup */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -93313,6 +93452,13 @@ export namespace Schemas {
     }
 
     /**
+     * The setup task that was started for the channel.
+     */
+    export interface SpaceSetupStartedDTO {
+      task_id: string;
+    }
+
+    /**
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -95182,7 +95328,8 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
-       * * `workflow` - Workflow */
+       * * `workflow` - Workflow
+       * * `space_setup` - Space Setup */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -96771,7 +96918,8 @@ export namespace Schemas {
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
-       * * `workflow` - Workflow */
+       * * `workflow` - Workflow
+       * * `space_setup` - Space Setup */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -104674,6 +104822,17 @@ export namespace Schemas {
       Text: 'text',
       Url: 'url',
     } as const;
+
+    export type BusinessKnowledgeSourcesDocumentsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type BusinessKnowledgeSourcesTextRetrieve200 = {
       text?: string;
@@ -113516,6 +113675,7 @@ export namespace Schemas {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
+     * * `space_setup` - Space Setup
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -113658,6 +113818,7 @@ export namespace Schemas {
       SignalsChat: 'signals_chat',
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
+      SpaceSetup: 'space_setup',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
