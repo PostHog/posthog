@@ -1,0 +1,30 @@
+{
+    "packages": {
+        "node": {
+            "name": "Node.js",
+            "version": "22.23.2",
+            "file": "archives/node-22.23.2-linux-i386.tar.gz",
+            "sha256": "558d910595883054c928aba5c8e46beeb888a37175f007ef5ce3e7508dbd87ca",
+            "size": 28385805,
+            "archiveSize": 73256960,
+            "dependencies": [],
+            "commands": {
+                "node": "/opt/posthog-packages/node-22.23.2/bin/node",
+                "nodejs": "/opt/posthog-packages/node-22.23.2/bin/node"
+            }
+        },
+        "pi": {
+            "name": "pi",
+            "version": "0.87.1",
+            "file": "archives/pi-0.87.1.tar.gz",
+            "sha256": "95ffd3dac5996b471b7d5d3495128c403d3240202913156efb255f2045b4fb8e",
+            "size": 20421625,
+            "archiveSize": 76257280,
+            "dependencies": ["node"],
+            "commands": {
+                "pi": "/opt/posthog-packages/pi-0.87.1/bin/pi"
+            }
+        }
+    },
+    "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/852063f5a2ebf979ac834680dcfb1bb3ee985d08"
+}

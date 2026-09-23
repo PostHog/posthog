@@ -12,6 +12,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 from django.utils import timezone
 
 from dateutil import parser
@@ -4650,6 +4651,217 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertIn(copy_response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
 
+    def _enable_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+    def _create_experiment_to_copy(self, name: str, feature_flag_key: str) -> int:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": name, "feature_flag_key": feature_flag_key},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        return response.json()["id"]
+
+    def test_copy_experiment_to_project_requires_experiment_access_in_target(self) -> None:
+        self._enable_access_control()
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        AccessControl.objects.create(team=target_team, resource="experiment", access_level="none")
+        experiment_id = self._create_experiment_to_copy("Target denied", "target-denied-flag")
+
+        member = User.objects.create_and_join(self.organization, "no-target-experiments@posthog.com", None)
+        self.client.force_login(member)
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/copy_to_project/",
+            {"target_team_id": target_team.id},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
+        self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
+
+    def test_copy_experiment_to_project_refuses_denied_flag_in_target(self) -> None:
+        self._enable_access_control()
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        target_flag = FeatureFlag.objects.create(
+            team=target_team,
+            key="target-private-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+                "payloads": {"control": '{"secret": "control"}', "test": '{"secret": "test"}'},
+            },
+        )
+        AccessControl.objects.create(
+            team=target_team, resource="feature_flag", resource_id=str(target_flag.id), access_level="none"
+        )
+        experiment_id = self._create_experiment_to_copy("Flag denied", "source-only-flag")
+
+        # The flag's creator keeps access regardless of access controls, so copy as a plain member.
+        member = User.objects.create_and_join(self.organization, "no-target-flag@posthog.com", None)
+        self.client.force_login(member)
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/copy_to_project/",
+            {"target_team_id": target_team.id, "feature_flag_key": "target-private-flag"},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
+        self.assertNotIn("secret", copy_response.content.decode())
+        self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
+
+    def test_copy_experiment_to_project_rejects_key_not_scoped_to_target(self) -> None:
+        target_team = Team.objects.create(organization=self.organization, name="Target Team")
+        experiment_id = self._create_experiment_to_copy("Scoped key", "scoped-key-flag")
+
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="source-only",
+            secure_value=hash_key_value(token),
+            scopes=["experiment:write"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+
+        copy_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/copy_to_project/",
+            {"target_team_id": target_team.id},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(copy_response.status_code, status.HTTP_403_FORBIDDEN, copy_response.content)
+        self.assertFalse(Experiment.objects.filter(team_id=target_team.id).exists())
+
+    def test_create_experiment_refuses_flag_without_editor_access(self) -> None:
+        self._enable_access_control()
+        restricted_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="restricted-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(restricted_flag.id), access_level="none"
+        )
+
+        member = User.objects.create_and_join(self.organization, "no-flag-editor@posthog.com", None)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Adopts restricted flag", "feature_flag_key": "restricted-flag"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(Experiment.objects.filter(feature_flag_id=restricted_flag.id).exists())
+
+    def test_create_experiment_refuses_new_flag_without_flag_create_access(self) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="feature_flag", access_level="none")
+
+        member = User.objects.create_and_join(self.organization, "no-flag-create@posthog.com", None)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Mints a new flag", "feature_flag_key": "minted-flag"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(FeatureFlag.objects.filter(key="minted-flag", team_id=self.team.id).exists())
+
+    def _restrict_flag_and_login_as_member(self, flag_key: str, email: str) -> FeatureFlag:
+        flag = FeatureFlag.objects.get(key=flag_key, team=self.team)
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(flag.id), access_level="none"
+        )
+        member = User.objects.create_and_join(self.organization, email, None)
+        self.client.force_login(member)
+        return flag
+
+    @parameterized.expand(
+        [
+            ("launch", "launch/", False, False),
+            ("pause", "pause/", True, True),
+            ("resume", "resume/", True, False),
+            ("ship_variant", "ship_variant/", True, True),
+        ]
+    )
+    def test_lifecycle_action_refuses_a_flag_the_user_cannot_edit(
+        self, name: str, path_suffix: str, needs_running: bool, flag_active_before: bool
+    ) -> None:
+        self._enable_access_control()
+        flag_key = f"lifecycle-{name}-flag"
+        if needs_running:
+            experiment_id = self._create_running_experiment(name=f"Lifecycle {name}", flag_key=flag_key)["id"]
+            if name == "resume":
+                pause = self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/")
+                self.assertEqual(pause.status_code, status.HTTP_200_OK, pause.content)
+        else:
+            experiment_id = self._create_experiment_to_copy(f"Lifecycle {name}", flag_key)
+
+        flag = self._restrict_flag_and_login_as_member(flag_key, f"no-flag-{name}@posthog.com")
+        self.assertEqual(flag.active, flag_active_before)
+
+        body = {"variant_key": "control"} if name == "ship_variant" else None
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/{path_suffix}",
+            body,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        flag.refresh_from_db()
+        self.assertEqual(flag.active, flag_active_before)
+
+    def test_patching_a_draft_without_touching_the_flag_needs_no_flag_access(self) -> None:
+        self._enable_access_control()
+        experiment_id = self._create_experiment_to_copy("Rename only", "rename-only-flag")
+        self._restrict_flag_and_login_as_member("rename-only-flag", "no-flag-rename@posthog.com")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"name": "Renamed without flag access"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(Experiment.objects.get(id=experiment_id).name, "Renamed without flag access")
+
+    def test_launching_by_patching_start_date_refuses_a_flag_the_user_cannot_edit(self) -> None:
+        self._enable_access_control()
+        experiment_id = self._create_experiment_to_copy("Patch launch", "patch-launch-flag")
+        flag = self._restrict_flag_and_login_as_member("patch-launch-flag", "no-flag-patch@posthog.com")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"start_date": "2026-01-01T00:00:00Z"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        flag.refresh_from_db()
+        self.assertFalse(flag.active)
+        self.assertIsNone(Experiment.objects.get(id=experiment_id).start_date)
+
     def test_copy_experiment_to_project_uses_selected_target_team(self) -> None:
         target_team = Team.objects.create(organization=self.organization, name="Target Team")
         secondary_target_team = Team.objects.create(
@@ -9031,6 +9243,36 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["attr"] == expected_attr
+
+    @parameterized.expand(
+        [
+            ("flag_on_for_staff_only", "staff", status.HTTP_200_OK),
+            ("flag_on_for_customer_only", "customer", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_flag_is_evaluated_for_the_impersonating_staff_user(
+        self, _name: str, flag_on_for: str, expected_status: int
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        customer = User.objects.create_and_join(self.organization, "setup-context-customer@example.com", None)
+        flag_distinct_id = str(self.user.distinct_id if flag_on_for == "staff" else customer.distinct_id)
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": customer.id}),
+            data={"read_only": "true", "reason": "Setup context support ticket"},
+            format="multipart",
+        )
+        assert self.client.get("/api/users/@me/").json()["email"] == customer.email
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, distinct_id, *args, **_: (
+                key == EXPERIMENT_SETUP_CONTEXT_FLAG and distinct_id == flag_distinct_id
+            ),
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/experiments/setup_context/", {}, format="json")
+
+        assert response.status_code == expected_status, response.content
 
     def test_omits_experiments_the_user_cannot_access(self) -> None:
         other_user = self._create_user("setup-context-other@posthog.com")
