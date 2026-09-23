@@ -77,12 +77,12 @@ export function describeFeatureFlagsFailure(sdkErrors: unknown): FeatureFlagsFai
     }
 
     const apiErrorCode = codes.find((code) => code.startsWith(API_ERROR_PREFIX))
+    const apiErrorStatus = apiErrorCode?.slice(API_ERROR_PREFIX.length)
 
     return {
         $feature_flag_error: codes.join(','),
-        feature_flag_error_status: apiErrorCode
-            ? Number.parseInt(apiErrorCode.slice(API_ERROR_PREFIX.length), 10)
-            : null,
+        // A suffix that is not a status would parse to NaN, which is not a value worth capturing.
+        feature_flag_error_status: apiErrorStatus && /^\d{3}$/.test(apiErrorStatus) ? Number(apiErrorStatus) : null,
         feature_flag_request_reached_posthog: !codes.some((code) => TRANSPORT_ERROR_CODES.includes(code)),
     }
 }

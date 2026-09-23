@@ -52,6 +52,15 @@ describe('loadPostHogJS', () => {
                 },
             ],
             [
+                'an api error with no status',
+                ['api_error_'],
+                {
+                    $feature_flag_error: 'api_error_',
+                    feature_flag_error_status: null,
+                    feature_flag_request_reached_posthog: true,
+                },
+            ],
+            [
                 'several codes',
                 ['api_error_500', 'errors_while_computing_flags'],
                 {
