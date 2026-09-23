@@ -83,9 +83,9 @@ describe('sourceWizardLogic', () => {
     })
 
     it('goes to the webhook step after a source created from the destination step', async () => {
-        // The destination step is numbered after the real steps, so an increment from it lands on
-        // a step the scene cannot render: the user saw a dead-end fallback and the webhook that
-        // the source needs to receive any data was never registered.
+        // Regression test: an increment from the destination step landed on a step the scene
+        // cannot render, so the user got a dead-end fallback and the webhook the source needs to
+        // receive any data was never registered.
         const githubSource = buildSourceConfig({ name: 'Github' })
         const logic = sourceWizardLogic({ availableSources: { Github: githubSource } })
         const unmount = logic.mount()
