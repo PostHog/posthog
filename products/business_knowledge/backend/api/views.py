@@ -32,7 +32,7 @@ from ..constants import (
     BK_SEARCH_MAX_LIMIT,
 )
 from ..file_parse import FileParseError
-from ..models import GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
+from ..models import AddedBy, GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
 from ..temporal.coordinator import IngestSourceInputs, RefreshSourceInputs
 from .serializers import (
@@ -98,6 +98,14 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 enum=[choice.value for choice in SourceType],
                 description="Filter to a single source type (text, url, or file).",
             ),
+            OpenApiParameter(
+                "added_by",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=[choice.value for choice in AddedBy],
+                description="Filter by who added the source: human (you added it) or learned (from a resolved support ticket).",
+            ),
         ],
         responses={200: KnowledgeSourceSerializer(many=True)},
     )
@@ -105,10 +113,14 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         source_type = request.query_params.get("source_type") or None
         if source_type is not None and source_type not in SourceType.values:
             raise exceptions.ValidationError({"source_type": "Must be one of: text, url, file."})
+        added_by = request.query_params.get("added_by") or None
+        if added_by is not None and added_by not in AddedBy.values:
+            raise exceptions.ValidationError({"added_by": "Must be one of: human, learned."})
         sources = logic.list_for_team(
             self.team_id,
             search=request.query_params.get("search") or None,
             source_type=source_type,
+            added_by=added_by,
         )
         page = self.paginate_queryset(sources)
         if page is not None:

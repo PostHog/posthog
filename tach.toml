@@ -1617,6 +1617,20 @@ from = [
 ]
 
 [[modules]]
+path = "products.ml_inference"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ml_inference",
+]
+
+[[modules]]
 path = "products.security"
 depends_on = ["posthog"]
 layer = "modules"
