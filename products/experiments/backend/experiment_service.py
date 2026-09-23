@@ -29,6 +29,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric,
+    ExperimentRetentionMetric,
 )
 
 from posthog.hogql import ast
@@ -70,6 +71,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
 )
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
+from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -860,6 +862,10 @@ class ExperimentService:
                                 f"Invalid metric at index {i}: a threshold cannot be combined with "
                                 "outlier handling (winsorization)."
                             )
+                    elif isinstance(actual_metric, ExperimentRetentionMetric):
+                        retention_error = retention_metric_error(actual_metric)
+                        if retention_error:
+                            raise ValidationError(f"Invalid metric at index {i}: {retention_error}")
 
                 except pydantic.ValidationError as e:
                     # Surface only the field locations and error types from pydantic — not the
@@ -4094,7 +4100,10 @@ class ExperimentService:
             if disallowed_fields:
                 raise ValidationError(
                     f"This experiment uses legacy metric formats and can only have its name, description, or end_date updated. "
-                    f"Cannot update: {', '.join(sorted(disallowed_fields))}"
+                    f"Cannot update: {', '.join(sorted(disallowed_fields))}. "
+                    f"To change these, migrate the experiment to the new experiments engine first: "
+                    f"POST /api/projects/{experiment.team_id}/experiments/{experiment.id}/migrate "
+                    f"(the experiment-migrate tool). It keeps this experiment and its results, and returns a new one."
                 )
 
             # Validate end_date if present

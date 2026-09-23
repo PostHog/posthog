@@ -17,7 +17,7 @@ describe("getReasoningEffortOptions", () => {
     getReasoningEffortOptions(modelId).map((o) => o.value);
 
   it.each(["gpt-5.5", "gpt-5.5-codex", "openai/gpt-5.5", "GPT-5.5"])(
-    "offers Extra High for the gpt-5.5 family (%s)",
+    "offers Extra high for the gpt-5.5 family (%s)",
     (modelId) => {
       expect(values(modelId)).toEqual(["low", "medium", "high", "xhigh"]);
     },
@@ -41,11 +41,11 @@ describe("getReasoningEffortOptions", () => {
     },
   );
 
-  it('labels the extra tier "Extra High"', () => {
+  it('labels the extra tier "Extra high"', () => {
     const xhigh = getReasoningEffortOptions("gpt-5.5").find(
       (o) => o.value === "xhigh",
     );
-    expect(xhigh?.name).toBe("Extra High");
+    expect(xhigh?.name).toBe("Extra high");
   });
 });
 

@@ -162,6 +162,15 @@ def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.dateti
 class BatchExportRunSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExportRun model."""
 
+    # Underlying model can be null for on demand batch exports. But scheduled
+    # batch exports always have a data_interval_end given by the schedule
+    # itself (even if that isn't used by the underlying HogQL query). This
+    # narrows the API contract so any consumers don't have to deal with
+    # nullable data_interval_end.
+    data_interval_end = serializers.DateTimeField(
+        required=True, allow_null=False, help_text="The end of the data interval."
+    )
+
     class Meta:
         model = BatchExportRun
         fields = "__all__"
