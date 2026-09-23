@@ -1020,7 +1020,7 @@ class UserViewSet(
     time_sensitive_allow_actions = ["hedgehog_config"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
-    queryset = User.objects.filter(is_active=True)
+    queryset = User.objects.filter(is_active=True).order_by("id")
     lookup_field = "uuid"
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
