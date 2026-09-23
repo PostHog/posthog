@@ -74,8 +74,8 @@ for (const provider of ['claude', 'codex'] as const) {
                 )
                 if (phase === 'startup') {
                     await worker.waitUntilReached()
-                    await page.getByTestId('run-startup-stop').click()
-                    await expect(page.getByTestId('run-startup-stop')).toBeDisabled()
+                    await page.getByRole('button', { name: 'Stop', exact: true }).click()
+                    await expect(page.getByRole('button', { name: 'Stopping…', exact: true })).toBeDisabled()
                     expect(
                         (await ai.snapshot()).timeline.filter((event) => event.event === 'cancel_forwarded')
                     ).toHaveLength(0)
