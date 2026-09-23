@@ -2295,11 +2295,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             submit: async () => {
-                // The Save button is disabled while a save runs, but pressing Enter in a field
-                // submits the form again and would send a second write.
-                if (values.isSaveInProgress) {
-                    return
-                }
                 // Validation/save uses reducer state in submitFeatureFlagWithValidation; kea-forms can omit nested updates from setFeatureFlagFilters.
                 await actions.submitFeatureFlagWithValidation({} as Partial<FeatureFlagType>)
             },
@@ -2553,9 +2548,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         // The pre-save checks run before the request: a key-change confirmation, a wait for the
-        // dependent flags, then the change confirmation. Kept apart from `isSavingFeatureFlag`
-        // because nothing is on its way to the server yet, so the unsaved-changes guard must
-        // still fire for this phase.
+        // dependent flags, then the change confirmation. No request runs yet, so this phase stays
+        // out of `isSavingFeatureFlag`, which answers only whether `featureFlagLoading` is a save.
         isPreSaveChecking: [
             false,
             {
@@ -3125,10 +3119,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             product_type: ProductKey.FEATURE_FLAGS,
                             intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
                         })
-                        // Copy into the extra projects inside this loader so featureFlagLoading
-                        // stays true until the copies resolve. FeatureFlag.tsx swaps the form for
-                        // a skeleton while that flag is set, which blocks a second submit through
-                        // the copy phase.
+                        // Copy into the extra projects inside this loader so isSavingFeatureFlag
+                        // stays true until the copies resolve. That keeps the form locked and
+                        // blocks a second submit through the copy phase.
                         const alsoCreateIn = values.alsoCreateInProjects.filter(
                             (projectId) => projectId !== values.currentProjectId
                         )
@@ -4395,6 +4388,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         submitFeatureFlagWithValidation: async (_payload, breakpoint, action, previousState) => {
+            // A disabled Save button does not cover every caller. Pressing Enter in a field submits
+            // the form again, and the notebook widget calls this listener directly.
+            if (values.isSaveInProgress) {
+                return
+            }
             actions.setPreSaveChecking(true)
             try {
                 const featureFlag = values.featureFlag
@@ -4452,10 +4450,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     previousState
                 )
             } finally {
-                // The checks can wait on a dialog or on the dependent flags, and the button has to
-                // stay busy for that whole wait. By the time they finish the button is covered
-                // again: a confirmed save has dispatched `saveFeatureFlag`, an open confirmation
-                // modal sits over the form, and a cancelled check has to release the button.
+                // The checks can wait on a dialog or on the dependent flags, so the button stays busy
+                // until they finish. Clearing the flag here is safe on every exit. After a confirmed
+                // save, `isSavingFeatureFlag` is already true. An open confirmation modal blocks the
+                // form. A cancelled check must release the button.
                 actions.setPreSaveChecking(false)
             }
         },
@@ -5079,13 +5077,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     beforeUnload((logic) => ({
         enabled: (newLocation?: CombinedLocation) => {
             if (!logic.values.isFormDirty) {
-                return false
-            }
-
-            // Only an in-app route change leaves the request running, and kea-router passes the
-            // new location for that case alone. A browser unload cancels the request, so it keeps
-            // its leave-site prompt.
-            if (newLocation && logic.values.isSavingFeatureFlag) {
                 return false
             }
 

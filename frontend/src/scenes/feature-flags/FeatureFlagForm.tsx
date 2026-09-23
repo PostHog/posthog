@@ -445,8 +445,17 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                 />
 
                 <SceneContent>
-                    {/* Two-column layout */}
-                    <div className="flex gap-4 flex-wrap items-start">
+                    {/* Two-column layout. The save sends the flag as it was on submit, and its response then
+                        replaces the form state. A field edited during the save would lose the edit, so every
+                        field locks. `disabled` reaches only native controls, and the flag type and match-by
+                        cards are custom radios with their own key handlers, so `inert` also blocks focus,
+                        keyboard and pointer input. React 18's types lack `inert`, so it rides a spread. */}
+                    <fieldset
+                        disabled={isSaveInProgress}
+                        aria-busy={isSaveInProgress}
+                        {...(isSaveInProgress ? { inert: '' } : {})}
+                        className="flex gap-4 flex-wrap items-start min-w-0"
+                    >
                         {/* Left column */}
                         <div className="flex-1 min-w-[20rem] flex flex-col gap-4">
                             {/* Main settings card */}
@@ -949,6 +958,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     }
                                                                     value={featureFlag.filters?.payloads?.[index]}
                                                                     placeholder='{"key": "value"}'
+                                                                    readOnly={isSaveInProgress}
                                                                 />
 
                                                                 {variants.length > 1 && <LemonDivider />}
@@ -1059,8 +1069,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 <LemonField name="true" className="grow min-w-0">
                                                     <JSONEditorInput
                                                         readOnly={
-                                                            featureFlag.has_encrypted_payloads &&
-                                                            Boolean(featureFlag.filters?.payloads?.['true'])
+                                                            isSaveInProgress ||
+                                                            (featureFlag.has_encrypted_payloads &&
+                                                                Boolean(featureFlag.filters?.payloads?.['true']))
                                                         }
                                                         placeholder='Examples: "A string", 2500, {"key": "value"}'
                                                     />
@@ -1105,7 +1116,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         </div>
                                                         <Group name={['filters', 'payloads']}>
                                                             <LemonField name="true">
-                                                                <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
+                                                                <JSONEditorInput
+                                                                    readOnly={isSaveInProgress}
+                                                                    placeholder='Examples: "A string", 2500, {"key": "value"}'
+                                                                />
                                                             </LemonField>
                                                         </Group>
                                                     </div>
@@ -1178,7 +1192,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </div>
                             )}
                         </div>
-                    </div>
+                    </fieldset>
                 </SceneContent>
             </Form>
         </>

@@ -199,6 +199,7 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
         hasUnsavedChanges,
         nonEmptyVariants,
         hasEarlyAccessFeatures,
+        isSaveInProgress,
     } = useValues(logic)
     const { loadFeatureFlag, setFeatureFlagFilters, submitFeatureFlagWithValidation } = useActions(logic)
 
@@ -255,7 +256,7 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
                         <LemonButton
                             type="primary"
                             size="small"
-                            loading={featureFlagLoading}
+                            loading={isSaveInProgress}
                             onClick={() => submitFeatureFlagWithValidation(featureFlag)}
                             disabledReason={
                                 editingDisabledReason ??

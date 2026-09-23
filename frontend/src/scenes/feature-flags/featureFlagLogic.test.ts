@@ -329,6 +329,7 @@ describe('featureFlagLogic', () => {
 
                 // The permission-specific branch must not fire; the generic loaders toast owns this case.
                 expect(toastSpy).not.toHaveBeenCalledWith('Nope')
+                expect(logic.values.isSaveInProgress).toBe(false)
             } finally {
                 toastSpy.mockRestore()
             }
@@ -464,9 +465,7 @@ describe('featureFlagLogic', () => {
     })
 
     describe('while a save is in flight', () => {
-        it('stops the unsaved-changes prompt and a second submit', async () => {
-            // The save is already persisting the edit, so a navigation started during it used to
-            // prompt the user about losing changes that were on their way to the server.
+        it('keeps the unsaved-changes prompt and stops a second submit', async () => {
             let releaseSave: (() => void) | undefined
             const updateSpy = jest.spyOn(api, 'update').mockImplementation(
                 () =>
@@ -479,27 +478,20 @@ describe('featureFlagLogic', () => {
                 logic.actions.setFeatureFlagValue('name', 'Edited name')
                 expect(logic.values.isFormDirty).toBe(true)
 
-                router.actions.push(urls.featureFlags())
-                expect(confirmSpy).toHaveBeenCalledTimes(1)
-
-                confirmSpy.mockClear()
                 logic.actions.saveFeatureFlag(logic.values.featureFlag)
                 expect(logic.values.isSavingFeatureFlag).toBe(true)
 
+                // Leaving unmounts the logic, and the failure listener that shows the
+                // approval-required and duplicate-key toasts would never run. The prompt keeps
+                // the person on the page until the save resolves.
                 router.actions.push(urls.featureFlags())
-                expect(confirmSpy).not.toHaveBeenCalled()
-
-                // A tab close or reload cancels the request, unlike an in-app route change, so
-                // the browser has to keep its own leave-site prompt for the same in-flight save.
-                const unload = new Event('beforeunload', { cancelable: true })
-                window.dispatchEvent(unload)
-                expect(unload.defaultPrevented).toBe(true)
+                expect(confirmSpy).toHaveBeenCalledTimes(1)
 
                 // Pressing Enter in a field still submits the form, so the in-flight guard has to
-                // sit on the submit handler too, not only on the disabled button.
+                // sit behind the submit path too, not only on the disabled button.
                 await expectLogic(logic, () => {
                     logic.actions.submitFeatureFlag()
-                }).toNotHaveDispatchedActions(['submitFeatureFlagWithValidation'])
+                }).toDispatchActions(['submitFeatureFlagWithValidation'])
                 expect(updateSpy).toHaveBeenCalledTimes(1)
 
                 releaseSave?.()
@@ -528,8 +520,13 @@ describe('featureFlagLogic', () => {
 
                 await expectLogic(logic, () => {
                     logic.actions.submitFeatureFlag()
-                }).toNotHaveDispatchedActions(['submitFeatureFlagWithValidation'])
+                }).toDispatchActions(['submitFeatureFlagWithValidation'])
                 expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+                expect(updateSpy).not.toHaveBeenCalled()
+
+                dialogOpenSpy.mock.calls[0][0].onAfterClose?.()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.isSaveInProgress).toBe(false)
                 expect(updateSpy).not.toHaveBeenCalled()
             } finally {
                 dialogOpenSpy.mockRestore()
