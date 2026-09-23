@@ -106,7 +106,9 @@ class TestDetectorHistory(BaseTest):
 
         # The warehouse evaluating now() in a later hour than the app would strand a cached
         # bucket outside the authoritative range, so the narrowed query must not contain now().
-        narrowed_sql = warehouse.overrides[-1]["query"]
+        narrowed = warehouse.overrides[-1]
+        assert narrowed is not None
+        narrowed_sql = narrowed["query"]
         assert "now()" not in narrowed_sql
         assert "toDateTime('2026-09-22 12:30:00', 'UTC')" in narrowed_sql
 
@@ -173,7 +175,7 @@ class TestDetectorHistory(BaseTest):
 
     def test_a_first_row_alert_is_not_served_from_the_cache(self) -> None:
         warehouse = _Warehouse(self._dense(10))
-        first_row = HogQLAlertConfig.model_validate({**self.alert.config, "evaluation": "first_row"})
+        first_row = HogQLAlertConfig.model_validate({**(self.alert.config or {}), "evaluation": "first_row"})
         with time_machine.travel(NOW, tick=False), patch(FLAG_PATH, return_value=True):
             rows = detector_rows_from_history(
                 alert=self.alert,
