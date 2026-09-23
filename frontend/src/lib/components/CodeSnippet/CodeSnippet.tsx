@@ -2,19 +2,29 @@ import './CodeSnippet.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React, { Suspense, useState } from 'react'
+import React, { Suspense, lazy, useState } from 'react'
 
 import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { lazyWithRetry } from 'lib/utils/retryImport'
+import { retryImport } from 'lib/utils/retryImport'
+
+function PlainCodeLine({ text, className }: { text: string; className?: string }): JSX.Element {
+    const { isDarkModeOn } = useValues(themeLogic)
+
+    return <code className={clsx('hljs', isDarkModeOn && 'hljs-dark', className)}>{text}</code>
+}
 
 // highlight.js grammars are large, and markdown renders code snippets on pages that every
 // logged-in user loads. Show the plain text first and add the highlighting when it arrives.
-const HighlightedCodeLine = lazyWithRetry(() =>
-    import('./HighlightedCodeLine').then((m) => ({ default: m.HighlightedCodeLine }))
+// Highlighting is cosmetic, so when the chunk cannot load (for example, a stale chunk after a
+// deploy) the plain text stays, and no error boundary or page reload runs.
+const HighlightedCodeLine = lazy(() =>
+    retryImport(() => import('./HighlightedCodeLine'))
+        .then((m) => ({ default: m.HighlightedCodeLine }))
+        .catch(() => ({ default: PlainCodeLine }))
 )
 
 export enum Language {
@@ -215,14 +225,11 @@ export function CodeLine({
     wrapLines: boolean
     language: Language
 }): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
     const wrapClassName = wrapLines ? 'whitespace-pre-wrap wrap-anywhere' : undefined
 
     return (
         <pre className="m-0">
-            <Suspense
-                fallback={<code className={clsx('hljs', isDarkModeOn && 'hljs-dark', wrapClassName)}>{text}</code>}
-            >
+            <Suspense fallback={<PlainCodeLine text={text} className={wrapClassName} />}>
                 <HighlightedCodeLine text={text} language={language} className={wrapClassName} />
             </Suspense>
         </pre>
