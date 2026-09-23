@@ -343,15 +343,18 @@ export const QueryDatabase = ({
             description: 'The editor holds changes you have not saved. Replacing the query discards them.',
             primaryButton: {
                 children: 'Open in a new tab',
+                'data-attr': 'sql-editor-replace-query-new-tab',
                 onClick: () => newInternalTab(url),
             },
             secondaryButton: {
                 children: 'Replace query',
                 status: 'danger',
+                'data-attr': 'sql-editor-replace-query-confirm',
                 onClick: replaceHere,
             },
             tertiaryButton: {
                 children: 'Cancel',
+                'data-attr': 'sql-editor-replace-query-cancel',
             },
         })
     }
