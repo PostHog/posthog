@@ -65,7 +65,13 @@ If a read returns a secret, change the response to a count or a masked value. Do
 So a feature does not need its own handling. Do not catch `sensitive_action_required_reauth` in a logic, and do not call `checkReauthentication()` before a write that `handleFetch` can retry.
 A pre-emptive `checkReauthentication()` is correct only when the flow cannot be retried from the start, for example when it redirects the page before a write can fail.
 
-Limitation: SSO and social login re-auth redirect the whole page, so the pending request is lost. The user repeats the action after they come back. Password and passkey re-auth happen in the page, so the retry works.
+SSO and social login re-auth run in a popup, so the page and its pending request stay alive.
+The popup returns to `/reauth/complete` (`sso_reauth_complete` in `posthog/api/authentication.py`), which reports the outcome on the `posthog-sso-reauth` `BroadcastChannel` and closes.
+The channel is used instead of `window.opener`, because our `Cross-Origin-Opener-Policy` cuts the opener link once the popup visits the identity provider.
+Each popup carries a random `attempt` ID in `next`, and the page echoes it back. The listener ignores any message that does not match the attempt it started, because anyone can open the completion page.
+The popup waits for the opener to acknowledge the message before it closes, with a 2-second fallback, because closing right after posting can drop the message.
+SAML stays on the full-page redirect. Its identity provider posts back cross-site without the session cookie, so the backend runs a fresh login that can switch accounts, and a popup would hide that switch and retry the write as the other account.
+When the browser blocks the popup, the modal also falls back to the full-page redirect. Both paths still lose the pending request.
 
 ## Testing a new gate
 
