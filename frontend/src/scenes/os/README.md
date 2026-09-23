@@ -25,10 +25,55 @@ There is no shared `osLogic`: each folder owns its own logic, and `shell/OsShell
 
 | Folder     | Owns                                                                        | Notes                                                               |
 | ---------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `shell/`   | Desktop, menu bar, desktop icons, wallpapers, theme, and `OsShell` itself   | `OsShell` is a placeholder that opens the current URL in a window.  |
-| `windows/` | Window manager: open, focus, z-order, drag, resize, snap, minimize, tidy up | `OsWindow` is a placeholder frame with a title bar.                 |
+| `shell/`   | Desktop, menu bar, desktop icons, wallpapers, theme, and `OsShell` itself   | `OsShell` renders `windows/OsWindowLayer`.                          |
+| `windows/` | Window manager: open, focus, z-order, drag, resize, snap, minimize, tidy up | See "Windows" below.                                                |
 | `dock/`    | The dock                                                                    |                                                                     |
 | `store/`   | App Store and the installed-apps list                                       |                                                                     |
 | `bridge/`  | Messages between a framed app and the OS, and framed-mode detection         | Always build a frame `src` with `osFrameSrc`, never from raw input. |
 
 The root files (`OsScene.tsx`, `osShellMode.ts`, this README) belong to the foundation and change only when the switch itself changes.
+
+## Windows
+
+`windows/osWindowsLogic` owns every open window, and `windows/OsWindowLayer` renders them in the space its parent gives it.
+Other folders open and arrange windows through the logic's actions, never through the DOM:
+
+| Action                                           | Effect                                                                                                                     |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `openWindow(path, { newWindow, title, origin })` | Focuses the window that shows `path`, or opens one. `newWindow` always opens another. `origin` is the point it zooms from. |
+| `focusWindow(id)`, `restoreWindow(id)`           | Brings a window to the front. Both also un-minimize it.                                                                    |
+| `minimizeWindow(id)`, `closeWindow(id)`          | Hides or closes a window. Focus goes to the next window in the stack.                                                      |
+| `maximizeWindow(id)`, `unmaximizeWindow(id)`     | Fills the desktop, or goes back to the size before the last maximize or snap.                                              |
+| `snapWindow(id, 'left' \| 'right')`              | Fills one half of the desktop.                                                                                             |
+| `tidyUpWindows()`                                | Arranges the visible windows in a grid, in their left-to-right order.                                                      |
+| `runWindowCommand(command)`                      | Runs a keyboard command (`osWindowShortcuts.ts`) on the focused window.                                                    |
+
+`windows` lists every window with its `minimized` state, and `focusedWindow` is the top window that is not minimized.
+
+**The URL follows focus.**
+When the focused window changes, or the focused window navigates, the page URL is replaced with that window's path, and the tab title follows the window.
+The OS never pushes a history entry.
+It moves the address bar without a kea-router location change, so this page never loads the window's scene: no second pageview, and a scene with its own page layout (onboarding, login) cannot replace the OS shell.
+Reloading on such a URL shows that page without the OS, and the OS comes back on the next regular page.
+A push or a back/forward to another path on this page (for example from the command palette) opens that path as a window, or focuses the window that shows it.
+Redirects on this page (replaces) are ignored, because the window runs the same redirect.
+Navigation inside a window adds entries to the browser's history, so back and forward step through the pages the windows visited, in the order they visited them.
+The window that back or forward moves comes to the front, and the URL follows it.
+When the last visible window closes or minimizes, the URL stays on its path.
+
+**The layout persists per project** in `localStorage` under `posthog-os-windows:<project id>`: paths, bounds, stacking order, minimized and maximized state.
+Tabs of one project share it, and the last save wins.
+Loading a URL opens it as the focused window on top of the saved layout.
+Each tab keeps the URL it showed last in `sessionStorage` (`posthog-os-windows-url:<project id>`).
+Reloading on that URL only restores the layout, so a window closed on that URL stays closed after a reload.
+A window keeps the bounds it asked for, and the desktop clamps them only for display, so a browser window that shrinks and grows back gets its layout back.
+When a window navigates to another project and a reload follows, the page opens that project's desktop.
+Saved paths go through `osFrameSrc` again when they load, and entries that do not parse are dropped.
+
+**Keyboard shortcuts** use Option+Shift (Alt+Shift) and a key: arrows snap, maximize and minimize, W closes, G tidies up.
+They only work while the desktop has focus, because key presses inside a window stay in its frame.
+
+`watchOsWindowFrame` reads the path and title of a window frame on load, on in-app navigation (the Navigation API) and on title changes.
+It only reports app pages, never a server page such as `/admin/` or an API response.
+It is a stopgap until the bridge reports them with messages.
+A frame on another origin (an OAuth provider, billing) cannot be read, so clicking inside it does not bring its window to the front.
