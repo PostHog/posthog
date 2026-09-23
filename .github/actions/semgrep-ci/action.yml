@@ -39,9 +39,11 @@ runs:
           run: |
               # Split `args` HERE and pass the words as positional parameters.
               # Never splice the string into the command the container shell
-              # parses: that inner shell re-parses it as a SCRIPT, and every token
-              # that ends a command there -- `#`, a newline, `;`, `&`, `|` --
-              # truncates the flag list while the job still exits 0. A caller
+              # parses: that inner shell re-parses it as a SCRIPT, and a token
+              # that ends a command there truncates every flag after it. With
+              # `#`, a newline or `;` the truncation is silent, because `exec`
+              # never returns and the job exits 0; `&` and `|` leave the flag to
+              # run as a command of its own, so the step fails with 127. A caller
               # writes this value as a YAML block scalar, where `#` is data rather
               # than a comment and a more-indented line keeps its newlines, so the
               # hazard needs no unusual input.
