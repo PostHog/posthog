@@ -11,6 +11,7 @@ from posthog.models.integration import Integration
 
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import (
+    ANSWERLESS_REPLY_MESSAGE,
     UPSTREAM_PROVIDER_FAILURE_MESSAGE,
     SlackThreadContext,
     SlackThreadHandler,
@@ -438,6 +439,78 @@ class TestReplyFooterGate(SimpleTestCase):
         # The footer rides as a `blocks` chunk: a `context` block is the only muted text,
         # and Slack's streamed markdown_text has no equivalent.
         assert any(chunk.get("type") == "blocks" for chunk in chunks)
+
+
+class TestAnswerlessReply(SimpleTestCase):
+    """A turn can close with nothing to show: a tool call drains the narrative into a plan
+    step, so a turn ending on one has no final answer left to stream."""
+
+    def _handler(self) -> SlackThreadHandler:
+        context = SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+            mentioning_slack_user_id="U123",
+        )
+        return SlackThreadHandler(context, RunFooter(model="claude-opus-5", run_id="r1"))
+
+    @staticmethod
+    def _streamed(mock_client: MagicMock) -> tuple[str, list[dict]]:
+        """The prose and the blocks of every append the reply made."""
+        text, blocks = "", []
+        for call in mock_client.chat_appendStream.call_args_list:
+            for chunk in call.kwargs["chunks"]:
+                text += chunk.get("text", "")
+                blocks.extend(chunk.get("blocks", []))
+        return text, blocks
+
+    @parameterized.expand(
+        [
+            ("final_answer", "Done.", False, True),
+            # Answered by the opening chunk, so the final flush carries none of its own.
+            ("opening_chunk", None, True, True),
+            ("nothing_at_all", None, False, False),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_only_an_answered_reply_can_be_rated(
+        self,
+        _name: str,
+        final_markdown: str | None,
+        streamed_answer: bool,
+        answered: bool,
+        mock_get_client,
+        mock_get_integration,
+        _forking,
+    ) -> None:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().stop_status_stream(ts="1.0", final_markdown=final_markdown, streamed_answer=streamed_answer)
+
+        text, blocks = self._streamed(mock_client)
+        assert any(block["type"] == "context_actions" for block in blocks) is answered
+        assert (ANSWERLESS_REPLY_MESSAGE in text) is not answered
+        assert any(block["type"] == "actions" for block in blocks)
+
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=False)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_an_answer_slack_rejected_leaves_nothing_to_rate(
+        self, mock_get_client, mock_get_integration, _forking
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.chat_appendStream.side_effect = SlackApiError("invalid_blocks", {"error": "invalid_blocks"})
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().stop_status_stream(ts="1.0", final_markdown="Done.")
+
+        _, blocks = self._streamed(mock_client)
+        assert not any(block["type"] == "context_actions" for block in blocks)
 
 
 class TestFooterNeverCostsTheAnswer(SimpleTestCase):

@@ -73,6 +73,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._current_task_title: Optional[str] = None
         self._current_task_details: Optional[str] = None
         self._last_dispatched_at: float = 0.0
+        # A tool call drains the narrative into a 💭 step, so a turn ending on one has no
+        # final answer left to stream.
+        self._streamed_answer: bool = False
         # Length of a narrative held back whole (an unfinished tag); a flush waits for it to grow.
         self._held_length: int = 0
         self._turn_complete: bool = False
@@ -240,6 +243,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                             start_to_close_timeout=timedelta(seconds=10),
                             retry_policy=RetryPolicy(maximum_attempts=3),
                         )
+                    self._streamed_answer = True
                     continue
 
                 # Phase 2: flush queued steps into the plan block.
@@ -312,6 +316,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 )
                 # Already streamed as the opening chunk — don't re-emit in stop.
                 final_for_stop = None
+                self._streamed_answer = True
             if self._stream_ts is not None:
                 await workflow.execute_activity(
                     stop_slack_agent_design_stream,
@@ -324,6 +329,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                         final_markdown=final_for_stop,
                         run_id=input.run_id,
                         trace_id=self._trace_id,
+                        streamed_answer=self._streamed_answer,
                     ),
                     start_to_close_timeout=timedelta(seconds=10),
                     retry_policy=RetryPolicy(maximum_attempts=3),
