@@ -351,11 +351,13 @@ function InsightCardInternal(
     const sharedView = isSharedView()
 
     const [stuckLoading, setStuckLoading] = useState(false)
-    const [stuckRetryAttempt, setStuckRetryAttempt] = useState(0)
     const watchForStuckLoading = !hasResults && (loading || !!loadingQueued) && placement !== DashboardPlacement.Export
     useEffect(() => {
         if (!watchForStuckLoading) {
             setStuckLoading(false)
+            return
+        }
+        if (stuckLoading) {
             return
         }
         const timeout = window.setTimeout(() => {
@@ -367,11 +369,11 @@ function InsightCardInternal(
             })
         }, TILE_STUCK_LOADING_MS)
         return () => window.clearTimeout(timeout)
-    }, [watchForStuckLoading, stuckRetryAttempt, dashboardId, insight.short_id])
+    }, [watchForStuckLoading, stuckLoading, dashboardId, insight.short_id])
 
+    // Clearing the flag restarts the watchdog, so a retry that also hangs is caught again.
     const retryStuckTile = useCallback(() => {
         setStuckLoading(false)
-        setStuckRetryAttempt((attempt) => attempt + 1)
         refresh?.()
     }, [refresh])
 
