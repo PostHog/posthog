@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
 import { createFileSource, createTextSource, createUrlSource, deleteSource, listSources, refreshSource } from '../api'
@@ -174,6 +175,9 @@ export interface businessKnowledgeLogicActions {
     resetUrlSource: (values?: UrlSourceFormValues) => {
         values?: UrlSourceFormValues
     }
+    setAddedByFilter: (addedByFilter: AddedByFilter) => {
+        addedByFilter: AddedByFilter
+    }
     setCreateTab: (tab: CreateTab) => {
         tab: CreateTab
     }
@@ -189,9 +193,6 @@ export interface businessKnowledgeLogicActions {
     }
     setFileSourceValues: (values: DeepPartial<FileSourceFormValues>) => {
         values: DeepPartial<FileSourceFormValues>
-    }
-    setAddedByFilter: (addedByFilter: AddedByFilter) => {
-        addedByFilter: AddedByFilter
     }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
@@ -312,7 +313,8 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         refreshSource: (id: string) => ({ id }),
         refreshSourceDone: (id: string) => ({ id }),
     }),
-    reducers({
+    // The reducers are a function so the team id is read when the logic builds, not when this module loads.
+    reducers(() => ({
         isCreateModalOpen: [
             false,
             {
@@ -336,26 +338,26 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         ],
         searchTerm: [
             '',
-            { persist: true },
+            { persist: true, prefix: `${getCurrentTeamId()}__` },
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
         sourceTypeFilter: [
             'all' as SourceTypeFilter,
-            { persist: true },
+            { persist: true, prefix: `${getCurrentTeamId()}__` },
             {
                 setSourceTypeFilter: (_, { sourceTypeFilter }) => sourceTypeFilter,
             },
         ],
         addedByFilter: [
             'all' as AddedByFilter,
-            { persist: true },
+            { persist: true, prefix: `${getCurrentTeamId()}__` },
             {
                 setAddedByFilter: (_, { addedByFilter }) => addedByFilter,
             },
         ],
-    }),
+    })),
     loaders(({ values }) => ({
         sources: [
             [] as KnowledgeSource[],

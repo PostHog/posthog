@@ -96,7 +96,6 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         { value: 'human', label: 'Human' },
                         { value: 'learned', label: 'Learned' },
                     ]}
-                    // pinned: autocapture / Playwright key. Do not rename.
                     data-attr="business-knowledge-added-by-filter"
                 />
             </div>

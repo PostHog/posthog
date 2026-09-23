@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useActions, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
@@ -113,6 +114,35 @@ describe('BusinessKnowledgeScene', () => {
 
     afterEach(() => {
         cleanup()
+    })
+
+    it('picks the added-by filter from the dropdown', async () => {
+        const setAddedByFilter = jest.fn()
+        ;(useActions as jest.Mock).mockReturnValue({
+            openCreateModal: jest.fn(),
+            deleteSource: jest.fn(),
+            refreshSource: jest.fn(),
+            setSearchTerm: jest.fn(),
+            setSourceTypeFilter: jest.fn(),
+            setAddedByFilter,
+            push: jest.fn(),
+        })
+        ;(useValues as jest.Mock).mockReturnValue({
+            sources: [],
+            sourcesLoading: false,
+            readyCount: 0,
+            totalChunks: 0,
+            refreshingIds: [],
+            searchTerm: '',
+            sourceTypeFilter: 'all',
+            addedByFilter: 'all',
+        })
+        render(<BusinessKnowledgeScene />)
+
+        await userEvent.click(screen.getByText('All sources'))
+        await userEvent.click(screen.getByText('Learned'))
+
+        expect(setAddedByFilter).toHaveBeenCalledWith('learned')
     })
 
     it('links the source name to its detail page and keeps the learned ticket link', () => {
