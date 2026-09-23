@@ -1007,8 +1007,8 @@ jobs:
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
               with:
                   role-to-assume: ${{ vars.AWS_CLI_RELEASES_ROLE_ARN }}
-                  # The bucket lives in shared-services us-east-1, and CloudFront
-                  # only reads certificates from that region anyway.
+                  # The bucket and its distribution live in the prod-us account,
+                  # us-east-1, next to the other release mirrors there.
                   aws-region: us-east-1
                   mask-aws-account-id: true
                   unset-current-credentials: true
