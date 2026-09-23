@@ -18,6 +18,10 @@ class _ReadyTrinoConnectionTarget:
     port: int
     catalog: str
     username: str
+    # The control plane's own name for the organization in Trino. Every login it projects
+    # into the coordinator's password file is derived from it, so it is the stem a stored
+    # duckgres credential authenticates under. None when the control plane omits it.
+    principal: str | None
 
 
 def _nonempty_string(value: object) -> str | None:
@@ -67,4 +71,10 @@ def get_ready_trino_connection_target(organization_id: str) -> _ReadyTrinoConnec
     ):
         return None
 
-    return _ReadyTrinoConnectionTarget(host=host, port=port, catalog=catalog, username=username)
+    return _ReadyTrinoConnectionTarget(
+        host=host,
+        port=port,
+        catalog=catalog,
+        username=username,
+        principal=_nonempty_string(trino_status.get("principal")),
+    )

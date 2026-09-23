@@ -68,6 +68,15 @@ def record_gauge(
         metrics.gauge(name, value, unit=unit, attributes=dict(attributes))
 
 
+def record_trino_connection(status: str) -> None:
+    """Count one managed Trino session by how it ended.
+
+    The connection path had no success signal, so a run of rejected credentials could not be
+    read against the attempts that worked.
+    """
+    record_counter("warehouse.trino.connection.finished", 1, {"status": status})
+
+
 @contextmanager
 def track_duckling_backfill(*, team_id: int, dataset: str, mode: str) -> Iterator[None]:
     attributes = {"team_id": str(team_id), "dataset": dataset, "mode": mode}

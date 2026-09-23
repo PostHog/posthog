@@ -16,47 +16,56 @@ from products.managed_warehouse.backend.trino_connection import (
 )
 
 
-def _ready_response(**connection_overrides: object) -> Response:
-    return Response(
-        {
-            "enabled": True,
-            "status": {
-                "org": "org-1",
-                "state": "ready",
-                "trino_catalog_name": "org_catalog",
-                "connection": {
-                    "host": "trino.postwh.com",
-                    "port": 8443,
-                    "username": "org_database",
-                    **connection_overrides,
-                },
-            },
+def _ready_response(principal: object = "org_database", **connection_overrides: object) -> Response:
+    status_body: dict[str, object] = {
+        "org": "org-1",
+        "state": "ready",
+        "trino_catalog_name": "org_catalog",
+        "connection": {
+            "host": "trino.postwh.com",
+            "port": 8443,
+            "username": "org_database",
+            **connection_overrides,
         },
-        status=200,
-    )
+    }
+    if principal is not None:
+        status_body["principal"] = principal
+    return Response({"enabled": True, "status": status_body}, status=200)
 
 
-def _root_connection(password: str = "root-secret") -> DuckgresQueryServerConfig:
+def _root_connection(password: str = "root-secret", username: str = "root") -> DuckgresQueryServerConfig:
     return DuckgresQueryServerConfig(
         host="duckgres.postwh.com",
         port=5432,
         flight_port=8815,
         database="ducklake",
-        username="root",
+        username=username,
         password=password,
     )
 
 
 class TestResolveManagedWarehouseTrinoConnection:
-    def test_combines_the_control_plane_target_with_the_existing_root_secret(self) -> None:
+    @pytest.mark.parametrize(
+        "advertised_username,stored_username,expected_username",
+        [
+            ("org_database", "root", "org_database"),
+            # The control plane advertises the duckgres login name, not the Trino login, when
+            # the organization has a host of its own.
+            ("root", "root", "org_database"),
+            ("org_database.analyst", "analyst", "org_database.analyst"),
+        ],
+    )
+    def test_authenticates_as_the_principal_the_stored_secret_belongs_to(
+        self, advertised_username: str, stored_username: str, expected_username: str
+    ) -> None:
         with (
             mock.patch(
                 "products.managed_warehouse.backend.presentation.views._request",
-                return_value=_ready_response(),
+                return_value=_ready_response(username=advertised_username),
             ) as request,
             mock.patch(
                 "products.managed_warehouse.backend.trino_connection.get_duckgres_query_server_config",
-                return_value=_root_connection(),
+                return_value=_root_connection(username=stored_username),
             ),
         ):
             connection = resolve_managed_warehouse_trino_connection("org-1")
@@ -64,7 +73,7 @@ class TestResolveManagedWarehouseTrinoConnection:
         assert connection.host == "trino.postwh.com"
         assert connection.port == 8443
         assert connection.catalog == "org_catalog"
-        assert connection.username == "org_database"
+        assert connection.username == expected_username
         assert connection.password == "root-secret"
         assert "root-secret" not in repr(connection)
         request.assert_called_once_with("GET", "org-1", "/trino", require_enabled=False)
@@ -105,6 +114,49 @@ class TestResolveManagedWarehouseTrinoConnection:
     def test_rejects_an_unusable_or_cross_organization_target(self, response: Response) -> None:
         with mock.patch("products.managed_warehouse.backend.presentation.views._request", return_value=response):
             with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable, match="ready managed Trino connection"):
+                resolve_managed_warehouse_trino_connection("org-1")
+
+    @pytest.mark.parametrize(
+        "advertised_username,expected_username",
+        [("org_database", "org_database"), ("root", "org_database")],
+    )
+    def test_authenticates_as_the_principal_the_stored_root_secret_belongs_to(
+        self, advertised_username: str, expected_username: str
+    ) -> None:
+        with (
+            mock.patch(
+                "products.managed_warehouse.backend.presentation.views._request",
+                return_value=_ready_response(username=advertised_username),
+            ),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_connection.get_duckgres_query_server_config",
+                return_value=_root_connection(),
+            ),
+        ):
+            connection = resolve_managed_warehouse_trino_connection("org-1")
+
+        assert connection.username == expected_username
+        assert connection.password == "root-secret"
+
+    @pytest.mark.parametrize(
+        "response,message",
+        [
+            (_ready_response(username="org_database.analyst"), "only has a stored credential"),
+            (_ready_response(principal=None), "Trino principal"),
+        ],
+    )
+    def test_rejects_a_target_it_holds_no_credential_for(self, response: Response, message: str) -> None:
+        with (
+            mock.patch(
+                "products.managed_warehouse.backend.presentation.views._request",
+                return_value=response,
+            ),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_connection.get_duckgres_query_server_config",
+                return_value=_root_connection(),
+            ),
+        ):
+            with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable, match=message):
                 resolve_managed_warehouse_trino_connection("org-1")
 
     def test_rejects_a_missing_stored_root_secret(self) -> None:
@@ -198,3 +250,28 @@ def test_managed_trino_requests_bypass_environment_proxies_only_for_known_hosts(
         with requests.Session() as ordinary_session:
             settings = ordinary_session.merge_environment_settings("https://example.com", {}, False, True, None)
         assert settings["proxies"]["https"] == proxy_url
+
+
+def test_connect_managed_warehouse_trino_reports_a_rejected_credential() -> None:
+    from trino.exceptions import HttpError
+
+    driver_connection = mock.MagicMock()
+    with (
+        mock.patch(
+            "products.managed_warehouse.backend.trino_connection.resolve_managed_warehouse_trino_connection",
+            return_value=mock.Mock(
+                host="trino.postwh.com",
+                port=8443,
+                catalog="org_catalog",
+                username="org_database",
+                password="root-secret",
+            ),
+        ),
+        mock.patch("trino.auth.BasicAuthentication"),
+        mock.patch("trino.dbapi.connect", return_value=driver_connection),
+    ):
+        with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable, match="Trino rejected the login"):
+            with connect_managed_warehouse_trino("org-1"):
+                raise HttpError("error 401: b'Access Denied: Invalid credentials'")
+
+    driver_connection.close.assert_called_once_with()
