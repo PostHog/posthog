@@ -20,17 +20,17 @@ on a redundant method that is not in the baseline, which is the case that would
 add new debt. A shrinking baseline is the migration's progress metric.
 
 A pull request that only adds OpenAPI schema for an endpoint makes an existing,
-untouched path method redundant for the first time - the route didn't change,
-only whether a generated client now covers it. Failing that PR blames the schema
-work for debt it didn't add, and the cheapest way out is dropping the schema
-annotation, which is the opposite of what this check wants. Setting the
+untouched path method redundant for the first time. The route did not change,
+only whether a generated client now covers it. Telling that author to "use the
+generated client instead" blames the schema work for debt it did not add, and the
+cheapest way out would be dropping the schema annotation. Setting the
 ``API_RATCHET_BASE`` environment variable to a git ref (CI passes ``HEAD^1``, the
-pull request's base commit) lets the command tell the two cases apart: a
-redundant method that is not in the baseline but already built the same route on
-that ref is "exposed" rather than new debt - it doesn't fail the check or the
-semgrep drift comparison, and it joins the baseline at the next
-``--update-baseline --write-semgrep``. Unset, or when the ref can't be read
-(shallow clone, bad ref), the command behaves exactly as it always did.
+pull request's base commit) separates the two cases. A redundant method that is
+not in the baseline but already built the same route on that ref is "exposed": the
+check still fails, so the baseline and the semgrep rules stay exact, but it names
+the one command that records it (``--update-baseline --write-semgrep``) and tells
+the author to keep the schema change. Unset, or when the ref cannot be read
+(shallow clone, bad ref), every new entry gets the ordinary message.
 
     hogli lint:api-ratchet                    # check against the baseline
     hogli lint:api-ratchet --prune-baseline   # drop stale entries, never add one
@@ -842,42 +842,17 @@ def _method_route_entries(source: str) -> frozenset[str]:
     return frozenset(entries)
 
 
-def read_baseline(repo_root: Path) -> set[str]:
-    path = repo_root / BASELINE
-    if not path.exists():
-        return set()
-    return {
-        stripped
-        for line in path.read_text().splitlines()
-        if (stripped := line.strip()) and not stripped.startswith("#")
-    }
-
-
-def write_baseline(repo_root: Path, methods: set[str]) -> None:
-    body = "".join(f"{name}\n" for name in sorted(methods))
-    (repo_root / BASELINE).write_text(f"{BASELINE_HEADER}\n{body}")
-
-
 class Ratchet:
-    """The report: which path methods are redundant, and which namespaces use them.
+    """The report: which path methods are redundant, and which namespaces use them."""
 
-    ``base_source`` is the base ref's api.ts contents (see ``API_RATCHET_BASE_ENV``),
-    when the caller wants "exposed" builders - ones a generated client only newly
-    covers, but that already built the same route before this change - filtered out
-    of ``redundant`` before anything downstream (the new-debt check, the semgrep
-    rules) sees them. Leave it ``None`` for the full, unfiltered truth: what the
-    write commands (``--update-baseline``, ``--prune-baseline``, ``--write-semgrep``)
-    always want, since a later refresh is what actually adopts an exposed builder.
-    """
-
-    def __init__(self, repo_root: Path, base_source: str | None = None) -> None:
+    def __init__(self, repo_root: Path) -> None:
         self._source = (repo_root / API_TS).read_text()
         self._resolver = ApiRequestResolver(self._source)
         self._generated = GeneratedTemplates(repo_root)
         # Every branch of a method that matches, not only the first: a method that
         # builds both a collection and a detail route duplicates two generated routes,
         # and grandfathering one of them would leave the other unguarded.
-        redundant: list[RedundantMethod] = []
+        self.redundant: list[RedundantMethod] = []
         for name in sorted(self._resolver.method_names()):
             for template in self._resolver.templates(name):
                 normalized = normalize_template(template)
@@ -885,15 +860,7 @@ class Ratchet:
                     continue
                 products = self._generated.products_covering(normalized)
                 if products:
-                    redundant.append(RedundantMethod(name=name, template=normalized, products=products))
-
-        self.exposed: list[RedundantMethod] = []
-        if base_source is not None:
-            baseline = read_baseline(repo_root)
-            base_entries = _method_route_entries(base_source)
-            self.exposed = [entry for entry in redundant if entry.entry not in baseline and entry.entry in base_entries]
-        exposed_entries = {entry.entry for entry in self.exposed}
-        self.redundant = [entry for entry in redundant if entry.entry not in exposed_entries]
+                    self.redundant.append(RedundantMethod(name=name, template=normalized, products=products))
 
     def products_by_method(self) -> dict[str, frozenset[str]]:
         """The products covering each redundant method, across all of its routes."""
@@ -985,6 +952,22 @@ class Ratchet:
                     break
             blocks[match.group(1)] = "\n".join(body)
         return blocks
+
+
+def read_baseline(repo_root: Path) -> set[str]:
+    path = repo_root / BASELINE
+    if not path.exists():
+        return set()
+    return {
+        stripped
+        for line in path.read_text().splitlines()
+        if (stripped := line.strip()) and not stripped.startswith("#")
+    }
+
+
+def write_baseline(repo_root: Path, methods: set[str]) -> None:
+    body = "".join(f"{name}\n" for name in sorted(methods))
+    (repo_root / BASELINE).write_text(f"{BASELINE_HEADER}\n{body}")
 
 
 # Each build reads api.ts and every generated client, and `product:maturity --all`
@@ -1127,7 +1110,7 @@ def semgrep_drift(repo_root: Path, ratchet: Ratchet) -> str | None:
     return None if committed == render_semgrep_rules(ratchet) else "the committed rules are out of date"
 
 
-def _report_json(ratchet: Ratchet, new: set[str], stale: set[str]) -> str:
+def _report_json(ratchet: Ratchet, new: set[str], stale: set[str], exposed: set[str]) -> str:
     return json.dumps(
         {
             "redundant": [
@@ -1137,21 +1120,20 @@ def _report_json(ratchet: Ratchet, new: set[str], stale: set[str]) -> str:
             "namespaces": {ns: sorted(products) for ns, products in sorted(ratchet.namespaces().items())},
             "new": sorted(new),
             "stale": sorted(stale),
-            "exposed": sorted(entry.entry for entry in ratchet.exposed),
+            "exposed": sorted(exposed),
         },
         indent=2,
     )
 
 
-def _exposed_note(exposed: list[RedundantMethod]) -> str:
-    """The note printed when a schema change exposed pre-existing builders as redundant."""
-    lines = [f"\nℹ️  {len(exposed)} builder(s) already existed and only gained a generated twin in this change:"]
-    for entry in sorted(exposed, key=lambda item: item.entry):
-        lines.append(f"    {entry.name}  ->  /api/{'/'.join(entry.template)}")
-    lines.append(
-        "    Not new debt — these join the baseline at the next "
-        "`hogli lint:api-ratchet --update-baseline --write-semgrep`."
-    )
+def _exposed_message(ratchet: Ratchet, exposed: set[str]) -> str:
+    """The failure for builders a schema change exposed, with the one command that records them."""
+    lines = [f"\n❌ {len(exposed)} builder(s) already existed and only gained a generated twin in this change."]
+    lines.append("   Not your debt, so keep the schema change:")
+    for entry in sorted(ratchet.redundant, key=lambda item: item.entry):
+        if entry.entry in exposed:
+            lines.append(f"    {entry.name}  ->  /api/{'/'.join(entry.template)}")
+    lines.append("   Run: hogli lint:api-ratchet --update-baseline --write-semgrep, then commit the result.")
     return "\n".join(lines)
 
 
@@ -1168,26 +1150,20 @@ def _read_base_api_ts(repo_root: Path, ref: str) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def _check_ratchet(repo_root: Path, ratchet: Ratchet) -> Ratchet:
-    """The ratchet the check and ``--json`` act on.
+def _base_entries(repo_root: Path) -> frozenset[str] | None:
+    """The method and route entries the ``API_RATCHET_BASE_ENV`` ref builds, or ``None``.
 
-    ``ratchet`` itself (unfiltered) unless ``API_RATCHET_BASE_ENV`` names a ref git
-    can read, in which case a fresh ``Ratchet`` with that ref's builders filtered out
-    of ``redundant``. Falls back to ``ratchet`` with a warning when the ref can't be
-    read, same as when the variable is unset — the write commands never call this,
-    so they always see the unfiltered ``ratchet`` passed in.
+    ``None`` when the variable is unset, or with a warning when git cannot read the ref;
+    either way every new entry then gets the ordinary message.
     """
     ref = os.environ.get(API_RATCHET_BASE_ENV)
     if not ref:
-        return ratchet
+        return None
     base_source = _read_base_api_ts(repo_root, ref)
     if base_source is None:
-        click.echo(
-            f"⚠️  {API_RATCHET_BASE_ENV}={ref} could not be read (shallow clone or unknown ref) "
-            "— checking against the baseline only."
-        )
-        return ratchet
-    return Ratchet(repo_root, base_source=base_source)
+        click.echo(f"⚠️  {API_RATCHET_BASE_ENV}={ref} could not be read (shallow clone or unknown ref).")
+        return None
+    return _method_route_entries(base_source)
 
 
 @click.command(
@@ -1239,26 +1215,21 @@ def cmd_lint_api_ratchet(
         click.echo(f"Baseline rewritten: {len(redundant)} redundant path method(s).")
         if new:
             click.echo(
-                f"⚠️  This grew the baseline by {len(new)} entry/entries, which grandfathers new debt.\n"
-                "    Migrate the call sites instead, or say in the pull request why the entry has to stay."
+                f"⚠️  This grew the baseline by {len(new)} entry/entries.\n"
+                "    If this change added them, migrate the call sites instead, or say in the pull request why\n"
+                "    they have to stay. If they existed before and a schema change only exposed them, that is expected."
             )
         return
 
-    # The actual gate, from here on: apply the exposed-builder filter. The write
-    # commands above deliberately skip this, so a refresh always sees the full truth.
-    check_ratchet = _check_ratchet(repo_root, ratchet)
-    redundant = {entry.entry for entry in check_ratchet.redundant}
-    new = redundant - baseline
-    stale = baseline - redundant
+    base_entries = _base_entries(repo_root)
+    exposed = {entry for entry in new if base_entries is not None and entry in base_entries}
+    added = new - exposed
 
     if as_json:
-        click.echo(_report_json(check_ratchet, new, stale))
+        click.echo(_report_json(ratchet, new, stale, exposed))
         raise SystemExit(1 if new else 0)
 
-    if check_ratchet.exposed:
-        click.echo(_exposed_note(check_ratchet.exposed))
-
-    drift = semgrep_drift(repo_root, check_ratchet)
+    drift = semgrep_drift(repo_root, ratchet)
 
     click.echo(f"ApiRequest path methods with a generated twin: {len(redundant)} ({len(baseline)} in the baseline)")
     if stale:
@@ -1266,10 +1237,12 @@ def cmd_lint_api_ratchet(
         for stale_entry in sorted(stale):
             click.echo(f"    {stale_entry}")
         click.echo("    Run: hogli lint:api-ratchet --prune-baseline")
-    if new:
-        click.echo(f"\n❌ {len(new)} path method(s) duplicate a generated client:")
-        for redundant_method in sorted(check_ratchet.redundant, key=lambda item: item.entry):
-            if redundant_method.entry not in new:
+    if exposed:
+        click.echo(_exposed_message(ratchet, exposed))
+    if added:
+        click.echo(f"\n❌ {len(added)} path method(s) duplicate a generated client:")
+        for redundant_method in sorted(ratchet.redundant, key=lambda item: item.entry):
+            if redundant_method.entry not in added:
                 continue
             click.echo(
                 f"    {redundant_method.name}  ->  /api/{'/'.join(redundant_method.template)}"
@@ -1281,6 +1254,7 @@ def cmd_lint_api_ratchet(
             "if it is not, annotate the viewset and run `hogli build:openapi` before migrating.\n"
             "Agents: invoke the `adopting-generated-api-types` skill."
         )
+    if new:
         raise SystemExit(1)
     if drift is not None:
         click.echo(f"\n❌ {SEMGREP_RULE} is stale: {drift}.\n    Run: hogli lint:api-ratchet --write-semgrep")

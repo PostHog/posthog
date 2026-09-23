@@ -413,12 +413,12 @@ class TestBaselineFixModes:
         assert read_baseline(tmp_path) == {"hogFlows projects/{}/hog_flows"}
         assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 1
 
-    def test_update_warns_that_it_grandfathers_new_debt(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_update_warns_when_it_grows_the_baseline(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _write_repo(tmp_path, baseline=_baseline_lines("hogFlows"))
         monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
         result = runner.invoke(cmd_lint_api_ratchet, ["--update-baseline"])
         assert result.exit_code == 0
-        assert "grandfathers new debt" in result.output
+        assert "grew the baseline" in result.output
         assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 0
 
 
@@ -631,24 +631,24 @@ class TestExposedBuilders:
             monkeypatch.setattr(api_ratchet, "_read_base_api_ts", lambda repo_root, ref: base_source)
         return runner.invoke(cmd_lint_api_ratchet, [])
 
-    def test_a_builder_the_base_already_had_is_exposed_not_new_debt(
+    def test_a_builder_the_base_already_had_fails_with_the_command_that_records_it(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _write_repo(
             tmp_path,
             baseline=_baseline_lines("signalReport", "signalReports", "propertyDefinitions", "organizationMembers"),
         )
-        # Pre-change committed rule: hogFlows had no twin yet, so no rule of its own.
-        pre_change = tmp_path / "_pre_change"
-        _write_repo(pre_change, generated_workflows="")
-        api_ratchet.write_semgrep_rules(tmp_path, Ratchet(pre_change))
 
         result = self._run(monkeypatch, tmp_path, API_TS_FIXTURE)
 
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "hogFlows" in result.output
         assert "already existed" in result.output
-        assert "✅ No new path methods duplicating a generated client, and the semgrep rules match." in result.output
+        assert "--update-baseline --write-semgrep" in result.output
+        assert "duplicate a generated client" not in result.output
+        # The named command is the whole fix.
+        assert runner.invoke(cmd_lint_api_ratchet, ["--update-baseline", "--write-semgrep"]).exit_code == 0
+        assert self._run(monkeypatch, tmp_path, API_TS_FIXTURE).exit_code == 0
 
     def test_a_builder_missing_from_the_base_is_still_new_debt(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -659,7 +659,7 @@ class TestExposedBuilders:
         )
         result = self._run(monkeypatch, tmp_path, API_TS_FIXTURE_WITHOUT_HOGFLOWS)
         assert result.exit_code == 1
-        assert "hogFlows" in result.output
+        assert "duplicate a generated client" in result.output
         assert "already existed" not in result.output
 
     def test_without_the_env_var_the_check_stays_strict(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -669,7 +669,8 @@ class TestExposedBuilders:
         )
         result = self._run(monkeypatch, tmp_path, None)
         assert result.exit_code == 1
-        assert "hogFlows" in result.output
+        assert "duplicate a generated client" in result.output
+        assert "already existed" not in result.output
 
     def test_an_unreadable_base_ref_falls_back_to_strict_with_a_warning(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
