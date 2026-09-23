@@ -221,8 +221,11 @@ def _slim_review_runs(qs: _RunQS, output_keys: tuple[str, ...]) -> _RunQS:
 
 def _slim_review_run_to_dto(obj: ReviewRun, output_keys: tuple[str, ...]) -> contracts.ReviewRunDTO:
     output = {key: value for key in output_keys if (value := getattr(obj, f"slim_output_{key}")) is not None}
+    # _slim_review_runs annotates these, so the model type does not declare them.
     trigger = _derive_trigger(
-        obj, has_inbox_review=obj.slim_has_inbox_review, has_manual_review=obj.slim_has_manual_review
+        obj,
+        has_inbox_review=obj.slim_has_inbox_review,  # type: ignore[attr-defined]
+        has_manual_review=obj.slim_has_manual_review,  # type: ignore[attr-defined]
     )
     return _build_review_run_dto(obj, output=output, trigger=trigger)
 
