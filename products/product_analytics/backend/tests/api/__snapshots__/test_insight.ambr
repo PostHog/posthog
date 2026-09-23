@@ -1217,7 +1217,8 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboarditem"."deleted"))
-  ORDER BY "posthog_dashboarditem"."order" ASC
+  ORDER BY "posthog_dashboarditem"."order" ASC,
+           "posthog_dashboarditem"."id" ASC
   LIMIT 100
   '''
 # ---
